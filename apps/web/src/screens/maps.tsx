@@ -22,6 +22,7 @@ import { TrashLink, trashFail, type TrashKind } from './trash';
 import { TerrainLink, VoxelUpload, VoxelView, voxelOf } from './voxelmap';
 import { makers } from './mapmake';
 import { ScanScreen } from './u7/scan';
+import { UploadScreen } from './u7/upload';
 import { SlamSavedView } from './slammap';
 
 export type Place = { site: MapSite; building: MapBuilding; floor: MapFloor };
@@ -354,6 +355,11 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
     {pop}</>;
   const mk = (k: Make) => { setForm(null); setAsk(null); setMsg(null); setMake(k); };
   // u7_1 「+ 지도 만들기」 = 바로 시안 u7_6 (옛 «어느 층에?» 창 없음) · 층은 u7_6 머리줄 칩에서 고르면 그 층 화면의 u7_6 으로 이어진다
+  // u7_1 「+ 파일 올리기」 = 시안 u7 틀 화면(옛 «어느 층에?» 창 없음) · 머리줄 층 칩이나 칸 안 목록으로 고르면 그 층의 올리기 화면 · 층이 없으면 칸 안에서 만든다
+  if (!sim && make === 'file') return <UploadScreen label={title} place={null} back={shut0} pick={(id) => choose(id, 'file')}
+    floors={places.filter((x) => purposeOf(x.site) === 'REAL' && x.floor.provenance !== 'SIMULATION')}>
+    <p className="lv-note mx-lead">지도 파일을 올릴 층을 고르세요. 없으면 «+ 장소»·«+ 건물»·«+ 층»으로 만듭니다.</p>{placeBody}
+  </UploadScreen>;
   if (!sim && make === 'robot') return <ScanScreen place={null} back={shut0} toList={shut0} pick={(id) => choose(id, 'robot')}
     floors={places.filter((x) => purposeOf(x.site) === 'REAL' && x.floor.provenance !== 'SIMULATION')}
     a={{ floor: '', approved: null, list: null, user: c.user, robots, places, cancel: c.cancel, made: () => {} }} />;
@@ -607,7 +613,11 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, toPick, sid
     return () => { live = false; };
   }, [key]);
   const list = got?.key === key ? got.list : null;
+  const lastList = useRef<MapVersion[] | null>(null); if (list) lastList.current = list;   // u7_9 는 목록을 다시 받는 동안에도 그대로(되돌리기 칸 · 안내가 사라지지 않게)
+  const hlist = list ?? lastList.current;
   const now = list?.find((v) => v.id === approved) ?? null, v = list?.find((x) => x.id === sel) ?? now;
+  const lastNow = useRef<MapVersion | null>(null); if (now) lastNow.current = now;
+  const hnow = now ?? lastNow.current;   // 다시 받는 동안(또는 승인 판이 아직 목록에 없을 때) u7_9 의 지금 판은 받은 마지막 값
   const title = `${p.site.name} ${p.building.name} ${p.floor.name}`;
   const reload = () => { setN(n + 1); again(); };
   /** 판 번호 대신 부르는 이름: 저장 시각 · 만든 사람(모르면 시각만, U9) */
@@ -654,7 +664,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, toPick, sid
       <span className="fh-grow" />
       {left && toScen && !inApp() && <button type="button" className="btn pri" data-to-sim onClick={() => toScen('')}>이 지도로 모의 실행</button>}
       {!editing && <Menu label={<span aria-hidden="true">···</span>} title="더 보기" end className="more">
-        {!sim && real && <button type="button" className="btn" disabled={!canUp} onClick={upBtn}>새 지도 올리기…</button>}
+        {!sim && real && <button type="button" className="btn" onClick={upBtn}>새 지도 올리기…</button>}
         {canMake && <button type="button" className="btn" data-make-open onClick={mkBtn}>지도 만들기</button>}
         {fix && (sim || real) && <button type="button" className="btn" data-fix-open onClick={(e) => { shut(e); fix(); }}>이름 바꾸기·삭제…</button>}
         <TrashLink />
@@ -701,13 +711,27 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, toPick, sid
       </Pane>}
     </div>;
   // 저장 기록(11-04, 기본 닫힘 · 고르기 화면 «버전 기록»으로 열면 펼침): 줄을 누르면 그 기록을 지도에 — 판 번호 대신 저장 시각·만든 사람
+  // 되돌리기 확인 = 시안 u7_9 안 칸(옛 «이 기록으로 되돌리기» 창 없음)
+  const rollForm = undo && <Rollback key={undo.v.id} v={undo.v} name={savedAs(undo.v)} cancel={cancel} now={undo.now} close={() => setUndo(null)} reload={reload}
+        done={(x) => { setUndo(null); setCmp(false); setH9(false); if (x.status === 'PENDING') { setSel(''); setDone(asked); told(); }
+          else { setSel(x.id); setDone({ text: `${savedAs(undo.v)} 기록으로 되돌렸습니다. 다음 실행부터 이 지도를 씁니다.`, ok: true }); } reload(); }} />;
+  // 새 지도 올리기 = 시안 u7 틀 안 칸(옛 «새 지도 올리기» 창 없음)
+  const upScreen = <UploadScreen label="새 지도 올리기" place={p} back={() => setUp(false)} lock={vbusy}>
+      {admin && <span className="mx-seg" role="group" aria-label="올릴 파일" data-up-kind><button type="button" className="btn" aria-pressed={!vu} disabled={vbusy} onClick={() => setVu(false)}>그림·yaml</button>
+        <button type="button" className="btn" aria-pressed={vu} disabled={vbusy} onClick={() => setVu(true)}>3D 지도 파일(.pcd·.ply)</button></span>}
+      {admin && vu ? up && <VoxelUpload floor={p.floor.id} base={approved} had={!!approved} title={`${p.building.name} ${p.floor.name}`} ready={canUp} cancel={cancel}
+          made={() => { setSel(''); setDone({ text: '3D 지도로 지도와 시뮬 지형을 만들었습니다.', ok: true }); setN(n + 1); again(); }}
+          go={(how) => { setUp(false); setD3(how === '3d'); }} again={() => { setN(n + 1); again(); }} onBusy={setVbusy} />
+      : <Upload floor={p.floor.id} base={approved} keep={now?.features ?? null} ready={canUp} cancel={cancel}
+        saved={(x) => { setUp(false); if (x.status === 'PENDING') { setDone(asked); told(); } else { setSel(x.id); setDone(SAVED); } setN(n + 1); again(); }} again={() => { setN(n + 1); again(); }} />}
+  </UploadScreen>;
   const hist = !editing && !!list?.length && <details className="fh-fold mx-hist" data-history open={open0 === 'history' || undefined}><summary>저장 기록 {list.length}</summary>
       <ul className="mx-list" aria-label="저장 기록 목록">{list.map((x) => <li key={x.id} className="mx-row" data-save={x.id}>
         <button type="button" className="mx-name" aria-pressed={x.id === v?.id} onClick={() => { setSel(x.id); setUndo(null); }}><b>{savedAs(x)}</b><small>{x.reason}</small>{voxelOf(x) && <span className="lv-chip">3D</span>}{x.source === 'SLAM' && <span className="lv-chip" data-slam-chip>로봇으로 만든 지도</span>}<Chip {...stateOf(x, approved)} /></button></li>)}</ul>
       {v && <div className="fh-row" role="group" aria-label="저장 기록 관리">
         <button type="button" className="btn" aria-pressed={cmp} onClick={() => setCmp(!cmp)}>비교</button>
         {/* 한때 승인된 판(SUPERSEDED)만. 저장하지 않은 편집이 남아 있으면 그 확인부터 */}
-        {now && !sim && real && v.status === 'SUPERSEDED' && <button type="button" className="btn" aria-pressed={!!undo} onClick={() => { const go = () => { setUndo({ v, now }); setDone(null); }; if (leaving.ask) leaving.ask(go); else go(); }}>이 기록으로 되돌리기</button>}
+        {now && !sim && real && v.status === 'SUPERSEDED' && <button type="button" className="btn" aria-pressed={!!undo} onClick={() => { const go = () => { setUndo({ v, now }); setDone(null); setCmp(false); setH9(true); }; if (leaving.ask) leaving.ask(go); else go(); }}>이 기록으로 되돌리기</button>}
       </div>}
     </details>;
   const LAY: [keyof Layers, string, string][] = [['zones', '구역 (접근 금지 · 감속)', 'var(--bad)'], ['waypoints', '지점', 'var(--accent)'], ['connectors', '연결점 (계단 · 엘리베이터)', 'var(--warn)'], ['edits', '벽 · 지운 선', 'var(--muted)']];
@@ -731,25 +755,13 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, toPick, sid
   return <section className="mx" aria-label="지도 보기">
     <h2 className="mx-sr">{title}{editing ? ' · 편집 중' : ''}</h2>
     {/* 지도 만들기 = 시안 u7_6 · u7_7 · u7_8 (옛 창 없음) */}
-    {left && canMake && mk ? <ScanScreen place={p} back={() => setMk(false)} toList={() => { setMk(false); toPick?.(); }}
+    {left && up && real ? upScreen
+      : left && canMake && mk ? <ScanScreen place={p} back={() => setMk(false)} toList={() => { setMk(false); toPick?.(); }}
       a={{ floor: p.floor.id, approved, list, user, robots, places, cancel, made: (id, text) => { setMk(false); setSel(id); setCmp(false); setD3(false); setDone({ text, ok: true }); setN(n + 1); again(); } }} />
-      : left && h9 && list && now ? <History p={p} list={list} now={now} names={names} real={real} cancel={cancel} back={() => setH9(false)} gone={reload}
-        restore={(x) => { const go = () => { setUndo({ v: x, now }); setDone(null); }; if (leaving.ask) leaving.ask(go); else go(); }} />
+      : left && h9 && hlist && hnow ? <History p={p} list={hlist} now={hnow} names={names} real={real} cancel={cancel} back={() => { setH9(false); setUndo(null); }} gone={reload} form={rollForm}
+        restore={(x) => { const go = () => { setUndo({ v: x, now: hnow! }); setDone(null); setH9(true); }; if (leaving.ask) leaving.ask(go); else go(); }} />
+      : editing ? main   /* 편집 = 시안 u7_5 화면(머리줄 · 저장은 Editor 안) */
       : left ? <div className="mp-fl">{panel}<div className="mp-fr">{bar}{main}</div></div> : <>{bar}{main}{hist}</>}
-    {!editing && <Pop open={up} close={() => { if (!vbusy) setUp(false); }} label="새 지도 올리기">{/* 3D 파일 올리는 중엔 닫기·형식 바꾸기 막음(요청은 이어지는데 진행·결과만 사라지지 않게) */}
-      {admin && <span className="mx-seg" role="group" aria-label="올릴 파일" data-up-kind><button type="button" className="btn" aria-pressed={!vu} disabled={vbusy} onClick={() => setVu(false)}>그림·yaml</button>
-        <button type="button" className="btn" aria-pressed={vu} disabled={vbusy} onClick={() => setVu(true)}>3D 지도 파일(.pcd·.ply)</button></span>}
-      {admin && vu ? up && <VoxelUpload floor={p.floor.id} base={approved} had={!!approved} title={`${p.building.name} ${p.floor.name}`} ready={canUp} cancel={cancel}
-          made={() => { setSel(''); setDone({ text: '3D 지도로 지도와 시뮬 지형을 만들었습니다.', ok: true }); setN(n + 1); again(); }}
-          go={(how) => { setUp(false); setD3(how === '3d'); }} again={() => { setN(n + 1); again(); }} onBusy={setVbusy} />
-      : <Upload floor={p.floor.id} base={approved} keep={now?.features ?? null} ready={canUp} cancel={cancel}
-        saved={(x) => { setUp(false); if (x.status === 'PENDING') { setDone(asked); told(); } else { setSel(x.id); setDone(SAVED); } setN(n + 1); again(); }} again={() => { setN(n + 1); again(); }} />}
-    </Pop>}
-    {!editing && <Pop open={!!undo} close={() => setUndo(null)} label="이 기록으로 되돌리기">
-      {undo && <Rollback key={undo.v.id} v={undo.v} name={savedAs(undo.v)} cancel={cancel} now={undo.now} close={() => setUndo(null)} reload={reload}
-        done={(x) => { setUndo(null); setCmp(false); setH9(false); if (x.status === 'PENDING') { setSel(''); setDone(asked); told(); }
-          else { setSel(x.id); setDone({ text: `${savedAs(undo.v)} 기록으로 되돌렸습니다. 다음 실행부터 이 지도를 씁니다.`, ok: true }); } reload(); }} />}
-    </Pop>}
   </section>;
 }
 

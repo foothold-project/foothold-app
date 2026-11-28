@@ -1,6 +1,6 @@
 // 지도 탭 버전 기록 = 시안 u7_9_history. 시안 body 틀(왼쪽 버전 줄 · 머리 · 비교 그림 칸 · 아래 「바뀐 것」)을 그대로 두고 값은 서버 판 목록 · 판 비교(/map-versions/{id}/diff)만.
 // 비교 그림은 기록 비교(mapdiff DiffPic)와 같은 것: 두 판 그림을 같은 지도 좌표로 겹치고 차이를 색으로. 되돌리기는 층 화면의 「이 기록으로 되돌리기」 확인(이유 칸)으로.
-import { startTransition, useEffect, useState } from 'react';
+import { startTransition, useEffect, useState, type ReactNode } from 'react';
 import type { MapDiff, MapVersion } from '../../../../contracts/ts';
 import { api, type ApiFail } from '../../api';
 import { CH, DiffPic, diffFail, isDiff, says } from '../mapdiff';
@@ -16,9 +16,10 @@ const GONE = '이 기록을 찾을 수 없습니다. 지워졌을 수 있어 새
 const light = () => typeof document !== 'undefined' && document.documentElement.dataset.theme === 'light';
 
 /** list = 같은 층 판 목록(최신이 위), now = 지금 승인 판. restore = 그 판으로 되돌리기 확인 열기(한때 승인된 판만 · 실기 현장만). back = 층 화면(u7_3) */
-export function History({ p, list, now, names, real, cancel, back, restore, gone }: {
+/** form = 되돌리기 확인(바꾼 이유 칸 · Rollback) — 열려 있으면 「vN 로 되돌리기」 자리에 그린다(떠 있는 창 없음) */
+export function History({ p, list, now, names, real, cancel, back, restore, gone, form }: {
   p: Place; list: MapVersion[]; now: MapVersion; names: (id: string) => string | undefined; real: boolean; cancel?: AbortSignal;
-  back: () => void; restore: (v: MapVersion) => void; gone: () => void;
+  back: () => void; restore: (v: MapVersion) => void; gone: () => void; form?: ReactNode;
 }) {
   // 고른 두 판: b = 뒤(번호 큰 쪽), a = 앞(없으면 빈 지도). 처음 = 지금 판과 그 기준 판
   const [pair, setPair] = useState<[string | null, string]>(() => [now.base_version_id && list.some((x) => x.id === now.base_version_id) ? now.base_version_id : null, now.id]);
@@ -55,7 +56,8 @@ export function History({ p, list, now, names, real, cancel, back, restore, gone
           <div style={{ flex: '1', minWidth: '0' }}><b style={{ fontSize: '14.5px' }}>{x.reason}</b><div className="meta"><span>{md(x.created_at)}</span>{who && <span>{who}</span>}</div></div>
           {x.id === now.id && <span className="mu2" style={{ fontSize: '12px' }}>현재 버전</span>}</div>;
       })}</div>
-      {can && <div className="btns" style={{ position: 'absolute', left: '20px', right: '20px', bottom: '20px', height: '48px', fontSize: '14px' }} role="button" tabIndex={0} data-u7-restore onClick={() => restore(a!)}>
+      {form ? <div style={{ position: 'absolute', left: '20px', right: '20px', bottom: '20px', fontSize: '13px' }} data-u7-restore-form>{form}</div>
+        : can && <div className="btns" style={{ position: 'absolute', left: '20px', right: '20px', bottom: '20px', height: '48px', fontSize: '14px' }} role="button" tabIndex={0} data-u7-restore onClick={() => restore(a!)}>
         <svg className="ic" viewBox="0 0 24 24" style={{ width: '17px', height: '17px' }}><path d="M9 14 4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11" /></svg>{vn(a!)} 로 되돌리기</div>}
     </div>
     <div className="head"><span className="g dk" style={{ position: 'relative', width: '44px', height: '44px', borderRadius: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} role="button" tabIndex={0} aria-label="지도로" data-u7-back onClick={back}>
