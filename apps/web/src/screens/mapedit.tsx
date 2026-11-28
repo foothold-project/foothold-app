@@ -370,10 +370,10 @@ export function Editor({ v, p, cancel, saved, toScen, quit, recheck, moved, slot
       <div className="h3">학습 지형</div>
       {terr.map(([name, d]) => <div key={name} className="lay" style={{ opacity: 0.5 }} aria-disabled="true" data-terrain={name}>{ic(d)}{name}<span className="mu2" style={{ marginLeft: 'auto', fontSize: '12.5px' }}>확인 안 됨</span></div>)}
       <div className="h3" style={{ marginTop: '22px' }}>이번 편집</div>
-      <div style={{ fontSize: '13px', lineHeight: '1.9', padding: '0 6px', color: '#c9ced6' }} data-edit-sum>
-        <div className="row" style={{ gap: '8px' }}><i className="sw2" style={{ border: '1.5px dashed #00c389' }} />바뀐 요소 {changed}</div>
-        <div className="row" style={{ gap: '8px' }}><i className="sw2" style={{ border: '1.5px dashed #ff4d4f' }} />{tool === 'NO_GO' ? '금지 구역 그리는 중' : `금지 구역 ${nNoGo} · 감속 구역 ${nSlow}`}</div>
-        <div className="row" style={{ gap: '8px' }}><i className="sw2" style={{ background: '#9aa19d' }} />벽 · 지우개 선 {f.edits.length}</div></div>
+      <div className="esum" data-edit-sum>
+        <div className="row" style={{ gap: '8px' }}><i className="sw2 e-new" />바뀐 요소 {changed}</div>
+        <div className="row" style={{ gap: '8px' }}><i className="sw2 e-nogo" />{tool === 'NO_GO' ? '금지 구역 그리는 중' : `금지 구역 ${nNoGo} · 감속 구역 ${nSlow}`}</div>
+        <div className="row" style={{ gap: '8px' }}><i className="sw2 e-line" />벽 · 지우개 선 {f.edits.length}</div></div>
       <div style={{ position: 'absolute', left: '20px', right: '20px', bottom: '20px', fontSize: '12.5px', lineHeight: '1.55', color: 'var(--mu2)' }}>저장하면 새 버전이 생깁니다. 임무 탭 모의 실행에서 이 버전을 고르면, 실제 로봇에 보내기 전에 시뮬로 먼저 걸어 봅니다.</div>
     </div>
     <div className="head">

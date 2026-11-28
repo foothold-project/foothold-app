@@ -55,3 +55,9 @@
 .u7 .frow[aria-pressed=true]{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.14);box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}
 .u7 .u7-pic{position:absolute;inset:0;width:100%;height:100%}
 .u7 .u7-pic svg[data-diff]{width:100%;height:100%;display:block}
+
+/* u7_5 이번 편집 요약(시안 값 · 앱이 더한 이름표) */
+.u7 .esum{font-size:13px;line-height:1.9;padding:0 6px;color:#c9ced6}
+.u7 .sw2.e-new{border:1.5px dashed #00c389}
+.u7 .sw2.e-nogo{border:1.5px dashed #ff4d4f}
+.u7 .sw2.e-line{background:#9aa19d}
