@@ -60,7 +60,9 @@ export function tabFromHash(hash: string, phone: boolean): TabId {
 /** 옛 시나리오 탭 주소면 열 시나리오 id(없으면 ''), 아니면 null — #/mission, #/mission/<id>, #/mission?scenario_id=<id>. 임무 탭 #/missions(…)도 같은 길(W-mission 전까지) */
 export function oldScenario(hash: string): string | null {
   const m = /^#\/?missions?(?:\/([^/?]+))?(?:\?(.*))?$/.exec(hash);
-  return m ? decodeURIComponent(m[1] ?? new URLSearchParams(m[2] ?? '').get('scenario_id') ?? '') : null;
+  if (!m) return null;
+  try { return decodeURIComponent(m[1] ?? new URLSearchParams(m[2] ?? '').get('scenario_id') ?? ''); }
+  catch { return ''; }   // r2 M3: 잘못된 퍼센트 인코딩은 그 시나리오 id 만 버린다(지도 탭은 열림 · 첫 그리기 · STOP 은 그대로)
 }
 
 /** 떠나기 전에 물어볼 화면(저장하지 않은 지도 편집). ask(go) = 그 화면이 확인을 띄우고, 나가기를 고르면 go().

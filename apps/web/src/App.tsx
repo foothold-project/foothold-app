@@ -111,7 +111,10 @@ const LOST_TAIL = '다시 연결되면 로봇은 잠긴 상태로 시작합니�
 const lostStop = (r: Robot) => `${r.name} 연결 끊김 · 정지를 보낼 수 없습니다. ${LOST_TAIL}`;
 const lostSent = (r: Robot) => `${r.name} 연결이 끊겨 정지를 보내지 못했습니다. ${LOST_TAIL}`;
 /** #529 H1: 서버 경유 조종이 꺼진 실기. 서버는 이 로봇의 stop 을 에이전트로 보내지 않는다(realtime blocked_agent_control). 목록 값 server_drive_allowed 로 가름(보수적) */
+// r2 H1: server_drive_allowed 는 조종 허용이라 STOP 판정에 쓰지 않는다(인증 갱신 지연에도 false · 서버는 STOP 을 전달). 빼지 않고 보내며 안내 한 줄만
 const noServerStop = (r: Robot) => !r.sim && r.serverDrive !== true;
+/** 서버가 받은 정지(WS 접수 · 대체 경로). 거절 · 불확실 · 보내는 중이면 그 결과 글이 앞선다(r2 M2) */
+const taken = (l: Live) => l.stop?.phase === 'sent' || l.stop?.phase === 'fallback';
 
 export function Stop({ phone, onStop }: { phone: boolean; onStop: () => void }) {
   return <button type="button" className="fh-stop" aria-label="비상 정지" data-stop style={{ minHeight: phone ? 64 : 44, minWidth: phone ? 96 : 120 }} {...useStopPress(onStop)}>
@@ -173,11 +176,11 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   const mayStop = (r: Robot) => !adminReal(user, r) && !idleSim(r) && (user.role !== 'ORG_ADMIN' || r.owner === user.id);
   // 관제 탭(D1 · app-design-lx 05:12): 타일에서 고른 로봇(관제 안 고름 — 로봇 탭의 rid 가 아님)이 정지 가능하면 그 로봇이 대상(한 번 누름).
   // 고른 것이 없으면 대상 없음 → 첫 누름 = 고르기, 맨 위 «모두 정지(N 대)» = 정지 가능한 연결된 로봇 전부(같은 자리 두 번째 누름·Enter 로 보냄)
-  const ctl = !phone && tab === 'control', ctlSel = useControlPick(), ctlPick = ctl ? pool.find((r) => r.id === ctlSel && mayStop(r) && !noServerStop(r)) : undefined;
+  const ctl = !phone && tab === 'control', ctlSel = useControlPick(), ctlPick = ctl ? pool.find((r) => r.id === ctlSel && mayStop(r)) : undefined;
   const target = open || (!phone && tab === 'fleet') ? robot : ctlPick ?? (phone && pool.length === 1 ? pool[0] : null);
   const stops = pool.filter(mayStop), canStop = target ? mayStop(target) : user.role !== 'ORG_ADMIN' || !!stops.length;
-  // H1: 관제 고르기 · 모두 정지 후보 = 서버가 정지를 전할 수 있는 로봇만. 서버 경유가 꺼진 실기는 따로 한 줄(보내지 않음)
-  const here = ctl ? stops.filter((r) => !noServerStop(r)) : stops;
+  // r2 H1: 관제 고르기 · 모두 정지 후보에서 서버 경유 여부로 빼지 않는다. 꺼져 있을 수 있는 실기는 안내 한 줄(보냄 · 결과는 정지 띠)
+  const here = stops;
   const noSrv = ctl ? stops.filter((r) => noServerStop(r) && (r.online || lost(r) || r.unknown === 'link' || r.unknown === 'wait')) : [];
   // 모두 정지 = 정지 가능한 로봇 중 붙어 있거나 실시간으로 끊김이 확인된 로봇(lost · 연결 전과 구독 밖 요약 로봇은 뺌, R1 · app-lx: 서버는 끊긴 로봇 정지를 받아 두고 다시 붙으면 먼저 멈춤).
   // 끊긴 로봇은 고르기 창 · 정지띠에서 «아직 닿지 않음»으로 따로 보인다(서버 delivered 값 전까지 화면 online 으로 가름). 연결 전(상태 0)은 뺀다
@@ -250,7 +253,8 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   });
   // t21-1: 끊긴 채 보낸 정지는 그 로봇이 다시 붙으면(서버가 받아 둔 정지를 먼저 전함) 확인된 것. 다음 STOP 전까지 «아직 닿지 않음»을 다시 띄우지 않는다
   // #529 H2: 다시 붙음(ONLINE)만으로는 지우지 않는다. 이 STOP 뒤 같은 소켓에서 끊기기 전보다 새 세대의 잠김(rt stop.latched)을 받아야 «다시 연결 · 잠긴 채 시작»
-  useEffect(() => { const ok = ctlOff.filter((id) => rt.get(id).stop?.latched); if (ok.length) { setCtlOff(ctlOff.filter((id) => !ok.includes(id))); setRelatch([...relatch, ...ok]); } });
+  // r2 M2: 기준 세대(g0)가 없으면 원래 잠김과 가를 수 없어 확인으로 치지 않음 · 거절 · 불확실이면 그 결과 글이 앞선다
+  useEffect(() => { const ok = ctlOff.filter((id) => { const l = rt.get(id); return !!l.stop?.latched && l.stop.g0 >= 0 && taken(l); }); if (ok.length) { setCtlOff(ctlOff.filter((id) => !ok.includes(id))); setRelatch([...relatch, ...ok]); } });
   const halt = (rs: Robot[], all = false) => { for (const r of rs) rt.stop(r.id); if (all && mySim) sim.stop(); setStopped(rs); setCtlOff(ctl ? rs.filter((r) => !r.online).map((r) => r.id) : []); setRelatch([]); setSimStop(all && !!mySim); setChoose(null); };   // 로봇마다 기존 정지(rt.stop) 그대로 · 시뮬은 기존 sim.stop
   const stop = () => { if (toSim) return sim.stop();   // 시뮬이 고르기 밖이면 그 슬롯만(직결이면 에이전트, 연결 전·끊김이면 정리) — 다른 로봇으로 새지 않음
     if (!canStop) return;
@@ -323,7 +327,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       : <div className="fh-pick" role="status" data-ending>조종권을 반납하는 중입니다…</div>)}
     {/* 후보 0(운영 관리자 로봇 0대 등 — 모르면 STOP 은 보인다)이면 빈 고르기 대신 이 앱으로 멈출 것이 없다고 바로 알린다 */}
     {choose != null && !target && canStop && (here.length || allN ? <div className="fh-pick" role="dialog" aria-label="정지할 로봇 고르기">
-      {cantPick && <span style={LINE} data-cant-stop>{cantPick.name} 은 {mayStop(cantPick) && noServerStop(cantPick) ? '서버 경유 정지가 꺼져 있어' : '이 계정으로 정지할 수 없어'} {simOnly ? '내 시뮬 정지' : realOff.length ? '멈출 수 있는 로봇 정지' : '전체 정지'}를 엽니다</span>}
+      {cantPick && <span style={LINE} data-cant-stop>{cantPick.name} 은 이 계정으로 정지할 수 없어 {simOnly ? '내 시뮬 정지' : realOff.length ? '멈출 수 있는 로봇 정지' : '전체 정지'}를 엽니다</span>}
       <span>어느 로봇을 정지할까요?</span>
       <select className="fh-user" aria-label="정지할 로봇" value={choose} onChange={(e) => setChoose(e.target.value)}>
         {!!allN && <option value={ALL}>{allName} ({allN} 대{cut.length ? ` · 끊김 ${cut.length}` : ''}{unsure.length ? ` · 상태 모름 ${unsure.length}` : ''})</option>}
@@ -331,7 +335,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         {here.map((r) => <option key={r.id} value={r.id}>{r.name}{rt.get(r.id).lease ? ' (내가 조종 중)' : rt.get(r.id).releasing ? ' (반납 확인 중)' : ''}</option>)}</select>
       <button type="button" className="fh-stop" disabled={!choose} ref={pickBtn} {...pickPress} {...pickKeys}>정지</button>
       <button type="button" className="btn" onClick={() => setChoose(null)}>닫기</button>
-      {noSrv.map((r) => <span key={r.id} style={LINE} data-stop-noserver={r.id}>실기 {r.name} 는 서버 경유 정지가 꺼져 있어 이 화면의 정지가 닿지 않습니다 · 현장 폰이나 현장에서 멈추세요</span>)}
+      {noSrv.map((r) => <span key={r.id} style={LINE} data-stop-noserver={r.id}>실기 {r.name} 는 서버 경유 조종이 꺼져 있을 수 있습니다 · 정지는 보내고 결과는 아래 띠에 보입니다. 닿지 않으면 현장 폰이나 현장에서 멈추세요</span>)}
       {!!realOff.length && <span style={LINE} data-cant-real>실기 로봇 {realOff.length} 대는 이 계정으로 멈출 수 없습니다 · 운영자 폰이나 현장에서 멈추세요</span>}
       {choose === ALL && !!pre.length && <span style={LINE} data-stop-pre>연결 전 로봇 {pre.length} 대 · 정지를 보낼 수 없음</span>}
       {choose === ALL && cut.map((r) => <span key={r.id} style={LINE} data-stop-lost={r.id}>▲ {lostStop(r)}</span>)}
