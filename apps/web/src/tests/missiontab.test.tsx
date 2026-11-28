@@ -500,6 +500,19 @@ describe('임무 탭(W2)', () => {
     expect($('[data-pending]')!.classList.contains('u6-pend')).toBe(true);
     expect($('[data-pending]')!.style.color).toBe('');
   });
+  it('밝은 판 대비 (계산된 색): 같은 클래스가 어둠 판은 밝은 글 · 밝은 판은 어두운 글', () => {
+    const st = document.createElement('style'); st.textContent = u6AppCss; document.head.appendChild(st);
+    const box = document.createElement('div'); document.body.appendChild(box);
+    try {
+      const color = (theme: string, html: string, sel: string) => { box.className = theme; box.innerHTML = html; return getComputedStyle(box.querySelector(sel)!).color; };
+      const at = '<span class="u6-at">(1.0, 4.0) m</span>', pend = '<div class="u6-pend">고르는 중</div>', seg = '<div class="mseg" data-locked><span class="on">1 배</span><span>10 배</span></div>';
+      expect(color('proto u6', at, '.u6-at')).toBe('rgba(255, 255, 255, 0.62)');
+      expect(color('proto light u6', at, '.u6-at')).toBe('rgb(94, 102, 98)');
+      expect(color('proto light u6', pend, '.u6-pend')).toBe('rgb(31, 36, 33)');
+      expect(color('proto light u6', seg, '.on')).toBe('rgb(31, 36, 33)');
+      expect(getComputedStyle(box.querySelector('.mseg')!).opacity).toBe('1');
+    } finally { st.remove(); box.remove(); }
+  });
   it('밝은 판 대비: 배속 고른 칸 · 지도 위 자리 글은 밝은 판에서 어두운 글 (기존 밝은 판 값)', () => {
     const rules = u6AppCss.replace(/\s+/g, ' ');
     expect(rules).toMatch(/\.proto\.light\.u6 \.mseg span\.on\{[^}]*color:#1F2421/);
