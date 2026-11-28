@@ -128,9 +128,18 @@ const RANK = { crit: 0, bad: 1, warn: 2 } as const;
 /** 경고 타일 맨 앞(위험 → 경고 → 주의), 그 밖은 받은 순서 그대로(기존 관제 order 와 같음) */
 export const order = (l: TileFacts[]) => l.map((f, i) => [f, i] as const).sort((a, b) => (a[0].level ? RANK[a[0].level] : 9) - (b[0].level ? RANK[b[0].level] : 9) || a[1] - b[1]).map(([f]) => f);
 /** 타일 배치: 4 대 이하 2×2(u5_6), 8 대 이하 4×2(u5_1), 그보다 많으면 칸이 가장 크게 남는 열 수 · 타일을 그만큼 줄임(zoom) */
-export function wallGrid(n: number): { cols: number; rows: number; zoom: number } {
+/** 타일 칸 배치. 8 대까지는 시안 그대로(2×2 · 4×2). 9 대부터는 시안 한 칸(357.5 × 440)을 줄여 가장 크게 들어가는 열 · 줄을 고르고,
+ *  남는 칸이 생기면 줄마다 대수를 고르게 나눠(예: 9 대 = 5 + 4) 빈 칸 없이 한 줄을 꽉 채운다(span = 각 타일이 차지하는 칸 수, 열 = cols × (cols - 1)) */
+export function wallGrid(n: number): { cols: number; rows: number; zoom: number; units?: number; span?: number[] } {
   if (n <= 4) return { cols: 2, rows: 2, zoom: 1 };
   if (n <= 8) return { cols: 4, rows: 2, zoom: 1 };
+  const b = fitGrid(n);
+  if (b.cols * b.rows === n) return b;
+  const base = Math.floor(n / b.rows), extra = n % b.rows, ks = Array.from({ length: b.rows }, (_, r) => base + (r < extra ? 1 : 0));
+  const gcd = (x: number, y: number): number => (y ? gcd(y, x % y) : x), units = ks.reduce((l, k) => (l * k) / gcd(l, k), 1);
+  return { ...b, units, span: ks.flatMap((k) => Array<number>(k).fill(units / k)) };
+}
+function fitGrid(n: number): { cols: number; rows: number; zoom: number } {
   const W = 1472, H = 900, TW = 357.5, TH = 440;   // 시안 4×2 한 칸
   let best = { cols: 4, rows: Math.ceil(n / 4), zoom: 0 };
   for (let c = 4; c <= n; c++) {
@@ -195,10 +204,10 @@ function Mini({ all, sel }: { all: TileFacts[]; sel: string }) {
 const TONE_COL: Record<string, string> = { ok: '#00c389', warn: '#f2b705', bad: '#ff4d4f' };
 function Recent({ list, pick, open }: { list: TileFacts[]; pick: (id: string) => void; open: (id: string) => void }) {
   return <div className="pane" style={{ padding: '16px 18px 6px', flex: '1', overflow: 'hidden' }} aria-label="최근 경고"><div className="row" style={{ justifyContent: 'space-between', marginBottom: '4px' }}><span className="ttl" style={{ fontSize: '17px' }}>최근 경고</span><a href="#/history" style={{ color: 'inherit', textDecoration: 'none' }}><span className="mu2" style={{ fontSize: '12.5px' }}>기록 탭에서 모두 보기</span></a></div>
-    {list.map((f) => { const red = f.level === 'bad' || f.level === 'crit', t = hm(f.x.seenAt);
-      const head = f.hot && f.level ? `관절 ${LEVEL_TEXT[f.level]}` : f.lostNow ? '연결 끊김' : f.why;
-      const sub = f.hot && f.level ? f.why : f.lostNow ? `${f.place ? `${f.place.replace(' (마지막 위치)', '')} · ` : ''}다시 연결 중` : f.mission?.name ?? stText(f.x);
-      return <div className="al" key={f.x.id} data-alert={f.x.id} role="button" tabIndex={0} onClick={() => pick(f.x.id)} onDoubleClick={() => open(f.x.id)}><span style={{ color: red ? '#ff4d4f' : '#f2b705' }}>{I(18, f.hot && f.level ? IC.temp : f.lostNow ? IC.wifi : IC.warn)}</span><div>{f.x.name} {head}<small>{sub}</small></div>{t && <time data-alert-at title={`받은 시각 ${t}`}>{t}</time>}</div>; })}
+    {list.map((f) => { const red = f.level === 'bad' || f.level === 'crit', t = hm(f.x.seenAt), joint = !!f.hot && !!f.level && !!tempLevel(f.hot.t);   // 관절 제목은 단계가 온도에서 왔을 때만(정지 잠금 등 다른 경고에 관절 이름을 붙이지 않음)
+      const head = joint ? `관절 ${LEVEL_TEXT[f.level!]}` : f.lostNow ? '연결 끊김' : f.why;
+      const sub = joint ? f.why : f.lostNow ? `${f.place ? `${f.place.replace(' (마지막 위치)', '')} · ` : ''}다시 연결 중` : f.mission?.name ?? stText(f.x);
+      return <div className="al" key={f.x.id} data-alert={f.x.id} role="button" tabIndex={0} onClick={() => pick(f.x.id)} onDoubleClick={() => open(f.x.id)}><span style={{ color: red ? '#ff4d4f' : '#f2b705' }}>{I(18, joint ? IC.temp : f.lostNow ? IC.wifi : IC.warn)}</span><div>{f.x.name} {head}<small>{sub}</small></div>{t && <time data-alert-at title={`받은 시각 ${t}`}>{t}</time>}</div>; })}
   </div>;
 }
 const m1 = (v: number | null) => (v == null ? '' : v.toFixed(1));
@@ -263,7 +272,8 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
   return <main className="u5" data-view={view} aria-label="관제">
     <div className="tb"><div className="seg2" role="group" aria-label="보기">{seg(view === 'tiles', '타일 보기', IC.tiles, () => setView('tiles'))}{seg(view === 'map', '지도 보기', IC.map, () => setView('map'))}</div>
       <span className="pinf"><i></i>첫 화면으로</span><span className="sep"></span>
-      {admin ? cnt('임무 중', IC.flag, d ? d.robots_running : null, false, 'dashboard') : cnt('임무 중', IC.flag, n((f) => f.x.online && !!f.mission && f.x.status !== 'PAUSED'))}
+      {/* 임무 중 = 타일이 «임무 중» 인 로봇(실행 상태 RUNNING · 끊기지 않음, 시뮬 포함). 서버 요약의 robots_running 은 실기만이라 타일과 어긋나서 쓰지 않음 */}
+      {cnt('임무 중', IC.flag, n((f) => f.x.status === 'RUNNING' && !f.lostNow))}
       {cnt('충전', IC.bolt, av ? n((f) => f.charging) : null, false, undefined, av ? undefined : '가용(GET /robots/availability)을 받지 못했습니다')}
       {cnt('점검', IC.wrench, null, false, undefined, '서버에 점검 상태 값이 없습니다')}
       {/* 시안 칸 줄 그대로 여섯 칸 · 0 이면 0. 서버에 없는 값은 수를 비우고 까닭은 title */}
@@ -276,8 +286,8 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
           onClick={() => setFront(!front)} onKeyDown={(e) => { if (e.key === 'Enter') setFront(!front); }}>{I(16, IC.flip)}{front ? '뒤 1 m 시점으로' : '정면 상태로 뒤집기'}</span>}
         <span className={demo ? 'tgl on' : 'tgl'} role="switch" aria-checked={demo} tabIndex={0} onClick={() => setDemo(!demo)}>데모 표시<i></i></span>
         <div className="seg2 flt" role="group" aria-label="범위"><span className={scope === 'all' ? 'on' : ''} data-f="모두" role="button" tabIndex={0} aria-pressed={scope === 'all'} onClick={() => see('all')}>모두</span><span className={scope === 'mine' ? 'on' : ''} data-f="내 로봇" role="button" tabIndex={0} aria-pressed={scope === 'mine'} onClick={() => see('mine')}>내 로봇</span></div></div></div>
-    {view === 'tiles' ? <div className="wall" style={{ gridTemplateColumns: `repeat(${g.cols},1fr)`, gridTemplateRows: `repeat(${g.rows},1fr)` }} aria-label="로봇 타일" data-count={all.length}>
-      {all.map((f) => <ZoomBox key={f.x.id} zoom={g.zoom}><Tile f={f} sel={f.x.id === sel} front={front} pick={() => controlPick.set(f.x.id)} open={() => open(f.x.id)} /></ZoomBox>)}</div>
+    {view === 'tiles' ? <div className={all.length > 8 ? 'wall many' : 'wall'} style={{ gridTemplateColumns: `repeat(${g.units ?? g.cols},1fr)`, gridTemplateRows: `repeat(${g.rows},1fr)` }} aria-label="로봇 타일" data-count={all.length}>
+      {all.map((f, i) => <ZoomBox key={f.x.id} zoom={g.zoom} span={g.span?.[i]}><Tile f={f} sel={f.x.id === sel} front={front} pick={() => controlPick.set(f.x.id)} open={() => open(f.x.id)} /></ZoomBox>)}</div>
       : <SiteView all={all} sel={sel} pick={(id) => controlPick.set(id)} open={open} />}
     <div className="side">
       {view === 'tiles' ? <>
@@ -290,7 +300,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
   </main>;
 }
 /** 대수가 많을 때만 타일을 줄인다(8 대 이하는 시안 그대로 zoom 1 · 감싸지 않음) */
-const ZoomBox = ({ zoom, children }: { zoom: number; children: ReactNode }) => (zoom >= 1 ? children : <div style={{ zoom, display: 'grid', minWidth: 0, minHeight: 0 }}>{children}</div>);
+const ZoomBox = ({ zoom, span, children }: { zoom: number; span?: number; children: ReactNode }) => (zoom >= 1 && !span ? children : <div style={{ ...(zoom < 1 ? { zoom } : {}), ...(span ? { gridColumn: `span ${span}` } : {}), display: 'grid', minWidth: 0, minHeight: 0 }}>{children}</div>);
 
 function MapSide({ all, sel, pick, open }: { all: TileFacts[]; sel: string; pick: (id: string) => void; open: (id: string) => void }) {
   const moving = all.filter((f) => f.walk).length;
