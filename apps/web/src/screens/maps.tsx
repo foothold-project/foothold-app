@@ -20,7 +20,8 @@ import { MissionAdmin, ScenList, ScenarioEdit, SimOpen, keptPlan, useScenarios }
 import { simAt, twinOf } from '../simstart';
 import { TrashLink, trashFail, type TrashKind } from './trash';
 import { TerrainLink, VoxelUpload, VoxelView, voxelOf } from './voxelmap';
-import { MakeMap, makers } from './mapmake';
+import { makers } from './mapmake';
+import { ScanScreen } from './u7/scan';
 import { SlamSavedView } from './slammap';
 
 export type Place = { site: MapSite; building: MapBuilding; floor: MapFloor };
@@ -348,7 +349,7 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   </Pop>;
   if (cur) return <>{sim ? <Floor key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} told={() => c.dash?.again()} top={top} name={label} user={c.user} robots={robots} open0={intent}
       places={places} sel={sel} setSel={setSel} toAdmin={() => setMadmin(true)} run={(x) => scenRun(x, places, vers)} />
-    : <FloorView key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} told={() => c.dash?.again()} top={back} side={side} name={label} user={c.user} robots={robots} places={places} open0={intent}
+    : <FloorView key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} told={() => c.dash?.again()} top={back} toPick={() => choose('')} side={side} name={label} user={c.user} robots={robots} places={places} open0={intent}
       fix={() => { setForm(null); setAsk(null); setMsg(null); setMake('fix'); }} toScen={(id) => { keptPlan.floor = cur.floor.id; location.hash = id ? `#/mission/${encodeURIComponent(id)}` : '#/missions'; }} />}   {/* 겹침 «예» = 임무 탭에서 그 임무 · u7_3 «이 지도로 모의 실행» = 시안 u6_6 (임무 탭, 그 층) */}
     {pop}</>;
   const mk = (k: Make) => { setForm(null); setAsk(null); setMsg(null); setMake(k); };
@@ -580,7 +581,7 @@ function useNames(me: User, admin: boolean, cancel?: AbortSignal) {
 
 /** 고른 층: 판 목록(GET /floors/{id}/map-versions) → 승인 판(또는 고른 옛 판) 그림, 보기/편집 토글(승인 판이 있을 때), 아래 접힌 «저장 기록»(옛 판 보기·비교·한때 승인된 판 되돌리기), 새 지도 올리기.
  *  저장·되돌리기는 누구나 바로 새 승인 판 — 서버가 아직 PENDING 으로 받으면 고르지 않고 승인 판을 그대로 보인다. told = 그때 배지 다시 받기 */
-function FloorView({ p, sim, admin, names, cancel, again, told, top, side, name, scenN, head, hov, scenList, toScen, user, robots, places, open0, fix }: { p: Place; sim?: boolean; side?: ReactNode; user: User; robots: Robot[]; places: Place[]; open0: Intent; fix?: () => void; toScen?: (scenario: string) => void; admin: boolean; names: (id: string) => string | undefined; cancel?: AbortSignal; again: () => void; told: () => void; top?: ReactNode; name: string;
+function FloorView({ p, sim, admin, names, cancel, again, told, top, toPick, side, name, scenN, head, hov, scenList, toScen, user, robots, places, open0, fix }: { p: Place; sim?: boolean; side?: ReactNode; user: User; robots: Robot[]; places: Place[]; open0: Intent; fix?: () => void; toPick?: () => void; toScen?: (scenario: string) => void; admin: boolean; names: (id: string) => string | undefined; cancel?: AbortSignal; again: () => void; told: () => void; top?: ReactNode; name: string;
   /** 시뮬 탭만 — 오른쪽 창 = 시나리오(지도 탭은 지도 요소만) */ scenN?: string; head?: ReactNode; hov?: Scenario | null; scenList?: ReactNode }) {
   const approved = p.floor.approved_version_id;
   const [got, setGot] = useState<{ key: string; list: MapVersion[] } | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0), [sel, setSel] = useState('');
@@ -725,7 +726,10 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, side, name,
   </aside>;
   return <section className="mx" aria-label="지도 보기">
     <h2 className="mx-sr">{title}{editing ? ' · 편집 중' : ''}</h2>
-    {left && h9 && list && now ? <History p={p} list={list} now={now} names={names} real={real} cancel={cancel} back={() => setH9(false)} gone={reload}
+    {/* 지도 만들기 = 시안 u7_6 · u7_7 · u7_8 (옛 창 없음) */}
+    {left && canMake && mk ? <ScanScreen place={p} back={() => setMk(false)} toList={() => { setMk(false); toPick?.(); }}
+      a={{ floor: p.floor.id, approved, list, user, robots, places, cancel, made: (id, text) => { setMk(false); setSel(id); setCmp(false); setD3(false); setDone({ text, ok: true }); setN(n + 1); again(); } }} />
+      : left && h9 && list && now ? <History p={p} list={list} now={now} names={names} real={real} cancel={cancel} back={() => setH9(false)} gone={reload}
         restore={(x) => { const go = () => { setUndo({ v: x, now }); setDone(null); }; if (leaving.ask) leaving.ask(go); else go(); }} />
       : left ? <div className="mp-fl">{panel}<div className="mp-fr">{bar}{main}</div></div> : <>{bar}{main}{hist}</>}
     {!editing && <Pop open={up} close={() => { if (!vbusy) setUp(false); }} label="새 지도 올리기">{/* 3D 파일 올리는 중엔 닫기·형식 바꾸기 막음(요청은 이어지는데 진행·결과만 사라지지 않게) */}
@@ -736,10 +740,6 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, side, name,
           go={(how) => { setUp(false); setD3(how === '3d'); }} again={() => { setN(n + 1); again(); }} onBusy={setVbusy} />
       : <Upload floor={p.floor.id} base={approved} keep={now?.features ?? null} ready={canUp} cancel={cancel}
         saved={(x) => { setUp(false); if (x.status === 'PENDING') { setDone(asked); told(); } else { setSel(x.id); setDone(SAVED); } setN(n + 1); again(); }} again={() => { setN(n + 1); again(); }} />}
-    </Pop>}
-    {!editing && canMake && <Pop open={mk} close={() => setMk(false)} label="로봇으로 지도 만들기">
-      {mk && <MakeMap floor={p.floor.id} approved={approved} list={list} user={user} robots={robots} places={places} cancel={cancel}
-        made={(id, text) => { setMk(false); setSel(id); setCmp(false); setD3(false); setDone({ text, ok: true }); setN(n + 1); again(); }} />}
     </Pop>}
     {!editing && <Pop open={!!undo} close={() => setUndo(null)} label="이 기록으로 되돌리기">
       {undo && <Rollback key={undo.v.id} v={undo.v} name={savedAs(undo.v)} cancel={cancel} now={undo.now} close={() => setUndo(null)} reload={reload}
