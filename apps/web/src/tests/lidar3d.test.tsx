@@ -217,6 +217,16 @@ describe('라이다 칸 3D', () => {
     expect($('[data-lm-view="box"]')).toBeNull();   // pick 없으면(서버 경유 — 바깥 고르기가 «상자») 줄엔 3D·위에서만
   });
 
+  it('bare (로봇 탭 보기 칸, 팀장 11/28): 칸 왼쪽 위 «3D · 상자 · 위에서» 단추를 두지 않고 받은 점을 바로 그린다', () => {
+    act(() => root!.render(<LidarMap feed={feed(5, 1)} empty="" pick bare />)); act(() => { vi.advanceTimersByTime(600); });
+    expect($('[data-lm-view]')).toBeNull();
+    expect(box.querySelector('[role="group"][aria-label="보기"]')).toBeNull();
+    expect($('[data-lidar3d]')!.dataset.lidar3d).toBe('5');
+    expect(gl.pts).toBeGreaterThan(0); expect(gl.drawn).toBe(5);
+    act(() => root!.render(<LidarMap feed={feed(9, 2)} empty="" pick bare />)); act(() => { vi.advanceTimersByTime(600); });
+    expect($('[data-lidar3d]')!.dataset.lidar3d).toBe('9'); expect(gl.drawn).toBe(9);   // 새 판이 오면 그 판으로
+  });
+
   it('RB-LIDAR-COLOR: 바닥·0.3·0.75·1.2 m 가 서로 다른 색, 점·상자·위에서 본 그림·범례가 같은 표, 자리는 받은 그대로(점은 5 cm 맞춤 없음)', () => {
     const hs = [0, 0.3, 0.75, 1.2], floor = -0.3, xyz = new Float32Array(hs.flatMap((h) => [0.013, 0, floor + h + 0.01]));
     const pts = [new Float32Array(12), new Float32Array(12)], box = [new Float32Array(64), new Float32Array(12)];

@@ -190,7 +190,7 @@ export const VIEW_ONLY = '보기만 하는 로봇이라 영상을 받지 않습�
 const NoFeed = ({ ch, why }: { ch: 'rgb' | 'depth'; why: string }) => <div className="dv-video" role="img" aria-label={ch === 'rgb' ? '카메라' : '뎁스 카메라'} {...(ch === 'rgb' ? { 'data-sd-cam': '' } : { 'data-sd-depth': '' })}>
   <span style={{ padding: 12, textAlign: 'center' }}>{`${NO_SIGNAL[ch]} · ${why}`}</span></div>;
 const Feed = ({ fs, ch, big, can }: { fs: Feeds; ch: 'depth'; big: boolean; can: boolean }) => (can ? <DriveView f={fs[ch]} ch={ch} big={big} /> : <NoFeed ch={ch} why={VIEW_ONLY} />);
-const Lidar = ({ fs, can }: { fs: Feeds; can: boolean }) => <LidarMap feed={fs.lidar} empty={can ? driveFeedText(fs.lidar, 'lidar') : `${NO_SIGNAL.lidar} · ${VIEW_ONLY}`} pick />;
+const Lidar = ({ fs, can }: { fs: Feeds; can: boolean }) => <LidarMap feed={fs.lidar} empty={can ? driveFeedText(fs.lidar, 'lidar') : `${NO_SIGNAL.lidar} · ${VIEW_ONLY}`} bare />;
 
 /** 시뮬 시점 칸: 렌더러 하나(simcam)에 붙여 서버 위치에서 본 현장을 그린다. 못 그리면 「카메라 신호 없음 · 까닭」 */
 function SimCam({ v, pose }: { v: MapVersion; pose: { x: number; y: number; yaw: number } }) {
@@ -504,7 +504,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
           <svg className="ic" viewBox="0 0 24 24" style={{ width: '18px', height: '18px' }}><line x1="6" x2="10" y1="11" y2="11" /><line x1="8" x2="8" y1="9" y2="13" /><line x1="15" x2="15.01" y1="12" y2="12" /><line x1="18" x2="18.01" y1="10" y2="10" /><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z" /></svg>{mine ? '조종 중' : '조종 시작'}</div>
         <div data-go="u4_3_voice" className="g dk btn talk" role="button" tabIndex={0} onClick={() => say('말하기는 아직 서버에 없습니다')}>
           <svg className="ic" viewBox="0 0 24 24" style={{ width: '18px', height: '18px' }}><path d="M12 19v3" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><rect x="9" y="2" width="6" height="13" rx="3" /></svg>말하기</div>
-        <div className="g dk keys" data-u4-keys><span><kbd>↑</kbd>앞으로</span><span><kbd>↓</kbd>뒤로</span><span><kbd>←</kbd><kbd>→</kbd>옆걸음</span><span><kbd>A</kbd><kbd>D</kbd>돌기</span><span><kbd>Space</kbd>정지</span><span><kbd>1</kbd>~<kbd>4</kbd>화면</span><span><kbd>Shift</kbd><kbd>1</kbd>~<kbd>4</kbd>모드</span></div>
+        <div className="g dk keys" data-u4-keys><span><kbd>↑</kbd>앞으로</span><span><kbd>↓</kbd>뒤로</span><span><kbd>←</kbd><kbd>→</kbd>옆걸음</span><span><kbd>A</kbd><kbd>D</kbd>돌기</span><span data-u4-key-combo title="↑ 와 A 또는 D 를 같이 누르면 앞으로 가며 돕니다"><kbd>↑</kbd>+<kbd>A</kbd><kbd>D</kbd>가며 돌기</span><span><kbd>Space</kbd>정지</span><span><kbd>1</kbd>~<kbd>4</kbd>화면</span><span><kbd>Shift</kbd><kbd>1</kbd>~<kbd>4</kbd>모드</span></div>
       </div>
       <div className={`deck joybig${latched ? ' dim' : ''}`} data-u4-deck data-ready={ready || undefined}>
         <Stick side="L" put={d.stick} /><Stick side="R" put={d.stick} />
