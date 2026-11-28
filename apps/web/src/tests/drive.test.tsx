@@ -209,6 +209,22 @@ describe('조종 화면', () => {
     expect(text()).toContain('후진은 아직 지원하지 않습니다');
   });
 
+  it('조이스틱(Pad 키)도 같은 길: 잠금 해제 전 0 · 해제 뒤 떼고 밀면 전진 · 후진은 막음', () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    click(btn('조종 시작'));
+    key('keydown', 'PadUp'); tick(200);
+    expect(lastAxes()).toEqual([0, 0, 0]);
+    click(btn('잠금 해제')); tick(200);
+    expect(lastAxes()).toEqual([0, 0, 0]);
+    key('keyup', 'PadUp'); tick(100);
+    key('keydown', 'PadUp'); tick(100);
+    expect(lastAxes()).toEqual([1.5, 0, 0]);
+    key('keyup', 'PadUp'); key('keydown', 'PadDown'); tick(100);
+    expect(lastAxes()).toEqual([0, 0, 0]);
+    expect(text()).toContain('후진은 아직 지원하지 않습니다');
+  });
+
   it('lease 가 바뀌면 이전 입력은 버리고 새 중립부터(누른 채여도 0)', () => {
     mount(true, 'u-park', '#/drive/r7');
     serve(PARK, 'r7');

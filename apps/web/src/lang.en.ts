@@ -75,7 +75,7 @@ export const EN: Record<string, string> = {
   '아직 막혀 있습니다 · 누르면 까닭 한 줄': 'Blocked for now · pressing shows why', '방향키와 같음': 'Same as arrow keys', 'W 앞 · A 왼쪽 · D 오른쪽 · S 뒤 (막힘)': 'W forward · A left · D right · S back (blocked)',
   '어느 화면에서나 · 이동 입력보다 먼저': 'On any screen · before any move input', '멈춰 있을 때만 · 한 번 확인': 'Only while stopped · confirm once', '입력이 겹치면': 'When inputs overlap',
   '정지가 이동보다 우선합니다. 리모컨이 앱보다 우선합니다. 한 로봇은 한 번에 입력 하나만 받습니다.': 'Stop beats movement. The remote beats the app. A robot takes one input at a time.',
-  '조이스틱': 'Joystick', '앱에 아직 없음': 'Not in the app yet', '왼쪽 스틱 이동 · 오른쪽 스틱 돌기': 'Left stick moves · right stick turns', '조이스틱 입력을 받는 기능이 앱에 아직 없습니다.': 'The app cannot read a joystick yet.',
+  '조이스틱': 'Joystick', '연결됨 · 1 순위': 'Connected · first', '조이스틱을 꽂고 단추를 한 번 누르면 연결됩니다. 조종 화면에서 키보드와 같은 규칙으로 움직입니다.': 'Plug in a joystick and press any button to connect. It drives with the same rules as the keyboard.', '앱에 아직 없음': 'Not in the app yet', '왼쪽 스틱 이동 · 오른쪽 스틱 돌기': 'Left stick moves · right stick turns', '조이스틱 입력을 받는 기능이 앱에 아직 없습니다.': 'The app cannot read a joystick yet.',
   '음성': 'Voice', '누르는 동안 듣기': 'Listens while held', '음성 명령 기능이 앱에 아직 없습니다.': 'The app has no voice commands yet.', '모바일 (폰 터치)': 'Mobile (phone touch)',
   '왼쪽 스틱 이동 · 동작 단추': 'Left stick moves · action buttons', '정지 버튼은 늘 오른쪽 아래에 있습니다.': 'The stop button is always at the bottom right.',
 
