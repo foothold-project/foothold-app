@@ -62,7 +62,7 @@ export function detail(f: Found, robots: Robot[]): string {
   const mine = f.rid && robots.find((r) => r.id === f.rid);
   if (mine) return `이미 내 조직에 등록된 로봇입니다(${mine.name}). «연결»을 누르면 서버에서 출입증을 받아 이 로봇에 직접 연결합니다(실기 미검증).`;
   if (realTarget(f)) return `에이전트 발견: ${f.name} ${f.host}:${f.port ?? ''} · 내 로봇 목록에 없습니다. «연결»을 누르면 서버가 등록·담당을 확인합니다.`;
-  return `에이전트 발견: ${f.name} ${f.host ?? ''}${f.port ? `:${f.port}` : ''} · 연결 등록은 서버 준비 중입니다.`;
+  return `에이전트 발견: ${f.name} ${f.host ?? ''}${f.port ? `:${f.port}` : ''} · 이 로봇은 폰 연결 정보를 알리지 않아 이 화면에서 연결할 수 없습니다. 관리자에게 로봇 설정 확인을 부탁하세요.`;
 }
 
 /** «연결»할 수 있는 실기 후보: 로봇 ID 를 알린 인증 WS 에이전트(agent=ws://<찾은 주소>:<포트>/phone/ws). 앱(Go2Link)이 주소·망을 다시 확인한다 */
@@ -99,12 +99,21 @@ function status(f: Found, robots: Robot[]) {
   return f.rid && robots.some((r) => r.id === f.rid) ? '에이전트 발견 · 내 조직 로봇' : '에이전트 발견';
 }
 
+/** 망이 막혔을 때(폰이 로봇과 다른 망) «핫스팟으로 바꾸기» 안내. 웹은 폰 Wi-Fi 를 바꾸지 못하므로 사람이 할 단계만 보인다 */
+const NET_BLOCKED = ['wifi-off', 'other-subnet'];
+const HOT_STEPS = [
+  '로봇 전원을 켜고 1 분쯤 기다립니다.',
+  '폰 설정 › Wi-Fi 에서 로봇 핫스팟을 고릅니다. 이름과 비밀번호는 로봇 설명서나 관리자에게 확인하세요.',
+  '핫스팟에는 인터넷이 없을 수 있어 그동안 서버 연결이 끊길 수 있습니다.',
+  '이 화면으로 돌아와 아래 «다시 찾기»를 누릅니다.',
+];
+
 /** «주변 로봇 찾기» 화면(«내 로봇» 카드 자리). 들어오면 바로 찾기, «다시 찾기» = 새 seq */
 export function Nearby({ robots, close }: { robots: Robot[]; close: () => void }) {
-  const [seq, setSeq] = useState(1), [scan, setScan] = useState<Scan | null>(null), [open, setOpen] = useState<string | null>(null), [old, setOld] = useState(false);
+  const [seq, setSeq] = useState(1), [scan, setScan] = useState<Scan | null>(null), [open, setOpen] = useState<string | null>(null), [old, setOld] = useState(false), [hot, setHot] = useState(false);
   const [view, setView] = useState<{ name: string; url: string } | null>(null), [ip, setIp] = useState('');
   useEffect(() => {
-    setScan(null); setOld(false); setOpen(null);
+    setScan(null); setOld(false); setOpen(null); setHot(false);
     const on = (e: Event) => { const s = parse((e as CustomEvent).detail, String(seq)); if (s) setScan(s); };
     window.addEventListener('fh-nearby', on);
     const t = setTimeout(() => setOld(true), NO_APP_MS);
@@ -118,6 +127,12 @@ export function Nearby({ robots, close }: { robots: Robot[]; close: () => void }
     {!scan && old ? <p className="fh-why" role="status" data-nearby="old">이 앱 판은 주변 찾기를 지원하지 않습니다 · FOOTHOLD 앱을 1.2.3-dev 이상으로 업데이트하세요.</p>
       : <p className="lv-note" role="status" data-nearby={busy ? 'scanning' : 'done'}>{busy ? `찾는 중… (Wi-Fi·블루투스, 약 10초)${items.length ? ` · ${items.length}대 찾음` : ''}` : items.length ? `${items.length}대 찾았습니다.` : '찾은 로봇이 없습니다.'}</p>}
     {scan?.problems.map((p) => PROBLEM[p] && <p key={p} className="fh-why" data-nearby-problem={p}>{PROBLEM[p]}</p>)}
+    {scan?.problems.some((p) => NET_BLOCKED.includes(p)) && <>
+      <button type="button" className="btn" aria-expanded={hot} aria-controls="nearby-hotspot" onClick={() => setHot(!hot)}>핫스팟으로 바꾸기 · 안내만</button>
+      {hot && <div id="nearby-hotspot" className="lv-note" data-hotspot-guide>
+        <p>이 앱은 폰 Wi-Fi 를 바꾸지 못합니다 · 아래 순서대로 폰 설정에서 직접 바꾸세요.</p>
+        <ol>{HOT_STEPS.map((t) => <li key={t}>{t}</li>)}</ol>
+      </div>}</>}
     {items.length > 0 && <ul className="dv-cards">{items.map((f) => <li key={f.key} className="card dv-card">
       <button type="button" className="btn" style={{ textAlign: 'left', flexDirection: 'column', alignItems: 'flex-start' }} aria-expanded={open === f.key} onClick={() => setOpen(open === f.key ? null : f.key)}>
         <span className="fh-row"><b>{f.name}</b><Chip tone="off" text={VIA[f.via]} /></span>
