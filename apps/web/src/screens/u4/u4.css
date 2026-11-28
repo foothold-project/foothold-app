@@ -45,9 +45,10 @@
 .u4 .ctl .btn{position:relative;height:54px;flex-direction:row;gap:8px;padding:0 20px;font-size:14px;border-radius:16px}
 .u4 .ctl .drv{background:linear-gradient(180deg,rgba(0,195,137,.55),rgba(0,195,137,.40));border-color:rgba(0,195,137,.5)}
 .u4 .ctl .talk{border-radius:27px}
-.u4 .ctl .keys{position:relative;flex:1;height:54px;display:flex;align-items:center;justify-content:center;gap:8px;border-radius:16px;font-size:12px;font-weight:600;white-space:nowrap}
+.u4 .ctl .keys{position:relative;flex:1;height:54px;display:flex;align-items:center;justify-content:center;gap:6px;border-radius:16px;font-size:12px;font-weight:600;white-space:nowrap}
 .u4 .ctl.dim .btn,.u4 .deck.dim{opacity:.35;pointer-events:none;filter:grayscale(1)}
-.u4 kbd{display:inline-flex;min-width:24px;height:24px;padding:0 6px;border-radius:7px;align-items:center;justify-content:center;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.25);font:700 11.5px Inter Tight,Noto Sans KR,Noto Sans CJK KR;margin-right:3px}
+.u4 kbd{display:inline-flex;min-width:22px;height:22px;padding:0 5px;border-radius:7px;align-items:center;justify-content:center;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.25);font:700 11px Inter Tight,Noto Sans KR,Noto Sans CJK KR;margin-right:2px}
+.proto.light .u4 kbd{background:#FFFFFF;border-color:#DCE0DE;color:#1F2421}
 .u4 .deck{position:absolute;left:0;right:0;bottom:0;top:682px;border-radius:22px;background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02));border:1px solid var(--line);--js:150px}
 .u4 .deck .stick{bottom:auto;top:50%;margin-top:-75px}
 .u4 .deck .act div.no{opacity:.45}.u4 .deck .act em{font-style:normal;font-size:10px;font-weight:700;opacity:.55;margin-top:-3px}

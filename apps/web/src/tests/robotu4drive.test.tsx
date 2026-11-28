@@ -60,7 +60,7 @@ const info = (age = 0.05) => ({ source: 'GO2_DDS', attitude: { roll: 0, pitch: 0
 
 /** 이 화면의 자리: 조종 시작 단추 · 다시 시작(잠금 해제) · STOP · 조종 붙음 표시 · 끊김 안내 */
 const begin = () => $('[data-u4-drive]')!;
-const unlock = () => click($('[data-u4-unlock]')!);
+const unlock = () => { click($('[data-u4-unlock]')!); click($('[data-u4-restart-go]')!); };   // 시안 u4_10 확인 창 「일어서기」 뒤에만 잠금 풀기
 const stop = () => $('.views .vstop');
 const can = () => $('[data-u4-can]');
 const offline = () => $('[data-u4-offline]');

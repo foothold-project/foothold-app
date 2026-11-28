@@ -176,8 +176,11 @@ export const DepthLegend = ({ range: [a, b] }: { range: [number, number] }) => <
   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span aria-hidden="true" style={{ width: 10, height: 10, background: '#000', border: '1px solid #DDE5EC' }} />거리 모름</span>
 </div>;
 
-/** 서버 경유 조종 패널을 붙일 수 있음: 서버 목록 server_drive_allowed(담당·기체번호·서버 전체 스위치·로봇 연결을 서버가 자동 확인, #323) + PC 웹 + 내 실기(총괄은 모든 실기 · 11/28) */
-export const canDrive = (c: Pick<Ctx, 'user' | 'phone'>, r: Robot) => !!r.serverDrive && !c.phone && !inApp() && (r.owner === c.user.id || c.user.role === 'ORG_ADMIN');
+/** 서버 경유 조종 패널을 붙일 수 있음: 서버 목록 server_drive_allowed(담당·기체번호·서버 전체 스위치·로봇 연결을 서버가 자동 확인, #323) + PC 웹 + 내 실기(총괄은 모든 실기 · 11/28).
+ *  시뮬 · 데모 로봇(r.sim === true)은 서버가 server_drive_allowed 를 늘 거짓으로 준다(실기 전용 값) — 「내 것 && 연결됨」 으로 연다(총괄도 남의 시뮬은 막힘). 조종권 · 인증 · 주인은 서버 WS 가 다시 본다 */
+const linked = (r: Robot) => (r.sim === true ? r.online : !!r.serverDrive);
+export const canDrive = (c: Pick<Ctx, 'user' | 'phone'>, r: Robot) => linked(r) && !c.phone && !inApp()
+  && (r.sim === true ? r.owner === c.user.id : r.owner === c.user.id || c.user.role === 'ORG_ADMIN');
 /** 이 로그인 세션(사용자·세션 취소 신호)에서 한 번이라도 canDrive 였던 로봇 id — RB-PC-DRIVE-OFFLINE. 사용자가 바뀌거나 로그아웃(세션 신호 끝남)하면 비운다(RB-PC-DRIVE-OFFLINE-FIX) */
 let drove = { user: '', cancel: undefined as AbortSignal | undefined, ids: new Set<string>() };
 const droveIds = (c: Pick<Ctx, 'user' | 'cancel'>) => {
@@ -216,8 +219,8 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   const lost = res?.status === 'RUNNING' && !running ? `${POSE[POSE_KEY[res.action]].fail} — ${POSE_LOST}` : '';
   const poseNow: PoseKey | null = pose?.k ?? running, shifting = !!poseNow || posture === 'TRANSITIONING' || s?.action_result?.status === 'RUNNING';
   // 서 있을 때만 이동(자세 보고가 없는 옛 에이전트는 그대로). 엎드림·자세 모름·자세 바꾸는 중에는 이동 단추·키 잠금 — STOP 은 따로라 늘 살아 있다
-  // off = 로봇 연결 끊김(서버 목록 허용 꺼짐 — 보통 AGENT_OFFLINE, 또는 state OFFLINE). 어느 쪽이 먼저 와도 이동 잠금(RB-PC-DRIVE-OFFLINE-FIX)
-  const off = !r.serverDrive || (!!s && s.connection !== 'ONLINE');
+  // off = 로봇 연결 끊김(서버 목록 허용 꺼짐 — 보통 AGENT_OFFLINE · 시뮬은 목록 연결 끊김, 또는 state OFFLINE). 어느 쪽이 먼저 와도 이동 잠금(RB-PC-DRIVE-OFFLINE-FIX)
+  const off = !linked(r) || (!!s && s.connection !== 'ONLINE');
   // 끊김을 본 뒤 «조종 시작»을 새로 누르기 전 = 그 전에 보낸 조종권 요청은 무효. 늦게 승인이 와도 바로 반납·이동 잠금(RB-PC-DRIVE-OFFLINE-FIX2)
   const stale = useRef(false); if (off) stale.current = true;
   const ready = !off && !stale.current && mine && link === 'open' && s?.connection === 'ONLINE' && s.latched === false && !l.busy && !shifting && (posture == null || posture === 'STANDING');
