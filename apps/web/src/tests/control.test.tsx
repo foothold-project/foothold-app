@@ -65,8 +65,10 @@ describe('관제 탭', () => {
     expect($('.u5 .tb .pinf').textContent).toBe('첫 화면으로');
     expect($$('.u5 .tb .cnt').map((e) => e.dataset.sum)).toEqual(['임무 중', '충전', '점검', '연결 중', '시뮬 대기', '경고']);
     expect($('[data-sum="임무 중"] b').textContent).toBe('7');
-    expect($('[data-sum="충전"] b').textContent).toBe('—');   // 서버에 충전 · 점검 상태가 아직 없음
-    expect($('[data-sum="점검"] b').textContent).toBe('—');
+    expect($('[data-sum="충전"] b').textContent).toBe('');   // 가용(GET /robots/availability)을 받지 못함 = 수를 비움(em dash 없음)
+    expect($('[data-sum="충전"]').dataset.none).toBe('true');
+    expect($('[data-sum="점검"] b').textContent).toBe('');   // 서버에 점검 상태 값이 없음
+    expect($('[data-sum="점검"]').title).toBe('서버에 점검 상태 값이 없습니다');
     expect($('[data-sum="시뮬 대기"] b').textContent).toBe('1');
     expect($('.u5 .tb .flipb').textContent).toBe('정면 상태로 뒤집기');
     expect($$('.u5 .tb .flt [data-f]').map((e) => e.textContent)).toEqual(['모두', '내 로봇']);
@@ -87,7 +89,7 @@ describe('관제 탭', () => {
     expect(t.querySelector<HTMLElement>('.pg i')!.style.width).toBe('50%');
     expect([...t.querySelectorAll('.sts .s')].map((e) => e.getAttribute('data-fact'))).toEqual(['battery', 'temp', 'link', 'who']);
     expect([fact('k1', 'battery'), fact('k1', 'link'), small('k1', 'link')]).toEqual(['70 %', '연결', '38 ms']);
-    expect(tile('k2').querySelector('.nm .md')!.textContent).toBe('—');   // 걷기 모드를 받기 전
+    expect(tile('k2').querySelector('.nm .md')!.textContent).toBe('');   // 걷기 모드를 받기 전
   });
 
   it('PC 첫 화면 = 관제(메뉴 첫 탭), 20대도 깨지지 않음: 타일 20개 · 줄여서 한 화면 · 경고 타일이 맨 앞 + 테두리 · 머리표', async () => {
@@ -120,15 +122,17 @@ describe('관제 탭', () => {
     }
   });
 
-  it('값이 없는 칸은 시안 칸을 두고 «—» · 온도 · 배터리 · 위치를 지어내지 않는다 · «미확인» 글자 없음', () => {
+  it('값이 없는 칸은 시안 칸을 두고 글을 비움(em dash 없음) · 온도 · 배터리 · 위치를 지어내지 않는다 · «미확인» 글자 없음', () => {
     mount('u-kim', TWENTY); feed(TWENTY);
-    expect(fact('g3', 'temp')).toBe('—');
+    expect(fact('g3', 'temp')).toBe('');
+    expect(small('g3', 'temp')).toBe('');
     expect(fact('g3', 'battery')).toBe('70 %');
-    expect(small('g3', 'battery')).toBe('—');   // 남은 시간은 서버 값이 없음
-    expect(fact('g4', 'battery')).toBe('—');
-    expect(tile('g3').querySelectorAll('.ln')[1].textContent).toBe('—');   // 위치 없음
+    expect(small('g3', 'battery')).toBe('');   // 남은 시간은 서버 값이 없음
+    expect(fact('g4', 'battery')).toBe('');
+    expect(tiles().some((t) => t.textContent!.includes('—'))).toBe(false);
+    expect(tile('g3').querySelectorAll('.ln')[1].textContent).toBe('');   // 위치 없음
     expect(tiles().some((t) => t.textContent!.includes('미확인'))).toBe(false);
-    expect(tile('g3').querySelector('.ln span')!.textContent).toBe('—');   // 임무 없음
+    expect(tile('g3').querySelector('.ln span')!.textContent).toBe('');   // 임무 없음
     expect(tile('g5').querySelector('.ln em')!.textContent).toBe('할 일 1 / 4');
   });
 
@@ -189,7 +193,7 @@ describe('관제 탭', () => {
     expect(tile('g2').classList.contains('rehearse')).toBe(true);
     act(() => { $('.u5 .flipb').click(); });
     expect(tiles().every((t) => t.querySelector('.cv')!.getAttribute('data-face') === 'front')).toBe(true);
-    expect(tile('g3').querySelector('.cv .ov')!.textContent).toBe('최고 관절 온도 —');
+    expect(tile('g3').querySelector('.cv .ov')!.textContent).toBe('최고 관절 온도');
     expect($('.u5 .flipb').textContent).toBe('뒤 1 m 시점으로');
     expect(tile('g3').dataset.sel).toBeUndefined();
   });
@@ -252,7 +256,7 @@ describe('관제 탭', () => {
     const al = $$('[aria-label="최근 경고"] [data-alert]');
     expect(al.map((e) => e.dataset.alert)).toEqual(['g9', 'g15']);
     expect([...al[1].querySelector('div')!.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join('')).toBe('K-16 연결 끊김');
-    expect(al[1].querySelector('small')!.textContent).toBe('위치 — · 다시 연결 중');
+    expect(al[1].querySelector('small')!.textContent).toBe('다시 연결 중');
     const at = al[0].querySelector('[data-alert-at]')!;   // 연결 중인 로봇의 받은 시각 = 마지막 state 를 받은 때
     expect(at.textContent).toMatch(/^\d\d:\d\d$/);
     expect(at.getAttribute('title')).toBe(`받은 시각 ${at.textContent}`);
@@ -287,7 +291,8 @@ describe('관제 탭', () => {
     expect(tiles()).toHaveLength(2);
     expect(tiles().every((t) => t.dataset.tone === undefined && !t.querySelector('[data-warn-flag]'))).toBe(true);
     expect($('[data-sum="경고"] b').textContent).toBe('0');
-    expect($$('.u5 .tb .cnt').map((e) => e.dataset.sum)).toEqual(['임무 중', '충전', '점검', '경고']);   // 시안 u5_6: 0 인 연결 중 · 시뮬 대기는 칸째 뺌
+    expect($$('.u5 .tb .cnt').map((e) => e.dataset.sum)).toEqual(['임무 중', '충전', '점검', '연결 중', '시뮬 대기', '경고']);   // 시안 칸 줄 그대로 · 0 이면 0
+    expect(['연결 중', '시뮬 대기'].map((k) => $(`[data-sum="${k}"] b`).textContent)).toEqual(['0', '0']);
     expect($('[data-alarm]')).toBeNull();
     expect($$('[aria-label="최근 경고"] [data-alert]')).toHaveLength(0);
     expect($('main').textContent).not.toContain('연결 끊김');
@@ -347,10 +352,10 @@ describe('관제 탭', () => {
       if ('code' in rep) d.mockRejectedValue(rep); else d.mockResolvedValue(rep as never);
       mount('u-kim', EIGHT); feed(EIGHT);
       await act(async () => {});
-      expect(['임무 중', '경고'].map((k) => $(`[data-sum="${k}"] b`).textContent)).toEqual(['—', '—']);
+      expect(['임무 중', '경고'].map((k) => $(`[data-sum="${k}"] b`).textContent)).toEqual(['', '']);
       expect($('[data-sum="경고"]').title).toContain(`요약을 받지 못했습니다. ${says}`);
       expect($('[data-dash-err]').textContent).toContain(says);
-      expect($('.bar [data-approvals]').dataset.approvals).toBe('—');
+      expect($('.bar [data-approvals]').dataset.approvals).toBe('');
       expect($('.bar [data-approvals]').hidden).toBe(true);
       act(() => root!.unmount()); root = null; box.remove(); d.mockRestore();
     }
@@ -375,7 +380,7 @@ describe('관제 탭', () => {
     expect(kv('임무')).toBe('공정 순찰 A · 이동 중 · 할 일 2 / 4');
     expect(kv('위치')).toMatch(/^x 1\.3 m · y -3\.0 m \(\d\d:\d\d:\d\d\)$/);
     expect(kv('조종')).toBe('박OO');
-    expect(kv('모드')).toBe('—');
+    expect(kv('모드')).toBe('');
   });
   it('선택 칸: 위치 null = «위치 없음», 임무 없음 = «진행 중인 임무가 없습니다», 조종권 없음 = «없음»', async () => {
     vi.spyOn(api, 'robot').mockResolvedValue(ROBOT({ id: 'g3', location: null, current_run: null, lease: null }) as never);
@@ -869,5 +874,26 @@ describe('관제 탭', () => {
     expect(FakeWS.last.of('stop')).toHaveLength(0);
     act(() => { go.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true })); });   // 새 Space 누름
     expect(FakeWS.last.of('stop')).toHaveLength(10);
+  });
+  it('가용(GET /robots/availability) · 오늘 일정(GET /schedule): 구역 이름 = location_label · 데모 칩 · 충전 = CHARGING 또는 지금 걸친 BATTERY_SWAP 칸 · 실패면 수를 비움', async () => {
+    const item = (id: string, o: object = {}) => ({ robot_id: id, robot_name: id, state: 'FREE', busy_until: null, busy_slot_id: null, busy_label: null, battery_pct: 70, demo: false, sim: false, location_label: null, ...o });
+    const av = vi.spyOn(api, 'availability').mockResolvedValue({ items: [
+      item('k1', { demo: true, location_label: '정비동 · 1 층' }),   // demo 플래그 PR 전: 시험 자료는 demo=true 고정
+      item('k2', { state: 'BUSY', busy_slot_id: 's-swap', busy_label: '배터리 교체' }),
+      item('k3', { state: 'CHARGING' }),
+      item('k4', { state: 'BUSY', busy_slot_id: 's-run', busy_label: '배터리 교체' }),   // 이름만 같은 임무 칸은 충전이 아님
+    ] } as never);
+    const sc = vi.spyOn(api, 'schedule').mockResolvedValue({ day: '2026-11-28', tz: 'Asia/Seoul', slots: [{ id: 's-swap', kind: 'BATTERY_SWAP' }, { id: 's-run', kind: 'CONFIRMED' }] } as never);
+    mount('u-kim', EIGHT); feed(EIGHT);
+    await act(async () => {});
+    expect(tile('k1').querySelector('.nm [data-demo]')!.textContent).toBe('데모');
+    expect(tile('k2').querySelector('[data-demo]')).toBeNull();
+    expect(tile('k1').querySelectorAll('.ln')[1].textContent).toBe('정비동 · 1 층');
+    expect($('[data-sum="충전"] b').textContent).toBe('2');
+    expect($('[data-sum="충전"]').dataset.none).toBeUndefined();
+    expect(small('k2', 'battery')).toBe('충전 중');
+    expect(small('k4', 'battery')).toBe('');
+    expect(tile('k3').querySelector('[data-charging]')!.textContent).toBe('충전 중');
+    av.mockRestore(); sc.mockRestore();
   });
 });

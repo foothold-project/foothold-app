@@ -113,7 +113,7 @@ export function SiteView({ all, sel, pick, open }: { all: TileFacts[]; sel: stri
     return () => { live = false; cancelAnimationFrame(raf); ctl.dispose(); r.dispose(); };
   }, []);
   const icon = (f: TileFacts): ReactNode => (f.level === 'bad' || f.level === 'crit' ? ic(13, IC.warn, '#ff4d4f') : f.lostNow ? ic(13, IC.wifi, '#f2b705') : f.sim ? ic(13, IC.box, '#4c9bff') : null);
-  const sub = (f: TileFacts) => f.mission?.name ?? (f.lostNow ? '연결 끊김' : f.sim ? '시뮬 대기' : f.x.status ? STATUS_NAME[f.x.status] : '—');
+  const sub = (f: TileFacts) => f.mission?.name ?? (f.lostNow ? '연결 끊김' : f.sim ? '시뮬 대기' : f.x.status ? STATUS_NAME[f.x.status] : '');
   return <div className="big" style={{ background: '#07090b' }}>
     <canvas id="site" ref={cv} aria-label="현장 3D"></canvas>
     <div className="mks" ref={marks}>{all.map((f) => { const k = tone(f); return <div key={f.x.id} className={`mk3 ${k === 'bad' ? 'r' : k === 'link' ? 'o' : k === 'rest' ? 'sim' : ''}${f.x.id === sel ? ' sel' : ''}`} data-n={f.x.name} data-r3={f.x.id} style={{ display: 'none' }}
