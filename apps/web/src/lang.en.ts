@@ -71,6 +71,8 @@ export const EN: Record<string, string> = {
 
   // 조작(u9_7)
   '키보드 · 조이스틱 · 음성 · 폰 터치. 규칙은 PC 와 폰이 같습니다.': 'Keyboard · joystick · voice · phone touch. PC and phone follow the same rules.',
+  '누르는 동안 · 조직 속도 상한까지': 'While held · up to the org speed limit', '왼쪽 · 오른쪽': 'Left · right',
+  '그 자리에서 왼쪽 · 오른쪽 · ↑ 와 함께 누르면 돌며 앞으로': 'Left · right in place · with ↑ it turns while walking forward',
   '키보드': 'Keyboard', '앞으로': 'Forward', '누르는 동안 걷습니다': 'Walks while held', '돌기': 'Turn', '그 자리에서 왼쪽 · 오른쪽': 'Left · right in place', '뒤로': 'Back',
   '아직 막혀 있습니다 · 누르면 까닭 한 줄': 'Blocked for now · pressing shows why', '방향키와 같음': 'Same as arrow keys', 'W 앞 · A 왼쪽 · D 오른쪽 · S 뒤 (막힘)': 'W forward · A left · D right · S back (blocked)',
   '어느 화면에서나 · 이동 입력보다 먼저': 'On any screen · before any move input', '멈춰 있을 때만 · 한 번 확인': 'Only while stopped · confirm once', '입력이 겹치면': 'When inputs overlap',
