@@ -846,7 +846,7 @@ describe('U9-03 밝기 · U9-04 서버 값 없는 칸', () => {
     const WHY: [string, string[]][] = [
       ['network', ['현장 네트워크', '끊긴 까닭']],
       ['crowd', ['혼잡 시간', '기준 시간']],
-      ['display', ['English']],
+      ['display', ['영어로 바뀌는 곳']],   // 언어는 이제 고를 수 있음(lang.tsx) · 사전이 모든 탭을 덮기 전까지 범위 한 줄
       ['demo', ['켜고 끄는 값']],
     ];
     for (const [id, words] of WHY) {

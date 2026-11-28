@@ -13,6 +13,7 @@ import type { User } from '../fake';
 import type { Ctx } from '../screens';
 import { Account as AccountDetail, failText, PW_DONE, Settings, TAKEN, tempPassword } from './settings';
 import { setThemePref, useTheme, type ThemePref } from '../theme';
+import { setLang, useLang, type Lang } from '../lang';
 
 export type Page = 'account' | 'users' | 'network' | 'crowd' | 'robot' | 'safety' | 'alerts' | 'clip' | 'controls' | 'display' | 'demo' | 'system';
 
@@ -398,10 +399,13 @@ function Alerts({ cancel }: { cancel?: AbortSignal }) {
 }
 
 
-/** 표시(u9_6 총괄 · u9_9 운영자). 화면 밝기 = 머리 메뉴 밝기와 같은 값(theme.tsx). 언어는 한국어만, 데모 표시는 서버 값이 없어 잠금 */
+/** 영어로 바뀌는 범위(사전 lang.en.ts 1 차). 모든 탭을 덮으면 이 줄을 뺀다 */
+export const LANG_SCOPE = '지금 영어로 바뀌는 곳: 머리줄 · 설정. 다른 탭은 차례로 늘립니다.';
+/** 표시(u9_6 총괄 · u9_9 운영자). 화면 밝기 = 머리 메뉴 밝기와 같은 값(theme.tsx). 언어 = 이 기기 값(lang.tsx), 데모 표시는 서버 값이 없어 잠금 */
 function Display({ admin }: { admin: boolean }) {
   const [pref] = useTheme();
   const pick = (t: ThemePref) => ({ role: 'radio', tabIndex: 0, 'aria-checked': pref === t, onClick: () => setThemePref(t), onKeyDown: (e: KeyboardEvent) => { if (e.key === 'Enter') setThemePref(t); } });
+  const lang = useLang(), say = (l: Lang) => ({ role: 'radio', tabIndex: 0, 'aria-checked': lang === l, onClick: () => setLang(l), onKeyDown: (e: KeyboardEvent) => { if (e.key === 'Enter') setLang(l); } });
   return <>
   <div className="hd"><span className="ttl">표시</span>
     <p>화면 밝기 · 언어 · 데모 표시. 여기서만 바꿉니다.</p></div>
@@ -420,14 +424,16 @@ function Display({ admin }: { admin: boolean }) {
     <p className="mu2" style={{fontSize:"13px",fontWeight:600,marginTop:"18px"}}>바꾸면 모든 화면에 바로 적용됩니다.</p></div>
   <div className="pane" style={{left:"1432px",top:"160px",width:"464px",height:"560px"}}>
     <div className="ph"><span className="ttl">언어</span><span style={{marginLeft:"auto",display:"flex",gap:"10px",alignItems:"center"}} /></div>
-    <div style={{display:"flex",flexDirection:"column",gap:"12px"}}>
-      <div className="pv on" style={{padding:"20px",flex:"none"}}>
-        <div className="row" style={{gap:"14px",fontSize:"17px",fontWeight:800}}><span className="radio on" />한국어<span className="mu2" style={{marginLeft:"auto",fontSize:"13px",fontWeight:600}}>지금</span></div>
-        <div className="row" style={{gap:"10px",marginTop:"16px",height:"52px",padding:"0 14px",borderRadius:"12px",background:"linear-gradient(180deg,rgba(255,77,79,.22),rgba(255,77,79,.12))",border:"1px solid rgba(255,77,79,.45)",fontSize:"14px",fontWeight:800}}><svg className="ic" viewBox="0 0 24 24" style={{width:"17px",height:"17px"}}><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z" /><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" /></svg>정지됨<span style={{fontSize:"12.5px",fontWeight:600,opacity:".75"}}>로봇이 멈췄습니다</span></div></div>
-      <div className="pv" style={{padding:"20px",flex:"none"}} aria-disabled="true">
-        <div className="row" style={{gap:"14px",fontSize:"17px",fontWeight:800}}><span className="radio" />English</div>
-        <div className="row" style={{gap:"10px",marginTop:"16px",height:"52px",padding:"0 14px",borderRadius:"12px",background:"linear-gradient(180deg,rgba(255,77,79,.22),rgba(255,77,79,.12))",border:"1px solid rgba(255,77,79,.45)",fontSize:"14px",fontWeight:800}}><svg className="ic" viewBox="0 0 24 24" style={{width:"17px",height:"17px"}}><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z" /><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" /></svg>Stopped<span style={{fontSize:"12.5px",fontWeight:600,opacity:".75"}}>The robot has stopped</span></div></div></div>
-    <p className="mu2" style={{fontSize:"13px",fontWeight:600,marginTop:"16px"}} data-why>English 화면 글은 아직 없습니다. 지금은 한국어만 씁니다.</p></div>
+    <div style={{display:"flex",flexDirection:"column",gap:"12px"}} role="radiogroup" aria-label="언어">
+      <div className={lang === 'ko' ? 'pv on' : 'pv'} style={{padding:"20px",flex:"none"}} {...say('ko')} aria-label="한국어">
+        <div className="row" style={{gap:"14px",fontSize:"17px",fontWeight:800}}><span className={lang === 'ko' ? 'radio on' : 'radio'} />한국어{lang === 'ko' && <span className="mu2" style={{marginLeft:"auto",fontSize:"13px",fontWeight:600}}>지금</span>}</div>
+        <div translate="no" className="row" style={{gap:"10px",marginTop:"16px",height:"52px",padding:"0 14px",borderRadius:"12px",background:"linear-gradient(180deg,rgba(255,77,79,.22),rgba(255,77,79,.12))",border:"1px solid rgba(255,77,79,.45)",fontSize:"14px",fontWeight:800}}><svg className="ic" viewBox="0 0 24 24" style={{width:"17px",height:"17px"}}><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z" /><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" /></svg>정지됨<span style={{fontSize:"12.5px",fontWeight:600,opacity:".75"}}>로봇이 멈췄습니다</span></div></div>
+      <div className={lang === 'en' ? 'pv on' : 'pv'} style={{padding:"20px",flex:"none"}} {...say('en')} aria-label="English">
+        <div className="row" style={{gap:"14px",fontSize:"17px",fontWeight:800}}><span className={lang === 'en' ? 'radio on' : 'radio'} />English{lang === 'en' && <span className="mu2" style={{marginLeft:"auto",fontSize:"13px",fontWeight:600}}>지금</span>}</div>
+        <div translate="no" className="row" style={{gap:"10px",marginTop:"16px",height:"52px",padding:"0 14px",borderRadius:"12px",background:"linear-gradient(180deg,rgba(255,77,79,.22),rgba(255,77,79,.12))",border:"1px solid rgba(255,77,79,.45)",fontSize:"14px",fontWeight:800}}><svg className="ic" viewBox="0 0 24 24" style={{width:"17px",height:"17px"}}><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z" /><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" /></svg>Stopped<span style={{fontSize:"12.5px",fontWeight:600,opacity:".75"}}>The robot has stopped</span></div></div></div>
+    <p className="mu2" style={{fontSize:"13px",fontWeight:600,marginTop:"16px"}}>모든 화면 글이 바뀝니다. 숫자와 단위는 그대로입니다.</p>
+    {/* 시안 밖 · 새로 그림: 사전이 아직 모든 탭을 덮지 못한 동안만 범위를 밝힌다(lang.en.ts) */}
+    <p className="mu2" style={{fontSize:"12.5px",fontWeight:600,marginTop:"8px",opacity:.8}} data-why>{LANG_SCOPE}</p></div>
   <div className="pane" style={{left:"368px",top:"744px",width:"1528px",height:"312px"}} aria-label="데모 로봇 표시">
     <div className="ph"><span className="ttl">데모 로봇 표시</span><span className="only">총괄만</span><span style={{marginLeft:"auto",display:"flex",gap:"10px",alignItems:"center"}} /></div>
     <div className="row" style={{gap:"28px",alignItems:"center"}}>
