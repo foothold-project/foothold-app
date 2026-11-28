@@ -2,11 +2,17 @@
 // fetch 는 가짜 서버, WebSocket 은 FakeWS. 연결 키는 화면에 오지 않는다(서버 confirm 답에도 없음).
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RobotSummary, User } from '../../../contracts/ts';
 import { LIST_MS, Root } from '../session';
 import { ROBOT_IN_USE } from '../screens/settings';
 import { FakeWS, state } from './fakeWs';
+import { pcBoard } from '../pcboard';
+/** 옛 PC 관제 부품(관제 요약 · 상세 서랍 · 연결 상태 · 조종 준비)을 앱 맥락 안에서 직접 그린다 — W1 u5(관제)로 옮겨 갈 부품 */
+const board = () => { beforeEach(() => { pcBoard.on = true; }); afterEach(() => { pcBoard.on = false; }); };
+/** PC 로봇 탭(시안 u4)의 «로봇 설정» · «점검» 창 열기 */
+const seg = async (t: '조종' | '로봇 설정' | '점검') => { act(() => { box.querySelector<HTMLElement>(`.u4 .seg2 [data-seg="${t}"]`)!.click(); }); await flush(); };
+const u4Drive = () => box.querySelector<HTMLElement>('[data-u4-drive]')!;
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -55,8 +61,9 @@ async function open(hash: string, phone: boolean) {
 }
 afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.unstubAllGlobals(); });
 
-const $ = <T extends Element = HTMLElement>(s: string, from: ParentNode = box) => from.querySelector<T>(s);
-const btn = (t: string, from: ParentNode = box) => [...from.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
+const $ = <T extends Element = HTMLElement>(s: string, from: ParentNode = document) =>   // 로봇 추가 흐름(u2)은 body 로 띄움
+  from.querySelector<T>(s);
+const btn = (t: string, from: ParentNode = document) => [...from.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
 const card = (label: string) => $(`[aria-label="${label}"]`)!;
 const click = async (b: Element | undefined | null) => { expect(b).toBeTruthy(); act(() => (b as HTMLElement).click()); await flush(); };
 const setVal = (el: HTMLInputElement, v: string) => act(() => {
@@ -71,7 +78,8 @@ const unfold = async (label: string) => {
   act(() => { d.open = true; d.dispatchEvent(new Event('toggle')); }); await flush();
 };
 /** 브라우저(앱 밖)는 고를 것이 «새 로봇 추가»뿐이라 «+ 로봇 연결하기» 한 번에 바로 새 로봇 추가 화면(RB-EASY-PAIR) */
-const startPair = async () => { await click(btn('+ 로봇 연결하기')); expect(card('새 로봇 추가').dataset.pair).toBe('code'); };
+// 로봇 0대 폰은 시안 u13_4 화면의 «로봇 연결»(같은 data-robot-connect · 같은 길)
+const startPair = async () => { await click($('[data-robot-connect]')); expect(card('새 로봇 추가').dataset.pair).toBe('code'); };
 
 describe('폰 운영 관리자 — 새 로봇 추가', () => {
   it('6자리 → claim → 바로 이름 단계(기체번호 작게, 확인 단계 없음) → 기본 이름 Go2-끝4자리 → confirm → 목록 다시 받기, 연결 키는 어디에도 없음', async () => {
@@ -80,7 +88,7 @@ describe('폰 운영 관리자 — 새 로봇 추가', () => {
       'POST /pairing/p1/confirm': { status: 200, body: RA },
     }));
     await open('#/drive', true);
-    expect(btn('+ 로봇 연결하기')!.className).toBe('btn pri');   // 연결된 실기 0 → 목록 위 큰 단추
+    expect($('[data-u13="no-robot"] [data-robot-connect]')!.className).toBe('prim');   // 로봇 0대 → 시안 u13_4 의 칠한 큰 단추
     await startPair();
     expect(card('새 로봇 추가').dataset.pair).toBe('code');
     expect(btn('QR 스캔')!.className).toBe('btn pri');   // 폰은 한 줄·QR 먼저 그대로(PC 두 칸 아님)
@@ -105,7 +113,7 @@ describe('폰 운영 관리자 — 새 로봇 추가', () => {
     expect($('[data-pair-done]')!.textContent).toContain('Go2-A 로봇을 등록했습니다.');
     expect($('[data-pair-done]')!.textContent).toContain('조종권을 잡으세요');
     expect(calls.filter((c) => c.path.startsWith('/robots?')).length).toBe(lists);   // 안내가 보이는 동안은 안 바꿈
-    await click(btn('내 로봇으로'));
+    await click(btn('내 로봇 보기'));   // 폰 끝 화면 = 시안 u2_3 «내 로봇 보기»(옛 «내 로봇으로», 같은 동작)
     expect(calls.filter((c) => c.path.startsWith('/robots?')).length).toBeGreaterThan(lists);
     expect(card('내 로봇').textContent).toContain('Go2-A');
     expect(box.innerHTML).not.toMatch(/agent_token|poll_secret/);
@@ -144,7 +152,8 @@ describe('폰 운영 관리자 — 새 로봇 추가', () => {
     setVal($<HTMLInputElement>('[data-pair-code]')!, '111222');
     await submit($<HTMLInputElement>('[data-pair-code]')!.form!);
     await submit($('[aria-label="새 로봇 추가"] form')!);
-    expect($('[data-pair-done]')!.textContent).toContain('기존 로봇에 다시 연결했습니다. 옛 연결 키는 폐기');
+    expect($('[data-pair-done] .h')!.textContent).toContain('기존 로봇에 다시 연결했습니다.');   // 폰 = 시안 u2_3 제목 · 아래 줄
+    expect($('[data-pair-done] .sub')!.textContent).toContain('옛 연결 키는 폐기');
   });
 
   it('QR 스캔: 내장 BarcodeDetector 가 foothold-pair:<6자리> 를 읽으면 그 코드로 claim 하고 카메라를 끈다. 다른 QR 은 무시', async () => {
@@ -234,7 +243,7 @@ describe('사람 현장 승인 제거', () => {
     expect(box.textContent).not.toContain('현장 안전 확인');
     expect(box.querySelector('input[name="space_clear"]')).toBeNull();
     expect(calls.filter((c) => c.path.includes('field-approval'))).toEqual([]);
-    if (!phone) expect($('[data-server-drive]')).not.toBeNull();
+    if (!phone) expect($('[data-u4-can]')).not.toBeNull();   // PC 로봇 탭(시안 u4)에 조종이 붙음
   });
 });
 
@@ -265,7 +274,8 @@ describe('폰 운영 관리자 — 내 로봇 관리', () => {
   });
 });
 
-describe('PC 총괄 · 로봇 탭 대시보드(남 담당 실기 관리는 2 차)', () => {
+describe('PC 총괄 · 로봇 탭 대시보드(남 담당 실기 관리는 2 차) · 부품 → W1 u5', () => {
+  board();
   const RB = robot('r-b', 'Go2-B', null, { robot_serial: '9-1', attention: ['OFFLINE'] });   // status 없어도(다시 로그인 등) 서버 OFFLINE 경보는 «연결 끊김» 그대로(#327 검토 P1 회귀)
   const RAX = { ...RA, field_approval_expires_at: inMin(20), attention: ['BATTERY_LOW'], battery: { soc: 12, updated_at: '2026-11-02T00:00:00Z' } };
   it('목록: 담당·연결·주의. 상세: 남 담당 실기는 기체번호 읽기 · 관리는 2 차 까닭 한 줄, 현장 확인 화면 없음 · 새 로봇 추가 · STOP 있음(11/28)', async () => {
@@ -308,12 +318,19 @@ describe('PC 웹 운영 관리자', () => {
   it('내 실기 상세에 내 로봇 관리, 현장 확인 없음, 목록 위 «+ 새 로봇 추가» → 같은 추가 화면', async () => {
     serve(signedIn(LEE, [RA]));
     await open('#/fleet', false);
-    expect($('[aria-label="로봇 상세"] [data-field-check]')).toBeNull();
-    expect($('[aria-label="로봇 설정"] [data-manage]')).not.toBeNull();   // 내 로봇 관리는 «로봇 설정» 창(11-11 시안)
-    await click(btn('+ 새 로봇 추가'));
-    expect(card('새 로봇 추가').dataset.pair).toBe('code');
-    await click(btn('닫기', card('새 로봇 추가')));
-    expect($('[aria-label="로봇 연결 상태"]')).not.toBeNull();
+    expect($('[data-field-check]')).toBeNull();
+    expect($('[aria-label="로봇 설정"]')).toBeNull();
+    await seg('로봇 설정');
+    expect($('[aria-label="로봇 설정"] [data-manage]')).not.toBeNull();   // 내 로봇 관리는 «로봇 설정» 창(시안 u4_5)
+    expect($('[aria-label="로봇 설정"]')!.textContent).toContain(SERIAL);
+    await click($('[data-u4-close]'));
+    expect($('[aria-label="로봇 설정"]')).toBeNull();
+    await click($('[data-u4-add]')); await click($('[data-u4-next]'));   // 시안 u4_6: 실제 고르고 다음 → u2_1
+    expect($('[data-u2]')!.dataset.u2).toBe('u2_1_scan');
+    expect($('[aria-label="새 로봇 추가"]')).toBeNull();   // 옛 추가 창 0
+    await click($('[data-u2-back]'));   // 시안 머리 「뒤로」 = 닫기
+    expect($('[data-u2]')).toBeNull();
+    expect($('[data-u4]')).not.toBeNull();
   });
 });
 
@@ -324,33 +341,33 @@ describe('PC 자동 관문은 서버 목록의 연결·설정 판정을 따른�
   it.each(reasons.map((reason, i) => [reason, messages[i]] as const))('%s 이유를 쉬운 말로 표시하고 조종 패널은 열지 않음', async (reason, message) => {
     // 이 화면에서 한 번도 허용된 적 없는 로봇(앞 시험이 r-a 를 허용 로봇으로 기억 — RB-PC-DRIVE-OFFLINE keepDrive, 새로 고침 전까지)
     serve(signedIn(LEE, [{ ...robot('r-gate', 'Go2-A', LEE, { robot_serial: SERIAL }), server_drive_blocked: [reason] }]));
-    await open('#/fleet', false); online('r-gate');
+    await open('#/fleet', false); online('r-gate'); await seg('점검');
     const step = card('조종 준비').querySelector('[data-step="3"]')!;
     expect(step.querySelector('[data-drive-block]')!.textContent).toBe(message);
     expect(step.textContent).not.toMatch(/serial|agent|lease|SLAM|SWITCH_OFF|NO_OWNER|NO_SERIAL|AGENT_OFFLINE/);
-    expect($<HTMLButtonElement>('[data-open-drive]')!.disabled).toBe(true);
-    expect($('[data-server-drive]')).toBeNull();
+    await seg('조종'); expect(u4Drive().getAttribute('aria-disabled')).toBe('true');   // 점검 칸은 오른쪽 칸을 바꿔 그림 → 조종으로 돌아와 확인
+    expect($('[data-u4-can]')).toBeNull();
   });
   it('연결 전에도 여러 이유를 각각 한 줄로 표시함', async () => {
     serve(signedIn(LEE, [{ ...RA, server_drive_blocked: reasons }]));
-    await open('#/fleet', false);
+    await open('#/fleet', false); await seg('점검');
     const step = card('조종 준비').querySelector('[data-step="3"]')!;
     expect([...step.querySelectorAll('[data-drive-block]')].map((x) => x.textContent)).toEqual(messages);
     expect(step.querySelectorAll('br')).toHaveLength(3);
   });
   it.each([undefined, null, []])('이유가 %s 이면 기존 안내, 빈 목록만으로 조종을 허용하지 않음', async (blocked) => {
     serve(signedIn(LEE, [{ ...RA, server_drive_blocked: blocked }]));
-    await open('#/fleet', false); online();
+    await open('#/fleet', false); online(); await seg('점검');
     expect(card('조종 준비').querySelector('[data-step="3"]')!.textContent).toContain('서버가 아직 조종을 허용하지 않았습니다');
     expect($('[data-drive-block]')).toBeNull();
-    expect($<HTMLButtonElement>('[data-open-drive]')!.disabled).toBe(true);
-    expect($('[data-server-drive]')).toBeNull();
+    await seg('조종'); expect(u4Drive().getAttribute('aria-disabled')).toBe('true');   // 점검 칸은 오른쪽 칸을 바꿔 그림 → 조종으로 돌아와 확인
+    expect($('[data-u4-can]')).toBeNull();
   });
   it.each<{ blocked: NonNullable<RobotSummary['server_drive_blocked']> }>([{ blocked: [] }, { blocked: ['SWITCH_OFF'] }])('서버 허용이면 이유 $blocked 와 무관하게 기존 패널 표시', async ({ blocked }) => {
     serve(signedIn(LEE, [{ ...RA, server_drive_allowed: true, server_drive_blocked: blocked }]));
     await open('#/fleet', false); online();
-    expect($('[data-server-drive]')).not.toBeNull();   // 로봇 탭 = 세 칸 조종 화면(RB-PC-DRIVE-3COL)
-    await click($('[data-pd-back]'));                  // «← 목록» → 조종 준비 단계
+    expect($('[data-u4-can]')).not.toBeNull();   // 로봇 탭(시안 u4)에 조종이 붙음
+    await seg('점검');                           // 점검 창 → 조종 준비 단계
     expect(card('조종 준비').querySelector('[data-step="3"]')!.classList.contains('done')).toBe(true);
     expect($('[data-drive-block]')).toBeNull();
   });
@@ -359,17 +376,18 @@ describe('PC 자동 관문은 서버 목록의 연결·설정 판정을 따른�
     try {
       serve(signedIn(LEE, [{ ...RA, server_drive_allowed: true }]));
       await open('#/fleet', false); online();
-      expect($('[data-server-drive]')).not.toBeNull();
+      expect($('[data-u4-can]')).not.toBeNull();
       routes['GET /robots'] = { status: 200, body: { items: [RA], next_cursor: null } };
       act(() => { vi.advanceTimersByTime(LIST_MS); });
       await flush();
-      expect($('[data-server-drive]')).toBeNull();
+      expect($('[data-u4-can]')).toBeNull();
       expect(calls.filter((c) => c.path.includes('field-approval'))).toEqual([]);
     } finally { vi.useRealTimers(); }
   });
 });
 
-describe('PC 운영 관리자 실기 상세 — 11-11 시안 배치(연결 전·연결됨·끊김, 현장 승인 없음)', () => {
+describe('PC 운영 관리자 실기 상세 — 11-11 시안 배치(연결 전·연결됨·끊김, 현장 승인 없음) · 부품 → W1 u5', () => {
+  board();
   const title = () => card('로봇 연결 상태').querySelector('h3')!.textContent;
   const steps = () => [...card('조종 준비').querySelectorAll('[data-step]')].map((x) => x.classList.contains('done') ? 'done' : x.classList.contains('cur') ? 'cur' : 'todo');
   const drive = () => $<HTMLButtonElement>('[data-open-drive]')!;
@@ -392,15 +410,10 @@ describe('PC 운영 관리자 실기 상세 — 11-11 시안 배치(연결 전·
       routes['GET /robots'] = { status: 200, body: { items: [{ ...RA, connection: 'ONLINE', server_drive_allowed: true }], next_cursor: null } };
       act(() => { vi.advanceTimersByTime(LIST_MS); });
       await flush();
-      expect($('[data-pc-drive]')).not.toBeNull();   // 허용되면 로봇 탭 본문이 곧 세 칸 조종 화면(모달 없음)
-      expect($('[data-sd-full]')).toBeNull();
-      await click($('[data-pd-back]'));               // «← 목록»
-      expect($('[data-pc-drive]')).toBeNull();
+      // 허용되면 조종 준비 완료 · «조종 화면 열기» 켜짐(조종 화면 자체는 PC 로봇 탭 시안 u4 — robotu4drive 시험)
       expect(steps()).toEqual(['done', 'done', 'done']);
-      await click(drive());                            // «조종 화면 열기» = 다시 세 칸 화면
-      expect($('[data-pc-drive]')).not.toBeNull();
+      expect(drive().disabled).toBe(false);
       expect($('[data-sd-full]')).toBeNull();
-      await click($('[data-pd-back]'));
       const main = FakeWS.all.find((w) => w.url.endsWith('/ws'))!;   // 조종 화면이 영상 소켓을 열어 last 는 영상 소켓
       act(() => main.recv(state('r-a', { connection: 'OFFLINE', status: null, battery: null, latched: null })));
       expect(title()).toBe('로봇과의 연결이 끊겼습니다');
@@ -436,7 +449,8 @@ describe('PC 운영 관리자 실기 상세 — 11-11 시안 배치(연결 전·
   });
 });
 
-describe('r1 — 총괄 실기 상세에는 «배정» 없음(시뮬은 로봇 탭에 없음 — TAB-SPLIT)', () => {
+describe('r1 — 총괄 실기 상세에는 «배정» 없음(시뮬은 로봇 탭에 없음 — TAB-SPLIT) · 부품 → W1 u5', () => {
+  board();
   it('실기 상세 «배정» 숨김, 시뮬 행은 목록에 없음', async () => {
     const SIM = robot('s-1', '창고 시뮬', LEE, { simulation: true });
     serve(signedIn(KIM, [RA, SIM]));
@@ -461,7 +475,7 @@ describe('PC 웹 운영 관리자 — 담당 넘기기', () => {
       'PATCH /robots/r-a': () => { moved = true; return { status: 200, body: { ...RA, owner: { id: 'o2', display_name: '박운영' } } }; },
       'GET /robots': () => ({ status: 200, body: { items: [moved ? { ...RA, owner: { id: 'o2', display_name: '박운영' } } : RA], next_cursor: null } }),
     }));
-    await open('#/fleet', false);
+    await open('#/fleet', false); await seg('로봇 설정');
     expect(sent('GET', '/robots/r-a/owner-candidates?limit=100')).toHaveLength(0);   // 펼치기 전엔 부르지 않음
     const open1 = btn('담당 넘기기', transfer())!;
     expect(open1.getAttribute('aria-expanded')).toBe('false');
@@ -499,7 +513,7 @@ describe('PC 웹 운영 관리자 — 담당 넘기기', () => {
       [CAND]: () => list,
       'PATCH /robots/r-a': err(409, 'VERSION_CONFLICT', '조종 중인 로봇은 담당을 넘길 수 없습니다.'),
     }));
-    await open('#/fleet', false);
+    await open('#/fleet', false); await seg('로봇 설정');
     await click(btn('담당 넘기기', transfer()));
     expect(transfer().textContent).toContain('넘길 수 있는 운영 관리자가 없습니다');
     expect(transfer().querySelector('input[type="radio"]')).toBeNull();
@@ -525,7 +539,7 @@ describe('PC 웹 운영 관리자 — 담당 넘기기', () => {
       'PATCH /robots/r-a': () => new Promise<Reply>((res) => { answer = res; }),
     }));
     await open('#/fleet', false);
-    const pickRobot = (n: string) => click([...card('내 로봇 고르기').querySelectorAll('button')].find((b) => b.textContent!.includes(n)));
+    const pickRobot = async (n: string) => { await click($(`.u4 .rail .rcard[data-r="${n}"]`)); await seg('로봇 설정'); };   // 다른 로봇 = 조종 화면이 새로 그려져 창이 닫힘
     await pickRobot('Go2-A');
     await click(btn('담당 넘기기', transfer()));
     pick('박운영'); await flush();
@@ -533,7 +547,7 @@ describe('PC 웹 운영 관리자 — 담당 넘기기', () => {
     await click(btn('넘기기', card('담당 넘기기 확인')));
     expect(sent('PATCH', '/robots/r-a')).toHaveLength(1);
     await pickRobot('Go2-B');
-    expect(card('로봇 연결 상태').textContent).toContain('Go2-B');   // 집중 화면: 이름은 머리(상세 제목은 «현재 임무»)
+    expect($('[data-robot-head]')!.textContent).toContain('Go2-B');
     expect($('[data-transferring]')).toBeNull();   // 다른 로봇은 잠그지 않음
     expect(btn('담당 넘기기', transfer())!.disabled).toBe(false);
     await pickRobot('Go2-A');
@@ -557,16 +571,17 @@ describe('PC 웹 운영 관리자 — 담당 넘기기', () => {
     serve(signedIn(LEE, [SIM, RP]));
     await open('#/fleet', false);
     for (const n of ['창고 시뮬', 'Go2-P']) {
-      const row = [...box.querySelectorAll('button')].find((b) => b.textContent!.includes(n));
-      if (row) await click(row);
+      const row = $(`.u4 .rail .rcard[data-r="${n}"]`);
+      if (row) { await click(row); await seg('로봇 설정'); }
       expect($('[data-transfer]')).toBeNull();
       expect(btn('담당 넘기기')).toBeUndefined();
     }
     act(() => root?.unmount()); box.remove();
     serve(signedIn(KIM, [RA]));
     await open('#/fleet', false);
-    await click([...card('로봇 목록').querySelectorAll('button')].find((b) => b.textContent!.includes('Go2-A')));
-    expect(card('로봇 상세').textContent).toContain('Go2-A');
+    await click($('.u4 .rail .rcard[data-r="Go2-A"]')); await seg('로봇 설정');
+    expect($('[data-robot-head]')!.textContent).toContain('Go2-A');
+    expect($('[aria-label="로봇 설정"] [data-admin-later]')).not.toBeNull();   // 남 담당 실기 = 까닭 한 줄
     expect($('[data-transfer]')).toBeNull();
     expect(btn('담당 넘기기')).toBeUndefined();
     expect(calls.some((c) => c.path.includes('owner-candidates'))).toBe(false);
@@ -579,15 +594,16 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
   const info = (...items: unknown[]): Reply => ({ status: 200, body: { items } });
   const ua = (s: string) => vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(s);
   const UBUNTU = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64) Chrome/130', WINDOWS = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130';
-  const rows = () => [...box.querySelectorAll<HTMLElement>('[data-installer] [data-os]')];
+  const rows = () => [...document.querySelectorAll<HTMLElement>('[data-installer] [data-os]')];
   afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
   it('PC Ubuntu: 내 운영체제 줄 위·강조, 받기 = 로그인 쿠키 링크(크기 MB), 윈도우 준비 중, 받은 뒤 세 줄, 개발자 용어 없음', async () => {
     ua(UBUNTU);
     serve(signedIn(LEE, [RA], { 'GET /robot-installer/info': info(WIN, LINUX) }));
     await open('#/fleet', false);
-    await click(btn('+ 새 로봇 추가'));
+    await click($('[data-u4-add]')); await click($('[data-u4-next]'));   // 시안 u4_6: 실제 고르고 다음
     const box2 = $('[data-installer]')!;
+    expect(box2.closest('[data-u2="u2_1_scan"]')).not.toBeNull();   // 시안 u2_1 의 QR 자리(offer 전)
     expect(box2.textContent).toContain('노트북에 연결 프로그램이 없나요?');
     expect(rows().map((r) => r.dataset.os)).toEqual(['linux', 'windows']);
     expect(rows()[0].dataset.mine).toBe('true');
@@ -596,16 +612,14 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
     expect(a.getAttribute('href')).toBe('/api/v1/robot-installer/linux');
     expect(a.getAttribute('download')).toBe('foothold-robot_0.3.0_amd64.deb');
     expect(a.textContent).toBe('받기 (12.3 MB)');
-    expect(a.className).toBe('btn pri');
     expect($('[data-os="windows"] a')).toBeNull();
     expect($('[data-os="windows"]')!.textContent).toContain('준비 중입니다');
-    expect([...box2.querySelectorAll('[data-installer-steps] li')].map((l) => l.textContent)).toEqual(['받은 파일을 더블클릭해 설치', '랜선을 로봇에 꽂기', '노트북 화면의 코드를 «6자리 코드» 칸에 넣기']);
+    expect([...box2.querySelectorAll('[data-installer-steps] li')].map((l) => l.textContent)).toEqual(['받은 파일을 더블클릭해 설치', '랜선을 로봇에 꽂기', '노트북 화면의 6 자리 코드를 오른쪽 칸에 넣기']);
     expect(box2.textContent).not.toMatch(/sha|commit|platform|deb|0\.3\.0/i);
     expect($('[data-installer-phone]')).toBeNull();
-    // PC(11-12): «설치 | 코드» 두 칸, 6자리 코드가 주 동작·QR 은 보조(폰 틀이 아님)
-    expect($('.pair-cols [aria-label="코드 넣기"] [data-pair-code]')).not.toBeNull();
-    expect(btn('다음')!.className).toBe('btn pri');
-    expect(btn('QR 스캔')!.className).toBe('btn');
+    // 시안 u2_1: 왼쪽 = 설치(QR 자리) · 오른쪽 = 6 자리 코드 칸(주 동작)
+    expect($('[data-u2="u2_1_scan"] [data-u2-digits]')).not.toBeNull();
+    expect($('[data-u2="u2_1_scan"] [data-pair-code]')).not.toBeNull();
     expect($('[data-agent-open] a')!.getAttribute('href')).toBe('foothold-robot://open');   // 노트북 연결 프로그램 열기(PC 만)
     expect($('[data-agent-open] a')!.textContent).toBe('노트북 연결 프로그램 열기');
   });
@@ -614,11 +628,11 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
     ua(WINDOWS);
     serve(signedIn(LEE, [RA], { 'GET /robot-installer/info': info(LINUX, { ...LINUX, platform: 'windows', filename: 'foothold-robot-setup.exe' }) }));
     await open('#/fleet', false);
-    await click(btn('+ 새 로봇 추가'));
+    await click($('[data-u4-add]')); await click($('[data-u4-next]'));   // 시안 u4_6: 실제 고르고 다음
     expect(rows().map((r) => r.dataset.os)).toEqual(['windows', 'linux']);
     expect(rows()[0].dataset.mine).toBe('true');
     expect(rows()[1].dataset.mine).toBeUndefined();
-    expect(rows()[0].textContent).toContain('‘Windows의 PC 보호’ 가 뜨면 ‘추가 정보 → 실행’');
+    expect(rows()[0].textContent).toContain('「Windows의 PC 보호」 가 뜨면 「추가 정보 → 실행」');
   });
 
   it('만드는 중: «만드는 중… 잠시 뒤 다시», 10초마다 다시 묻다가 준비되면 받기, 닫으면 멈춤 / 없는 이유는 쉬운 말', async () => {
@@ -627,8 +641,8 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
     serve(signedIn(LEE, [RA], { 'GET /robot-installer/info': () => now }));
     vi.useFakeTimers({ shouldAdvanceTime: true });   // 10초 다시 묻기 타이머가 가짜 시계에 걸리게 — flush 의 0ms 는 실제 시간으로 흐름
     await open('#/fleet', false);
-    await click(btn('+ 새 로봇 추가'));
-    expect($('[data-os="linux"]')!.textContent).toContain('만드는 중… 잠시 뒤 다시');
+    await click($('[data-u4-add]')); await click($('[data-u4-next]'));   // 시안 u4_6: 실제 고르고 다음
+    expect($('[data-os="linux"]')!.textContent).toContain('만드는 중 · 잠시 뒤 다시');
     expect($('[data-os="windows"]')!.textContent).toContain('이 서버에서는 설치 파일을 만들 수 없습니다');
     expect(sent('GET', '/robot-installer/info')).toHaveLength(1);
     const wait = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); for (let i = 0; i < 10; i++) await Promise.resolve(); });
@@ -644,10 +658,10 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
     expect(sent('GET', '/robot-installer/info')).toHaveLength(3);   // 준비됨 → 더 묻지 않음
     // 다시 만드는 중으로 열었다가 닫으면 멈춤
     now = info({ platform: 'linux', available: false, reason: 'not_built' }, WIN);
-    act(() => btn('닫기', card('새 로봇 추가'))!.click()); await wait(0);
-    act(() => btn('+ 새 로봇 추가')!.click()); await wait(0);
+    act(() => $('[data-u2-back]')!.click()); await wait(0);
+    act(() => $('[data-u4-add]')!.click()); await wait(0); act(() => $('[data-u4-next]')!.click()); await wait(0);
     expect(sent('GET', '/robot-installer/info')).toHaveLength(4);
-    act(() => btn('닫기', card('새 로봇 추가'))!.click()); await wait(0);
+    act(() => $('[data-u2-back]')!.click()); await wait(0);
     await wait(30_000);
     expect(sent('GET', '/robot-installer/info')).toHaveLength(4);
   });
@@ -663,11 +677,11 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
     });
     vi.useFakeTimers({ shouldAdvanceTime: true });
     await open('#/fleet', false);
-    await click(btn('+ 새 로봇 추가'));
+    await click($('[data-u4-add]')); await click($('[data-u4-next]'));   // 시안 u4_6: 실제 고르고 다음
     expect(sigs).toHaveLength(1);
-    await click(btn('닫기', card('새 로봇 추가')));
+    await click($('[data-u2-back]'));
     expect(sigs[0].aborted).toBe(true);   // 닫으면 끊김
-    await click(btn('+ 새 로봇 추가'));
+    await click($('[data-u4-add]')); await click($('[data-u4-next]'));   // 시안 u4_6: 실제 고르고 다음
     expect(sigs).toHaveLength(2);
     expect(sigs[1].aborted).toBe(false);
     await act(async () => { await vi.advanceTimersByTimeAsync(15_000); for (let i = 0; i < 10; i++) await Promise.resolve(); });
@@ -683,13 +697,13 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
       'POST /pairing/claim': { status: 200, body: { pairing_id: 'p1', robot_serial: SERIAL, expires_at: inMin(9) } },
     }));
     await open('#/fleet', false);
-    await click(btn('+ 새 로봇 추가'));
+    await click($('[data-u4-add]')); await click($('[data-u4-next]'));   // 시안 u4_6: 실제 고르고 다음
     expect($('[data-installer-fail]')!.textContent).toBe('설치 파일 정보를 받지 못했습니다. 권한이 없습니다.');
     expect(rows()).toHaveLength(0);
-    expect($('[aria-label="새 로봇 추가"] [role="alert"]')).toBeNull();
-    setVal($<HTMLInputElement>('[data-pair-code]')!, '123456');
-    await submit($<HTMLInputElement>('[data-pair-code]')!.form!);
-    expect(card('새 로봇 추가').dataset.pair).toBe('name');
+    expect($('[data-u2] [role="alert"]')).toBeNull();
+    setVal($<HTMLInputElement>('[data-pair-code]')!, '123456');   // 여섯째 숫자에서 바로 claim
+    await flush();
+    expect($('[data-u2]')!.dataset.u2).toBe('u2_2_confirm');
     expect($('[data-installer]')).toBeNull();   // 이름 단계엔 카드 없음
   });
 
@@ -699,7 +713,7 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
     const real = globalThis.fetch;
     vi.stubGlobal('fetch', (u: string, i?: RequestInit) => (u.includes('robot-installer') ? Promise.reject(new TypeError('x')) : real(u, i)));
     await open('#/fleet', false);
-    await click(btn('+ 새 로봇 추가'));
+    await click($('[data-u4-add]')); await click($('[data-u4-next]'));   // 시안 u4_6: 실제 고르고 다음
     expect($('[data-installer-fail]')!.textContent).toContain('서버에 연결하지 못했습니다');
     expect($<HTMLInputElement>('[data-pair-code]')!.disabled).toBe(false);
   });

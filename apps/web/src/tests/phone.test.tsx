@@ -7,7 +7,7 @@ import type { FloorContext, Scenario, SimCatalog, SimRobot } from '../../../cont
 import { App } from '../App';
 import { ROBOTS, USERS } from './fixtures';
 import { FakeWS, type Msg } from './fakeWs';
-import { DEAD, NUDGE, TURN_ON, allowed, sim, velocity, type Axes } from '../phone';
+import { DEAD, NUDGE, allowed, sim, velocity, type Axes } from '../phone';
 import { STALLED, remainingTime, timeNotice } from '../simdrive';
 import { newer } from '../simmap';
 import driveCss from '../drive.css?raw';
@@ -71,6 +71,8 @@ const click = async (el: Element | null | undefined) => { expect(el).toBeTruthy(
 const agents = () => FakeWS.all.filter((w) => /\/phone\/ws$/.test(w.url) && w.url.startsWith('ws://127.0.0.1:948'));
 const cams = () => FakeWS.all.filter((w) => w.url.endsWith('/phone/camera/ws'));
 const recv = async (w: FakeWS, m: object) => { act(() => w.recv(m)); await flush(); };
+/** 옛 「잠금 해제」 한 번 누름 = 「다시 시작」 → 확인 창 「일어서기」. 단추가 막혀 있으면(busy) 예전처럼 아무 일 없음 */
+const unlockTap = async () => { const b = btn('다시 시작'); await click(b); if (!b!.disabled) await click($('[data-restart-go]')); };
 /** 에이전트 흉내: lease.take → lease_id, 그 밖 요청 → ok. hello·cmd·ping·stop 은 답 없음(state 로 확인) */
 const agentAuto = ((m: Msg) => (m.t === 'lease.take' ? { lease_id: LEASE } : ['hello', 'cmd', 'ping', 'stop'].includes(m.t) ? undefined : {})) as FakeWS['auto'];
 const last = <T,>(xs: T[]) => xs[xs.length - 1];
@@ -91,9 +93,9 @@ async function launch(hello = welcome(), more: typeof routes = {}) {
 /** 조종 시작 → 잠금 해제 → state latched=false */
 async function drive(a: FakeWS) {
   await recv(a, phoneState());
-  await click(btn('조종 시작'));
+  await click(btn('조종'));
   await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true }));
-  await click(btn('잠금 해제'));
+  await unlockTap();
   await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: false, stop_gen: 1 }));
 }
 const stick = (label: string) => {
@@ -107,26 +109,30 @@ const CONT = { vx_mode: 'continuous' as const, vx_min: 0, vx_min_moving: 0.2, vx
 const hello = (limits: object) => ({ ...welcome(), limits }) as unknown as Parameters<typeof velocity>[1];
 
 describe('시뮬 연속 앞 속도(02 F-TO-05)', () => {
-  it('데드존 안 0, 살짝 → 0.2, 끝 → 1.0, 후진 0, 회전은 기존 규칙', () => {
+  it('공용 식 teleop: 데드존 안 0 · 전후 s·|s| × 상한(최소값 없음) · 후진 0 · 회전 직선', () => {
     const w = hello(CONT), vx = (f: number) => velocity([f, 0], w).vx;
-    expect([vx(0), vx(DEAD), vx(-1), vx(-0.3)]).toEqual([0, 0, 0, 0]);
-    expect(vx(DEAD + 1e-6)).toBeGreaterThanOrEqual(0.2);
-    expect(vx(DEAD + 1e-6)).toBeCloseTo(0.2, 5);
+    expect([vx(0), vx(DEAD - 1e-6), vx(-1), vx(-0.3)]).toEqual([0, 0, 0, 0]);
+    expect(vx(DEAD + 1e-6)).toBeCloseTo(0.01, 5);
     expect(vx(1)).toBe(1);
-    expect(vx(0.55)).toBeCloseTo(0.6, 9);
+    expect(vx(0.55)).toBeCloseTo(0.3025, 9);
     expect(velocity([1, -1], w)).toEqual({ vx: 1, vy: 0, wz: -0.5 });
-    expect(velocity([1, 1], w)).toEqual({ vx: 1, vy: 0, wz: 0.5 });
+    expect(velocity([1, 0.4], w)).toEqual({ vx: 1, vy: 0, wz: 0.2 });
   });
   it('limits 값이 바뀌면 따라간다(화면에 숫자 없음)', () => {
     const w = hello({ ...CONT, vx_min_moving: 0.3, vx_max: 0.8 });
     expect(velocity([1, 0], w).vx).toBe(0.8);
-    expect(velocity([DEAD + 1e-6, 0], w).vx).toBeCloseTo(0.3, 5);
+    expect(velocity([0.5, 0], w).vx).toBeCloseTo(0.2, 9);   // 0.5·0.5 × 0.8 (vx_min_moving 은 식에 쓰지 않음)
   });
-  it('이산 모드(vx_mode 없음)는 기존 식 그대로(제자리 회전만 0)', () => {
-    const w = hello(welcome().limits), old = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v >= 0 ? v * hi : -v * lo));
-    for (let f = -1; f <= 1; f += 0.05) for (const t of [-1, -0.3, 0, 0.4, 1]) {
-      const vx = old(f, 0, 0.6);
-      expect(velocity([f, t], w)).toEqual({ vx, vy: 0, wz: vx === 0 ? 0 : old(t, -0.5, 0.5) });
+  it('시뮬 이산 모드(vx_mode 없음)도 같은 공용 식 · 제자리 회전만 0 · 실기 직결은 옛 식 그대로', () => {
+    const w = hello(welcome().limits), gate = (v: number) => (Math.abs(v) < DEAD ? 0 : v);
+    for (let i = -20; i <= 20; i++) for (const t of [-1, -0.3, 0, 0.4, 1]) {
+      const f = i / 20, g = gate(f), vx = Math.max(0, g * Math.abs(g) * 0.6) + 0, v = velocity([f, t], w);
+      expect(v.vx).toBeCloseTo(vx, 12); expect(v.vy).toBe(0); expect(v.wz).toBeCloseTo(vx === 0 ? 0 : gate(t) * 0.5, 12);
+    }
+    const r = { ...hello(welcome().limits), simulation: false }, old = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v >= 0 ? v * hi : -v * lo));
+    for (let i = -20; i <= 20; i++) for (const t of [-1, -0.3, 0, 0.4, 1]) {
+      const vx = old(i / 20, 0, 0.6);
+      expect(velocity([i / 20, t], r)).toEqual({ vx, vy: 0, wz: vx === 0 ? 0 : old(t, -0.5, 0.5) });
     }
   });
   it('연속 모드: 3단 숨김·상태 줄 값·놓으면 즉시 0·STOP 늘 보임', async () => {
@@ -145,11 +151,11 @@ describe('시뮬 연속 앞 속도(02 F-TO-05)', () => {
     expect(last(a.of('cmd'))).toMatchObject({ vx: 1, vy: 0, wz: 0 });
     expect($('[data-sim-vx]')!.textContent).toBe('1.00 m/s');
     ptr(fwd, 'pointermove', 50, 44); await wait(80);
-    expect(last(a.of('cmd')).vx).toBeCloseTo(0.2 + 0.8 * 0.02 / 0.9, 9);
+    expect(last(a.of('cmd')).vx).toBeCloseTo(0.12 * 0.12, 9);   // teleop 전후 s·|s|
     ptr(fwd, 'pointermove', 50, 46); await wait(80);
     expect(last(a.of('cmd'))).toMatchObject({ vx: 0 });
     ptr(fwd, 'pointermove', 50, 25); await wait(80);
-    expect($('[data-sim-vx]')!.textContent).toBe('0.56 m/s');
+    expect($('[data-sim-vx]')!.textContent).toBe('0.25 m/s');
     ptr(fwd, 'pointerup', 50, 25);
     const n = a.of('cmd').length; await wait(60);
     expect(a.of('cmd').slice(n).every((m) => m.vx === 0 && m.wz === 0)).toBe(true);
@@ -182,23 +188,23 @@ describe('시뮬 조종 화면 — 컴퓨터 키(10-29 «컴퓨터는 화살표,
     expect(driveCss).not.toMatch(/(^|\})\s*\.dv-stick\{display:none/);
   });
 
-  it('↑·W 전진(키 기본 0.6 m/s)·A·← / D·→ 회전(d5 · 옆걸음은 Q/E), 떼면 0 · 수정키·입력칸 무시', async () => {
+  it('↑·W 전진(키 기본 0.6 m/s)·A / D 회전(11-28 17:25 · 옆걸음은 ← / →), 떼면 0 · 수정키·입력칸 무시', async () => {
     const a = await launch({ ...welcome(), limits: CONT }); await drive(a);
     expect($('[data-sim-keys]')!.textContent).toContain('회전');
-    expect($('[data-sim-keys] [data-key-off]')!.textContent).toContain('Q/E 옆');   // 로봇 한계 vy 0 · 회색 + 까닭
+    expect($('[data-sim-keys] [data-key-off]')!.textContent).toContain('← → 옆');   // 로봇 한계 vy 0 · 회색 + 까닭
     await key('keydown', 'ArrowUp');
     expect((await cmd()).vx).toBeCloseTo(0.6, 5);
     expect($('[data-sim-vx]')!.textContent).toBe('0.60 m/s');
     await key('keydown', 'KeyA');
     expect(await cmd()).toMatchObject({ wz: 0.5 });
-    await key('keyup', 'KeyA'); await key('keydown', 'ArrowLeft');
-    expect(await cmd()).toMatchObject({ vy: 0, wz: 0.5 });   // ← = 회전(옆걸음 아님)
-    await key('keyup', 'ArrowLeft'); await key('keydown', 'ArrowRight');
+    await key('keyup', 'KeyA'); await key('keydown', 'KeyD');
     expect(await cmd()).toMatchObject({ vy: 0, wz: -0.5 });
-    await key('keyup', 'ArrowRight'); await key('keydown', 'KeyQ');
+    await key('keyup', 'KeyD'); await key('keydown', 'KeyQ');
+    expect(await cmd()).toMatchObject({ vy: 0, wz: 0 });   // Q · E 는 뺌
+    await key('keyup', 'KeyQ'); await key('keydown', 'ArrowLeft');
     expect(await cmd()).toMatchObject({ vy: 0 });   // 옆 한계 0 이면 0
     expect(box.textContent).toContain('옆걸음은 아직 지원하지 않습니다');
-    await key('keyup', 'KeyQ'); await key('keyup', 'ArrowUp');
+    await key('keyup', 'ArrowLeft'); await key('keyup', 'ArrowUp');
     expect(await cmd()).toMatchObject({ vx: 0, vy: 0, wz: 0 });
     await key('keydown', 'KeyW', { ctrlKey: true });
     expect(await cmd()).toMatchObject({ vx: 0 });
@@ -219,7 +225,7 @@ describe('시뮬 조종 화면 — 컴퓨터 키(10-29 «컴퓨터는 화살표,
     await key('keydown', 'KeyD');
     await wait(60);
     expect(a.of('cmd').slice(n).every((m) => m.vx === 0 && m.wz === 0)).toBe(true);
-    await click(btn('잠금 해제'));
+    await unlockTap();
     await recv(a, phoneState({ ...held, latched: false, stop_gen: 2 }));
     await key('keydown', 'KeyW', { repeat: true });
     expect(await cmd()).toMatchObject({ vx: 0, wz: 0 });
@@ -256,37 +262,29 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
       expect(allowed(w)).toEqual({ back: false, left: false, right: false, spin: false, experimental: false });
     }
   });
-  it('시뮬 limits: 4방향 — 뒤 vx_min_moving~|vx_min|, 옆 데드존 밖 비례', () => {
+  it('시뮬 limits: 4방향 — 뒤 s·|s| × |vx_min|, 옆 직선 × vy 상한 (teleop)', () => {
     const w = hello(OMNI);
     expect(velocity([-1, 0, 0], w)).toEqual({ vx: expect.closeTo(-0.3, 9), vy: 0, wz: 0 });
-    expect(velocity([-DEAD - 1e-6, 0, 0], w).vx).toBeCloseTo(-0.2, 5);
+    expect(velocity([-0.5, 0, 0], w).vx).toBeCloseTo(-0.075, 9);
     expect(velocity([0, 0, 1], w)).toEqual({ vx: 0, vy: 0.3, wz: 0 });
     expect(velocity([0, 0, -1], w)).toEqual({ vx: 0, vy: -0.3, wz: 0 });
-    expect(velocity([0, 0, DEAD], w).vy).toBe(0);
-    expect(velocity([1, 1, 0.55], w)).toEqual({ vx: 1, vy: expect.closeTo(0.15, 9), wz: 0.5 });
+    expect(velocity([0, 0, DEAD - 1e-6], w).vy).toBe(0);
+    expect(velocity([1, 1, 0.55], w)).toEqual({ vx: 1, vy: expect.closeTo(0.165, 9), wz: 0.5 });
     expect(allowed(w)).toMatchObject({ back: true, left: true, right: true, spin: false, experimental: false });
     expect(allowed(hello({ ...OMNI, experimental: ['turn_in_place'] })).spin).toBe(true);
   });
-  it('축 고정·시뮬 회전 ±max: 정상 조작은 에이전트 양자화(|vy|≥0.05·|fw|≥1)에 안 잘림, 실기 식 불변', () => {
+  it('시뮬은 축 고정 · 회전 문턱 없이 두 축 함께 · 회전 직선 (teleop 한 식) · 실기 직결은 축 고정 · 옛 식 그대로', () => {
     const w = hello(EXP);
-    // 앞 + 작은 옆 흔들림 → vy 0, 옆 + 작은 앞 흔들림 → vx 0(0.2 로 튀지 않음)
-    for (const y of [-0.25, -0.12, 0.12, 0.25]) expect(velocity([0.6, 0, y], w).vy).toBe(0);
-    expect(velocity([1, 0, 0.3], w)).toEqual({ vx: 1, vy: 0, wz: 0 });
-    expect(velocity([0.2, 0, 1], w)).toEqual({ vx: 0, vy: 0.3, wz: 0 });
-    // 대각선(둘 다 큼)은 그대로
+    expect(velocity([1, 0, 0.3], w)).toEqual({ vx: 1, vy: expect.closeTo(0.09, 9), wz: 0 });
     const d = velocity([0.8, 0, -0.6], w);
-    expect(d.vx).toBeCloseTo(0.2 + 0.8 * 0.7 / 0.9, 9); expect(d.vy).toBeCloseTo(-0.3 * 0.5 / 0.9, 9); expect(Math.abs(d.vy)).toBeGreaterThanOrEqual(0.05);
-    // 회전: 문턱 아래 0, 넘으면 ±wz_max 두 값만(부분 회전 wz 없음)
-    for (const t of [0.1, 0.3, 0.49, -0.49]) expect(velocity([1, t], w).wz).toBe(0);
-    for (const t of [0.5, 0.7, 1]) { expect(velocity([1, t], w).wz).toBe(0.5); expect(velocity([1, -t], w).wz).toBe(-0.5); }
-    expect(velocity([0, 0.8], w).wz).toBe(0.5);   // 제자리 회전 허가(turn_in_place)
+    expect(d.vx).toBeCloseTo(0.64, 9); expect(d.vy).toBeCloseTo(-0.18, 9);
+    for (const t of [0.3, 0.7, 1]) { expect(velocity([1, t], w).wz).toBeCloseTo(0.5 * t, 9); expect(velocity([1, -t], w).wz).toBeCloseTo(-0.5 * t, 9); }
+    expect(velocity([0, 0.8], w).wz).toBeCloseTo(0.4, 9);   // 제자리 회전 허가(turn_in_place)
     expect(velocity([0, 0.8], hello(OMNI)).wz).toBe(0);   // 허가 없으면 그대로 0
-    // 실기 limits: 축 고정·회전 문턱 없이 기존 식(옆 범위 0)
-    const r = hello(welcome().limits), old = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v >= 0 ? v * hi : -v * lo));
-    for (let f = -1; f <= 1; f += 0.05) for (const t of [-1, -0.3, 0, 0.4, 1]) for (const y of [-1, -0.1, 0, 0.3, 1]) {
-      const vx = old(f, 0, 0.6);
-      expect(velocity([f, t, y], r)).toEqual({ vx, vy: 0, wz: vx === 0 ? 0 : old(t, -0.5, 0.5) });
-    }
+    // 실기 직결(simulation false): 축 고정 · 옛 비례 식
+    const r = { ...hello(OMNI), simulation: false };
+    for (const y of [-0.25, 0.25]) expect(velocity([0.6, 0, y], r).vy).toBe(0);
+    expect(velocity([1, 0.4, 0], r)).toEqual({ vx: 1, vy: 0, wz: 0.2 });
   });
   it('시뮬(EXP): 스틱이 눌려 있으면 정확한 0 을 보내지 않음(deadman 뒤 손 뗌 관문 — PR #92 Codex), 손 뗌만 0', () => {
     for (const L of [EXP, { ...CONT, experimental: ['turn_in_place'] }]) {
@@ -297,17 +295,15 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
         if (!f && !t && !y) continue;
         const a: Axes = [f / 20, t / 20, y / 10], v = velocity(a, w);
         if (v.vx === 0 && v.vy === 0 && v.wz === 0) throw new Error(`${a} → 정확한 0`);
-        // 움직이지 않는 표시값 wz 는 에이전트 회전 문턱(wz_max) 아래 — 일부러 돌릴 때(±wz_max)만 문턱
-        if (v.vx === 0 && v.vy === 0) expect(Math.abs(v.wz) === L.wz_max || Math.abs(v.wz) < L.wz_max * TURN_ON).toBe(true);
+        if (v.vx === 0 && v.vy === 0) expect(Math.abs(v.wz)).toBeLessThanOrEqual(L.wz_max);
       }
     }
-    // Codex 재현: 단독 회전 t=0.3 은 부모와 같은 작은 wz(에이전트가 잘라 sentinel), 문턱 위는 ±wz_max, 데드존은 NUDGE
+    // 회전은 직선(teleop) · 데드존 안 누름은 NUDGE
     const w = hello(EXP);
     expect(velocity([0, 0.3], w)).toEqual({ vx: 0, vy: 0, wz: 0.15 });
     expect(velocity([0, -0.49], w)).toEqual({ vx: 0, vy: 0, wz: expect.closeTo(-0.245, 9) });
-    expect(velocity([0, 0.6], w)).toEqual({ vx: 0, vy: 0, wz: 0.5 });
-    expect(velocity([DEAD, 0, 0.05], w)).toEqual({ vx: 0, vy: 0, wz: NUDGE });
-    expect(velocity([1, 0.3], w)).toEqual({ vx: 1, vy: 0, wz: 0 });   // 움직이는 중 문턱 아래 회전은 그대로 0
+    expect(velocity([DEAD - 1e-6, 0, 0.05], w)).toEqual({ vx: 0, vy: 0, wz: NUDGE });
+    expect(velocity([1, 0.3], w)).toEqual({ vx: 1, vy: 0, wz: 0.15 });
   });
   it('experimental 있음: 시험용 띠, 뒤·옆·제자리 회전 보냄, 화살표 모두 켬, STOP 보임', async () => {
     const a = await launch({ ...welcome(), limits: EXP }); await drive(a);
@@ -741,7 +737,7 @@ describe('시뮬 직결 실패', () => {
     expect(text).toContain('로봇 연결이 끊겼습니다 (1006). 로봇은 입력이 끊기면 스스로 멈춥니다.');   // 마침표 뒤 띄어쓰기(코드는 마침표 앞 괄호)
     expect(text).toContain('연결 끊김');
     expect(text).not.toContain('조종 중(나)');   // 끊긴 뒤 지난 state 로 조종자라 쓰지 않음
-    expect(btn('조종 시작')).toBeUndefined();
+    expect(btn('조종')).toBeUndefined();
     expect($('[aria-label="전후 조이스틱"]')).toBeNull();
     const n = a.sent.length, count = FakeWS.all.length;
     await wait(120);
@@ -973,7 +969,7 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
     expect(a.url).toBe(AGENT);
     act(() => a.open()); await flush(); await recv(a, welcome()); await recv(a, phoneState());
     expect($('[data-sim-drive]')).toBeTruthy();
-    expect(btn('조종 시작')).toBeTruthy();
+    expect(btn('조종')).toBeTruthy();
     await wait(120);
     expect(a.of('lease.take')).toHaveLength(0);
     expect(a.of('unlock')).toHaveLength(0);
@@ -994,10 +990,10 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
     expect(box.textContent).not.toContain('정책 go2-flat');
     expect(box.textContent).not.toContain('시뮬 시계 차');
     const fwd = stick('전후');
-    ptr(fwd, 'pointerdown', 50, 33.75); await wait(80);
+    ptr(fwd, 'pointerdown', 50, 50 - 50 * Math.sqrt(0.4)); await wait(80);   // teleop: 기울기 √0.4 → 0.4 m/s
     expect($('[data-sim-vx]')!.textContent).toBe('0.40 m/s');
     expect($('[data-sim-vx]')!.textContent).toMatch(/^\d+\.\d{2} m\/s$/);
-    ptr(fwd, 'pointerup', 50, 33.75);
+    ptr(fwd, 'pointerup', 50, 50 - 50 * Math.sqrt(0.4));
     await menuItem('정보');
     const info = $('[data-sim-info]')!.textContent!;
     expect(info).toContain('정책 go2-flat v1');
@@ -1062,7 +1058,7 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
     expect($('[data-sim-drive]')).toBeTruthy();
     expect($('[data-sim-pip]')).toBeNull();
     expect(agents()).toHaveLength(1);
-    expect(btn('조종 시작')).toBeTruthy();
+    expect(btn('조종')).toBeTruthy();
     await wait(120);
     expect(a.of('lease.take')).toHaveLength(1);   // drive() 의 한 번뿐 — 크게 보기가 조종권을 다시 받지 않음
     expect(a.of('cmd')).toHaveLength(c0);
@@ -1082,7 +1078,7 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
     const b = last(agents()); b.auto = agentAuto;
     expect(b).not.toBe(a);
     act(() => b.open()); await flush(); await recv(b, welcome()); await recv(b, phoneState());
-    expect(btn('조종 시작')).toBeTruthy();
+    expect(btn('조종')).toBeTruthy();
     await wait(120);
     expect(b.of('lease.take')).toHaveLength(0);
     expect(b.of('cmd')).toHaveLength(0);
@@ -1115,7 +1111,7 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
   it('«조종 시작» 답 대기 중 나가기(#329 검토): 답까지 기다렸다 받은 조종권을 입력 0 으로 반납한 뒤 작은 창 — 조종권 안 남음, 답이 2 s 안 오면 조종 화면 «다시 반납»', async () => {
     const a = await launch(); await recv(a, phoneState());
     a.auto = ((m: Msg) => m.t === 'lease.take' || m.t === 'lease.release' ? undefined : agentAuto!(m)) as FakeWS['auto'];
-    await click(btn('조종 시작'));
+    await click(btn('조종'));
     expect(sim.get().link?.busy).toBe('take');
     await click($('[data-sim-leave]'));
     expect($('[data-sim-pip]')).toBeNull();   // 취득 답 전엔 줄지 않음
@@ -1130,7 +1126,7 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
     expect(a.of('cmd').every((m) => m.vx === 0 && m.vy === 0 && m.wz === 0)).toBe(true);   // 명령 값 0
     // 크게 보기 → 다시 «조종 시작» 답 대기 중 나가기, 답이 안 오면 2 s 뒤 조종 화면에 남는다
     await click($('[data-sim-pip-big]'));
-    await click(btn('조종 시작'));
+    await click(btn('조종'));
     await click($('[data-sim-leave]'));
     await wait(2100);
     expect($('[data-sim-pip]')).toBeNull();
@@ -1277,11 +1273,11 @@ describe('시뮬 조종 화면 구도·시나리오 띠(10-23 — 아래 단추 
     const card = $('[data-sim-card]')!;
     expect(card.querySelectorAll('.dv-note').length).toBeGreaterThan(1);
     expect(card.textContent).toContain(STALLED);
-    expect(btn('잠금 해제')).toBeTruthy();
+    expect(btn('다시 시작')).toBeTruthy();
     await stopOk(3);
     await click($('[data-sim-card-close]'));   // 닫기: 글은 빠지고 지금 눌러야 할 단추는 남음
     expect(box.querySelectorAll('.dv-act .dv-note')).toHaveLength(0);
-    expect(btn('잠금 해제')).toBeTruthy();
+    expect(btn('다시 시작')).toBeTruthy();
     await stopOk(4);
     await click($('[data-sim-menu]'));          // 메뉴 열림
     expect($('.dv-menu')).toBeTruthy();
@@ -1315,11 +1311,11 @@ describe('시뮬 조종 화면 구도·시나리오 띠(10-23 — 아래 단추 
     expect(notes()).toContain(STALLED);
     expect(cam()).toBe(false);
     expect($('[data-sim-pill]')!.textContent).toBe('시뮬 · 정지 잠금 · 0.00 m/s');
-    expect(btn('잠금 해제')).toBeTruthy();
+    expect(btn('다시 시작')).toBeTruthy();
     expect([...document.querySelectorAll('button')].some((b) => b.textContent?.includes('STOP'))).toBe(true);
     await recv(a, phoneState({ ...held, safety_reason: null }));
     expect(notes()).not.toContain(STALLED);
-    expect(btn('잠금 해제')).toBeTruthy();
+    expect(btn('다시 시작')).toBeTruthy();
     await recv(a, phoneState({ ...held, latched: false, safety_reason: 'OUTPUT_STALLED' }));   // 잠금이 풀렸으면 사유가 남아도 안내 0
     expect(notes()).not.toContain(STALLED);
     expect(cam()).toBe(true);
@@ -1348,7 +1344,7 @@ describe('시뮬 조종 화면 구도·시나리오 띠(10-23 — 아래 단추 
     expect(box.textContent).toContain(warn);                              // 잠금을 못 받았으면 계속 경고
     await recv(a, phoneState({ ...held, latched: true, stop_gen: 2 }));
     expect(box.textContent).toContain('정지 잠금 · 로봇이 잠금과 멈춤 출력을 알렸습니다');
-    await click(btn('잠금 해제'));
+    await unlockTap();
     await recv(a, phoneState({ ...held, latched: false, stop_gen: 2, applied: [0.6, 0, 0] }));
     expect(sim.get().stop).toBeNull();
     expect(box.textContent).not.toContain(warn);
@@ -1643,18 +1639,58 @@ describe('폰 시뮬 조종 RUN 이 쥐면 (#537 state.holder_type · 08:04)', (
     const a = await launch();
     a.auto = ((m: Msg) => (['hello', 'cmd', 'ping', 'stop', 'lease.take'].includes(m.t) ? undefined : {})) as FakeWS['auto'];
     await recv(a, phoneState({ holder_type: 'RUN', holder_name: null, run: { run_id: 'run-o', status: 'MOVING', step: 0, progress: { done: 0, total: 3 }, wait_reason: null, fail_code: null } }));
-    expect(btn('조종 시작')!.disabled).toBe(true);
+    expect(btn('조종')!.disabled).toBe(true);
     expect($('[data-sim-card] [data-held-run] button')).toBeNull();
     expect(box.textContent!.split('예약 임무가 조종 중입니다 · 임무가 끝나거나 멈춘 뒤 조종할 수 있습니다.')).toHaveLength(2);   // 한 곳
     await click($<HTMLButtonElement>('[data-notes-more]')!);   // 등급 3 실행 안내는 «+N 더 보기» 뒤(PHONE-CLUTTER #548). 조종 시작이 막힌 까닭(data-held-run)은 접지 않음
     expect(box.textContent!.split('이 화면에서는 일시정지할 수 없습니다')).toHaveLength(2);   // 실행 칸 한 곳
     expect($('[data-sim-card] [data-held-run]')!.textContent).toBe('예약 임무가 조종 중입니다 · 임무가 끝나거나 멈춘 뒤 조종할 수 있습니다.');
     expect([...box.querySelectorAll<HTMLButtonElement>('[data-sim-card] .btn.pri')].filter((b) => !b.disabled).map((b) => b.textContent)).toEqual([]);
-    await click(btn('조종 시작'));
+    await click(btn('조종'));
     expect(a.sent.filter((m) => m.t === 'lease.take')).toEqual([]);
     await recv(a, phoneState({ holder_type: null, holder_name: null }));
-    expect(btn('조종 시작')!.disabled).toBe(false);
+    expect(btn('조종')!.disabled).toBe(false);
     expect($('[data-held-run]')).toBeNull();
   });
 });
 
+
+// 19:57 · 20:47 결정: 직결 시뮬도 단추 글 「조종」 · 「다시 시작」, 「다시 시작」 은 u4_10 확인 창을 거쳐 unlock 한 번 · 창은 연 때의 stop_gen · 조종권에 묶음(reviewer H1)
+describe('시뮬 직결 「다시 시작」 확인 창', () => {
+  const ask = () => $('[data-restart-ask]');
+  const unlocks = (a: FakeWS) => a.sent.filter((m) => m.t === 'unlock');
+  const HELD = { lease_id: LEASE, controller: 'u-lee', controller_connected: true };
+  async function held() {
+    const a = await launch();
+    await recv(a, phoneState());
+    await click(btn('조종'));
+    await recv(a, phoneState(HELD));
+    return a;
+  }
+  it('창을 거쳐야 unlock · 취소면 0 · 글은 u4_10 그대로', async () => {
+    const a = await held();
+    await click(btn('다시 시작'));
+    expect(unlocks(a)).toHaveLength(0);
+    expect(ask()?.getAttribute('role')).toBe('dialog');
+    expect(ask()?.textContent).toContain('을 일으킬까요?');
+    expect(ask()?.textContent).toContain('주변에 사람이 없는지 보세요');
+    await click(btn('취소'));
+    expect(ask()).toBeNull();
+    expect(unlocks(a)).toHaveLength(0);
+    await click(btn('다시 시작'));
+    await click($('[data-restart-go]'));
+    expect(unlocks(a)).toMatchObject([{ lease_id: LEASE, stop_gen: 1 }]);
+  });
+  it('[H1] 창을 연 뒤 다른 곳에서 풀림 → 새 STOP(stop_gen 2): 창이 다시 뜨지 않고 unlock 0 · 잠긴 채 stop_gen 만 바뀌어도 닫힘', async () => {
+    const a = await held();
+    await click(btn('다시 시작'));
+    await recv(a, phoneState({ ...HELD, latched: false }));
+    expect(ask()).toBeNull();
+    await recv(a, phoneState({ ...HELD, latched: true, stop_gen: 2 }));
+    expect(ask()).toBeNull();
+    await click(btn('다시 시작'));
+    await recv(a, phoneState({ ...HELD, latched: true, stop_gen: 3 }));
+    expect(ask()).toBeNull();
+    expect(unlocks(a)).toHaveLength(0);
+  });
+});

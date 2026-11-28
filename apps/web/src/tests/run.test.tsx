@@ -89,12 +89,12 @@ async function connectAgain() {
   await recv(a, welcome());
   return a;
 }
-/** 조종 시작 → 잠금 해제(state latched=false) */
+/** 조종 → 다시 시작(폰 직결은 확인 창 「일어서기」 까지, PC 시뮬 탭은 창 없음) → state latched=false */
 async function ready(a: FakeWS, run: object | null = null) {
   await recv(a, phoneState({ run }));
-  await click(btn('조종 시작'));
+  await click(btn('조종'));
   await recv(a, phoneState({ ...held, run }));
-  await click(btn('잠금 해제'));
+  await click(btn('다시 시작')); if ($('[data-restart-go]')) await click($('[data-restart-go]'));
   await recv(a, phoneState({ ...held, latched: false, run }));
 }
 /** 폰: 시나리오 띠(닫혀 있으면 메뉴 → «시나리오», 열려 있으면 메뉴 단추로 닫기) */
@@ -117,7 +117,7 @@ describe('시나리오 실행 — 시작(능력 알림·조건)', () => {
     await recv(a, phoneState());
     await pickPhone();
     expect(btn('실행')!.disabled).toBe(true);
-    expect($('[data-sim-scn]')!.textContent).toContain('먼저 «조종 시작»을 누르세요.');
+    expect($('[data-sim-scn]')!.textContent).toContain('먼저 «조종»을 누르세요.');
     await scnToggle();
     await ready(a);
     await pickPhone('두 층 순찰');
@@ -286,8 +286,8 @@ describe('시나리오 실행 — 진행 표시·단추', () => {
     await recv(a, phoneState({ run: paused }));   // 일시정지 = 0·잠금·조종권 비움(에이전트)
     expect(visible()).toContain('STOP 으로 멈췄습니다');
     expect(visible()).toContain('약 10분 00초 뒤 자동으로 취소됩니다.');
-    expect(visible()).toContain('이어가려면 «조종 시작»을 누르세요.');   // 지금 할 한 단계만(QA R2)
-    expect(visible()).not.toContain('«잠금 해제»를 누르세요');
+    expect(visible()).toContain('이어가려면 «조종»을 누르세요.');   // 지금 할 한 단계만(QA R2)
+    expect(visible()).not.toContain('«다시 시작»을 누르세요');
     expect(btn('이어서')).toBeUndefined();
     expect(btn('취소')).toBeTruthy();
     await ready(a, paused);
@@ -311,6 +311,16 @@ describe('시나리오 실행 — 진행 표시·단추', () => {
     expect(visible()).toMatch(/약 \d+분 \d\d초 뒤 자동으로 취소됩니다/);
     await click(btn('이어서'));
     expect(b.of('run.control').find((m) => m.op === 'resume')!.resume_token).toBe(TOKEN);
+  });
+
+  it('시뮬이 스스로 멈춤 (SIM_SELF_STOP, #640): 이유 한 줄이 보이고 원문 코드는 안 보임', async () => {
+    const a = await launch('phone');
+    const { run_id } = await startPhone(a) as unknown as { run_id: string };
+    await recv(a, phoneState({ ...held, latched: false, run: runOf(run_id) }));
+    const paused = runOf(run_id, { status: 'PAUSED', wait_reason: 'SIM_SELF_STOP' });
+    await recv(a, phoneState({ ...held, latched: true, run: paused }));
+    await recv(a, { t: 'run.update', ...paused });
+    expect(visible()).toContain('시뮬 로봇이 스스로 멈췄습니다');
   });
 
   it('출입증 만료 임박 + 실행 중: 만료되면 일시정지·같은 화면 이어서 안내', async () => {

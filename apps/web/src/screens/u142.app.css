@@ -1,0 +1,46 @@
+/* 시안 u14_2 를 앱으로 옮기며 더한 것(시안 값 아님) */
+/* 시안 u14_2 는 공통 ui.css 가 아니라 src/u14/ui.css 를 읽는다. 그 파일이 공통과 다른 값(색 변수)만 이 화면에 */
+.proto.pv.u142{--pr:#12b886;--pr2:#0ca678;--ink:#16191f;--mu:#5d6573;--red:#e5383b}
+/* 폰 틀 .fh 머리줄 아래 본문을 꽉 채운다(조종 화면 .dv.ph 와 같은 길) */
+.fh:has(.u142){height:100dvh;min-height:0}
+.fh.phone:has(.u142) .fh-main{overflow:hidden;padding:0}
+.proto.pv.u142{flex:1 1 100%;width:100%;height:100%}
+/* 배터리 칸 채움은 서버 값(시안은 68 % 고정 그림) */
+.u142 .bat i::before{width:var(--soc,68%)}
+/* span 단추를 button 으로 바꾼 데서 생기는 기본 모양 지우기 · 시안 .bts span · .bb span 값을 button 에 그대로 */
+.u142 button{font:inherit;color:inherit;letter-spacing:inherit;border:0;cursor:pointer}
+.u142 button:disabled{cursor:default;opacity:.5}
+.u142 button:focus-visible,.u142 select:focus-visible{outline:2px solid #2fd39a;outline-offset:2px}
+.u142 .dlg .bts button{flex:1;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:13.5px;font-weight:800}
+.u142 .sp .bb button{height:42px;padding:0 13px;border-radius:13px;display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:800;white-space:nowrap}
+.u142 .col button.g{width:100%}
+/* 작은 지도 칸: 받은 지도가 없을 때 한 줄 */
+.u142 .sm .u142-empty{position:absolute;left:8px;right:8px;bottom:8px;font-size:10.5px;font-weight:600;color:rgba(255,255,255,.6)}
+/* 상태 · 오류 한 줄(시안 밖 · .sp 판 결): 작은 지도와 오른쪽 단추 줄 사이 */
+.u142 .u142-says{position:absolute;left:200px;right:116px;top:64px;display:flex;flex-direction:column;align-items:center;gap:6px;z-index:4;pointer-events:none}
+.u142 .u142-say{max-width:380px;padding:7px 14px;border-radius:14px;background:rgba(14,17,22,.78);border:1px solid rgba(255,255,255,.16);color:#fff;font-size:12px;font-weight:700;line-height:1.4;text-align:center;word-break:keep-all}
+.u142 .u142-say.bad{background:linear-gradient(180deg,rgba(214,47,51,.88),rgba(176,32,36,.80));border-color:rgba(255,255,255,.30)}
+/* 시작 전 칸(.dlg) 안 층 고르기 · 연결 안 됨 한 줄 */
+.u142 .u142-field{display:flex;align-items:center;gap:10px;margin-top:12px;font-size:12px;font-weight:700;color:var(--mu)}
+.u142 .u142-field select{flex:1;min-width:0;height:40px;border-radius:11px;background:rgba(255,255,255,.82);border:1px solid rgba(0,0,0,.08);padding:0 10px;font:inherit;font-size:13px;color:var(--ink)}
+.u142 .u142-line{margin-top:10px;font-size:12px;font-weight:700;color:#b42326}
+/* 로봇 고르기(담당 실기 여럿 · 오른쪽 단추 줄 맨 위) */
+.u142 .u142-pick{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px;border-radius:14px;font-size:10.5px;font-weight:600}
+.u142 .u142-pick select{width:100%;background:none;border:0;color:inherit;font:inherit;font-size:12px;font-weight:800;text-align:center}
+.u142 .u142-pick select option{color:#1f2421}
+@media (max-width:600px){.u142 .u142-says{left:12px;top:188px}.u142 .sp{left:12px;right:12px}.u142 .dlg{width:calc(100% - 24px)}}
+
+/* 조종 화면 위 겹(ScanOver · 시안 u14_2 는 조종 판 위 스캔): 영상 칸(.dv-stage)을 덮되 바탕 없이, 손가락은 제 칸만 받고 조이스틱 · 보기 단추 · 아래 단추 줄은 그대로.
+   자리는 조종 화면 것을 피한다: 작은 지도 = 왼쪽 조이스틱 위, 진행 줄 = 시안 좌우 값 그대로 · 아래 단추 줄(.dv-sheets 44 + 12) 위, 상태 한 줄 = 진행 줄 위,
+   시작 · 취소 확인 칸 = 진행 줄 자리에 낮게(위 상태 줄 · 보기 단추를 덮지 않게) */
+.proto.pv.u142.u142-over{position:absolute;inset:0;width:auto;height:auto;flex:none;background:transparent;pointer-events:none;z-index:1}
+.u142-over :is(.sm,.sp,.dlg){pointer-events:auto}
+.u142-over .scrim{pointer-events:none}
+.u142-over .sm{top:auto;bottom:104px;width:140px;height:96px}
+.u142-over .sp{bottom:64px}
+.u142-over .u142-says{top:auto;bottom:134px;left:150px;right:238px}
+.u142-over .sp .bb button.p1{width:42px;padding:0;justify-content:center;color:#fff}
+.u142-over .dlg{top:auto;bottom:64px;transform:translateX(-50%);padding:12px 14px}
+.u142-over .dlg .h{font-size:15px}
+.u142-over .dlg .bts{margin-top:10px}
+.u142-over .u142-field{margin-top:8px}

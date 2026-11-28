@@ -7,14 +7,14 @@
 @import 'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css';   /* 로컬 번들(OFL), 외부 CDN 없음 */
 
 /* .fh 가 --stop 을 STOP 버튼 채움으로 덮기 전에, :root 의 공식 stop(글자·테두리용)을 따로 잡아 둔다 */
-:root { --b-stop: var(--stop); }
+:root { --b-stop: var(--stop); --b-ink: var(--ink); --b-ink-2: var(--ink-2); }
 /* 페이지 바탕 = 토큰 paper(10-26 실폰): 아이폰 가로에서 노치 쪽 여백·틀 밖이 브라우저 기본 흰색으로 보이지 않게 */
 html { background: var(--paper); }
 
 html .fh, html .fh.light {
   --bg: var(--paper); --panel: var(--card); --panel2: var(--paper-2);
-  --line: var(--rule); --line2: color-mix(in srgb, var(--rule), var(--ink) 16%);
-  --text: var(--ink); --muted: var(--ink-2);
+  --line: var(--rule); --line2: color-mix(in srgb, var(--rule), var(--b-ink) 16%);
+  --text: var(--b-ink); --muted: var(--b-ink-2);
   --accent: var(--brand); --on-accent: var(--paper);               /* 어두움: 8.66:1 */
   --ok: var(--dim-ink); --warn: var(--note-ink); --bad: var(--b-stop);
   --acc-bg: var(--dim-soft); --ok-bg: var(--dim-soft); --warn-bg: var(--note-soft); --bad-bg: var(--stop-soft);

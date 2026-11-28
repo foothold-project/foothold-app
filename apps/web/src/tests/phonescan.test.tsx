@@ -90,6 +90,14 @@ describe('폰 지도 스캔 (u14_2 본체)', () => {
     expect($('[data-scan-conf]')!.textContent).toBe('위치 인식 0.82');
     expect([...box.querySelectorAll('button')].some((x) => /멈춤|일시정지/.test(x.textContent ?? ''))).toBe(false);
     expect($('select[data-scan-floor]')).toBeNull();
+    // 시안 u14_2 꼴: 왼쪽 위 로봇 칩 · 작은 지도 .sm · 아래 진행 줄 .sp · 스캔 끝내기 .p2, 옛 칸(lv-card · fh-msg · mx-sum · .btn 단추) 없음
+    expect($('[data-scan]')!.className).toBe('proto pv u142');
+    expect($('.tl .chipnum')!.textContent).toBe('K-01');
+    expect($('.tl .bat')!.textContent).toBe('71 %');
+    expect($('.sm [data-slam-view]')).not.toBeNull();
+    expect([...box.querySelectorAll('.sp .k')].map((x) => x.textContent)).toEqual(['04:12스캔 시간', '86 m걸은 거리', '1,240 만모은 점']);
+    expect($('.sp .bb button.p2')!.textContent).toBe('스캔 끝내기');
+    expect(box.querySelector('.lv-card, .fh-msg, .mx-sum, button.btn:not(.g)')).toBeNull();
   });
 
   it('이상한 진행 값(음수 · 수 아님)은 칸째 빼고 · 위치 인식 값이 없으면 줄째 뺀다', async () => {

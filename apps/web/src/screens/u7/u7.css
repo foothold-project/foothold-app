@@ -1,0 +1,122 @@
+/* 시안 u7 (지도 탭) 화면 <style> 값 그대로 · 선택자 앞에 .u7 한 겹(:root 는 .u7 자체). u7_1 ~ u7_9 가 같은 style 을 쓴다 */
+.u7{--warn:#f2b705;--red:#ff4d4f;--u7-same:#9aa19d}
+.u7 .side{left:24px;top:88px;width:300px;bottom:24px;padding:20px 14px;overflow:hidden}
+.u7 .head{position:absolute;left:348px;top:88px;right:24px;height:56px;display:flex;align-items:center;gap:12px}
+.u7 .st{height:44px;padding:0 14px;border-radius:13px;display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:700;white-space:nowrap}
+.u7 .st small{font-size:11.5px;font-weight:600;color:var(--mu2)}
+.u7 .view{position:absolute;left:348px;top:160px;right:24px;bottom:24px;border-radius:22px;overflow:hidden;
+ background:radial-gradient(900px 600px at 50% 40%,#18202a,#000000 75%);border:1px solid var(--line);box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 20px 50px rgba(0,0,0,.35)}
+.u7 .view.nr{right:168px}
+.u7 .view svg.plan,.u7 .pane svg.plan{position:absolute;inset:0;width:100%;height:100%}
+.u7 .h3{font-size:12.5px;font-weight:700;color:var(--mu2);margin:18px 6px 8px;letter-spacing:-.01em}
+.u7 .site{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:14px;font-size:14.5px;font-weight:700}
+.u7 .site small{display:block;font-size:12px;font-weight:600;color:var(--mu2);margin-top:3px}
+.u7 .site.on{background:rgba(0,195,137,.10);border:1px solid rgba(0,195,137,.45)}
+.u7 .site .av{width:38px;height:38px;border-radius:11px;background:#2a3340;display:flex;align-items:center;justify-content:center;flex:none}
+.u7 .site.on .av{background:var(--pr);color:#fff}
+.u7 .tag{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:7px;font-size:11.5px;font-weight:700;background:rgba(255,255,255,.08);color:#c9ced6;white-space:nowrap}
+.u7 .tag.m{background:rgba(0,195,137,.16);color:var(--pr3)}
+.u7 .tag.d{background:transparent;border:1px dashed rgba(0,195,137,.6);color:var(--pr3)}
+.u7 .tag.w{background:rgba(242,183,5,.16);color:var(--warn)}
+.u7 .tag.r{background:rgba(255,77,79,.16);color:#ff4d4f}
+.u7 .frow{display:flex;align-items:center;gap:16px;padding:12px 14px;border-radius:16px;border:1px solid transparent}
+.u7 .frow.on{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.14);box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}
+.u7 .frow .th{width:150px;height:92px;border-radius:12px;overflow:hidden;flex:none;background:#000000;border:1px solid var(--line)}
+.u7 .frow .th svg{width:100%;height:100%}
+.u7 .frow b{font-size:16px}
+.u7 .frow .meta{font-size:12.5px;color:var(--mu2);font-weight:600;margin-top:5px;display:flex;gap:12px;white-space:nowrap}
+.u7 .kv{display:grid;grid-template-columns:96px 1fr;row-gap:11px;font-size:13.5px;padding:0 6px}
+.u7 .kv span{color:var(--mu2);font-weight:600}
+.u7 .kv b{font-weight:700;white-space:nowrap}
+.u7 .lay{display:flex;align-items:center;gap:10px;height:40px;padding:0 8px;font-size:13.5px;font-weight:600;border-radius:10px}
+.u7 .sw{margin-left:auto;width:34px;height:20px;border-radius:10px;background:rgba(255,255,255,.12);position:relative;flex:none}
+.u7 .sw::after{content:"";position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:#9aa19d}
+.u7 .sw.on{background:var(--pr)}
+.u7 .sw.on::after{left:17px;background:#fff}
+.u7 .sw2{width:12px;height:12px;border-radius:3px;flex:none}
+.u7 .tool{width:64px;height:64px;border-radius:16px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:11.5px;font-weight:700;position:relative}
+.u7 .tool.on{background:linear-gradient(180deg,rgba(0,195,137,.55),rgba(0,195,137,.40));border-color:rgba(0,195,137,.5)}
+.u7 .tl{position:absolute;z-index:3}
+.u7 .big{font-size:30px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.u7 .big small{font-size:14px;font-weight:700;color:var(--mu2);margin-left:4px}
+.u7 .rcol{z-index:7;position:absolute;right:24px;top:160px;bottom:24px;width:120px;display:flex;flex-direction:column;gap:10px}
+.u7 .rcol .g{position:relative;border-radius:16px}
+.u7 .rcol .btn{height:72px;font-size:12.5px}
+.u7 .rcol .btn .ic{width:20px;height:20px}
+.u7 .step{display:flex;gap:12px;align-items:flex-start;padding:10px 6px;font-size:14px;font-weight:700}
+.u7 .step i{width:26px;height:26px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;border:1.5px solid rgba(255,255,255,.2);font-style:normal}
+.u7 .step.done i{background:var(--pr);border-color:var(--pr);color:#fff}
+.u7 .step.now i{border-color:var(--pr3);box-shadow:0 0 0 4px rgba(0,195,137,.18)}
+.u7 .step small{display:block;font-size:12px;color:var(--mu2);font-weight:600;margin-top:3px}
+.u7 .lbl{font-size:12px;font-weight:700;fill:#c9ced6}
+/* 앱 자리: 로봇 탭(u4)과 같이 머리줄 아래 1920 × 1080 무대를 덮는다 */
+.proto.u7{position:fixed;left:0;top:0;z-index:5;clip-path:inset(64px 0 0 0)}
+.u7 .frow[role=button],.u7 [role=button]{cursor:pointer}
+.u7 .frow[aria-pressed=true]{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.14);box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}
+.u7 .u7-pic{position:absolute;inset:0;width:100%;height:100%}
+.u7 .u7-pic svg[data-diff]{width:100%;height:100%;display:block}
+
+/* u7_5 이번 편집 요약(시안 값 · 앱이 더한 이름표) */
+.u7 .esum{font-size:13px;line-height:1.9;padding:0 6px;color:#c9ced6}
+.u7 .sw2.e-new{border:1.5px dashed #00c389}
+.u7 .sw2.e-nogo{border:1.5px dashed #ff4d4f}
+.u7 .sw2.e-line{background:#9aa19d}
+/* 밝은 판(.proto.light) u7_1 · u7_2 칸 · 정본 DESIGN.md 「밝음 1」 값만 */
+.proto.light .u7 .site .av{background:#DCE0DE;color:#1F2421}
+.proto.light .u7 .site .av[style*="dashed"]{border-color:#DCE0DE!important}
+.proto.light .u7 .site.on{background:rgba(24,160,126,.10);border-color:#18A07E}
+.proto.light .u7 .site.on .av{background:#18A07E;color:#FFFFFF}
+.proto.light .u7 .tag{background:#F6F7F6;color:#5E6662}
+.proto.light .u7 .tag.m{background:rgba(24,160,126,.12);color:#0E7F63}
+.proto.light .u7 .tag.d{background:transparent;border-color:#18A07E;color:#0E7F63}
+.proto.light .u7 .frow.on{background:#FFFFFF;border-color:#DCE0DE;box-shadow:none}
+.proto.light .u7 .frow .th{background:#F6F7F6;border-color:#DCE0DE}
+.proto.light .u7 [data-manage-up] [data-make-file]{border-color:#DCE0DE!important;background:#F6F7F6!important}
+/* u7_3 · u7_4 층 화면: 시안 칸에 앱 단추(button)를 그대로 쓰도록 기본 꾸밈만 지움(:where = 시안 class 가 이긴다) */
+:where(.u7) button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:pointer}
+.u7 .seg2 button{height:36px;padding:0 18px;border-radius:10px;display:flex;align-items:center;font-size:14px;font-weight:700;color:var(--mu2);cursor:pointer}   /* 시안 .seg2 span 값 그대로(앱은 button) */
+.u7 .seg2 button.on{background:#ffffff;color:#000000}
+.proto.light .u7 .seg2 button.on{background:#1F2421;color:#FFFFFF}
+.u7 .u7-hide{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
+.u7 .lay{position:relative;cursor:pointer}
+.u7 .u7-link{font-size:12.5px;font-weight:700;color:var(--pr3);margin:10px 6px 0;text-decoration:underline;text-underline-offset:3px}
+.u7 .u7-note{position:absolute;left:348px;right:24px;top:146px;height:auto;padding:4px 14px;font-size:12.5px;font-weight:600;z-index:4;margin:0;display:flex;gap:12px;align-items:center}
+.u7 .u7-note .u7-link{margin:0}
+.u7 .u7-more>button{width:46px;height:46px;border-radius:13px;border:1px solid var(--line);background:var(--btns,rgba(255,255,255,.06))}
+.u7 .view>.mx-body{position:absolute;inset:0;display:flex}
+.u7 .view>.mx-body>.mx-map{flex:1;min-width:0;position:relative}
+/* 시안 밖 · 새로 그림: 지도 요소 창(기능 있음) = 시안 .pane 결 · 지도 오른쪽 */
+.u7 .view .mx-pane{background:var(--panel,#121820);border-left:1px solid var(--line);border-radius:0;box-shadow:none;padding:14px 12px}
+.proto.light .u7 .view{background:#F6F7F6;border-color:#DCE0DE;box-shadow:none}
+.proto.light .u7 .u7-more>button{background:#FFFFFF;border-color:#DCE0DE}
+/* u7_9 비교 그림 「같음」(바뀌지 않은 벽 · 범례) · 밝은 판 = 밝음 1 보조 글자색 */
+.proto.light .u7{--u7-same:#5E6662}
+/* u7_1 미리 보기 아래 글 받침(시안 어둠 값 그대로) · 밝은 판 = 칸 흰색으로 옅어짐 · 밝음 1 글자 */
+.u7 .pv-fade{position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,rgba(12,15,20,0) 40%,rgba(12,15,20,.6) 68%,rgba(12,15,20,.94))}
+.u7 .pv-ttl{color:#fff}
+.u7 .pv-meta{color:#c9ced6}
+.u7 .pv-hist{background:rgba(12,15,20,.5);color:#fff}
+.proto.light .u7 .pv-fade{background:linear-gradient(180deg,rgba(255,255,255,0) 40%,rgba(255,255,255,.6) 68%,rgba(255,255,255,.94))}
+.proto.light .u7 .pv-ttl{color:#1F2421}
+.proto.light .u7 .pv-meta{color:#5E6662}
+.proto.light .u7 .pv-hist{background:#FFFFFF;color:#1F2421;border-color:#DCE0DE}
+/* u7_1 층 겹친 그림 밝은 판: 흰 선 · 흰 면(어둠 값)이 흰 칸에서 사라지던 것 → 밝음 1 면 · 선 · 글자(CSS 가 svg 칠 속성보다 앞섬) */
+.proto.light .u7 .sk .sk-l{fill:#F6F7F6;stroke:#5E6662;stroke-opacity:.45}
+.proto.light .u7 .sk .sk-r{fill:#DCE0DE;stroke:#5E6662;stroke-opacity:.45}
+.proto.light .u7 .sk .sk-t{fill:#FFFFFF;stroke:#5E6662;stroke-opacity:.6}
+.proto.light .u7 .sk .sk-ln{stroke:#5E6662;stroke-opacity:.6}
+.proto.light .u7 .sk .sk-tx{fill:#5E6662}
+.proto.light .u7 .sk.on .sk-l,.proto.light .u7 .sk.on .sk-r,.proto.light .u7 .sk.on .sk-ln{stroke:#18A07E;stroke-opacity:1}
+.proto.light .u7 .sk.on .sk-t{fill:#18A07E;fill-opacity:.28;stroke:#18A07E;stroke-opacity:1}
+.proto.light .u7 .sk.on .sk-tx{fill:#0E7F63}
+/* u7_1 층 줄 썸네일(시안 = 칸 바탕 위 선 그림): 서버 판 그림은 그대로 두고 보이기만 바꿈. svg 거름(pick.tsx #u7-line-d · #u7-line-l)이
+   어두운 픽셀(벽 · 물체, 밝기 < 0.4)만 선으로 남기고 나머지(빈 곳 · 모름 · 색 바탕)는 투명 → 어둠 = 흰 선, 밝음 = 글자색 선. 썸네일 틀 = 칸 크기 · 칸 바탕 하나 */
+.u7 .frow .th{isolation:isolate}
+.u7 .frow .th .mx-thumb{height:100%;background:transparent;border:0;border-radius:0}
+.u7 .frow .th .mx-thumb image{filter:url(#u7-line-d)}
+.proto.light .u7 .frow .th .mx-thumb image{filter:url(#u7-line-l)}
+.u7 .frow .th[data-ink=dark] .mx-thumb image{filter:url(#u7-line-d-i)}
+.proto.light .u7 .frow .th[data-ink=dark] .mx-thumb image{filter:url(#u7-line-l-i)}
+/* u7_1 판 없는 층 썸네일: .empty 를 빌려 ART 밝은 판 색 규칙(u11.css)을 받되 자리 · 크기는 칸 그대로 */
+.u7 .frow .th.empty{position:static;display:flex;align-items:center;justify-content:center;text-align:initial}
+.u7 .frow .th.empty .art{width:100%;height:100%}

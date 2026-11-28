@@ -1,75 +1,117 @@
-// 로그인 화면 「비밀번호 바꾸기」 링크(u10_2 가안): 누르면 바꾸는 자리를 회색 띠로 알린다. 로그인 전 바꾸기 창(시안 그대로)은 #471 뒤.
-// 서버 /me/password 는 로그인한 세션이 있어야 한다(api.py:534-535) · 웹의 유일한 입구는 PC 설정 › 내 정보(settings.tsx:327).
-// 폰 틀에는 설정 탭이 없다(menu.tsx PHONE_TABS = 조종 · 기록) → 폰 폭 문구는 PC 에서 바꾼다고 사실대로.
-// 서버에 없는 약속(8 자 이상 · 임시 비밀번호)은 쓰지 않는다. 보기만: 링크는 요청을 보내지 않고 로그인 칸을 건드리지 않는다.
+// 로그인 화면 「비밀번호 바꾸기」 (시안 u10_2 창 · u10_4 초록 줄).
+// 서버 /me/password 는 로그인한 세션이 있어야 하므로 창은 로그인 → POST /me/password → 로그아웃 을 차례로 한다(새 API 없음).
+// 8 자 이상 · 스페이스 금지는 창이 보내기 전에 막는다(서버 최소 길이 1). 막히면 요청을 보내지 않는다.
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PHONE_Q } from '../App';
-import { ACCOUNT_ASK, PW_HINT_PC, PW_HINT_PHONE } from '../loginform';
+import { ACCOUNT_ASK, PW_DONE, PW_RULE, PW_TEMP } from '../loginform';
 import { Root } from '../session';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-let calls: { method: string; path: string }[] = [];
-function serve() {
+const LOGIN = { id: 'u-lee', username: 'lead01', display_name: '이OO', role: 'OPERATOR', locked: false, robot_ids: [], created_at: '', csrf_token: 'c1', access_token: null, refresh_token: null };
+let calls: { method: string; path: string; body?: string }[] = [];
+const res = (status: number, body?: unknown) => new Response(body === undefined ? null : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+const no = (code: string, message: string, status: number) => res(status, { error: { code, message, detail: {} } });
+function serve(o: { login?: number; password?: number } = {}) {
   calls = [];
   vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
-    calls.push({ method: init.method ?? 'GET', path: url.replace(/^\/api\/v1/, '') });
-    return new Response(JSON.stringify({ error: { code: 'AUTH_REQUIRED', message: '로그인이 필요합니다.', detail: {} } }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+    const path = url.replace(/^\/api\/v1/, ''), method = init.method ?? 'GET';
+    calls.push({ method, path, body: typeof init.body === 'string' ? init.body : undefined });
+    if (path === '/auth/login') return (o.login ?? 200) === 200 ? res(200, LOGIN) : no('AUTH_FAILED', '아이디 또는 비밀번호가 맞지 않습니다.', 401);
+    if (path === '/me/password') return (o.password ?? 204) === 204 ? res(204) : no('VALIDATION', '지금 비밀번호가 맞지 않습니다.', 400);
+    if (path === '/auth/logout') return res(204);
+    return no('AUTH_REQUIRED', '로그인이 필요합니다.', 401);
   });
 }
 let root: ReactRoot | null = null, box: HTMLDivElement;
 const flush = () => act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); await new Promise((r) => setTimeout(r, 0)); });
-async function open(phone: boolean) {
-  serve();
+async function open(o?: { login?: number; password?: number }) {
+  serve(o);
   location.hash = '#/fleet';
-  window.matchMedia = ((q: string) => ({ matches: phone && q === PHONE_Q, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+  window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
   box = document.createElement('div'); document.body.append(box);
   act(() => { root = createRoot(box); root.render(<Root />); });
   await flush();
 }
 afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.unstubAllGlobals(); });
 const $ = <T extends Element = HTMLElement>(s: string) => box.querySelector<T>(s);
-const link = () => $<HTMLButtonElement>('[data-pw-link]')!, hint = () => $('[data-pw-hint]');
-const click = async () => { act(() => { link().click(); }); await flush(); };
+const link = () => $<HTMLButtonElement>('[data-pw-link]')!, dlg = () => $('[role="dialog"]');
+const setv = (name: string, v: string) => { const i = $<HTMLInputElement>(`[role="dialog"] input[name="${name}"]`)!; i.value = v; };
+const fill = (id: string, cur: string, nw: string, again = nw) => { setv('pw-id', id); setv('pw-cur', cur); setv('pw-new', nw); setv('pw-again', again); };
+const send = async () => { act(() => { $<HTMLFormElement>('form[role="dialog"]')!.requestSubmit(); }); await flush(); };
+const sent = () => calls.filter((c) => c.method !== 'GET').map((c) => c.path);
 
-describe('로그인 화면 비밀번호 바꾸기 링크 (u10_2 가안)', () => {
-  it('PC: 처음엔 띠 없음 · 누르면 회색 띠 「로그인한 뒤 설정 › 내 정보에서 바꿉니다.」 · 다시 누르면 닫힘', async () => {
-    await open(false);
+describe('로그인 화면 비밀번호 바꾸기 (u10_2 · u10_4)', () => {
+  it('링크 → 시안 창: 제목 · 네 칸 · 규칙 두 줄 · 취소 · 바꾸기, 계정 요청 한 줄은 그대로 · X · 취소 · Esc 는 요청 없이 닫힘', async () => {
+    await open();
     expect(link().textContent).toBe('비밀번호 바꾸기');
-    expect(link().type).toBe('button');
-    expect(link().getAttribute('aria-expanded')).toBe('false');
-    expect(hint()).toBeNull();
-    await click();
-    expect(hint()!.textContent).toBe('로그인한 뒤 설정 › 내 정보에서 바꿉니다.');
-    expect(PW_HINT_PC).toBe('로그인한 뒤 설정 › 내 정보에서 바꿉니다.');
-    expect(link().getAttribute('aria-expanded')).toBe('true');
-    expect(link().getAttribute('aria-controls')).toBe(hint()!.id);
-    expect(hint()!.getAttribute('style')).toContain('var(--panel2)');   // 오류 빨강이 아닌 중립 띠
-    expect($('[data-login-err]')).toBeNull();
-    await click();
-    expect(hint()).toBeNull();
-    expect(link().getAttribute('aria-expanded')).toBe('false');
-  });
-
-  it('폰 폭: 설정 탭이 없으니 PC 에서 바꾼다고 사실대로', async () => {
-    await open(true);
-    await click();
-    expect(hint()!.textContent).toBe(PW_HINT_PHONE);
-    expect(PW_HINT_PHONE).toBe('폰 화면에는 설정이 없습니다. PC 에서 로그인한 뒤 설정 › 내 정보에서 바꿉니다.');
-  });
-
-  it('보기만: 요청을 보내지 않고 · 로그인 칸 표시 · 계정 요청 한 줄은 그대로', async () => {
-    await open(false);
-    const before = calls.length;
-    await click();
-    expect(calls.length).toBe(before);
-    expect(box.querySelector('[aria-invalid]')).toBeNull();
+    expect(dlg()).toBeNull();
+    act(() => { link().click(); });
+    expect(dlg()!.querySelector('.ttl')!.textContent).toBe('비밀번호 바꾸기');
+    expect([...dlg()!.querySelectorAll('.lab')].map((e) => e.textContent)).toEqual(['아이디', '지금 비밀번호', '새 비밀번호', '새 비밀번호 다시']);
+    expect(dlg()!.querySelector('.lg-mnote')!.textContent).toBe(PW_RULE + PW_TEMP);
+    expect([...dlg()!.querySelectorAll('.mbtn')].map((e) => e.textContent)).toEqual(['취소', '바꾸기']);
+    expect(document.activeElement).toBe($('input[name="pw-id"]'));
     expect($('main[aria-label="로그인"]')!.textContent).toContain(ACCOUNT_ASK);
+    act(() => { dlg()!.querySelector<HTMLButtonElement>('.mbtn.sec')!.click(); });
+    expect(dlg()).toBeNull();
+    act(() => { link().click(); });
+    act(() => { dlg()!.querySelector<HTMLButtonElement>('[aria-label="닫기"]')!.click(); });
+    expect(dlg()).toBeNull();
+    act(() => { link().click(); });
+    act(() => { dlg()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(dlg()).toBeNull();
+    expect(sent()).toEqual([]);
   });
 
-  it('서버에 없는 약속은 쓰지 않음(8 자 이상 · 임시 비밀번호)', () => {
-    for (const t of [PW_HINT_PC, PW_HINT_PHONE]) { expect(t).not.toMatch(/8\s*자|임시/); expect(t).not.toContain('\u2014'); }
+  it('보내기 전에 막음: 빈 칸 · 8 자 미만 · 스페이스 · 지금과 같음 · 다시 칸 다름 → 요청 없음 · 그 칸 빨간 테', async () => {
+    await open();
+    act(() => { link().click(); });
+    const cases: [string[], string, string][] = [
+      [['', 'old', 'newpass12'], 'pw-id', '아이디를 입력하세요.'],
+      [['lead01', '', 'newpass12'], 'pw-cur', '지금 비밀번호를 입력하세요.'],
+      [['lead01', 'old', 'short'], 'pw-new', '새 비밀번호는 8 자 이상 입력하세요.'],
+      [['lead01', 'old', 'new pass12'], 'pw-new', '스페이스는 정지 키라서 비밀번호에 쓸 수 없습니다.'],
+      [['lead01', 'samepass12', 'samepass12'], 'pw-new', '지금 비밀번호와 다른 값을 입력하세요.'],
+    ];
+    for (const [[id, cur, nw], name, text] of cases) {
+      fill(id, cur, nw); await send();
+      expect($('[data-pw-err]')!.textContent).toBe(text);
+      expect($(`input[name="${name}"]`)!.getAttribute('aria-invalid')).toBe('true');
+    }
+    fill('lead01', 'old', 'newpass12', 'newpass13'); await send();
+    expect($('[data-pw-err]')!.textContent).toBe('새 비밀번호가 서로 다릅니다.');
+    expect($('input[name="pw-again"]')!.getAttribute('aria-invalid')).toBe('true');
+    expect(sent()).toEqual([]);
+  });
+
+  it('바꿈: 로그인 → POST /me/password(지금 · 새) → 로그아웃, 창이 닫히고 카드에 시안 u10_4 초록 줄', async () => {
+    await open();
+    act(() => { link().click(); });
+    fill('lead01', 'oldpass1', 'newpass12'); await send();
+    expect(sent()).toEqual(['/auth/login', '/me/password', '/auth/logout']);
+    expect(JSON.parse(calls.find((c) => c.path === '/me/password')!.body!)).toEqual({ current_password: 'oldpass1', new_password: 'newpass12' });
+    expect(dlg()).toBeNull();
+    expect($('[data-pw-changed]')!.textContent).toBe(PW_DONE);
+    expect(PW_DONE).toBe('비밀번호를 바꿨습니다. 새 비밀번호로 로그인하세요');
+    expect($('main[aria-label="로그인"] [data-login-err]')).toBeNull();
+  });
+
+  it('서버 거절: 로그인 401 = 두 칸 빨간 테 · 받은 글 · /me/password 안 보냄 / 바꾸기 실패 = 까닭 + 로그아웃은 함 · 창 그대로', async () => {
+    await open({ login: 401 });
+    act(() => { link().click(); });
+    fill('lead01', 'wrong123', 'newpass12'); await send();
+    expect(sent()).toEqual(['/auth/login']);
+    expect($('[data-pw-err]')!.textContent).toBe('아이디 또는 비밀번호가 맞지 않습니다.');
+    expect(['pw-id', 'pw-cur'].map((n) => $(`input[name="${n}"]`)!.getAttribute('aria-invalid'))).toEqual(['true', 'true']);
+    act(() => root?.unmount()); root = null; box.remove(); vi.unstubAllGlobals();
+    await open({ password: 400 });
+    act(() => { link().click(); });
+    fill('lead01', 'oldpass1', 'newpass12'); await send();
+    expect(sent()).toEqual(['/auth/login', '/me/password', '/auth/logout']);
+    expect($('[data-pw-err]')!.textContent).toBe('바꾸지 못했습니다. 지금 비밀번호가 맞지 않습니다.');
+    expect(dlg()).not.toBeNull();
+    expect($('[data-pw-changed]')).toBeNull();
   });
 });

@@ -1,0 +1,26 @@
+/* 시안 u13_1 · u13_4 를 앱으로 옮기며 더한 것(시안 값 아님): div 칸 · 단추를 input · button 으로 바꾼 데서 생기는 브라우저 기본 모양 지우기,
+   시안에 없는 안내 한 줄(.msg 결 그대로 · 긴 글은 줄바꿈), 앱 폰 틀(머리줄 아래) 안에 놓이는 로봇 없음 화면의 크기 */
+/* 시안 폰 body 값(창 크기 · #e9ecef · 기본 글색). PC 틀(pc.pv.css)은 이제 PC 무대 안에만 걸린다 */
+.proto.pv.u13{width:100vw;height:100dvh;background:#e9ecef;color:#000}
+.u13 button{font:inherit;color:inherit;letter-spacing:inherit;border:0;cursor:pointer;text-align:center}
+.u13 button.link{background:none;padding:0}
+.u13 button:disabled{cursor:default;opacity:.6}
+.u13 button:focus-visible{outline:2px solid #18a07e;outline-offset:2px}
+.u13 input.inp{width:100%;outline:none;font-family:inherit;letter-spacing:inherit}
+.u13 input.inp[type="password"]{letter-spacing:.16em;font-size:15px}
+.u13 label.lab{display:block}
+.u13 input.inp:focus{border-color:#18a07e;box-shadow:0 0 0 3px rgba(24,160,126,.2)}
+.u13 button.prim,.u13 button.sec{width:100%}
+.u13 #go-x{color:inherit}
+.u13 .msg{height:auto;min-height:36px;padding-top:8px;padding-bottom:8px;line-height:1.4;word-break:keep-all}
+.u13 .msg .ic{flex:none}
+.u13 .msg.u13-note{background:rgba(255,255,255,.7);border:1px solid rgba(0,0,0,.08);color:#1f2421}
+.u13 form.g{max-height:calc(100% - 24px);overflow-y:auto}
+
+/* 로봇 없음(u13_4): 폰 틀 .fh 머리줄 아래 본문을 꽉 채운다(조종 화면 .dv.ph 와 같은 길) */
+.fh:has(.u134){height:100dvh;min-height:0}
+.fh.phone:has(.u134) .fh-main{overflow:hidden;padding:0}
+.proto.pv.u134{flex:1 1 100%;width:100%;height:100%}
+.u134 .g{max-width:calc(100% - 24px);max-height:calc(100% - 16px);overflow-y:auto}
+.u134 .u134-btns{display:flex;gap:8px}
+.u134 .u134-btns button{flex:1;width:auto}

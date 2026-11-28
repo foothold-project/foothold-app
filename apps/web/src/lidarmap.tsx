@@ -9,6 +9,7 @@ import { FLOOR_DZ, HeightLegend, Lidar3D, rgbOf, ringOf, type Look } from './lid
 import { inBase } from './lidarmount';
 import type { Pose } from './go2model';
 import { QEmpty } from './quad';
+import { sx, sy } from './stage';
 
 /** 처음 보이는 범위(로봇 둘레 ±m) · 확대 한계(화면 px / m) */
 const SPAN_M = 6, K_MIN = 4, K_MAX = 400;
@@ -16,12 +17,13 @@ const SPAN_M = 6, K_MIN = 4, K_MAX = 400;
 const LUT = Uint32Array.from({ length: N }, (_, i) => { const [r, g, b] = rgbOf(i); return (0xff000000 | (b << 16) | (g << 8) | r) >>> 0; });
 
 /** small = 작은 칸(단추·범례 없이 보기만), start = 처음 보기(지도 칸은 위에서), tag = false 면 «마지막 그림» 표시를 칸 머리줄이 대신 띄움(PC 4칸 큰 칸).
- *  look = 3D 를 점(라이다)·상자(«상자» 보기)로, pick = «보기» 줄에 «상자»도(PC 4칸 — 같은 3D 그림에서 모양만 바꿈), go2 = 3D 속 Go2 관절각·기울기(lidar3d.tsx — 11-20 RB-UNITREE-LOOK-FIX) */
-export function LidarMap({ feed, empty, small = false, start = '3d', tag = true, look = 'points', pick = false, go2 = null }: { feed: DriveFeed; empty: string; small?: boolean; start?: '3d' | 'top'; tag?: boolean; look?: Look; pick?: boolean; go2?: Pose }) {
+ *  look = 3D 를 점(라이다)·상자(«상자» 보기)로, pick = «보기» 줄에 «상자»도(PC 4칸 — 같은 3D 그림에서 모양만 바꿈), go2 = 3D 속 Go2 관절각·기울기(lidar3d.tsx — 11-20 RB-UNITREE-LOOK-FIX).
+ *  bare = «보기» 줄(3D · 상자 · 위에서) 없이 처음 보기만(로봇 탭 보기 칸 · 칸 왼쪽 위 보기 고르기 줄 뒤에 가려졌던 단추, 팀장 11/28 «뺀다») */
+export function LidarMap({ feed, empty, small = false, start = '3d', tag = true, look = 'points', pick = false, go2 = null, bare = false }: { feed: DriveFeed; empty: string; small?: boolean; start?: '3d' | 'top'; tag?: boolean; look?: Look; pick?: boolean; go2?: Pose; bare?: boolean }) {
   const [mode, setMode] = useState<'3d' | 'box' | 'top'>(start), [no3d, setNo3d] = useState(false), is3d = mode !== 'top' && !no3d;
   return <div style={{ position: 'absolute', inset: 0 }} data-lidar-map={feed.n} data-lm-mode={is3d ? '3d' : 'top'}>
     {is3d ? <Lidar3D feed={feed} small={small} look={mode === 'box' ? 'boxes' : look} go2={go2} views={false} onFail={() => setNo3d(true)} /> : <TopView feed={feed} small={small} />}
-    {!small && <div className="fh-row" style={{ position: 'absolute', left: 8, top: 8, flexWrap: 'wrap' }}>
+    {!small && !bare && <div className="fh-row" style={{ position: 'absolute', left: 8, top: 8, flexWrap: 'wrap' }}>
       {!no3d && <div className="fh-row" role="group" aria-label="보기">{(pick ? ['3d', 'box', 'top'] as const : ['3d', 'top'] as const).map((m) =>
         <button key={m} type="button" className="btn" aria-pressed={mode === m} data-lm-view={m} onClick={() => setMode(m)}>{m === '3d' ? '3D' : m === 'box' ? '상자' : '위에서'}</button>)}</div>}
     </div>}
@@ -84,10 +86,10 @@ function TopView({ feed, small }: { feed: DriveFeed; small: boolean }) {
     const t = setInterval(() => { if (cur.current.ver !== v.ver || el.clientWidth !== v.w || el.clientHeight !== v.h) draw(); }, 500);
     let d: null | { id: number; x: number; y: number; vx: number; vy: number } = null, raf = 0;
     const soon = () => { raf ||= requestAnimationFrame(() => { raf = 0; draw(); }); };
-    const down = (e: PointerEvent) => { if (sm.current || d || !v.k) return; d = { id: e.pointerId, x: e.clientX, y: e.clientY, vx: v.x, vy: v.y }; try { el.setPointerCapture(e.pointerId); } catch { /* 없음 */ } };
+    const down = (e: PointerEvent) => { if (sm.current || d || !v.k) return; d = { id: e.pointerId, x: sx(e), y: sy(e), vx: v.x, vy: v.y }; try { el.setPointerCapture(e.pointerId); } catch { /* 없음 */ } };
     const move = (e: PointerEvent) => {
       if (!d || e.pointerId !== d.id) return;
-      v.x = d.vx - (e.clientX - d.x) / v.k; v.y = d.vy + (e.clientY - d.y) / v.k;
+      v.x = d.vx - (sx(e) - d.x) / v.k; v.y = d.vy + (sy(e) - d.y) / v.k;   // 무대 px(stage.ts) = 칸 css px
       if (v.follow) { v.follow = false; setFree(true); }
       soon();
     };

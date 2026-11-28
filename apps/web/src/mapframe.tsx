@@ -6,6 +6,9 @@ import { forwardRef, useEffect, useId, useMemo, useRef, useState, useSyncExterna
 import type { MapVersion } from '../../contracts/ts';
 import { api } from './api';
 import { terrainTop } from './terraintop';
+import { stageRect } from './stage';
+import { K, OX, OY, SITE_PX_H, SITE_PX_W, SITE_TOP } from './proto/site';
+import { useTheme } from './theme';
 
 export type Box = [number, number, number, number];   // x y 폭 높이(그림 픽셀)
 type P = [number, number];
@@ -16,8 +19,13 @@ const WALL = 102;   // 255 × 0.4
 
 /** 판 그림(<image>, 쿠키로 따로 받음)을 앱 색으로. 나머지 속성(onLoad·onError·transform·style…)은 <image> 그대로.
  *  tint = 벽만 그 색으로(빈 곳·미확인은 투명) — 층 겹쳐 보기 */
-export function MapImage({ id, style, tint, ...rest }: { id: string; width: number; height: number; tint?: string } & Omit<SVGProps<SVGImageElement>, 'href' | 'filter'>) {
+/** 서버 판 그림 어두운 판 색(로봇 탭 지도 76f6c355 과 같은 규칙): 회색으로 뺀 밝기 0(벽) → #464e56 · 1(빈 곳) → --paper #12161d · 미확인 회색은 그 사이 */
+export const PLAN_DARK = <><feColorMatrix type="saturate" values="0" /><feComponentTransfer><feFuncR type="table" tableValues="0.2745 0.0706" /><feFuncG type="table" tableValues="0.3059 0.0863" /><feFuncB type="table" tableValues="0.3373 0.1137" /></feComponentTransfer></>;
+/** plan = 어두운 판 평면도 색(PLAN_DARK)으로 칠함(썸네일 · 장소 카드) · 그 밖은 앱 토큰 색(TINT) */
+export function MapImage({ id, style, tint, plan, ...rest }: { id: string; width: number; height: number; tint?: string; plan?: boolean } & Omit<SVGProps<SVGImageElement>, 'href' | 'filter'>) {
   const f = `fh-tint${useId().replace(/:/g, '')}`, tones = tint ? [[TINT[0][0], tint]] : TINT;
+  if (plan) return <><filter id={f} x="0" y="0" width="1" height="1" colorInterpolationFilters="sRGB">{PLAN_DARK}</filter>
+    <image href={api.imageUrl(id)} filter={`url(#${f})`} data-plan-tone="dark" style={{ imageRendering: 'pixelated', ...style }} {...rest} /></>;
   return <>
     <filter id={f} x="0" y="0" width="1" height="1" colorInterpolationFilters="sRGB">
       <feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  1 0 0 0 0" result="l" />
@@ -30,6 +38,18 @@ export function MapImage({ id, style, tint, ...rest }: { id: string; width: numb
     </filter>
     <image href={api.imageUrl(id)} filter={`url(#${f})`} style={{ imageRendering: 'pixelated', opacity: 'var(--fh-map-a, 1)', ...style }} {...rest} />
   </>;
+}
+
+/** 데모 현장 판(지도 탭 · site.demo && building.demo)에 까는 시안 공장 그림(factory_kr · 3200×2000 px).
+ *  좌표는 로봇 탭 · 관제 작은 지도와 같은 proto/site.ts(K · OX · OY, 지도 원점 = 현장 원점): 공장 px → 현장 m(x 오른쪽 · y 위) → 이 판 그림 px(toPixel 과 같은 식).
+ *  그림은 불투명이라 서버 판 그림을 덮는다 — 못 받으면 서버 판이 그대로 보인다. 요소(구역 · 지점)는 그 위에 그린다.
+ *  그림 = 공장 질감판 위에서 본 그림(proto/site.ts SITE_TOP · 판마다 하나 · 관제 작은 지도와 같은 파일) */
+export function FactoryImage({ v }: { v: Pick<MapVersion, 'origin' | 'resolution' | 'height'> }) {
+  const [, light] = useTheme();
+  const [ox, oy, yaw] = v.origin, c = Math.cos(yaw), s = Math.sin(yaw);
+  const at = (px: number, py: number) => { const dx = (px - OX) / K - ox, dy = (OY - py) / K - oy; return [(c * dx + s * dy) / v.resolution, v.height - (-s * dx + c * dy) / v.resolution]; };
+  const [e, f] = at(0, 0), [x1, y1] = at(1, 0), [x2, y2] = at(0, 1);
+  return <image href={SITE_TOP[light ? 'light' : 'dark']} data-factory width={SITE_PX_W} height={SITE_PX_H} preserveAspectRatio="none" transform={`matrix(${[x1 - e, y1 - f, x2 - e, y2 - f, e, f].join(' ')})`} style={{ pointerEvents: 'none' }} />;
 }
 
 /** 시뮬 월드 «실제 모습»: mobile/scripts/make-top.mjs 가 구운 top.png 와 그 범위 top.json(사진이 덮는 지도 좌표 [x0, y0, x1, y1] m + 그 지도 판).
@@ -144,11 +164,12 @@ type Props = Omit<SVGProps<SVGSVGElement>, 'viewBox' | 'ref'> & {
   edit?: boolean;   // 왼쪽 누름·한 손가락은 부른 쪽(그리기·찍기) — 이동은 가운데 단추·두 손가락
   still?: boolean;   // 확대·이동·단추 없음(작은 지도 단추 안)
   at?: CSSProperties;   // 단추·축척 칸을 지도 위에 띄울 자리(가장 가까운 position 조상 기준, 시뮬 영상 칸). 없으면 지도 아래 줄
+  noScale?: boolean;   // 그림에 축척이 박혀 있으면(시안 공장 그림) 우리 축척 막대는 빼서 하나만(시안 u7_3)
   photo?: Ver | null;   // 이 판이 시뮬 월드 그림이면 «실제 모습» 사진(topOf), 지형 판이면 지형 모양 그림(terrainTop)을 그림 밑에 깔고 보기 단추를 단다
 };
 
 /** 판 그림 틀(svg + 확대 단추·축척). 포인터 처리기는 이동·집기 아닐 때만 넘긴다 */
-export const MapFrame = forwardRef<SVGSVGElement, Props>(function MapFrame({ full, fit = full, res, edit, still, at, photo, style, children, onPointerDown, onPointerMove, onPointerUp, onPointerCancel, ...rest }, ref) {
+export const MapFrame = forwardRef<SVGSVGElement, Props>(function MapFrame({ full, fit = full, res, edit, still, at, photo, noScale, style, children, onPointerDown, onPointerMove, onPointerUp, onPointerCancel, ...rest }, ref) {
   const own = useRef<SVGSVGElement | null>(null), home = (): View => ({ cx: fit[0] + fit[2] / 2, cy: fit[1] + fit[3] / 2, z: 1 });
   const [v, setV] = useState(home), [size, setSize] = useState<P>([0, 0]);
   const fk = fit.join(' '), uk = full.join(' '), last = useRef({ fk, uk, moved: false });
@@ -175,7 +196,7 @@ export const MapFrame = forwardRef<SVGSVGElement, Props>(function MapFrame({ ful
   useEffect(() => {
     const el = own.current;
     if (!el) return;
-    const m = () => { const b = el.getBoundingClientRect(); setSize([b.width, b.height]); };
+    const m = () => { const b = stageRect(el); setSize([b.width, b.height]); };   // 축척 막대 길이는 css px 라 무대 px 로 잰다(stage.ts)
     m();
     if (typeof ResizeObserver === 'undefined') return;
     const o = new ResizeObserver(m);
@@ -259,7 +280,7 @@ export const MapFrame = forwardRef<SVGSVGElement, Props>(function MapFrame({ ful
     <button type="button" className="btn" aria-label="확대" style={{ padding: '0 12px' }} onClick={() => zoom(1.5)}>+</button>
     <button type="button" className="btn" style={{ padding: '0 12px' }} onClick={() => { setV(home()); last.current.moved = false; }}>맞춤</button>
   </div>;
-  const scale = bar && <div data-scale role="img" aria-label={`축척 ${bar.text}`} style={{ padding: '2px 8px 4px', borderRadius: 6, background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--text)', fontSize: 12, lineHeight: 1.3, pointerEvents: 'none' }}>
+  const scale = !noScale && bar && <div data-scale role="img" aria-label={`축척 ${bar.text}`} style={{ padding: '2px 8px 4px', borderRadius: 6, background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--text)', fontSize: 12, lineHeight: 1.3, pointerEvents: 'none' }}>
     {bar.text}<span style={{ display: 'block', width: bar.px, height: 5, border: '2px solid var(--text)', borderTop: 'none' }} /></div>;
   // at 이 있으면(시뮬 영상 칸) 단추·축척을 그 자리에 띄우고, 없으면 축척은 지도 왼쪽 아래 모서리·단추는 지도 아래 줄(좁은 화면에서 지도를 가리지 않게)
   return at ? <>{svg}<div data-map-ctl style={{ position: 'absolute', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6, pointerEvents: 'none', ...at }}>{btns}{pick}{scale}{miss}</div></>

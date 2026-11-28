@@ -92,7 +92,7 @@ describe('조종 화면에 붙음', () => {
     act(() => { root = createRoot(box); root.render(<App user={u} robots={ROBOTS.map((r) => ({ ...r, serverDrive: true }))} />); });
     serve(FakeWS.last, 'r7');
     push('r7', { devices: [dev(REMOTE)] });
-    expect(box.querySelector('.dv-hud [data-drive-input]')!.textContent).toBe(REMOTE);
+    expect(box.querySelector('.u1d .u1-says [data-drive-input].ban.amb')!.textContent).toBe(REMOTE);
     act(() => { vi.advanceTimersByTime(3500); });   // 새 상태 없이 3 초 넘음
     expect(line()).toBeNull();
     push('r7', { devices: [dev(REMOTE)] });   // 같은 상태가 다시 오면 rt 는 다시 그리지 않고 시각만 고친다(rt.ts same) · 다음 화면 틱에 다시 보임

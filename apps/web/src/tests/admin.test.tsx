@@ -87,45 +87,58 @@ describe('총괄 = 모든 권한: PC', () => {
     space();
     expect(w.of('stop').map((m) => m.robot)).toEqual(['r7', 'r7']);
   });
-  it('서랍에서 «조종 화면» → 조종 시작이 조종권 요청을 보내고, 성공은 서버 lease 뒤에만 «조종 중»', () => {
+  // PC 로봇 탭(시안 u4): 총괄도 고른 실기에 바로 조종이 붙는다(옛 서랍 «조종 화면» 단추 자리)
+  const u4 = () => $('[data-u4-drive]')!;
+  it('로봇 탭에서 남 담당 실기 → 조종 시작이 조종권 요청을 보내고, 성공은 서버 lease 뒤에만 «조종 중»', () => {
+    const auto = () => { const a = w.auto!; let held: Msg | null = null; w.auto = (m) => (m.t === 'lease.take' && !held ? void (held = m) : a(m)); return () => { w.auto = a; act(() => a(held!)); }; };
     mount(false, KIM, '#/fleet'); serve(KIM, 'r3', 'r7', 'ra');
     click(fleetRow(box, 'Go2-7'));
-    click($('[data-admin-drive]')!);
-    click(btn('조종 시작')!);
+    expect($('[data-u4-can]')).not.toBeNull();
+    const answer = auto();
+    click(u4());
     expect(w.of('lease.take').map((m) => m.robot)).toEqual(['r7']);
-    expect($('[data-server-drive]')!.textContent).not.toContain('보는 중');
+    expect(u4().getAttribute('data-u4-drive')).toBe('take');   // 서버 lease 전엔 조종 중 아님
+    answer();
+    expect(u4().getAttribute('data-u4-drive')).toBe('mine');
+    expect($('[data-u4-can]')!.textContent).not.toContain('보는 중');
   });
   it('서버가 거절(서버 조종 스위치 PHONE_DIRECT_REQUIRED · 연결 확인 FIELD_APPROVAL_REQUIRED): 서버 문구 한 줄, 조종 중이 아님', () => {
     for (const [code, text] of [['PHONE_DIRECT_REQUIRED', '실기 조종·STOP은 현장 폰에서 직접 하세요.'], ['FIELD_APPROVAL_REQUIRED', '로봇 연결과 담당 정보를 확인하고 있습니다.']]) {
       act(() => root?.unmount()); box?.remove();
       take = () => fail(code, text);
       mount(false, KIM, '#/fleet'); serve(KIM, 'r3', 'r7', 'ra');
-      click(fleetRow(box, 'Go2-7')); click($('[data-admin-drive]')!); click(btn('조종 시작')!);
+      click(fleetRow(box, 'Go2-7')); click(u4());
       tick(100);
       expect(box.textContent).toContain(text);
-      expect(btn('조종 끝내기')).toBeUndefined();
-      expect(btn('조종 시작')).not.toBeUndefined();
+      expect(u4().getAttribute('data-u4-drive')).toBe('take');
+      expect(u4().textContent).toBe('조종 시작');
     }
   });
-  it('서버가 허용하지 않은 실기(server_drive_allowed 없음)는 «조종 화면» 없이 까닭 한 줄', () => {
+  it('서버가 허용하지 않은 실기(server_drive_allowed 없음)는 조종이 붙지 않고 까닭 한 줄', () => {
     mount(false, KIM, '#/fleet', [ROBOTS[0], ROBOTS[1]]); serve(KIM, 'r3', 'r7');
     click(fleetRow(box, 'Go2-7'));
-    expect($('[data-admin-drive]')).toBeNull();
-    expect($('[data-admin-nodrive]')!.textContent).toContain('서버 경유 조종');
+    expect($('[data-u4-can]')).toBeNull(); expect(u4().getAttribute('aria-disabled')).toBe('true');
+    click(u4()); expect(w.of('lease.take')).toHaveLength(0);
+    expect($('[data-u4-why]')!.textContent).toBe('서버가 이 로봇의 웹 조종을 허용하지 않았습니다.');
   });
   it('2 차 몫: 남 담당 실기는 이름 · 지우기 · 끊기 · 담당 바꾸기를 열지 않고 까닭 한 줄 · 내가 담당인 실기는 관리', () => {
     mount(false, KIM, '#/fleet'); serve(KIM, 'r3', 'r7', 'ra');
-    click(fleetRow(box, 'Go2-7'));
+    const settings = () => click($('.u4 .seg2 [data-seg="로봇 설정"]')!);   // 시안 u4_5 «로봇 설정» 창
+    click(fleetRow(box, 'Go2-7')); settings();
     expect($('[data-manage]')).toBeNull();
     expect(btn('로봇 지우기')).toBeUndefined(); expect(btn('연결 끊기')).toBeUndefined();
     expect($('[data-admin-later]')!.textContent).toBe(ADMIN_LATER);
-    click(fleetRow(box, 'Go2-A'));
+    click(fleetRow(box, 'Go2-A')); settings();
     expect($('[data-manage]')).not.toBeNull();
     expect($('[data-admin-later]')).toBeNull();
   });
   it('«+ 새 로봇 추가» 가 총괄에게도', () => {
     mount(false, KIM, '#/fleet'); serve(KIM, 'r3', 'r7', 'ra');
-    expect($('[data-pair-start]')).not.toBeNull();
+    click($('[data-u4-add]')!);
+    expect($('[role="dialog"][aria-label="로봇 추가"] [data-u4-kind="real"]')!.getAttribute('aria-checked')).toBe('true');   // 시안 u4_6 실제 · 시뮬 고르기
+    click($('[data-u4-next]')!);
+    expect(document.querySelector('[role="dialog"][data-u2="u2_1_scan"] [data-pair-code]')).not.toBeNull();   // 시안 u2_1 · 6 자리 칸
+    expect(document.querySelector('[aria-label="새 로봇 추가"]')).toBeNull();   // 옛 추가 창 0
   });
 });
 
@@ -142,7 +155,7 @@ describe('총괄 = 모든 권한: 폰', () => {
     expect(mine.querySelector('details')).not.toBeNull();
     click([...card.querySelectorAll('button')].find((b) => b.textContent === '연결')!);
     expect(location.hash).toBe('#/drive/r7');
-    click(btn('조종 시작')!);
+    click(btn('조종')!);
     expect(w.of('lease.take').map((m) => m.robot)).toEqual(['r7']);
     expect(box.textContent).toContain('조종 중(나)');
   });

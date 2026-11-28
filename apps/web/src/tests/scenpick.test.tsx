@@ -5,7 +5,7 @@ import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RobotSummary, Scenario, User } from '../../../contracts/ts';
 import { Root } from '../session';
-import { clearPlans } from '../screens/missions';
+import { clearPlans, keptPlan } from '../screens/missions';
 import { FakeWS } from './fakeWs';
 import { fleetRow } from './fleetRow';
 
@@ -121,11 +121,12 @@ describe('배정 화면 없음', () => {
     serve();
     await open('#/map');
     expect($('[data-building]')!.textContent).not.toContain('시나리오');
-    await click($('[data-building]'));
+    expect($('[data-open-map]')).toBeNull();   // 판 없는 층(f1) = 고르기에 「지도 열기」 없음
+    act(() => root?.unmount()); box.remove(); keptPlan.floor = 'f1'; await open('#/map');   // 이 층 화면은 앱이 기억한 층으로 바로 연다(다른 탭에서 돌아올 때와 같은 길)
     expect($('[data-side="map"]')!.textContent).toBe('지도 요소 0');
     expect($('[data-side="scen"]')).toBeNull();
     expect($('[data-plan]')).toBeNull();
-    expect($('[data-to-sim]')).toBeNull();
+    expect($('[data-to-sim]')!.textContent).toBe('이 지도로 모의 실행');   // 11-28 시안 u7_3: 위 줄 «이 지도로 모의 실행» = 시뮬 탭 이 층(시나리오 목록은 여전히 지도 탭에 없음)
     expect($('[data-to-scen]')).toBeNull();
     expect(box.textContent).not.toContain('시나리오 없음');
     expect(calls.filter((c) => c.endsWith('/scenarios'))).toEqual([]);

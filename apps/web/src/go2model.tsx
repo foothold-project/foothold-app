@@ -5,6 +5,7 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import * as THREE from 'three';
 import type { Go2RobotInfo } from '../../contracts/ts';
 import type { Live } from './rt';
+import { stageRect, sx, sy } from './stage';
 
 /** Go2 관절 이름 순서(mobile/sim/go2-replay.js GO2_JOINTS 와 같음) · 서 있는 기본 자세(보고 없을 때 그림) */
 export const JOINTS = ['FR', 'FL', 'RR', 'RL'].flatMap((leg) => ['hip', 'thigh', 'calf'].map((part) => `${leg}_${part}_joint`));
@@ -228,7 +229,7 @@ export function spread(tags: { x: number; y: number; side: number; w: number; h:
   });
 }
 /** 그림 아래 줄의 관절 이름(앞 오른 종아리 등) */
-const LEG: Record<string, string> = { FR: '앞 오른', FL: '앞 왼', RR: '뒤 오른', RL: '뒤 왼' }, PART: Record<string, string> = { hip: '엉덩이', thigh: '허벅지', calf: '종아리' };
+const LEG: Record<string, string> = { FR: '앞 오른', FL: '앞 왼', RR: '뒤 오른', RL: '뒤 왼' }, PART: Record<string, string> = { hip: '고관절', thigh: '허벅지', calf: '종아리' };
 export const jointName = (n: string) => `${LEG[n.slice(0, 2)]} ${PART[n.split('_')[1]]}`;
 /** 자세를 놓고, 관절·화살표 끝을 화면 px 로. 관절 화살표 = 각속도 부호 × (돌림축이 카메라 쪽이면 +) — 오른손 법칙대로 + 는 보는 사람에게 반시계(↺) */
 function place(r: Rig, pose: Pose, mo: Motion, w: number, h: number, view: View = HOME) {
@@ -326,7 +327,7 @@ export function Go2Figure({ pose, motion = NONE, showJoints = true, temps = null
   useLayoutEffect(() => {
     const e = tipEl.current, v = box.current;
     if (!e || !v) { setCover(null); return; }
-    const a = e.getBoundingClientRect(), o = v.getBoundingClientRect();
+    const a = stageRect(e), o = stageRect(v);   // 무대 px(화면 맞춤 scale 아래에서도 칸 안 css px 와 같게)
     setCover({ x: a.left - o.left, y: a.top - o.top, w: a.width, h: a.height });
   }, [tip, at]);
   const under = (b: Box) => !!cover && b.x < cover.x + cover.w && cover.x < b.x + b.w && b.y < cover.y + cover.h && cover.y < b.y + b.h;
@@ -337,10 +338,10 @@ export function Go2Figure({ pose, motion = NONE, showJoints = true, temps = null
     <div ref={box} className="pd-go2-view" role="img" aria-label={pose ? 'Go2 · 로봇이 보낸 관절·자세 (끌어서 돌려 보기)' : 'Go2 · 기본 자세(로봇 보고 없음)'}
       data-go2-orbit={moved ? 'moved' : 'home'} style={{ touchAction: 'none', cursor: 'grab' }}
       onMouseDown={(e) => e.preventDefault()} onDoubleClick={() => setView(HOME)}
-      onPointerDown={(e) => { if (e.button) return; drag.current = { x: e.clientX, y: e.clientY }; e.currentTarget.setPointerCapture?.(e.pointerId); }}
+      onPointerDown={(e) => { if (e.button) return; drag.current = { x: sx(e), y: sy(e) }; e.currentTarget.setPointerCapture?.(e.pointerId); }}
       onPointerMove={(e) => {
         const d = drag.current; if (!d) return;
-        const dx = e.clientX - d.x, dy = e.clientY - d.y; d.x = e.clientX; d.y = e.clientY;
+        const dx = sx(e) - d.x, dy = sy(e) - d.y; d.x = sx(e); d.y = sy(e);
         if (dx || dy) setView((v) => ({ ...v, az: v.az - dx * DRAG, el: clamp(v.el + dy * DRAG, EL) }));
       }} onPointerUp={end} onPointerCancel={end} onLostPointerCapture={end}>
       {fail && <svg className="pd-go2-sketch" data-go2-sketch viewBox={`0 0 ${size.w} ${size.h}`} aria-hidden="true">
@@ -370,4 +371,19 @@ export function Go2Figure({ pose, motion = NONE, showJoints = true, temps = null
       {spill.map((t) => <li key={t.name}><b>{jointName(t.name)}</b>{val(t)}</li>)}
     </ul>}
   </div>;
+}
+
+// 온도(RB-TEMP-WEB 11-19) — 옛 pcdrive.tsx 에서 옮김(로봇 탭 시안 u4 · 관제 타일 · 준비 점검이 같이 씀)
+const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const top = (a: unknown[]) => { const f = a.map(num).filter((v): v is number => v != null); return f.length ? Math.max(...f) : null; };
+/** 온도 보고가 이보다 오래되면(초) 온도만 «—»(그림 흐림 규칙과 따로) */
+export const TEMP_STALE_S = 3;
+export type Temps = { joints: (number | null)[]; hot: number; battery: number | null; inside: number | null } | null;
+/** 관절 12개(JOINTS 순서)·가장 뜨거운 관절·배터리 4개 중 최고·몸 안(자세 센서·본체) 중 최고. 연결이 끊겼거나 보고가 오래되면 null(지어내지 않음).
+ *  ago = 이 state 를 받은 뒤 화면 시계로 지난 초 — 나이 = age_s + ago(RV-409 4: 다음 보고를 기다리지 않고 3초 넘으면 «—») */
+export function go2Temps(s: Live['state'], fresh: boolean, ago = 0): Temps {
+  const t = s?.robot_info?.temperature;   // 계약 Go2Temperature(#407) — 값 없으면 키 없음. 받은 값은 그래도 수·길이를 확인
+  if (!fresh || s?.connection !== 'ONLINE' || !t || !(t.age_s + ago <= TEMP_STALE_S)) return null;
+  const joints = Array.isArray(t.joints) && t.joints.length === 12 ? t.joints.map(num) : JOINTS.map(() => null), hi = top(joints);
+  return { joints, hot: hi == null ? -1 : joints.indexOf(hi), battery: top(Array.isArray(t.battery) ? t.battery : []), inside: top([t.imu, ...(Array.isArray(t.body) ? t.body : [])]) };
 }

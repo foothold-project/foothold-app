@@ -1,12 +1,17 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { pcBoard } from '../pcboard';
 import { App } from '../App';
 import { ROBOTS, USERS, type Robot } from './fixtures';
 import { fleetNames, fleetRow } from './fleetRow';
 import { PC_BOTTOM, PC_TABS, PHONE_SHEETS, PHONE_TABS, labelOf, tabFromHash, tabsFor } from '../menu';
 import { FakeWS, state } from './fakeWs';
+import { ACTS } from '../robotact';
 import SIM_MAPS from '../../../../mobile/sim/maps.json';
+// 옛 PC 관제 부품(관제 요약 · 상세 서랍 · 연결 상태 · 조종 준비) 시험: PC 로봇 탭은 시안 u4 라 부품을 앱 맥락 안에 직접 그린다 → W1 u5
+beforeEach(() => { pcBoard.on = true; });
+afterEach(() => { pcBoard.on = false; });
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -55,12 +60,12 @@ function eachPhoneScreen(user: string, f: (where: string) => void) {
 const cardNames = () => $$('.dv-card b').map((b) => b.textContent);
 
 describe('메뉴 정의(한 곳)', () => {
-  it('PC 메뉴 6개 관제·로봇·지도·임무·기록·설정(U0-01: 실기 조종 탭 없음, 시뮬·결재 탭 숨김), 폰은 조종·기록 화면 + 아래 줄 시트 4개', () => {
+  it('PC 메뉴 6개 관제·로봇·지도·임무·기록·설정(U0-01: 실기 조종 탭 없음, 시뮬·결재 탭 숨김), 폰은 조종·기록 화면 + 시트 3개', () => {
     expect([...PC_TABS, PC_BOTTOM].filter((t) => !t.hidden).map((t) => labelOf(t, 'ORG_ADMIN'))).toEqual(['관제', '로봇', '지도', '임무', '기록', '설정']);
     expect(tabFromHash('#/sim', false)).toBe('sim');   // 시뮬 탭은 메뉴에서만 숨김, 주소로는 그대로
     expect(tabFromHash('#/approval', false)).toBe('approval');   // 옛 결재·알림 링크는 주소로 그대로
     expect(PHONE_TABS.map((t) => labelOf(t, 'OPERATOR'))).toEqual(['조종', '기록']);
-    expect(PHONE_SHEETS.map((t) => t.label)).toEqual(['자세', '시나리오', '지도·목표', '정책']);
+    expect(PHONE_SHEETS.map((t) => t.label)).toEqual(['시나리오', '지도·목표', '정책']);   // 「자세」 는 조종 화면 동작 일곱이 대신
   });
   it('운영자는 결재 탭 이름이 «내 요청»', () => {
     expect(labelOf(PC_TABS.find((t) => t.id === 'approval')!, 'OPERATOR')).toBe('내 요청');
@@ -197,7 +202,7 @@ describe('STOP 상시 표시', () => {
     mount(false, u.id);
     for (const t of shown()) { click($(`[aria-label="주 메뉴"] [data-href="#/${t.id}"]`)); one(false, t.id); }
   });
-  for (const u of USERS) it(`폰 · ${u.name}: 로봇 연결·조종·시트 4개·기록에 STOP 1개(64px) + 상태 띠 자리`, () => {
+  for (const u of USERS) it(`폰 · ${u.name}: 로봇 연결·조종·시트 3개·기록에 STOP 1개(64px) + 상태 띠 자리`, () => {
     mount(true, u.id);
     eachPhoneScreen(u.id, (where) => one(true, where));
   });
@@ -369,7 +374,7 @@ describe('R2·R3 보강', () => {
     mount(false);
   });
   it('탭마다 그 탭 본문 고유 내용이 보인다', () => {
-    const MARK: Record<string, string> = { fleet: '주의 필요', approval: '결재함', history: '내보내기', map: '어느 지도에서 일할까요?', settings: '조직 기준값' };
+    const MARK: Record<string, string> = { fleet: '주의 필요', approval: '결재함', history: '내보내기', map: '로봇이 현장을 걸으며 스캔한 3D 지도입니다', settings: '내 계정' };   // 지도 = 시안 u7_1 · 설정 탭 처음 화면 = 시안 u9 계정(u9_1)
     mount(false);
     for (const [id, m] of Object.entries(MARK)) {
       act(() => { location.hash = `#/${id}`; window.dispatchEvent(new HashChangeEvent('hashchange')); });   // 결재 탭은 메뉴에 없어 주소로
@@ -394,11 +399,10 @@ describe('R2·R3 보강', () => {
     expect($('[aria-label="주 메뉴"]')).toBeNull();
     expect($('.fh-more select[data-theme-pick]')).not.toBeNull();
   });
-  it('미구현 단추는 비활성 + «준비 중» 글에 이어짐', () => {
-    mount(true, 'u-lee', '#/drive/r3');   // 폰 «시뮬 로봇 띄우기»·PC 임무 탭은 이제 서버 값 — 자세 시트 «서기»는 아직 준비 중
-    click($$('main button').find((x) => x.textContent === '자세')!);
-    const b = $$('main button').find((x) => x.textContent === '서기') as HTMLButtonElement;
-    expect(b.disabled).toBe(true);
-    expect(document.getElementById(b.getAttribute('aria-describedby')!)!.textContent).toContain('준비 중');
+  it('폰 조종 화면: 동작 일곱(시안 u1 .act)이 자세 시트를 대신 · 「준비 중」 서기 단추 없음', () => {
+    mount(true, 'u-lee', '#/drive/r3');
+    expect($$('main button').find((x) => x.textContent === '자세')).toBeUndefined();
+    expect($$('main button').find((x) => x.textContent === '서기')).toBeUndefined();
+    expect($$('main .u1d .act button[data-act]').map((b) => (b as HTMLElement).dataset.act)).toEqual(ACTS.map(([n]) => n));
   });
 });

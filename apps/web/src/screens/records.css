@@ -1,12 +1,4 @@
-/* 기록 탭 「지금 남기기」 · 클립 칸 · 재생기(records.tsx). 색 · 선은 기존 토큰만 */
-.rc-anchor{position:relative;display:inline-flex}
-.rc-mark{position:absolute;top:calc(100% + 6px);right:0;z-index:30;display:flex;flex-direction:column;gap:10px;box-sizing:border-box;width:min(440px,calc(100vw - 32px));border-color:var(--line2);background:var(--panel);box-shadow:var(--shadow)}
-.rc-mark>b{font-size:15px;font-weight:600}
-.rc-note{width:100%;box-sizing:border-box;resize:vertical;min-height:56px;font:inherit}
-.rc-clip{display:flex;align-items:center;gap:8px;font-size:14px}
-.rc-clip input{width:18px;height:18px;margin:0}
-.rc-clip input:disabled+span{color:var(--muted)}
-.rc-out{margin:0;font-size:14px;line-height:1.5}
+/* 폰 기록 클립 칸 · 재생기(records.tsx). 색 · 선은 기존 토큰만 */
 .rc-none{display:block;margin-top:4px}
 .rc-clipbox{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:6px;max-width:100%}
 .rc-player{display:flex;flex-direction:column;gap:6px;width:min(480px,100%)}

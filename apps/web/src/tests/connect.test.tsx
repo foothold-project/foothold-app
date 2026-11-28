@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { pcBoard } from '../pcboard';
 import type { OrgSettings, RobotSummary, User } from '../../../contracts/ts';
 import { api } from '../api';
 import { ROBOTS as MEM_ROBOTS, USERS as MEM_USERS } from '../fake';
@@ -9,6 +10,9 @@ import { rt } from '../rt';
 import { LIST_MS, Root } from '../session';
 import { FakeWS, lease, state } from './fakeWs';
 import { fleetNames, fleetRow } from './fleetRow';
+// 옛 PC 관제 부품(관제 요약 · 상세 서랍 · 연결 상태 · 조종 준비) 시험: PC 로봇 탭은 시안 u4 라 부품을 앱 맥락 안에 직접 그린다 → W1 u5
+beforeEach(() => { pcBoard.on = true; });
+afterEach(() => { pcBoard.on = false; });
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -55,7 +59,9 @@ beforeEach(() => { calls = []; });
 afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.unstubAllGlobals(); });
 
 const $ = <T extends Element = HTMLElement>(s: string) => box.querySelector<T>(s);
-/** 설정 «알림» 묶음의 조직 기준값 저장 단추(U9-04 뒤 첫 묶음은 계정이라 «저장» 이 여럿) */
+/** 설정 탭(시안 u9)에서 묶음 열기. 조직 기준값은 «로봇» 묶음(지금 판 칸)에 있다 */
+const settingsPage = async (id: string) => { act(() => $<HTMLElement>(`#nav-${id}`)!.click()); await flush(); };
+/** 설정 «로봇» 묶음의 조직 기준값 저장 단추(그 묶음에는 «저장» 이 여럿) */
 const orgSave = () => [...document.querySelectorAll('[aria-label="조직 기준값"] button')].find((b) => b.textContent === '저장') as HTMLButtonElement | undefined;
 const btn = (t: string) => [...box.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
 /** PC 시안 머리줄: 로그아웃 · 화면 밝기는 나 칸을 눌러 여는 차림 안 */
@@ -132,6 +138,7 @@ describe('로그인·세션', () => {
     expect(calls.map((c) => c.path).slice(0, 3)).toEqual(['/auth/session', '/me', '/robots?scope=all&limit=100']);
     expect($('main[aria-label="로그인"]')).toBeNull();
     expect($('.bar .who')!.getAttribute('aria-label')).toBe('김총괄(총괄)');
+    await settingsPage('robot');
     type($<HTMLInputElement>('input[name="battery_low_pct"]')!, '25');
     act(() => orgSave()!.click());
     await flush();
@@ -140,6 +147,7 @@ describe('로그인·세션', () => {
   it('쓰는 중 401 → 로그인 화면 + «다시 로그인» 안내', async () => {
     serve(signedIn(KIM, [], { 'GET /org/settings': NO_LOGIN }));
     await open('#/settings');
+    await settingsPage('robot');   // 조직 기준값을 읽는 묶음
     expect($('main[aria-label="로그인"]')).not.toBeNull();
     expect($('[role="alert"]')!.textContent).toBe('로그인이 끝났습니다. 다시 로그인하세요.');
     expect([MEM_USERS.length, MEM_ROBOTS.length]).toEqual([0, 0]);   // 401 뒤 메모리에도 이전 자료 0
@@ -345,7 +353,7 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
       act(() => w.recv(state('r-c')));
       act(() => btn('연결')!.click());
       expect(location.hash).toBe('#/drive/r-c');
-      expect(btn('조종 시작')!.disabled).toBe(false);
+      expect(btn('조종')!.disabled).toBe(false);
     } finally { vi.useRealTimers(); }
   });
   it('상태를 받은 적 없는 로봇은 «연결 전»(끊김 경보 아님) + 조종 불가 이유, 개발용 표시 없음', async () => {
@@ -379,6 +387,7 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
     expect($('[data-stop]')).not.toBeNull();
     act(() => { location.hash = '#/settings'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
     await flush();
+    await settingsPage('robot');
     expect($('[aria-label="조직 기준값"]')).not.toBeNull();
   });
 });
@@ -395,7 +404,7 @@ describe('조종 화면에서 세션이 끝남(로그아웃·401·4401)', () => 
       if (m.t === 'lease.take') w.recv(lease('r-k', { id: 'o1', name: '이운영' }, 'L1'));
     };
     act(() => { w.open(); w.recv(state('r-k')); });
-    act(() => btn('조종 시작')!.click());
+    act(() => btn('조종')!.click());
     expect(box.textContent).toContain('조종 중(나)');
     return w;
   }
@@ -441,6 +450,7 @@ describe('조직 기준값', () => {
   it('운영 관리자: 값은 보이지만 저장 비활성 + 이유, PATCH 0', async () => {
     serve(signedIn(LEE, [robot('r-a', 'Go2-A', 'o1', '이운영')]));
     await open('#/settings');
+    await settingsPage('robot');
     expect($<HTMLInputElement>('input[name="battery_low_pct"]')!.value).toBe('20');
     expect($<HTMLInputElement>('input[name="battery_low_pct"]')!.readOnly).toBe(true);
     const save = orgSave()!;
@@ -451,6 +461,7 @@ describe('조직 기준값', () => {
   it('총괄: 바뀐 칸만 PATCH, 범위 밖이면 서버 문구 + 어느 칸의 허용 범위', async () => {
     serve(signedIn(KIM, [], { 'PATCH /org/settings': err(400, 'VALIDATION', '입력 형식을 확인하세요.') }));
     await open('#/settings');
+    await settingsPage('robot');
     type($<HTMLInputElement>('input[name="battery_low_pct"]')!, '70');
     act(() => orgSave()!.click());
     await flush();

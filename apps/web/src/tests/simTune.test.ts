@@ -53,13 +53,13 @@ describe('현재 정책별 실효값', () => {
 });
 
 describe('시뮬 연결: 조직 값으로 좁힘', () => {
-  it('상한 = min(에이전트, 조직), 최소 이동 = sim_min_vx, 데드존 = stick_deadzone', () => {
+  it('상한 = min(에이전트, 조직), 데드존 = stick_deadzone · 전후 s·|s| (teleop)', () => {
     simTune(ORG);
     const w = hello(true, SIM);
     expect(tuned(w).L).toMatchObject({ vx_max: 0.5, vx_min_moving: 0.1, vy_max: 0.1, vy_min: -0.1, wz_max: 0.25, wz_min: -0.25, vx_min: -0.3 });
     expect(velocity([1, 0, 0], w).vx).toBe(0.5);
     expect(velocity([0.29, 0, 0], w).vx).toBe(0);   // 데드존 0.3 안
-    expect(velocity([0.31, 0, 0], w).vx).toBeCloseTo(0.1, 1);
+    expect(velocity([0.31, 0, 0], w).vx).toBeCloseTo(0.31 * 0.31 * 0.5, 9);   // 공용 식 teleop: 데드존 밖 전후 s·|s| × 상한(최소 이동 sim_min_vx 는 식에 쓰지 않음)
     expect(velocity([0, 0, 1], w).vy).toBeCloseTo(0.1, 9);
     expect(velocity([0, 1, 0], w).wz).toBe(0.25);
     for (const a of GRID) {   // 어떤 입력도 조직 상한·에이전트 상한 밖으로 나가지 않음

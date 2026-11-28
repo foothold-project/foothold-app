@@ -228,7 +228,7 @@ export interface AgentRunUpdate {
   progress: Progress | null;
   path_deviation_m?: number | null;
   fail_code?: string | null;
-  wait_reason?: "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE" | null;
+  wait_reason?: "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE" | "SIM_SELF_STOP" | null;
   agent_instance_id?: string;
   report_seq?: number;
   monotonic_s?: number;
@@ -422,6 +422,14 @@ export interface Battery {
   updated_at: string;
 }
 
+export interface BusyHour {
+  day: "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
+  start: string;
+  /** 같은 날 start 보다 늦은 HH:MM. 자정을 넘는 구간은 두 줄로 나눈다. */
+  end: string;
+  label: string;
+}
+
 export interface CameraFrame {
   t: "camera.frame";
   /** 소문자 하이픈 UUID 표준형만 허용한다. */
@@ -500,7 +508,7 @@ export interface DurableAgentRunUpdate {
   progress: Progress | null;
   path_deviation_m?: number | null;
   fail_code?: string | null;
-  wait_reason?: "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE" | null;
+  wait_reason?: "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE" | "SIM_SELF_STOP" | null;
   agent_instance_id: string;
   report_seq: number;
   monotonic_s: number;
@@ -1227,6 +1235,17 @@ export interface MappingVoxels {
   removed?: [number, number, number][];
 }
 
+export interface Me {
+  id: string;
+  username: string;
+  display_name: string;
+  role: "ORG_ADMIN" | "OPERATOR";
+  locked: boolean;
+  robot_ids: string[];
+  created_at: string;
+  notify_prefs: Record<string, boolean>;
+}
+
 export interface MePatch {
   display_name?: string;
   notify_prefs?: Record<string, boolean>;
@@ -1417,6 +1436,14 @@ export interface OrgSettings {
   real_max_wz?: number;
   real_no_fast_server_drive?: boolean;
   model_overrides?: Record<string, Record<string, number | boolean>>;
+  /** 데모 로봇에 「데모」 표시. 끄면 표시만 숨긴다. */
+  show_demo_label?: boolean;
+  /** 현장 혼잡 시간. PATCH 는 목록 전체를 바꾼다. */
+  busy_hours?: BusyHour[];
+  /** 같은 지점을 이 분 안에 다시 점검하면 겹침으로 알린다. */
+  dup_inspect_min?: number;
+  /** 클립을 서버에 두는 날 수 1~365. 지금은 값만 두고 지우기는 하지 않는다. */
+  clip_retention_days?: number;
 }
 
 export interface OrgSettingsPatch {
@@ -1440,6 +1467,10 @@ export interface OrgSettingsPatch {
   real_max_wz?: number;
   real_no_fast_server_drive?: boolean;
   model_overrides?: Record<string, Record<string, number | boolean | null>>;
+  show_demo_label?: boolean;
+  busy_hours?: BusyHour[];
+  dup_inspect_min?: number;
+  clip_retention_days?: number;
 }
 
 export interface PairingClaim {
@@ -1792,7 +1823,7 @@ export interface PhoneRunUpdate {
   status: "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED";
   step: number;
   progress: Progress;
-  wait_reason: "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE" | null;
+  wait_reason: "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE" | "SIM_SELF_STOP" | null;
   fail_code: string | null;
   t: "run.update";
 }
@@ -2237,7 +2268,7 @@ export interface RunSnapshot {
   status: "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED";
   step: number;
   progress: Progress;
-  wait_reason: "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE" | null;
+  wait_reason: "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE" | "SIM_SELF_STOP" | null;
   fail_code: string | null;
 }
 
@@ -3069,7 +3100,7 @@ export interface ZoneOverlaps {
 export type ScenarioTargetErrorCode = "SIM_MAP_REQUIRES_SIM_ROBOT" | "SIM_SCENARIO_NO_ASSIGN" | "SCENARIO_MIXED_PURPOSE";
 export type RunStatus = "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED";
 export type RunRecordStatus = "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED" | "ABORTED";
-export type RunWaitReason = "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE";
+export type RunWaitReason = "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE" | "SIM_SELF_STOP";
 export type RunFailCode = "NAV_GOAL_REJECTED" | "NAV_TIMEOUT" | "LOCALIZATION_LOST" | "BATTERY_LOW" | "DEVICE_MISSING" | "OPERATOR_ABORT" | "PAUSE_TIMEOUT" | "FLOOR_TRANSITION_FAILED" | "NAV_UNAVAILABLE" | "MAP_VERSION_MISMATCH" | "FLOOR_TRANSITION_UNSUPPORTED" | "PLAN_UNAVAILABLE" | "RECORDING_REJECTED";
 export type RunRejectCode = "NOT_CONTROLLER" | "FORBIDDEN" | "RUN_ACTIVE" | "RUN_CONFLICT" | "RUN_NOT_FOUND" | "RUN_STATE_CONFLICT" | "RUN_OWNER_MISMATCH" | "RESUME_REJECTED" | "UNSUPPORTED_OPERATION" | "RECORDING_UNAVAILABLE" | "NAV_UNAVAILABLE" | "MAP_VERSION_MISMATCH" | "FLOOR_TRANSITION_UNSUPPORTED" | "PLAN_UNAVAILABLE";
 export type RunReportTransientCode = "RUN_REPORT_SEQUENCE" | "RUN_REPORT_STORAGE";

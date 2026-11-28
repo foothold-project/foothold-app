@@ -76,6 +76,7 @@ async function open(pick = true) {
   await flush();
   const b = box.querySelector<HTMLButtonElement>('[aria-label="지도 고르기"] [data-building]');
   if (pick && b) { act(() => b.click()); await flush(); }
+  if (pick) { const o = box.querySelector<HTMLButtonElement>('[data-open-map]') ?? box.querySelector<HTMLElement>('[data-empty="pick-floor"] [data-empty-act]'); if (o) { act(() => o.click()); await flush(); } }   // 시안 u7_1: 건물 = 고르기, «지도 열기»로 연다 · 판 없는 층은 빈 칸 보조 단추(이 층에서 바로)
 }
 afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); kept.d = null; kept.job = null; clearPlans(); localStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); last = null; terrainAsk.id = ''; });
 
@@ -87,7 +88,7 @@ const field = (label: string) => [...form().querySelectorAll('label')].find((l) 
 const pick = async (f: File) => { const el = field('3D 지도 파일'); act(() => { Object.defineProperty(el, 'files', { value: [f], configurable: true }); el.dispatchEvent(new Event('change', { bubbles: true })); }); await flush(); };
 const setVal = async (el: HTMLInputElement, v: string) => { act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); }); await flush(); };
 /** «더 보기 › 새 지도 올리기…» → «3D 지도 파일» 고르기 */
-const openVoxel = async () => { await click(btn('새 지도 올리기…')); await click(btn('3D 지도 파일(.pcd·.ply)')); };
+const openVoxel = async () => { const m = btn('새 지도 올리기…'); if (m) await click(m); await click(btn('3D 지도 파일(.pcd·.ply)')); };   // 판 없는 층을 빈 칸 「파일 올리기」 로 열면 올리기 창이 이미 열림
 const PLY = () => new File(['ply\nformat ascii 1.0\nelement vertex 1\nproperty float x\nproperty float y\nproperty float z\nend_header\n0 0 0\n'], 'room.ply');
 const pages = (n: number, per: number) => (q: URLSearchParams) => { const c = Number(q.get('cursor')), cells = Array.from({ length: Math.min(per, n - c) }, (_, i) => [c + i, 0, i % 5]);
   return { status: 200, body: { summary: SUM('v2', n), cells, next_cursor: c + cells.length < n ? c + cells.length : null, max_page_size: 20000 } }; };
@@ -136,7 +137,7 @@ describe('3D 지도 올리기', () => {
     expect($('[data-voxel-ask]')).toBeNull();
     expect(calls.filter((c) => c.method === 'POST')).toEqual([]);
   });
-  it('올리는 중: 닫기(✕·Esc)·형식 바꾸기 막힘, «만드는 중» 유지, 다시 보내도 요청 하나 → 끝나면 결과', async () => {
+  it('올리는 중: 닫기(‹)·형식 바꾸기 막힘, «만드는 중» 유지, 다시 보내도 요청 하나 → 끝나면 결과', async () => {
     let answer!: (r: Reply) => void;
     serve(signedIn(KIM, null, { 'POST /floors/f1/voxel-maps': () => new Promise<Reply>((r) => { answer = r; }) }));
     await open();
@@ -145,10 +146,10 @@ describe('3D 지도 올리기', () => {
     await click(btn('올리기', form()));
     expect($('[data-voxel-ask]')).toBeNull();
     expect($('[data-voxel-busy]')!.textContent).toContain('이 창은 닫히지 않습니다');
-    const dlg = form().closest('dialog')!;
-    await click(dlg.querySelector('[aria-label="새 지도 올리기 닫기"]'));
-    act(() => { dlg.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); }); await flush();
-    expect(dlg.hasAttribute('open')).toBe(true);
+    const dlg = $('[data-u7="u7_upload"]')!;   // 올리기 = 시안 u7 틀 화면(떠 있는 창 없음)
+    expect(form().closest('dialog')).toBeNull();
+    await click(dlg.querySelector('[aria-label="새 지도 올리기 닫기"]'));   // 올리는 중엔 ‹ 막힘
+    expect($('[data-u7="u7_upload"]')).toBe(dlg);
     expect($('[data-voxel-busy]')).toBeTruthy();
     expect(btn('그림·yaml', dlg)!.disabled).toBe(true);
     act(() => { form().dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); }); await flush();
@@ -158,7 +159,7 @@ describe('3D 지도 올리기', () => {
     expect($('[data-voxel-done] [data-voxel-warnings]')).toBeTruthy();
     expect(btn('그림·yaml', dlg)!.disabled).toBe(false);
     await click(dlg.querySelector('[aria-label="새 지도 올리기 닫기"]'));
-    expect(dlg.hasAttribute('open')).toBe(false);
+    expect($('[data-u7="u7_upload"]')).toBeNull();
   });
   it('보내기 전 막기: 다른 파일 형식·빈 이름·50 MB 넘음 → 요청 없음', async () => {
     serve(signedIn(KIM, null));
@@ -273,7 +274,7 @@ describe('3D 표시·지형 수정하기 길', () => {
   it('지도 고르기 카드에 «3D», 저장 기록 줄에도', async () => {
     serve(signedIn(KIM, 'v2'));
     await open(false);
-    expect($('[data-building="b1"] [data-voxel-chip]')!.textContent).toBe('3D');
+    expect($('[data-floor-row="f1"] [data-voxel-chip]')!.textContent).toBe('3D');
     act(() => root?.unmount()); box.remove();
     serve(signedIn(KIM, 'v1'));
     await open(false);

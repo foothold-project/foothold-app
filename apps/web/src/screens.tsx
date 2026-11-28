@@ -34,7 +34,9 @@ export type Ctx = { user: User; robot: Robot; robots: Robot[]; pick: (id: string
   /** 기록 탭에서 바로 보일 사건 id(알림 링크 #/history?event_id=…), 결재 탭에서 바로 열 결재 id(#/approvals?approval_id=…) */
   focus?: string;
   /** 관제 요약(App 이 한 곳에서 받음 — 결재 탭 배지도 이 값) */
-  dash: Dash };
+  dash: Dash;
+  /** 폰 조종 화면 영상 칸 위에 얹는 지도 스캔 겹(시안 u14_2 · ⋯ «지도 스캔»). 조종 화면은 이것을 그리기만 한다 */
+  scan?: ReactNode };
 
 const ICON: Record<Tone, string> = { off: '○', ok: '●', warn: '▲', bad: '■' };
 /** 상태 표시 하나: 모양 + 짧은 글(색만으로 구분 0). 원본 ui/src/app/chip.tsx 의 Chip 모양 */
@@ -102,7 +104,7 @@ const ATTN: Record<string, string> = { OFFLINE: '연결 끊김', STATE_STALE: '�
 /** status 없음은 «받은 적 없음»의 근거가 아니다(다시 로그인하면 서버 목록 status=null) — 끊김 경보는 지우지 않는다(11-11 #327 검토) */
 export const attn = (x: Robot, skip: string[] = []) => (x.attention ?? []).filter((a) => !skip.includes(a)).map((a) => ATTN[a] ?? a).join(' · ');
 /** 상세 «주의»: 연결·잠금은 바로 위 칸(상태 한 줄·연결·잠금 칩)이 이미 보여 뺀다 — «연결 전» 로봇이 «연결 끊김»으로 읽히지 않게(11-11 fleet polish) */
-const SHOWN = ['OFFLINE', 'STOP_LATCHED'];
+export const SHOWN = ['OFFLINE', 'STOP_LATCHED'];
 export const linkText = (x: Robot) => (x.unknown ? '연결 확인 중' : x.online ? '연결됨' : x.status ? '끊김' : '연결 전');
 
 /** 관제 지도 칸 — 로봇 수와 상관없이. 칸 안 렌더 예외는 Guard 가 가둔다(STOP 은 머리줄) */
@@ -156,12 +158,12 @@ export function Operators({ user, d }: { user: User; d: Dashboard | null }) {
 
 export const KIND: Record<Device['kind'], string> = { CAMERA_RGB: '카메라', CAMERA_DEPTH: '뎁스 카메라', LIDAR: '라이다', BATTERY: '배터리', OTHER: '기타' };
 /** 장치 상태 코드(contracts DeviceStatusCode, #213): OK 는 숨김, 명시 허용(ACCEPTED)은 «허용된 상태 코드 n», 그 밖(ERROR·모르는 level)은 오류로 원시 코드 */
-const codeText = ({ status_code: c }: Device) => {
+export const codeText = ({ status_code: c }: Device) => {
   if (c?.raw == null || c.level === 'OK') return null;
   const ok = c.level === 'ACCEPTED';
   return <span className="lbl" data-status-code={ok ? 'ACCEPTED' : 'ERROR'}>{ok ? `허용된 상태 코드 ${c.raw}${c.reason === 'EXPLICIT_SERVER_ALLOWLIST' ? '(서버 명시 허용)' : c.reason === 'REMOTE_MOTION_STATE' ? '(리모컨 순정 모드)' : ''}` : `상태 코드 ${c.raw}`}</span>;
 };
-const DEVICE: Record<Device['state'], { tone: Tone; text: string }> = { OK: { tone: 'ok', text: '정상' }, MISSING: { tone: 'warn', text: '연결 끊겨 확인 안 됨' }, ERROR: { tone: 'bad', text: '오류' } };
+export const DEVICE: Record<Device['state'], { tone: Tone; text: string }> = { OK: { tone: 'ok', text: '정상' }, MISSING: { tone: 'warn', text: '연결 끊겨 확인 안 됨' }, ERROR: { tone: 'bad', text: '오류' } };
 const m = (v: number | null) => (v == null ? '—' : `${v.toFixed(1)} m`);
 const hms = (at: string) => new Date(at).toTimeString().slice(0, 8);
 export const Line = ({ k, children }: { k: string; children: ReactNode }) => <div className="fh-row fh-line"><span className="lbl">{k}</span>{children}</div>;
@@ -229,7 +231,7 @@ export function Detail({ close, solo, ...c }: Ctx & { close?: () => void; solo?:
 }
 
 /** 실행 단계(contracts CurrentRun.status) → 짧은 글. 일시정지 까닭은 서버 요약에 없어 쓰지 않는다 */
-const RUN: Record<string, string> = { QUEUED: '대기열', PREPARING: '준비 중', MOVING: '이동 중', AT_WAYPOINT: '지점 도착', PERFORMING: '작업 중', WAIT_CONFIRM: '확인 기다림', PAUSED: '일시정지' };
+export const RUN: Record<string, string> = { QUEUED: '대기열', PREPARING: '준비 중', MOVING: '이동 중', AT_WAYPOINT: '지점 도착', PERFORMING: '작업 중', WAIT_CONFIRM: '확인 기다림', PAUSED: '일시정지' };
 
 /** 폰 조종 화면의 시나리오 시트 — 이 로봇이 있는 층의 실기 시나리오에서 고른다(배정 없음, RB-MAP-NO-SCEN 11-18) */
 export const Scenario = (c: Ctx) => <ScenarioPick robot={c.robot} cancel={c.cancel} />;

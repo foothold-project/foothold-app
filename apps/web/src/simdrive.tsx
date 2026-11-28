@@ -1,31 +1,39 @@
 // 시뮬 로봇 띄우기 → 지도(월드) 고르기 → 직결 조종 → 끝내기(09 ADR-002 §3.2·§6). 상태·요청은 phone.ts, 이 파일은 그림만.
 import { useEffect, useRef, useState, type HTMLAttributes, type PointerEvent } from 'react';
+import { sx, sy, stageRect, vh, vw } from './stage';
 import type { PhoneWelcome, SimProvision, SimRobot } from '../../contracts/ts';
 type SpawnFloor = NonNullable<SimProvision['spawn_floor_id']>;
 import { feedText, media, needsRelink, reasonText, useFeed, type Feed, type MediaChannel } from './media';
 import { useOrbit, viewBlock } from './extview';
-import { DEAD, HELD_RUN, RESULT, RUN_END, SAFE_NOTICE, allowed, runHolds, runMoving, sim, stopping, tuned, useSim, velocity, type Sim } from './phone';
+import { DEAD, HELD_RUN, RESULT, RUN_END, SAFE_NOTICE, allowed, limitCaps, runHolds, runMoving, sim, stopping, tuned, useSim, velocity, type Sim } from './phone';
+import { KEYMAP, keyStick, type TeleopKey } from '../../contracts/teleop';
 import { runView, startBlock, startFloor, useScenarios } from './run';
 import { Sheet, Stick } from './drive';
+import { RestartAskBox, useRestartAsk } from './robotact';
 import { inputGen, metaCut } from './rt';
 import { Chip, inApp } from './screens';
 import { typing, useStopPress } from './App';
 import { simName, type Tone } from './fake';
 import { SimMap, useFloorMap } from './simmap';
 import { SimPick } from './simstart';
+import { TakeoverAsk } from './screens/takeover';
+import { keyCode } from './padkeys';
 
-/** 키 → [축(0 전후·1 회전·2 옆), 방향]. 모든 조종 화면 한 배치(d5 · 11-28): W/↑ 전진, S/↓ 후진, A·← / D·→ 제자리 회전, Q/E 옆걸음, Space 정지(App).
+/** 키 → [축(0 전후·1 회전·2 옆), 방향]. 모든 조종 화면 한 배치(d5 · 11-28): W/↑ 전진, S/↓ 후진, ← / → 옆걸음, A / D 제자리 회전, Space 정지(App). Q · E 는 없음(11-28 17:25).
  *  실기 서버 경유(serverdrive.tsx·drive.tsx)와 같다. 옆걸음은 limits 가 vy 를 허락할 때만 나가고(phone.ts velocity), 아니면 0 + blockNote.
  *  e.code(자판 자리)라 한글 입력 상태에서도 같다 */
 export const KEYS: Record<string, [0 | 1 | 2, number]> = { KeyW: [0, 1], ArrowUp: [0, 1], KeyS: [0, -1], ArrowDown: [0, -1],
-  KeyA: [1, 1], ArrowLeft: [1, 1], KeyD: [1, -1], ArrowRight: [1, -1], KeyQ: [2, 1], KeyE: [2, -1] };
+  KeyA: [1, 1], KeyD: [1, -1], ArrowLeft: [2, 1], ArrowRight: [2, -1] };
 /** 옆걸음 키 칩이 막혔을 때 까닭(limits 의 vy 가 0) */
 export const SIDE_OFF = '로봇 한계 옆 0 m/s';
 /** F-TO-05 키보드 전진 기본 0.6 m/s(시뮬은 조직 값 sim_key_vx — phone.ts tuned): 연속 모드(시뮬)는 velocity 의 ramp 를 거꾸로 풀어 그 기울기, 그 밖·vx_max ≤ 키 속도면 끝까지(최종 자르기는 velocity·에이전트) */
 export const KEY_VX = 0.6;
-export function forward(w: PhoneWelcome) {
-  const { L, dead, key = KEY_VX } = tuned(w), m = Math.min(L.vx_min_moving ?? L.vx_min, L.vx_max);
-  return L.vx_mode !== 'continuous' || L.vx_max <= key ? 1 : dead + (1 - dead) * Math.max(1e-3, (key - m) / (L.vx_max - m));
+/** 누른 키 → 막대 자리 [전후, 회전, 옆](velocity 입력 순서) = 공용 식 keyStick: 전후 키는 속도 key(조직 sim_key_vx · 없으면 KEY_VX)가 되는 자리, 옆 · 돌기 키는 끝 */
+/** 앞 키 하나의 막대 자리(keyAxes 의 전후) */
+export const forward = (w: PhoneWelcome) => keyAxes(['forward'], w)[0];
+export function keyAxes(keys: Iterable<TeleopKey>, w: PhoneWelcome): [number, number, number] {
+  const { L, key = KEY_VX } = tuned(w), [f, side, turn] = w.simulation === true ? keyStick(keys, limitCaps(L), key) : keyStick(keys, { max_vx: 1, max_vx_back: 1, max_vy: 1, max_wz: 1 }, 1);   // 실기 직결 = 끝까지(옛 그대로)
+  return [f, turn, side];
 }
 /** 지금 키 입력을 받을 수 있나 — 에이전트가 simulation 이라 알린 연결 + 조종권 + 잠금 풀림. 키 처리는 렌더 값이 아니라 저장소를 바로 본다.
  *  시뮬 정지를 보낸 뒤 에이전트가 처리했다고 알리기 전(stop_gen 이 그대로)에는 옛 latched=false 가 남아 있어도 막는다 — 처리 뒤에는 잠금(latched)이 막고, 사람이 잠금 해제해야 다시 */
@@ -282,6 +290,7 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
   const s = useSim(), l = s.link!, r = s.robot!, st = l.st, w = l.welcome;
   useDeadline(!!r.expires_at);
   const open = l.at === 'open', mine = !!l.lease, ready = open && mine && st?.latched === false;
+  const restart = useRestartAsk(() => { const k = sim.get().link; return { mine: k?.at === 'open' && !!k.lease, latched: k?.st?.latched, gen: k?.st?.stop_gen, lease: k?.lease }; });   // 「다시 시작」 확인 창(u4_10 · reviewer H1 묶음)
   const input = useRef<[number, number, number]>([0, 0, 0]);   // [전후, 회전, 옆]
   // 입력 세대(rt inputGen — 실기 drive.tsx 와 같은 규칙): 키(e.code)·스틱 손가락마다 누른 순간의 세대. 잠김·해제·조종권·stop_gen·연결·STOP·숨김·live 가 바뀌거나 blur 면 +1.
   // 앞 세대 입력이 아직 눌려 있으면 명령 전체 0 — 떼었다가 다시 눌러야 한다. sg = 스틱마다 잡은 손가락의 세대(없으면 null)
@@ -322,14 +331,14 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
   useEffect(() => {
     const apply = () => {
       if (!keyRef.current.live || !canDrive()) held.current.clear();
-      const a: [number, number, number] = [0, 0, 0], k = sim.get().link?.welcome;
-      held.current.forEach((_, c) => { const [i, v] = KEYS[c]; a[i] = Math.max(-1, Math.min(1, a[i] + v)); });
-      if (a[0] > 0 && k) a[0] = forward(k);
+      const k = sim.get().link?.welcome, on: TeleopKey[] = [];
+      held.current.forEach((_, c) => { const t = KEYMAP[keyCode(c)]; if (t) on.push(t); });
+      const a = k ? keyAxes(on, k) : [0, 0, 0];
       input.current[1] = a[1]; input.current[2] = a[2]; keyRef.current.put(0, a[0]);
     };
     const down = (e: KeyboardEvent) => {
       if (held.current.size && (metaCut(e) || e.key === 'Control' || e.key === 'Alt')) return zero();   // 단축키 시작 — macOS 는 Cmd 뒤 keyup 이 안 올 수 있음(RV-429 ③)
-      if (!(e.code in KEYS) || e.repeat || e.ctrlKey || e.metaKey || e.altKey || field(e.target) || !keyRef.current.live || !canDrive()) return;
+      if (!(keyCode(e.code) in KEYS) || e.repeat || e.ctrlKey || e.metaKey || e.altKey || field(e.target) || !keyRef.current.live || !canDrive()) return;
       e.preventDefault(); held.current.set(e.code, keyRef.current.sync()); apply();
     };
     const up = (e: KeyboardEvent) => { if (metaCut(e) && held.current.size) zero(); else if (held.current.delete(e.code)) apply(); };
@@ -389,8 +398,8 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
     <button key="rel" type="button" className="btn pri" onClick={leave}>다시 반납</button>,
     l.at === 'closed' && <button key="re" type="button" className="btn" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>,
   ].filter(Boolean) : [
-    open && !mine && <button key="take" type="button" className="btn pri" disabled={l.busy === 'take' || runHolds(l)} onClick={() => sim.take()}>조종 시작</button>,
-    open && mine && st?.latched !== false && <button key="unlock" type="button" className="btn pri" disabled={l.busy === 'unlock'} onClick={() => sim.unlock()}>잠금 해제</button>,
+    open && !mine && <button key="take" type="button" className="btn pri" disabled={l.busy === 'take' || runHolds(l)} onClick={() => sim.take()}>조종</button>,
+    open && mine && st?.latched !== false && <button key="unlock" type="button" className="btn pri" disabled={l.busy === 'unlock'} onClick={restart.open}>다시 시작</button>,
     l.at === 'closed' && <button key="re" type="button" className="btn pri" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>,
     open && left < 60 && <button key="pass" type="button" className="btn" onClick={() => sim.connect()}>{moving ? '새 출입증으로 다시 연결(실행 일시정지)' : '새 출입증으로 다시 연결'}</button>,
     open && !mine && !(left < 60) && relink(cam) && <button key="media" type="button" className="btn" data-media-again onClick={() => sim.connect()}>영상 다시 받기</button>,   // 조종 중이면 다시 연결이 조종을 끊으므로 내지 않음
@@ -457,14 +466,13 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
         {acts && acts.length > 0 && <div className="fh-row">{acts}</div>}
         <HeldRun />
       </div>}
-      {l.ask && mine && <div className="dv-ask" role="dialog" aria-labelledby="sim-ask-t" aria-live="assertive">
-        <b id="sim-ask-t">조종권 요청</b><p>다른 사람이 이 시뮬 로봇의 조종권을 요청했습니다. 넘겨주시겠습니까?</p>
-        <div className="fh-row"><button type="button" className="btn" onClick={() => sim.respond(true)}>넘기기</button><button type="button" className="btn" onClick={() => sim.respond(false)}>계속 조종</button></div></div>}
+      {restart.live && <RestartAskBox name={short(r.robot_id)} cancel={restart.close} go={() => restart.go(() => sim.unlock())} />}
+      {l.ask && mine && <TakeoverAsk id="sim-ask-t" title="다른 사람이 이 시뮬 로봇의 조종권을 요청했습니다" give={() => sim.respond(true)} keep={() => sim.respond(false)} />}
       {mine && open && <><Stick label="전후" both on={live} epoch={+live} gen={gen} press={sync} grip={(o) => { sg.current[0] = o; }} lift={push} set={(v, y) => { put(2, y); put(0, v); }}>
           <Arrows on={{ up: true, down: can.back, left: can.left, right: can.right }} /></Stick>
         <Stick label="회전" on={live} epoch={+live} gen={gen} press={sync} grip={(o) => { sg.current[1] = o; }} lift={push} set={(v) => put(1, v)}><Arrows on={{ left: true, right: true }} /></Stick>
-        <p className="dv-keys" data-sim-keys>W/↑ S/↓ 앞뒤 · A·← D·→ 회전 · <span data-key-off={can.left || can.right ? undefined : ''} style={can.left || can.right ? undefined : { opacity: .55 }}
-          title={can.left || can.right ? undefined : SIDE_OFF}>Q/E 옆{can.left || can.right ? '' : '(막힘)'}</span></p></>}
+        <p className="dv-keys" data-sim-keys>W/↑ S/↓ 앞뒤 · A D 회전 · <span data-key-off={can.left || can.right ? undefined : ''} style={can.left || can.right ? undefined : { opacity: .55 }}
+          title={can.left || can.right ? undefined : SIDE_OFF}>← → 옆{can.left || can.right ? '' : '(막힘)'}</span></p></>}
       </div>
     </div></div>
   </section>;
@@ -479,10 +487,10 @@ export function SimPip({ cam, big, held }: { cam: Cam; big: () => void; held?: b
   const stopPress = useStopPress(() => sim.stop());   // pointerdown 즉시 — 실기 스틱을 쥔 채 눌러도(RV-456 1)
   if (!l || !r) return null;
   const lock = lockOf(l), text = r.state !== 'RUNNING' ? STATE[r.state] : lock.tone === 'bad' || !l.st ? lock.text : runText(l) || lock.text;
-  const down = (e: PointerEvent<HTMLElement>) => { const b = e.currentTarget.parentElement!.getBoundingClientRect(); grab.current = [e.clientX - b.left, e.clientY - b.top]; e.currentTarget.setPointerCapture?.(e.pointerId); };
+  const down = (e: PointerEvent<HTMLElement>) => { const b = stageRect(e.currentTarget.parentElement!); grab.current = [sx(e) - b.left, sy(e) - b.top]; e.currentTarget.setPointerCapture?.(e.pointerId); };
   const move = (e: PointerEvent<HTMLElement>) => {
     const g = grab.current, w = e.currentTarget.parentElement!; if (!g) return;
-    setAt([Math.max(0, Math.min(innerWidth - w.offsetWidth, e.clientX - g[0])), Math.max(0, Math.min(innerHeight - w.offsetHeight, e.clientY - g[1]))]);
+    setAt([Math.max(0, Math.min(vw() - w.offsetWidth, sx(e) - g[0])), Math.max(0, Math.min(vh() - w.offsetHeight, sy(e) - g[1]))]);
   };
   return <aside className="dv-pip" aria-label="시뮬 작은 창" data-sim-pip style={at ? { left: at[0], top: at[1], bottom: 'auto' } : undefined}>
     <div className="dv-pip-v"><Video ch={cam} /></div>

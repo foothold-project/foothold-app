@@ -1,0 +1,148 @@
+/* 시안 u8 화면 <style> (u8_1 ~ u8_8 같음) 을 .u8 로 감싼 것(기계 생성). 값은 그대로. 손으로 고치지 않는다. body 는 .u8 로, 시안 사진 주소(url(...))만 none 으로 뺐다(사진은 저장소에 두지 않고, 사건 사진은 서버에 없음) */
+.u8{font-variant-numeric:tabular-nums}
+.u8 .flt{left:24px;top:88px;width:300px;bottom:24px;padding:20px 14px}
+.u8 .flt h4{font-size:12.5px;font-weight:700;color:var(--mu2);margin:22px 8px 8px}
+.u8 .flt h4:first-of-type{margin-top:16px}
+.u8 .cat{display:flex;align-items:center;gap:11px;height:42px;padding:0 10px;border-radius:12px;font-size:14.5px;font-weight:700;color:#cfd5de}
+.u8 .cat .ic{color:var(--mu2)}
+.u8 .cat b{margin-left:auto;font-size:13px;font-weight:700;color:var(--mu2)}
+.u8 .cat.on{background:rgba(0,195,137,.12);color:#fff;box-shadow:inset 0 0 0 1px rgba(0,195,137,.42)}
+.u8 .cat.on .ic,.u8 .cat.on b{color:var(--pr3)}
+.u8 .lvrow{display:flex;gap:6px;padding:0 4px}
+.u8 .lvt{flex:1;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center;gap:6px;font-size:13.5px;font-weight:700;color:var(--mu2);border:1px solid var(--line);background:rgba(255,255,255,.03)}
+.u8 .lvt.on{color:#fff;background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.2)}
+.u8 .lvt.r.on .ic{color:#ff4d4f}
+.u8 .lvt.w.on .ic{color:#f2b705}
+.u8 .lvt.i.on .ic{color:#c3cad5}
+.u8 .flt .seg2{margin:0 4px}
+.u8 .flt .seg2 span{flex:1;justify-content:center;padding:0;height:34px;font-size:13.5px}
+.u8 .tg{display:flex;align-items:center;justify-content:space-between;height:44px;padding:0 10px;font-size:14px;font-weight:700;color:#cfd5de}
+.u8 .sw{width:40px;height:24px;border-radius:12px;background:rgba(255,255,255,.12);position:relative}
+.u8 .sw::after{content:"";position:absolute;left:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#ffffff}
+.u8 .sw.on{background:#00c389}
+.u8 .sw.on::after{left:19px}
+.u8 .lst{left:348px;top:88px;right:24px;bottom:24px;padding:22px 26px 0;overflow:hidden}
+.u8 .tool{display:flex;align-items:center;gap:12px;height:44px}
+.u8 .srch{width:340px;height:44px;border-radius:13px;background:rgba(255,255,255,.05);border:1px solid var(--line);display:flex;align-items:center;gap:10px;padding:0 14px;font-size:14px;color:var(--mu2)}
+.u8 .tool .btns,.u8 .tool .btnp{height:44px;padding:0 16px;font-size:14px}
+.u8 .chips{display:flex;align-items:center;gap:8px;height:40px;margin-top:14px;font-size:13px;font-weight:700}
+.u8 .chip{height:30px;padding:0 10px 0 12px;border-radius:15px;display:flex;align-items:center;gap:6px;background:rgba(0,195,137,.12);color:var(--pr3);border:1px solid rgba(0,195,137,.35)}
+.u8 .thd{display:grid;grid-template-columns:104px 150px 1fr 170px 150px 120px 120px;gap:0 18px;align-items:center;height:40px;padding:0 14px;margin-top:10px;font-size:12.5px;font-weight:700;color:var(--mu2);border-bottom:1px solid var(--line)}
+.u8 .day{height:40px;display:flex;align-items:flex-end;padding:0 14px 8px;font-size:13px;font-weight:800;color:var(--mu2)}
+.u8 .ev{display:grid;grid-template-columns:104px 150px 1fr 170px 150px 120px 120px;gap:0 18px;align-items:center;height:96px;padding:0 14px;border-radius:14px;font-size:14.5px;font-weight:700}
+.u8 .ev+.ev{box-shadow:0 -1px 0 var(--line)}
+.u8 .ev.sel{background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.035));box-shadow:inset 0 0 0 1px rgba(255,255,255,.12),0 10px 26px rgba(0,0,0,.25)}
+.u8 .ev small{display:block;font-size:13px;font-weight:600;color:var(--mu2);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.u8 .ev .t2{min-width:0}
+.u8 .ev .tm{font-size:14px;color:#cfd5de}
+.u8 .ev .tm small{font-size:12px}
+.u8 .lv{height:30px;padding:0 10px 0 8px;border-radius:9px;display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:800;width:max-content}
+.u8 .lv.r{color:#ff4d4f;background:rgba(255,77,79,.13);box-shadow:inset 0 0 0 1px rgba(255,77,79,.45)}
+.u8 .lv.r .ic{color:#ff4d4f}
+.u8 .lv.w{color:#f2b705;background:rgba(242,183,5,.12);box-shadow:inset 0 0 0 1px rgba(242,183,5,.4)}
+.u8 .lv.w .ic{color:#f2b705}
+.u8 .lv.i{color:#c3cad5;background:rgba(255,255,255,.06);box-shadow:inset 0 0 0 1px rgba(255,255,255,.14)}
+.u8 .lv.m{color:var(--pr3);background:rgba(0,195,137,.12);box-shadow:inset 0 0 0 1px rgba(0,195,137,.4)}
+.u8 .th{width:150px;height:84px;border-radius:11px;background:none center/cover;position:relative;overflow:hidden;box-shadow:0 6px 16px rgba(0,0,0,.35),inset 0 0 0 1px rgba(255,255,255,.14)}
+.u8 .th::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0) 45%,rgba(0,0,0,.55))}
+.u8 .th .pl{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:32px;height:32px;border-radius:50%;z-index:1;display:flex;align-items:center;justify-content:center;background:rgba(18,20,26,.45);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.4)}
+.u8 .th .du{position:absolute;right:7px;bottom:6px;z-index:1;font-size:11.5px;font-weight:800;color:#fff}
+.u8 .th.sim{background-image:none;box-shadow:none;outline:1.5px dashed rgba(255,255,255,.55);outline-offset:-1.5px}
+.u8 .noclip{width:150px;height:84px;border-radius:11px;border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;font-size:12px;font-weight:700;color:var(--mu2);background:rgba(255,255,255,.02)}
+.u8 .rb{display:flex;flex-direction:column;gap:5px}
+.u8 .rt2{height:24px;padding:0 9px;border-radius:7px;font-size:12px;font-weight:700;display:inline-flex;align-items:center;width:max-content;color:#cfd5de;border:1px solid rgba(255,255,255,.28)}
+.u8 .rt2.sim{border-style:dashed;color:#ffffff}
+.u8 .cl{display:flex;align-items:center;gap:7px;font-size:13.5px;color:#cfd5de}
+.u8 .cl.no{color:var(--mu2);font-weight:600}
+.u8 .catx{display:flex;align-items:center;gap:7px;font-size:13.5px;color:#cfd5de}
+.u8 .catx .ic{color:var(--mu2)}
+/* 사건 열기 */
+.u8 .side{left:24px;top:88px;width:340px;bottom:24px;padding:18px 12px}
+.u8 .sev{display:flex;align-items:center;gap:12px;height:68px;padding:0 12px;border-radius:13px;font-size:14px;font-weight:700}
+.u8 .sev small{display:block;font-size:12.5px;font-weight:600;color:var(--mu2);margin-top:3px}
+.u8 .sev.sel{background:rgba(255,255,255,.07);box-shadow:inset 0 0 0 1px rgba(255,255,255,.16)}
+.u8 .sev .dt{width:34px;height:34px;border-radius:11px;display:flex;align-items:center;justify-content:center;flex:none}
+.u8 .dt.r{background:rgba(255,77,79,.16);color:#ff4d4f}
+.u8 .dt.w{background:rgba(242,183,5,.15);color:#f2b705}
+.u8 .dt.i{background:rgba(255,255,255,.07);color:#c3cad5}
+.u8 .dt.m{background:rgba(0,195,137,.15);color:var(--pr3)}
+.u8 .eh{position:absolute;left:388px;right:24px;top:88px;height:56px;display:flex;align-items:center;gap:12px}
+.u8 .eh .st{height:42px;padding:0 13px;border-radius:12px;display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:700;position:relative}
+.u8 .eh .st small{font-size:12px;font-weight:600;color:var(--mu2)}
+.u8 .eh .btns{height:44px;padding:0 16px;font-size:14px}
+.u8 .vid{position:absolute;top:160px;height:580px;border-radius:22px;overflow:hidden}
+.u8 .vid.c{left:388px;width:744px;background:none center 62%/cover}
+.u8 .vid.c::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.35),rgba(0,0,0,0) 22%,rgba(0,0,0,0) 72%,rgba(0,0,0,.5))}
+.u8 .vid.d{left:1152px;width:744px;background:radial-gradient(520px 360px at 50% 62%,#1d2833,#0d1116 75%);border:1px solid var(--line);box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}
+.u8 .vid.d canvas{position:absolute;inset:0;width:100%;height:100%}
+.u8 .vid.sim{outline:2px dashed rgba(255,255,255,.5);outline-offset:-2px}
+.u8 .vid.c.sim{background-image:none;background-position:50% 40%}
+.u8 .ov{position:absolute;z-index:2;height:38px;padding:0 13px;border-radius:12px;display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700}
+.u8 .ov small{font-size:12px;font-weight:600;color:rgba(255,255,255,.7)}
+.u8 .tc{position:absolute;z-index:2;left:20px;bottom:18px;font-size:22px;font-weight:800;color:#fff;letter-spacing:-.01em;text-shadow:0 2px 10px rgba(0,0,0,.5)}
+.u8 .tc small{display:block;font-size:12.5px;font-weight:600;color:rgba(255,255,255,.75);text-shadow:none;margin-bottom:2px}
+.u8 .tilt{position:absolute;z-index:2;right:20px;bottom:18px;display:flex;gap:18px}
+.u8 .tilt div{font-size:20px;font-weight:800}
+.u8 .tilt small{display:block;font-size:12px;font-weight:600;color:rgba(255,255,255,.7);margin-bottom:2px}
+.u8 .trp{left:388px;right:24px;top:756px;height:108px;padding:0 24px;display:flex;align-items:center;gap:22px}
+.u8 .pp{width:56px;height:56px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;background:linear-gradient(180deg,#00c389,#00c389);box-shadow:0 10px 24px rgba(0,195,137,.35),inset 0 1px 0 rgba(255,255,255,.4)}
+.u8 .now{width:120px;font-size:22px;font-weight:800}
+.u8 .now small{display:block;font-size:12px;font-weight:600;color:var(--mu2);margin-bottom:2px}
+.u8 .tl{flex:1;position:relative;height:70px}
+.u8 .tl .tr{position:absolute;left:0;right:0;top:30px;height:8px;border-radius:4px;background:rgba(255,255,255,.1)}
+.u8 .tl .seg{position:absolute;top:30px;height:8px}
+.u8 .tl .ex{background:repeating-linear-gradient(135deg,rgba(255,77,79,.55) 0 5px,rgba(255,77,79,.18) 5px 10px);border-radius:0 4px 4px 0}
+.u8 .tl .done{background:rgba(232,235,240,.55);border-radius:4px 0 0 4px}
+.u8 .tl .mk{position:absolute;top:0;transform:translateX(-50%);font-size:12px;font-weight:800;white-space:nowrap;display:flex;flex-direction:column;align-items:center}
+.u8 .tl .mk i{display:block;width:2px;height:20px;margin-top:4px;border-radius:1px}
+.u8 .tl .tk{position:absolute;top:46px;transform:translateX(-50%);font-size:11.5px;font-weight:600;color:var(--mu2)}
+.u8 .tl .hd{position:absolute;top:22px;width:18px;height:24px;margin-left:-9px;border-radius:7px;background:#fff;box-shadow:0 3px 10px rgba(0,0,0,.4)}
+.u8 .spd{display:flex;gap:2px;padding:4px;border-radius:13px;background:rgba(255,255,255,.05);border:1px solid var(--line)}
+.u8 .spd span{height:36px;width:58px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:var(--mu2);cursor:pointer}
+.u8 .spd span.on{background:#ffffff;color:#000000}
+.u8 .rp{height:46px;padding:0 15px;border-radius:13px;display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;cursor:pointer;color:var(--mu2);border:1px solid var(--line)}
+.u8 .rp.on{color:var(--pr3);background:rgba(0,195,137,.12);border-color:rgba(0,195,137,.42)}
+.u8 .inf{left:388px;right:24px;top:880px;bottom:24px;display:flex;padding:0}
+.u8 .inf>div{padding:22px 24px;border-right:1px solid var(--line);display:flex;flex-direction:column;justify-content:center;gap:6px;font-size:13px;font-weight:600;color:var(--mu2)}
+.u8 .inf>div:last-child{border-right:0}
+.u8 .inf b{font-size:20px;font-weight:800;color:#ffffff;display:flex;align-items:center;gap:8px}
+.u8 .inf b.r{color:#ff4d4f}
+.u8 .inf .mm{flex:none;width:300px;flex-direction:row;align-items:center;gap:16px;padding:16px 20px}
+.u8 .inf .mm .im{width:130px;height:120px;border-radius:12px;background:none 30% 50%/cover;position:relative;flex:none;box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}
+.u8 .inf .mm .im i{position:absolute;left:58%;top:46%;width:14px;height:14px;border-radius:50%;background:#ff4d4f;box-shadow:0 0 0 4px rgba(255,77,79,.3),0 0 0 1.5px #fff}
+.u8 .band{position:absolute;left:388px;right:24px;top:150px;height:0}
+/* 창 */
+.u8 .dim{position:absolute;inset:64px 0 0 0;background:rgba(8,10,14,.58);backdrop-filter:blur(4px);z-index:5}
+.u8 .mdl{left:50%;top:50%;transform:translate(-50%,-50%);width:600px;padding:30px;border-radius:24px;z-index:6}
+.u8 .mdl .ttl{color:#1f2421}
+.u8 .fm{margin-top:22px;display:grid;grid-template-columns:96px 1fr;row-gap:18px;align-items:center;font-size:14.5px}
+.u8 .fm>span{color:var(--mu);font-weight:600}
+.u8 .lseg{display:flex;gap:2px;padding:4px;border-radius:13px;background:rgba(0,0,0,.05)}
+.u8 .lseg span{flex:1;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:var(--mu)}
+.u8 .lseg span.on{background:#fff;color:#1f2421;box-shadow:0 2px 8px rgba(20,30,50,.12)}
+.u8 .ck{display:flex;flex-wrap:wrap;gap:8px}
+.u8 .ck span{height:34px;padding:0 12px;border-radius:10px;display:flex;align-items:center;gap:6px;font-size:13.5px;font-weight:700;background:rgba(255,255,255,.7);border:1px solid rgba(0,0,0,.08);color:var(--mu)}
+.u8 .ck span.on{color:#0b7a5a;background:rgba(0,195,137,.12);border-color:rgba(0,195,137,.45)}
+.u8 .inp{height:46px;border-radius:12px;background:rgba(255,255,255,.8);border:1px solid rgba(0,0,0,.08);display:flex;align-items:center;padding:0 14px;font-weight:700}
+.u8 .mb{margin-top:26px;border-top:1px solid rgba(0,0,0,.08);padding-top:20px;display:flex;gap:10px}
+.u8 .mb div{flex:1;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;gap:7px;font-weight:800;font-size:15px}
+.u8 .mb .cn{background:rgba(255,255,255,.75);border:1px solid rgba(0,0,0,.08);color:#1f2421}
+.u8 .note{font-size:13px;color:var(--mu);margin-top:14px;line-height:1.55}
+.u8 .toast{position:absolute;left:50%;top:78px;transform:translateX(-50%);z-index:6;height:60px;padding:0 10px 0 20px;border-radius:18px;display:flex;align-items:center;gap:14px;font-size:14.5px;font-weight:700}
+.u8 .toast small{font-size:13px;font-weight:600;color:rgba(255,255,255,.7)}
+.u8 .toast .btns{height:42px;padding:0 14px;font-size:13.5px}
+
+/* 시안 u15_3 임무 보고서(proto/u15/u15_3_report.html <style> 값 그대로 · .u8 한 겹) */
+.u8 .md{position:absolute;z-index:21;border-radius:24px;background:linear-gradient(180deg,#1b2027,#14181e);border:1px solid rgba(255,255,255,.12);box-shadow:0 30px 80px rgba(0,0,0,.55);color:#fff}
+.u8 .md h2{font-size:24px;font-weight:800;letter-spacing:-.02em;margin:0}
+.u8 .md .sb{font-size:14px;font-weight:600;color:var(--mu2);margin-top:6px}
+.u8 .tbl{width:100%;border-collapse:collapse;font-size:14px}
+.u8 .tbl th{font-size:12.5px;font-weight:700;color:var(--mu2);text-align:left;padding:0 10px 10px;border-bottom:1px solid rgba(255,255,255,.1)}
+.u8 .tbl td{padding:12px 10px;border-bottom:1px solid rgba(255,255,255,.06);font-weight:600}
+.u8 .tbl td.n,.u8 .tbl th.n{text-align:right;font-variant-numeric:tabular-nums}
+.u8 .up{color:#f2b705}
+.u8 .md .ok{color:#00c389}
+.u8 .kp{flex:1;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);padding:14px 16px}
+.u8 .kp span{display:block;font-size:12.5px;font-weight:700;color:var(--mu2)}
+.u8 .kp b{display:block;font-size:24px;font-weight:800;margin-top:6px;letter-spacing:-.02em}
+.u8 .kp small{font-size:13px;font-weight:600;color:var(--mu2);margin-left:6px}

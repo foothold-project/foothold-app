@@ -2,13 +2,15 @@
 // fetch 는 가짜 서버, WebSocket 은 FakeWS. 401·403·404·409·503·네트워크 실패, 두 revoke 이유, 모르는 t, null 표시, STOP 상시 표시를 본다.
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Dashboard, RobotSummary, User } from '../../../contracts/ts';
 import { now, rt } from '../rt';
 import { Root } from '../session';
 import { ROBOT_BUSY, ROBOT_GONE } from '../screens/settings';
 import { FakeWS, fail, lease, state, type Msg } from './fakeWs';
 import { fleetNames, fleetRow } from './fleetRow';
+import { pcBoard } from '../pcboard';
+import { SHOWN, attn } from '../screens';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -66,7 +68,9 @@ async function open(hash: string, phone = false) {
   act(() => { root = createRoot(box); root.render(<Root />); });
   await flush();
 }
-afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+// 이 파일 = 옛 PC 관제 부품(관제 요약 KPI · 운영 관리자 표 · 상세 서랍 · 목록) 시험. PC 로봇 탭은 시안 u4 라 부품을 앱 맥락 안에 직접 그린다 → W1 u5
+beforeEach(() => { pcBoard.on = true; });
+afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.unstubAllGlobals(); vi.useRealTimers(); pcBoard.on = false; });
 
 const $ = <T extends Element = HTMLElement>(s: string, from: ParentNode = box) => from.querySelector<T>(s);
 const btn = (t: string, from: ParentNode = box) => [...from.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
@@ -325,17 +329,22 @@ describe('상세 서랍 = GET /robots/{id}', () => {
 
 describe('설정 › 로봇(총괄 — 시뮬 이름만, ROBOT-PAIRING: 실기 등록·토큰 없음)', () => {
   const SIM = robot('s-1', '시뮬 실험', KIM, { simulation: true });
-  const pickRobot = (name: string) => click([...card('로봇').querySelectorAll('li button')].find((b) => b.textContent!.includes(name)));
+  /** 시안 u9 설정의 «로봇» 묶음(지금 판 칸 .u9-legacy)을 연다. 시뮬 로봇 칸은 그 안 section[aria-label=로봇] */
+  const robotPage = () => click($('#nav-robot'));
+  const sims = () => $('.u9-legacy section[aria-label="로봇"]')!;
+  const pickRobot = (name: string) => click([...sims().querySelectorAll('li button')].find((b) => b.textContent!.includes(name)));
   it('운영 관리자에게는 없음(권한 없는 기능 숨김)', async () => {
     serve(signedIn(LEE, [RA]));
     await open('#/settings');
-    expect($('[aria-label="로봇"]')).toBeNull();
+    await robotPage();
+    expect($('.u9-legacy section[aria-label="로봇"]')).toBeNull();
   });
   it('총괄: 시뮬 로봇만 목록, 실기 등록·토큰·지우기·담당 단추 없음 + 실기는 운영 관리자가 연결한다는 안내', async () => {
     serve(signedIn(KIM, [RA, SIM]));
     await open('#/settings');
-    expect(card('로봇').textContent).toContain('시뮬 로봇 (1)');
-    expect(card('로봇').textContent).not.toContain('Go2-A');
+    await robotPage();
+    expect(sims().textContent).toContain('시뮬 로봇 (1)');
+    expect(sims().textContent).not.toContain('Go2-A');
     expect($('[data-real-note]')!.textContent).toContain('새 로봇 추가');
     expect(btn('로봇 등록')).toBeUndefined();
     await pickRobot('시뮬 실험');
@@ -348,6 +357,7 @@ describe('설정 › 로봇(총괄 — 시뮬 이름만, ROBOT-PAIRING: 실기 �
     let rep: Reply = err(503, 'SERVER_BUSY', 'busy');
     serve(signedIn(KIM, [SIM], { 'PATCH /robots/s-1': () => rep }));
     await open('#/settings');
+    await robotPage();
     await pickRobot('시뮬 실험');
     const edit = card('로봇 설정'), form = edit.querySelector('form')!;
     await submit(form);
@@ -363,7 +373,7 @@ describe('설정 › 로봇(총괄 — 시뮬 이름만, ROBOT-PAIRING: 실기 �
     setVal(form.querySelector('input[name="name"]')!, '시뮬 셋');
     await submit(form);
     expect($('[aria-label="로봇 설정"]')).toBeNull();
-    expect(card('로봇').textContent).toContain(ROBOT_GONE);
+    expect(sims().textContent).toContain(ROBOT_GONE);
   });
 });
 
@@ -373,7 +383,7 @@ describe('subscription.revoked(05 §9)', () => {
     await open('#/drive/r-a', true);   // 조종 화면은 폰에만(ADR-002 §3)
     const w = live(LEE);
     expect(subs(w).pop()).toEqual(['r-a']);
-    await click(btn('조종 시작'));
+    await click(btn('조종'));
     await flush();
     expect(rt.get('r-a').lease).toBe('L1');
     expect(location.hash).toBe('#/drive/r-a');
@@ -466,5 +476,113 @@ describe('sub 404(apps/server README «S0» — 등록·담당 변경 직후 서
     act(() => w.recv(state('r-b')));
     expect(row('Go2-B').textContent).not.toContain('확인 안 됨');
     stopOk();
+  });
+});
+
+// 옛 상세 서랍(위 «상세 서랍» 묶음)의 값이 시안 u4 로봇 탭 어디에 있는지: 점검 창(u4_4) 「상세」 · 로봇 설정 창(u4_5) · 위 칩 줄. 같은 판정으로 다시 씀
+describe('로봇 탭 u4 = 옛 상세 서랍 값의 새 자리', () => {
+  beforeEach(() => { pcBoard.on = false; });
+  const pick = async (name: string) => { const r = $(`.rail .rcard[data-r="${name}"]`); if (r && !r.classList.contains('on')) await click(r); };
+  const detail = async (name: string) => { await pick(name); await click($('.u4 [data-seg="점검"]')); await click($('[data-u4-sub="detail"]')); };
+  const dl = (k: string) => (($(`[data-u4-detail] [data-line="${k}"] small`) ?? $(`[data-u4-detail] [data-line="${k}"]`))?.textContent ?? '');
+  const settings = async () => { await click($('.u4 [data-seg="로봇 설정"]')); return $('[data-u4-settings]')!; };
+
+  it('총괄: 담당 · 기체번호는 설정 창, 배터리는 칩, 위치 · 장치(이름 · 종류 · 상태) · 장치 문제 · 연결 줄은 점검 상세 · 층 · 임무 지어내지 않음', async () => {
+    serve(signedIn(KIM, [{ ...RA, robot_serial: 'B42D40000P61' }, RB]));
+    await open('#/fleet');
+    await detail('Go2-A');
+    expect(sent('GET', '/robots/r-a')).toHaveLength(1);
+    expect(dl('위치')).toMatch(/^x 1\.3 m · y -3\.0 m \(\d\d:\d\d:\d\d\)$/);
+    expect([...box.querySelectorAll('[data-u4-detail] [data-device]')].map((x) => x.textContent)).toEqual(['앞 카메라카메라 · ●정상', '라이다라이다 · ▲연결 끊겨 확인 안 됨']);
+    expect($('[data-detail-alert]')!.textContent).toBe('장치 문제: 라이다 연결 끊겨 확인 안 됨');
+    expect($('[data-detail-links]')!.textContent).toMatch(/^서버.+로봇.+잠금/);
+    expect(card('로봇 상세').textContent).not.toMatch(/임무|층/);
+    expect($('.u4 [data-cell="battery"]')!.textContent).toMatch(/^64 %/);
+    const s = await settings();
+    expect(s.textContent).toContain('이운영 · 담당자 바꾸기');
+    expect(s.textContent).toContain('B42D40000P61');
+  });
+
+  it('null 은 null 대로: 칩 배터리 「없음」, 위치 「위치 없음」, 장치 「장치 정보 없음」, 설정 창 담당 없음 · 담당 지정', async () => {
+    const bare = robot('r-n', 'Go2-N', null, { connection: 'ONLINE' });
+    serve(signedIn(KIM, [bare]));
+    await open('#/fleet');
+    live(KIM);
+    act(() => FakeWS.last.recv(state('r-n', { battery: null, location: null, devices: [] })));
+    await detail('Go2-N');
+    expect([dl('위치'), dl('장치')]).toEqual(['위치 없음', '장치 정보 없음']);
+    expect($('.u4 [data-cell="battery"]')!.textContent).toBe('없음배터리');
+    const s = await settings();
+    expect(s.textContent).toContain('담당 없음 · 담당자 바꾸기');
+    expect(s.querySelector('[data-assign-owner]')).not.toBeNull();   // 총괄: 담당 없는 실기에 담당 지정(옛 서랍 AssignOwner)
+  });
+
+  it('운영 관리자가 남의 로봇(UNKNOWN): 배터리 칩 · 위치 · 장치 「확인 안 됨」, 조종 시작 꺼짐 + STOP 은 됨', async () => {
+    serve(signedIn(LEE, [RA, RB_HIDDEN]));
+    await open('#/fleet');
+    await detail('Go2-B');
+    expect(sent('GET', '/robots/r-b')).toHaveLength(1);
+    expect([dl('위치'), dl('장치')]).toEqual(['확인 안 됨', '확인 안 됨']);
+    expect($('[data-detail-links]')!.textContent).toContain('로봇○확인 안 됨');
+    expect($('.u4 [data-cell="battery"]')!.textContent).toMatch(/^확인 안 됨/);
+    await click($('.u4 [data-seg="조종"]'));
+    expect($('[data-u4-drive]')!.getAttribute('aria-disabled')).toBe('true');
+    const stop = $('[data-sd-stop="u4"]')!; expect(stop).not.toBeNull(); expect(stop.getAttribute('aria-disabled')).toBeNull();
+  });
+
+  it('위치 · 장치만 바뀐 state 도 상세를 다시 그린다', async () => {
+    serve(signedIn(KIM, [RA]));
+    await open('#/fleet');
+    const w = live(KIM);
+    act(() => w.recv(state('r-a', { location: RA.location, devices: RA.devices })));
+    await detail('Go2-A');
+    act(() => w.recv(state('r-a', { location: { ...RA.location!, x: 9 }, devices: [{ ...RA.devices[0], state: 'ERROR' }] })));
+    expect(dl('위치')).toContain('x 9.0 m');
+    expect($('[data-u4-detail] [data-device="cam"]')!.textContent).toContain('오류');
+  });
+
+  it('장치 상태 코드: ACCEPTED 는 허용 표시, ERROR · 모르는 level 은 오류로 원시 코드, OK 는 숨김', async () => {
+    serve(signedIn(KIM, [RA]));
+    await open('#/fleet');
+    const w = live(KIM);
+    await detail('Go2-A');
+    act(() => w.recv(state('r-a', { devices: [
+      { key: 'body', kind: 'OTHER', label: '기체', state: 'OK', status_code: { raw: 100, level: 'ACCEPTED', reason: 'EXPLICIT_SERVER_ALLOWLIST' } },
+      { key: 'cam', kind: 'CAMERA_RGB', label: '앞 카메라', state: 'ERROR', status_code: { raw: 7, level: 'ERROR', reason: null } },
+      { key: 'x', kind: 'OTHER', label: '새 장치', state: 'ERROR', status_code: { raw: 9, level: 'WEIRD' as never, reason: null } },
+      { key: 'lidar', kind: 'LIDAR', label: '라이다', state: 'OK', status_code: { raw: 0, level: 'OK', reason: null } },
+    ] })));
+    const codes = [...card('로봇 상세').querySelectorAll('[data-status-code]')].map((e) => `${e.getAttribute('data-status-code')}:${e.textContent}`);
+    expect(codes).toEqual(['ACCEPTED:허용된 상태 코드 100(서버 명시 허용)', 'ERROR:상태 코드 7', 'ERROR:상태 코드 9']);
+  });
+
+  it('실기 robot_info 자세 · 상태 번호 · 넘어짐 추정, 폰 경유 값, 주의', async () => {
+    const ri = { source: 'GO2_DDS' as const, attitude: { roll: 0.0175, pitch: -0.5236 }, error_code: 100, fallen: true, fallen_source: 'imu_tilt_estimate' as const };
+    const relay = { source: 'PHONE' as const, age_s: .1, valid_for_s: 2.9, battery: { soc: 75, updated_at: AT }, speed: .5,
+      devices: [{ key: 'relay-lidar', kind: 'LIDAR' as const, label: '폰이 전한 라이다', state: 'OK' as const }] };
+    serve(signedIn(KIM, [{ ...RA, attention: ['BATTERY_LOW'], phone_relay: relay }]));
+    await open('#/fleet');
+    const w = live(KIM);
+    act(() => w.recv(state('r-a', { robot_info: ri, phone_relay: relay })));
+    await detail('Go2-A');
+    expect(dl('자세')).toBe('roll +1.0° · pitch -30.0° · 상태 번호 100');
+    expect($('[data-u4-detail] [data-line="자세"] [data-tone="warn"]')!.textContent).toBe('▲넘어짐 의심');
+    expect($('[data-u4-detail] [data-line="폰 경유"]')!.textContent).toContain('폰 경유');
+    expect(dl('주의')).toBe(attn({ attention: ['BATTERY_LOW'] } as never, SHOWN));
+    expect(dl('주의')).not.toBe('');
+  });
+
+  it('상세 404 → 「찾을 수 없음」 + 목록 다시 받기, 그 밖 실패는 이유', async () => {
+    serve(signedIn(KIM, [RA], { 'GET /robots/r-a': err(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.') }));
+    await open('#/fleet');
+    await detail('Go2-A');
+    expect(card('로봇 상세').querySelector('[role="alert"]')!.textContent).toContain('찾을 수 없습니다');
+    expect(lists()).toBe(2);
+    act(() => root!.unmount()); box.remove();
+    serve(signedIn(KIM, [RA], { 'GET /robots/r-a': () => { throw new TypeError('Failed to fetch'); } }));
+    await open('#/fleet');
+    await detail('Go2-A');
+    expect(card('로봇 상세').querySelector('[role="alert"]')!.textContent).toContain('상세를 받지 못했습니다. 서버에 연결하지 못했습니다');
+    expect(lists()).toBe(1);
   });
 });

@@ -8,6 +8,7 @@ import { App } from '../App';
 import { sim } from '../phone';
 import { ROBOTS, USERS } from './fixtures';
 import { FakeWS, type Msg } from './fakeWs';
+import { fleetNames } from './fleetRow';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -141,8 +142,8 @@ describe('PC «시뮬» 탭', () => {
     expect(box.querySelector<HTMLImageElement>('img[alt="RGB 영상"]')!.src).toBe('data:image/jpeg;base64,AAAA');
     // 조이스틱 없음(PC 는 키보드 — ④), 조종 시작을 누르기 전에는 에이전트로 조종권·명령을 보내지 않음
     expect(box.querySelector('[aria-label$="조이스틱"]')).toBeNull();
-    expect(btn('조종 시작')).toBeTruthy();
-    expect(btn('잠금 해제')).toBeUndefined();
+    expect(btn('조종')).toBeTruthy();
+    expect(btn('다시 시작')).toBeUndefined();
     expect(a.sent.map((m) => m.t).filter((t) => t !== 'hello' && t !== 'ping')).toEqual([]);
     expect($('[data-stop]')).toBeTruthy();   // 운영 관리자 STOP 그대로
     expect(refresh).toHaveBeenCalled();      // 띄운 로봇이 목록·STOP 후보에 바로 보이게
@@ -271,7 +272,7 @@ describe('PC «시뮬» 탭', () => {
   // 10-25 f894b77 실관측: 시뮬 슬롯은 고정 로봇 행이라 IDLE(서버가 담당을 비움)이어도 /robots 에 남는다 — 총괄 STOP·Space 는 내가 띄운 시뮬만
   for (const [how, owner] of [['IDLE 슬롯(담당 없음)', ''], ['남이 띄운 시뮬', 'u-lee']] as const) it(`총괄 + ${how}만 목록 → 머리줄 STOP·Space 없음`, async () => {
     // 11/28: 실기가 있으면 총괄도 STOP(그 실기) · 시뮬 판정만 보려고 목록에 실기를 두지 않는다
-    serve(); await mount('u-kim', [{ ...ROBOTS[0], id: S2, name: '시뮬-2', owner, sim: true }]);
+    serve(); await mount('u-kim', [{ ...ROBOTS[0], id: S2, name: '시뮬-2', owner, sim: true, demo: false }]);
     expect($('[data-stop]')).toBeNull();
     act(() => { dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true })); }); await flush();
     expect(box.querySelector('[aria-label="정지할 로봇 고르기"]')).toBeNull();
@@ -279,30 +280,39 @@ describe('PC «시뮬» 탭', () => {
 
   // PR #99(ADR-003 §7 ③ «끝내기 → 로봇 빠짐»): 끝낸 시뮬 슬롯은 담당을 비운 채 /robots 에 남는다 — 로봇 목록에서 뺀다. 내 시뮬·담당 없는 실기는 그대로
   // TAB-SPLIT(11-10): 로봇 탭 = 실기만 — 내 시뮬도 로봇 탭에는 없고 머리줄 STOP 후보(다른 탭 고르기)에는 그대로
-  it('총괄 로봇 탭: 시뮬(IDLE 슬롯·내 시뮬)은 목록에 없음, 담당 없는 실기는 보임 — 내 시뮬은 STOP 고르기에 그대로', async () => {
+  // 11/28 시안 u4: 로봇 탭 목록에 시뮬 줄도(rehearse 파란 점선) — 끝낸 슬롯(담당 비움)만 뺀다
+  it('총괄 로봇 탭: 끝낸 시뮬 슬롯은 목록에 없음, 내 시뮬은 rehearse 줄, 담당 없는 실기는 보임 — 내 시뮬은 STOP 고르기에 그대로', async () => {
     serve();
     await mount('u-kim', [ROBOTS[1], { ...ROBOTS[1], id: 'r9', name: 'Go2-9', owner: '', ownerName: undefined },
       { ...ROBOTS[0], id: S2, name: '시뮬-2', owner: '', sim: true }, { ...ROBOTS[0], id: S1, name: '시뮬-1', owner: 'u-kim', sim: true }], '#/fleet');
-    expect([...box.querySelectorAll('.fh-list.robots b')].map((b) => b.textContent)).toEqual(['Go2-7', 'Go2-9']);
-    expect(box.textContent).not.toContain('시뮬-1');
+    expect(fleetNames(box)).toEqual(['Go2-7', 'Go2-9', '시뮬-1']);   // PC 로봇 탭(시안 u4) 목록 줄
+    expect(box.querySelector('.u4 .rail .rcard[data-r="시뮬-1"]')!.classList.contains('rehearse')).toBe(true);
+    expect(box.querySelector('.u4 .rail .rcard[data-r="Go2-7"]')!.classList.contains('rehearse')).toBe(false);
+    expect(box.textContent).not.toContain('시뮬-2');
     act(() => { location.hash = '#/sim'; }); await flush();
     await click($('[data-stop]'));
     expect([...box.querySelectorAll<HTMLOptionElement>('select[aria-label="정지할 로봇"] option')].map((o) => o.textContent)).toEqual(['로봇 고르기', 'Go2-7', 'Go2-9', '시뮬-1']);   // 11/28: 실기도 후보, IDLE 슬롯(시뮬-2)은 그대로 없음
   });
-  it('운영자 로봇 탭: 시뮬만 담당이면 «실기 로봇이 없습니다» 안내 + 시뮬 탭 길, 시뮬을 골라 둔 채 들어오면 첫 실기로(화면 = STOP 대상)', async () => {
+  it('총괄 로봇 탭: 담당 없는 시뮬도 데모 · 임무 중이면 보임, 담당 없고 데모 아니고 임무 없는 슬롯만 빠짐(fake idleSim)', async () => {
+    serve();
+    await mount('u-kim', [ROBOTS[1], { ...ROBOTS[0], id: 'sd', name: '데모-1', owner: '', sim: true, demo: true },
+      { ...ROBOTS[0], id: 'sr', name: '임무-1', owner: '', sim: true, demo: false, run: { status: 'PAUSED' } },
+      { ...ROBOTS[0], id: S2, name: '시뮬-2', owner: '', sim: true, demo: false, run: { status: 'COMPLETED' } }] as typeof ROBOTS, '#/fleet');
+    expect(fleetNames(box)).toEqual(['Go2-7', '데모-1', '임무-1']);
+    expect(box.textContent).not.toContain('시뮬-2');
+  });
+  it('운영자 로봇 탭: 시뮬만 담당이면 그 시뮬 줄 하나(rehearse), 화면 = 고른 줄(= STOP 대상)', async () => {
     serve();
     await mount('u-lee', [{ ...ROBOTS[0], id: S1, name: '시뮬-1', owner: 'u-lee', sim: true }], '#/fleet');
-    expect($('[data-no-real]')!.textContent).toContain('실기 로봇이 없습니다');
-    expect($('[data-no-real] a[href="#/sim"]')).toBeTruthy();
+    expect(fleetNames(box)).toEqual(['시뮬-1']);
+    expect($('[data-robot-head] .ttl')!.textContent).toBe('시뮬-1');
     expect($('[aria-label="로봇 연결 상태"]')).toBeNull();
     act(() => root?.unmount()); root = null; box.remove(); sim.clear();
     serve();
     await mount('u-lee', [{ ...ROBOTS[0], id: S1, name: '시뮬-1', owner: 'u-lee', sim: true }, ...ROBOTS], '#/fleet');
-    expect([...box.querySelectorAll('[aria-label="내 로봇 고르기"] b')].map((b) => b.textContent)).not.toContain('시뮬-1');
-    expect($('[aria-label="내 로봇 고르기"] [aria-label="시뮬"]')).toBeNull();
-    const shown = $('[aria-label="로봇 연결 상태"] h2')!.textContent!;
-    expect(shown).not.toBe('시뮬-1');
-    expect($('[aria-label="내 로봇 고르기"] button[aria-pressed="true"]')!.textContent).toContain(shown);
+    expect(fleetNames(box)).toContain('시뮬-1');
+    const shown = $('[data-robot-head] .ttl')!.textContent!;
+    expect($('.u4 .rail .rcard.on')!.getAttribute('data-r')).toBe(shown);
   });
 
   // PR #96 P1: 총괄·시뮬 0대 → 띄우는 중(POST 답 전)에도 그 시뮬이 STOP 대상 — 누름·Space 모두 답이 오면 DELETE 1회, 연결 0
@@ -383,16 +393,16 @@ describe('시뮬 탭 RUN 이 쥐면 (#537 state.holder_type · 08:04)', () => {
     const a = agent(); a.auto = ((m: Msg) => (['hello', 'ping', 'lease.take'].includes(m.t) ? undefined : {})) as FakeWS['auto'];
     act(() => a.open()); await flush();
     await recv(a, welcome); await recv(a, phoneState({ holder_type: 'RUN', holder_name: null, run: { run_id: 'run-o', status: 'MOVING', step: 0, progress: { done: 0, total: 3 }, wait_reason: null, fail_code: null } }));
-    expect(btn('조종 시작')!.disabled).toBe(true);
+    expect(btn('조종')!.disabled).toBe(true);
     expect($('[data-sim-view] [data-held-run] button')).toBeNull();
     expect(box.textContent!.split('예약 임무가 조종 중입니다 · 임무가 끝나거나 멈춘 뒤 조종할 수 있습니다.')).toHaveLength(2);   // 한 곳
     expect(box.textContent!.split('이 화면에서는 일시정지할 수 없습니다')).toHaveLength(2);   // 실행 칸 한 곳
     expect($('[data-sim-view] [data-held-run]')!.textContent).toBe('예약 임무가 조종 중입니다 · 임무가 끝나거나 멈춘 뒤 조종할 수 있습니다.');
     expect([...box.querySelectorAll<HTMLButtonElement>('[data-sim-view] .btn.pri')].filter((b) => !b.disabled).map((b) => b.textContent)).toEqual([]);
-    await click(btn('조종 시작'));
+    await click(btn('조종'));
     expect(a.sent.filter((m) => m.t === 'lease.take')).toEqual([]);   // 정해진 거절(LEASE_HELD)을 보내지 않음
     await recv(a, phoneState({ holder_type: null, holder_name: null }));
-    expect(btn('조종 시작')!.disabled).toBe(false);
+    expect(btn('조종')!.disabled).toBe(false);
     expect($('[data-held-run]')).toBeNull();
   });
 });

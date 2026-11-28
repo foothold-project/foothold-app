@@ -13,16 +13,18 @@ import { REPORT_STALE_MS, go2Pose, type Pose } from './go2model';
 import { DriveInputNote } from './driveinput';
 import type { Look } from './lidar3d';
 import { DEPTH_HINT, driveFeedHeld, driveFeedText, useDriveFeed, type DriveCh, type DriveFeed } from './drivemedia';
-import { type Robot, type Tone } from './fake';
+import { driveBlock, type Robot, type Tone } from './fake';
 import { api } from './api';
 import { ActionTrial } from './screens/actiontrial';
 import { GAIT_KEYS, gaitKey, useGait } from './gait';
 import { realCaps, simTune, useTuneSettings } from './phone';
-import type { OrgSettings, UnlockRefused } from '../../contracts/ts';
+import { deadzone, keyStick, stickVelocity, teleopCaps, type Stick as TeleStick, type TeleopKey } from '../../contracts/teleop';
+import type { GaitName, OrgSettings, UnlockRefused } from '../../contracts/ts';
 import orgSettingsSchema from '../../contracts/schema/OrgSettings.json';
+import { keyCode } from './padkeys';
 
-/** 누름 하나: up·down = 전후(W·↑ / S·↓), left·right = 옆걸음(Q / E), rotl·rotr = 제자리 회전(A·← / D·→). 모든 조종 화면 한 배치(d5 · 11-28) */
-type Tok = 'up' | 'down' | 'left' | 'right' | 'rotl' | 'rotr';
+/** 누름 하나: up·down = 전후(W·↑ / S·↓), left·right = 옆걸음(← / →), rotl·rotr = 제자리 회전(A / D). 모든 조종 화면 한 배치(팀장 11-28 17:25 · Q · E 없음) */
+export type Tok = 'up' | 'down' | 'left' | 'right' | 'rotl' | 'rotr';
 /** 계약 JSON 스키마 중 OrgSettings 가 쓰는 낱말만(type·required·properties·additionalProperties·anyOf·minimum·maximum). 모르는 type 은 거절 */
 type Schema = { type?: string; required?: string[]; properties?: Record<string, Schema>; additionalProperties?: boolean | Schema; anyOf?: Schema[]; minimum?: number; maximum?: number };
 const plain = (o: unknown): o is Record<string, unknown> => !!o && typeof o === 'object' && !Array.isArray(o);
@@ -39,8 +41,8 @@ const fits = (f: Schema, v: unknown): boolean => {
 /** 조직 설정은 계약(OrgSettings 스키마) 전체로 검증된 객체만 «받음» — 본문 없는 200·배열·필수 칸 빠짐·모르는 칸·타입 틀림(real_max_vx: "0")·범위 밖·
  *  model_overrides 안쪽 타입 틀림은 못 받음과 같다(RV-424·425·426 ①). 선택 칸이 빠지면 서버 기본값과 같은 상한으로 본다(realCaps) */
 export const isSettings = (o: unknown): o is OrgSettings => fits(orgSettingsSchema as Schema, o);
-const KEY: Record<string, Tok> = { KeyW: 'up', ArrowUp: 'up', KeyS: 'down', ArrowDown: 'down', KeyA: 'rotl', ArrowLeft: 'rotl', KeyD: 'rotr', ArrowRight: 'rotr', KeyQ: 'left', KeyE: 'right' };
-/** 옆걸음(Q/E)이 조직 속도 설정(옆 상한·빠른 조종 끔)에 막혀 0 을 보낼 때 까닭 한 줄. 폰(drive.tsx)·PC 같은 문구 */
+export const KEY: Record<string, Tok> = { KeyW: 'up', ArrowUp: 'up', KeyS: 'down', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', KeyA: 'rotl', KeyD: 'rotr' };
+/** 옆걸음(← / →)이 조직 속도 설정(옆 상한·빠른 조종 끔)에 막혀 0 을 보낼 때 까닭 한 줄. 폰(drive.tsx)·PC 같은 문구 */
 export const SIDE_BLOCK = '옆걸음은 조직 속도 설정(옆 상한)이 허락하지 않아 입력을 0으로 보냅니다.';
 /** 표에 없는 키 조합(W+Q·A+Q·W+S·Q+E 등)은 0. 말없이 멈추지 않게 까닭 한 줄(폰·PC 같은 문구) */
 export const COMBO_BLOCK = '이 키 조합은 함께 보낼 수 없어 입력을 0으로 보냅니다.';
@@ -59,13 +61,36 @@ export function permitted(axes: [number, number, number], o: Partial<OrgSettings
 export const REAL_WAIT = '서버 경유 조종 허용·조직 속도 설정을 확인하는 중이라 입력을 0으로 보냅니다.';
 const id = (held: Iterable<Tok>) => [...held].sort().join('+');
 export const command = (held: Iterable<Tok>) => TABLE[id(held)] ?? TABLE[''];
+/** 시뮬(데모 포함) 서버 경유 = 공용 식 contracts/teleop(폰 데모 drive.tsx · 직결 phone.ts · 에이전트 · 리모컨과 같은 식). 실기는 위 고정 명령표 그대로 */
+const TOK_KEY: Record<Tok, TeleopKey> = { up: 'forward', down: 'back', left: 'left', right: 'right', rotl: 'turn_left', rotr: 'turn_right' };
+const asRec = (o: Partial<OrgSettings> | null) => o as Record<string, unknown> | null;
+/** 누른 키 · 단추 → 막대 자리 [전후, 옆, 돌기](teleop keyStick · 화면 손잡이도 이 자리에 그림). 실기는 부호만(고정 표라 끝까지) */
+export function tokStick(held: Iterable<Tok>, o: Partial<OrgSettings> | null, sim: boolean): TeleStick {
+  const k = [...held];
+  if (sim) return keyStick(k.map((t) => TOK_KEY[t]), teleopCaps(asRec(o), true), o?.sim_key_vx as number);
+  const d = (a: Tok, b: Tok) => Number(k.includes(a)) - Number(k.includes(b));
+  return [d('up', 'down'), d('left', 'right'), d('rotl', 'rotr')];
+}
+/** 보낼 [vx, vy, wz]: 시뮬 = stickVelocity(tokStick, teleopCaps(설정, 시뮬), deadzone(설정)) · 조합 제한 없음 · 실기 = command(표에 없는 조합 0) */
+export function axesOf(held: Iterable<Tok>, o: Partial<OrgSettings> | null, sim: boolean, an?: TeleStick | null): [number, number, number] {
+  if (!sim) return command(held);
+  // 시뮬 · 데모는 표에 없는 조합(옆 + 돌기 · 앞 + 옆 …)도 막지 않음 — 팀장 결정: 축을 앱이 막지 않고 조합은 정책 몫(반대 키는 keyStick 이 0)
+  const k = tokStick(held, o, true), m: TeleStick = an ? [an[0] || k[0], an[1] || k[1], an[2] || k[2]] : k;   // 손잡이가 민 축은 그 기울기(비례), 아니면 키 자리
+  return stickVelocity(m, teleopCaps(asRec(o), true), deadzone(asRec(o))).map((v) => Math.round(v * 1e6) / 1e6 || 0) as [number, number, number];
+}
+/** 상한 검사: 시뮬 = teleopCaps 안 · 실기 = permitted(조직 real_* · 빠른 조종 끔) */
+export function allowedAxes(a: [number, number, number], o: Partial<OrgSettings> | null, sim: boolean) {
+  if (!sim) return permitted(a, o);
+  const [vx, vy, wz] = a, c = teleopCaps(asRec(o), true);
+  return vx <= c.max_vx && vx >= -c.max_vx_back && Math.abs(vy) <= c.max_vy && Math.abs(wz) <= c.max_wz;
+}
 /** 누른 것이 있는데 표에 없는 조합인가 */
 export const unknownCombo = (held: Iterable<Tok>) => { const k = id(held); return k !== '' && !(k in TABLE); };
 /** 화면 단추 8개(+ 손 뗌 = 0) — 키와 같은 표 */
 const PAD: [Tok[], string, string][] = [
   [['rotl', 'up'], '↑+A', `앞+왼쪽 회전 최대 ${MAX_TURN_RATE} rad/s`], [['up'], 'W·↑', '앞 1.5'], [['rotr', 'up'], '↑+D', `앞+오른쪽 회전 최대 ${MAX_TURN_RATE} rad/s`],
-  [['left'], 'Q', '옆 왼쪽 1'], [['down'], 'S·↓', '뒤 1.5'], [['right'], 'E', '옆 오른쪽 1'],
-  [['rotl'], 'A·←', `제자리 왼쪽 최대 ${MAX_TURN_RATE} rad/s`], [['rotr'], 'D·→', `제자리 오른쪽 최대 ${MAX_TURN_RATE} rad/s`],
+  [['left'], '←', '옆 왼쪽 1'], [['down'], 'S·↓', '뒤 1.5'], [['right'], '→', '옆 오른쪽 1'],
+  [['rotl'], 'A', `제자리 왼쪽 최대 ${MAX_TURN_RATE} rad/s`], [['rotr'], 'D', `제자리 오른쪽 최대 ${MAX_TURN_RATE} rad/s`],
 ];
 export const TRIAL = '실기 · 서버 경유 시험 · 미검증';
 /** 입력 0 안내 — 화면이 보낸 0 일 뿐 로봇 정지 확인이 아니다(F-COM-01: 확인 없이 «멈췄습니다» 금지). 정지 확인은 stopLine 만 */
@@ -176,8 +201,11 @@ export const DepthLegend = ({ range: [a, b] }: { range: [number, number] }) => <
   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span aria-hidden="true" style={{ width: 10, height: 10, background: '#000', border: '1px solid #DDE5EC' }} />거리 모름</span>
 </div>;
 
-/** 서버 경유 조종 패널을 붙일 수 있음: 서버 목록 server_drive_allowed(담당·기체번호·서버 전체 스위치·로봇 연결을 서버가 자동 확인, #323) + PC 웹 + 내 실기(총괄은 모든 실기 · 11/28) */
-export const canDrive = (c: Pick<Ctx, 'user' | 'phone'>, r: Robot) => !!r.serverDrive && !c.phone && !inApp() && (r.owner === c.user.id || c.user.role === 'ORG_ADMIN');
+/** 서버 경유 조종 패널을 붙일 수 있음: 서버 목록 server_drive_allowed(담당·기체번호·서버 전체 스위치·로봇 연결을 서버가 자동 확인, #323) + PC 웹 + 내 실기(총괄은 모든 실기 · 11/28).
+ *  시뮬 · 데모 로봇(r.sim === true)은 서버가 server_drive_allowed 를 늘 거짓으로 준다(실기 전용 값) — 「내 것 && 연결됨」 으로 연다(총괄도 남의 시뮬은 막힘). 조종권 · 인증 · 주인은 서버 WS 가 다시 본다 */
+const linked = (r: Robot) => (r.sim === true ? r.online : !!r.serverDrive);
+export const canDrive = (c: Pick<Ctx, 'user' | 'phone'>, r: Robot) => linked(r) && !c.phone && !inApp()
+  && (r.sim === true ? r.owner === c.user.id : r.owner === c.user.id || c.user.role === 'ORG_ADMIN');
 /** 이 로그인 세션(사용자·세션 취소 신호)에서 한 번이라도 canDrive 였던 로봇 id — RB-PC-DRIVE-OFFLINE. 사용자가 바뀌거나 로그아웃(세션 신호 끝남)하면 비운다(RB-PC-DRIVE-OFFLINE-FIX) */
 let drove = { user: '', cancel: undefined as AbortSignal | undefined, ids: new Set<string>() };
 const droveIds = (c: Pick<Ctx, 'user' | 'cancel'>) => {
@@ -201,11 +229,14 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   const [got, setGot] = useState(false), gotRef = useRef(got); gotRef.current = got;
   const l = useLive(r.id), link = rt.link().at, mine = !!l.lease, s = l.state;
   const [on, setOn] = useState(''), [why, setWhy] = useState('');
+  const sim = !!r.sim;   // 시뮬 · 데모 = 공용 식(teleop) · 실기 = 고정 명령표
   const [, tick] = useState(0), [asked, setAsked] = useState<number | null>(null);   // asked = 잠금 해제 요청을 보낸 때(rt.now)
   // 누른 것(입력 세대 — rt inputGen): 물리 키(e.code)·화면 단추 포인터(pointerId)마다 누른 순간의 세대. 지금 세대가 아닌 것이 남아 있으면 명령 0
-  const [g] = useState(inputGen), keys = useRef(new Map<string, number>()), pads = useRef(new Map<number, { n: number; t: Tok[]; el: HTMLElement }>());
+  const [g] = useState(inputGen), keys = useRef(new Map<string, number>()), pads = useRef(new Map<number, { n: number; t: Tok[]; el: HTMLElement; an?: TeleStick }>());
   // 걷기 모드(u03): 누른 키 · 단추가 있거나 로봇이 0 아닌 명령을 적용 중이면 «움직이는 중» · 보내지 않고 까닭
   const gait = useGait(r.id, () => keys.current.size + pads.current.size > 0 || !!rt.get(r.id).state?.applied?.some((v) => v !== 0)), gaitRef = useRef(gait.press); gaitRef.current = gait.press;
+  /** 화면이 Shift+1~4 를 가로챔(로봇 탭 PC: 시안 u4_7 확인 창을 먼저 연다) · 비어 있으면 바로 보냄(폰 · 옛 화면) */
+  const gaitAsk = useRef<((g: GaitName) => void) | null>(null);
   // pose = 내가 보낸 자세 명령(결과가 올 때까지 두 단추 잠금), prev = 누를 때 보이던 앞 결과(같은 것을 내 결과로 읽지 않게)
   const [pose, setPose] = useState<{ k: PoseKey; prev: string | null; at: number } | null>(null), [poseMsg, setPoseMsg] = useState('');
   const posture = s?.posture?.state ?? null, res = s?.posture_result ?? null;
@@ -216,8 +247,8 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   const lost = res?.status === 'RUNNING' && !running ? `${POSE[POSE_KEY[res.action]].fail} — ${POSE_LOST}` : '';
   const poseNow: PoseKey | null = pose?.k ?? running, shifting = !!poseNow || posture === 'TRANSITIONING' || s?.action_result?.status === 'RUNNING';
   // 서 있을 때만 이동(자세 보고가 없는 옛 에이전트는 그대로). 엎드림·자세 모름·자세 바꾸는 중에는 이동 단추·키 잠금 — STOP 은 따로라 늘 살아 있다
-  // off = 로봇 연결 끊김(서버 목록 허용 꺼짐 — 보통 AGENT_OFFLINE, 또는 state OFFLINE). 어느 쪽이 먼저 와도 이동 잠금(RB-PC-DRIVE-OFFLINE-FIX)
-  const off = !r.serverDrive || (!!s && s.connection !== 'ONLINE');
+  // off = 로봇 연결 끊김(서버 목록 허용 꺼짐 — 보통 AGENT_OFFLINE · 시뮬은 목록 연결 끊김, 또는 state OFFLINE). 어느 쪽이 먼저 와도 이동 잠금(RB-PC-DRIVE-OFFLINE-FIX)
+  const off = !linked(r) || (!!s && s.connection !== 'ONLINE');
   // 끊김을 본 뒤 «조종 시작»을 새로 누르기 전 = 그 전에 보낸 조종권 요청은 무효. 늦게 승인이 와도 바로 반납·이동 잠금(RB-PC-DRIVE-OFFLINE-FIX2)
   const stale = useRef(false); if (off) stale.current = true;
   const ready = !off && !stale.current && mine && link === 'open' && s?.connection === 'ONLINE' && s.latched === false && !l.busy && !shifting && (posture == null || posture === 'STANDING');
@@ -226,15 +257,21 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   /** 지금 세대에 누른 것. 앞 세대에 누른 키·단추가 아직 눌려 있으면 null(→ 0) */
   const pressed = (): Set<Tok> | null => {
     const n = sync(), out = new Set<Tok>();
-    for (const [c, x] of keys.current) { if (x !== n) return null; out.add(KEY[c]); }
+    for (const [c, x] of keys.current) { if (x !== n) return null; out.add(KEY[keyCode(c)]); }
     for (const p of pads.current.values()) { if (p.n !== n) return null; p.t.forEach((t) => out.add(t)); }
     return out;
+  };
+  /** 지금 세대 손잡이 기울기 합 [전후, 옆, 돌기](시뮬 비례용) · 없으면 null */
+  const analog = (): TeleStick | null => {
+    const n = sync(), a: TeleStick = [0, 0, 0]; let any = false;
+    for (const p of pads.current.values()) if (p.n === n && p.an) { any = true; p.an.forEach((v, i) => { a[i] = Math.max(-1, Math.min(1, a[i] + v)); }); }
+    return any ? a : null;
   };
   /** 틱과 즉시 전송이 같이 쓰는 한 길: 명령 공백(GAP_MS) 검사로 세대를 맞춘 뒤 보낸다(RV-426 ③) */
   const send = () => {
     g.tick(r.id);
-    const t = pressed(), cmd = t && readyRef.current && gotRef.current && isSettings(settingsRef.current) ? command(t) : TABLE[''];
-    const [vx, vy, wz] = permitted(cmd, settingsRef.current) ? cmd : TABLE['']; rt.cmd(r.id, [vx, wz], vy, !t);
+    const t = pressed(), cmd = t && readyRef.current && gotRef.current && isSettings(settingsRef.current) ? axesOf(t, settingsRef.current, sim, sim ? analog() : null) : TABLE[''];
+    const [vx, vy, wz] = allowedAxes(cmd, settingsRef.current, sim) ? cmd : TABLE['']; rt.cmd(r.id, [vx, wz], vy, !t);
   };
   /** 누름이 바뀜: 그리고 바로 한 번 보낸다(뗀 그 자리에서 0) */
   const changed = () => { setOn(id(pressed() ?? [])); if (rt.get(r.id).lease) send(); };
@@ -245,9 +282,21 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   // 잠긴 동안·상한 밖 단추도 키처럼 누른 세대를 적는다(RV-426 ④) — 명령은 ready·permitted 일 때만 나간다
   const press = (e: PointerEvent<HTMLButtonElement>, t: Tok[]) => {
     e.currentTarget.setPointerCapture?.(e.pointerId); pads.current.set(e.pointerId, { n: now(), t, el: e.currentTarget });
-    if (readyRef.current && permitted(command(t), settingsRef.current)) setWhy(''); changed();
+    if (readyRef.current && allowedAxes(axesOf(t, settingsRef.current, sim), settingsRef.current, sim)) setWhy(''); changed();
   };
   const lift = (p: number) => { if (pads.current.delete(p)) changed(); };
+  /** 손잡이(시안 u4 조이스틱): 끄는 동안 방향이 바뀌면 같은 누름 세대로 바꾸고, 빈 방향이면 놓음 */
+  const stick = (p: number, el: HTMLElement, t: Tok[], an?: TeleStick) => {
+    const was = pads.current.get(p);
+    if (!t.length) return lift(p);
+    if (was && id(was.t) === id(t)) { if (sim && an && was.an?.join() !== an.join()) { was.an = an; if (rt.get(r.id).lease) send(); } return; }   // 시뮬: 같은 방향이어도 기울기가 바뀌면 다시 보냄
+    pads.current.set(p, { n: was ? was.n : now(), t, el, an });
+    const q = pressed();   // 키와 같은 까닭 한 줄(손잡이 옆걸음 · 상한 · 표 밖 조합)
+    if (readyRef.current && q && !sim && unknownCombo(q)) setWhy(COMBO_BLOCK);
+    else if (readyRef.current && q && !allowedAxes(axesOf(q, settingsRef.current, sim), settingsRef.current, sim)) setWhy(axesOf(q, settingsRef.current, sim)[1] ? SIDE_BLOCK : '조직 속도 상한을 넘는 명령입니다.');
+    else if (readyRef.current) setWhy('');
+    changed();
+  };
   /** 누른 단추가 사라짐(작게 보기·전체화면 전환 등 — 놓음을 못 받음): 그 포인터를 지우고 세대 +1(RV-426 ⑥) */
   const gone = (el: HTMLElement) => { let hit = false; for (const [p, x] of pads.current) if (x.el === el) { pads.current.delete(p); hit = true; } if (hit) zero(); };
 
@@ -265,17 +314,17 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
     const down = (e: KeyboardEvent) => {
       if (e.code === 'Escape') return esc?.current();
       if (metaCut(e)) return cut();   // Cmd 동안은 keyup 이 안 올 수 있다 — 적은 키를 지우고 세대 +1(RV-429 ③)
-      const t = KEY[e.code], k = keys.current;
+      const t = KEY[keyCode(e.code)], k = keys.current;
       // 글 입력 중·반복(e.repeat)은 새 누름이 아니다 — 모르는 키면 앞 세대로 적어 뗄 때까지 0
       if (typing(e.target) || e.repeat) { if (t && !k.has(e.code)) { k.set(e.code, -1); changed(); } return; }
-      const gk = gaitKey(e); if (gk) { e.preventDefault(); gaitRef.current(gk); return; }   // Shift+1~4 걷기 모드 · 이동 키가 아님(입력칸 · 반복은 위에서 거름)
+      const gk = gaitKey(e); if (gk) { e.preventDefault(); (gaitAsk.current ?? gaitRef.current)(gk); return; }   // Shift+1~4 걷기 모드 · 이동 키가 아님(입력칸 · 반복은 위에서 거름)
       if (e.code === 'Space') return zero(SD_NOTE.stop);   // STOP 은 App 머리줄이 보낸다 — 여기는 입력만 먼저 0
       if (!t) return;
       if (!e.ctrlKey && !e.altKey) e.preventDefault();   // Ctrl·Alt 조합도 같은 누름으로 적는다(브라우저 단축키는 막지 않음)
       k.set(e.code, now());   // 잠긴 동안 누른 것도 적는다 — 해제(ready)되면 세대가 올라 앞 세대가 된다
       const p = pressed();
-      if (readyRef.current && p && unknownCombo(p)) { changed(); setWhy(COMBO_BLOCK); return; }
-      if (readyRef.current && p && !permitted(command(p), settingsRef.current)) { changed(); setWhy(command(p)[1] ? SIDE_BLOCK : '조직 속도 상한을 넘는 명령입니다.'); return; }
+      if (readyRef.current && p && !sim && unknownCombo(p)) { changed(); setWhy(COMBO_BLOCK); return; }
+      if (readyRef.current && p && !allowedAxes(axesOf(p, settingsRef.current, sim), settingsRef.current, sim)) { changed(); setWhy(axesOf(p, settingsRef.current, sim)[1] ? SIDE_BLOCK : '조직 속도 상한을 넘는 명령입니다.'); return; }
       if (readyRef.current) setWhy(''); changed();
     };
     const up = (e: KeyboardEvent) => { if (metaCut(e)) cut(); else if (keys.current.delete(e.code)) changed(); };
@@ -322,7 +371,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
     <span className="fh-stop-t"><span>STOP</span><small>정지 요청</small></span>
   </button>;
   const pad = mine && <div role="group" aria-label="조종(누르는 동안만)" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
-    {PAD.map(([t, k, text]) => { const no = !ready || !permitted(command(t), settings); return <PadButton key={k} gone={gone} data-sd-move={id(t)} aria-pressed={on === id(t)} aria-disabled={no}
+    {PAD.map(([t, k, text]) => { const no = !ready || !allowedAxes(axesOf(t, settings, sim), settings, sim); return <PadButton key={k} gone={gone} data-sd-move={id(t)} aria-pressed={on === id(t)} aria-disabled={no}
       style={{ minHeight: 48, ...(no && { opacity: .55, cursor: 'not-allowed' }) }}
       onPointerDown={(e: PointerEvent<HTMLButtonElement>) => press(e, t)}
       onPointerUp={(e) => lift(e.pointerId)} onPointerCancel={(e) => lift(e.pointerId)} onLostPointerCapture={(e) => lift(e.pointerId)}
@@ -365,9 +414,10 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
     : l.cooldown > rt.now() ? '잠시 뒤 다시 요청할 수 있습니다.'
     : l.holder?.type === 'RUN' ? '시나리오 실행 중에는 이 시험 화면에서 조종을 시작하지 않습니다.' : '';
   // 조종 시작/끝내기 — 조각으로 돌려주고 붙이는 쪽이 배치(같은 단추를 두 번 그리지 않게). 권한·기다릴 이유는 DriveButton 이 글로
-  const hint = <span className="lbl fh-grow">W·↑ / S·↓ 앞뒤 1.5 m/s · A·← / D·→ 제자리 회전 최대 {MAX_TURN_RATE} rad/s · Q/E 옆걸음 1.0 m/s · Space 정지 · {GAIT_KEYS}. 누르고 있으면 2초에 걸쳐 최고 속도까지 올라가고, 떼면 바로(약 0.3초) 멈춥니다. ↑+A/D로 전진하며 회전합니다. 다른 조합을 누르면 입력은 0입니다. 조직 상한을 넘는 단추는 비활성입니다.</span>;
+  const hint = <span className="lbl fh-grow">W·↑ / S·↓ 앞뒤 1.5 m/s · ← / → 옆걸음 1.0 m/s · A / D 제자리 회전 최대 {MAX_TURN_RATE} rad/s · Space 정지 · {GAIT_KEYS}. 누르고 있으면 2초에 걸쳐 최고 속도까지 올라가고, 떼면 바로(약 0.3초) 멈춥니다. ↑+A/D로 전진하며 회전합니다. 다른 조합을 누르면 입력은 0입니다. 조직 상한을 넘는 단추는 비활성입니다.</span>;
   const end = <button type="button" className="btn" onClick={() => { zero(); rt.release(r.id); }}>조종 끝내기</button>;
-  const begin = <DriveButton c={c} r={r} label="조종 시작" wait={wait} onClick={() => { setWhy(''); stale.current = false; if (l.holder?.type === 'USER') rt.request(r.id); else rt.take(r.id); }} />;
+  const take = () => { setWhy(''); stale.current = false; if (l.holder?.type === 'USER') rt.request(r.id); else rt.take(r.id); };
+  const begin = <DriveButton c={c} r={r} label="조종 시작" wait={wait} onClick={take} />;
   const poseRow = mine && <div className="fh-row" role="group" aria-label="로봇 자세" style={{ flexWrap: 'wrap' }} data-sd-posture>
     {(['up', 'down'] as const).map((k) => <button key={k} type="button" className="btn" data-sd-pose={k} disabled={shifting || link !== 'open' || s?.connection !== 'ONLINE' || k === 'up' && s?.control === 'LOWLEVEL'}
       onClick={() => askPose(k)}>{POSE[k].name}</button>)}
@@ -377,7 +427,9 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   const trial = <ActionTrial robot={r} allowed={!!r.serverDrive && !r.sim} beforeSend={zero} />;
   const releasing = l.releasing?.why && <div className="fh-row" role="status"><span className="fh-why">조종권 반납을 확인하지 못했습니다. {l.releasing.why}</span>
     <button type="button" className="btn" onClick={() => rt.release(r.id)}>다시 시도</button></div>;
-  return { l, s, mine, off, link, posture, shifting, stalled, refused, age, lock, zero, stop, stopNote, unlock, pad, status, latency, notes, hint, end, begin, poseRow, gaitRow: gait.row, trial, releasing };
+  return { gaitAsk, sim, l, s, mine, off, link, posture, shifting, stalled, refused, age, lock, zero, stop, stopNote, unlock, pad, status, latency, notes, hint, end, begin, poseRow, gaitRow: gait.row, trial, releasing,
+    take, takeWhy: driveBlock(c.user, r) ?? (wait || ''), stick, stopPress, why, on, ready, askPose, poseNow, poseMsg: poseMsg || lost, gait,
+    unlockAsk: () => { setAsked(rt.now()); rt.unlock(r.id); }, unlockState: asked == null ? null : late ? 'unconfirmed' as const : 'wait' as const, stopLine: sl };
 }
 
 /** 화면 이동 단추 — 사라질 때(unmount) gone 으로 알린다. 잠긴 동안에도 누름을 받아야 해서 disabled 대신 aria-disabled(누른 세대만 적고 명령은 0) */

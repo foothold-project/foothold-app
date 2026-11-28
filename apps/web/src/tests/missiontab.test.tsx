@@ -1,4 +1,5 @@
 // 임무 탭(W2 · U6-01 · U6-03 · U6-05): 탭 열림 · 옛 주소 → 임무 탭에서 그 임무 고름 · 계약 없는 칸은 «준비 중»(숫자 없음) · 금지 구역 겹침 · 미리 확인 · 편집(목록 ↔ 노드) · 편집 중 떠날 때 확인
+import { cardMeta } from '../screens/missionsu6';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,10 +8,32 @@ import { App } from '../App';
 import { leaving, oldScenario, tabFromHash } from '../menu';
 import { clearPlans } from '../screens/missions';
 import { keptMission } from '../screens/missiontab';
+import u6AppCss from '../screens/missionsu6.app.css?raw';
+import u6Css from '../screens/missionsu6.css?raw';
+import pcPvCss from '../proto/pc.pv.css?raw';
+import { ticks } from '../screens/missionsu6run';
+import { KINDS, kindLabel, kindOf } from '../screens/missionsu6edit';
+import { resetModels } from '../screens/map3d';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+// 3D 지도 칸 시험만: WebGL · GLB 읽기를 가짜로(fake3.on). 그 밖은 진짜(jsdom 은 WebGL 이 없음)
+const fake3 = vi.hoisted(() => ({ on: false }));
+vi.mock('three', async (orig) => {
+  const t = await orig<typeof import('three')>();
+  class GL { domElement = document.createElement('canvas'); outputColorSpace = ''; shadowMap = { enabled: false, type: 0 }; setPixelRatio() {} setSize() {} dispose() {} forceContextLoss() {} render() {} }
+  return { ...t, WebGLRenderer: function (this: unknown, ...a: unknown[]) { return fake3.on ? new GL() : new (t.WebGLRenderer as unknown as new (...x: unknown[]) => object)(...a); } };
+});
+vi.mock('three/examples/jsm/loaders/GLTFLoader.js', async (orig) => {
+  const m = await orig<typeof import('three/examples/jsm/loaders/GLTFLoader.js')>();
+  const T = await import('three');
+  // glTF(+Y 위) 상자: 지도 x -1~4 · y -2~2 · 높이 0~1.4 (worldGroup 이 (x, y, z)gltf → (x, −z, y))
+  const scene = () => { const g = new T.Group(), b = new T.Mesh(new T.BoxGeometry(5, 1.4, 4), new T.MeshBasicMaterial()); b.position.set(1.5, 0.7, 0); g.add(b); return g; };
+  class L extends m.GLTFLoader { parseAsync(...a: Parameters<InstanceType<typeof m.GLTFLoader>['parseAsync']>) { return fake3.on ? Promise.resolve({ scene: scene() } as never) : super.parseAsync(...a); } }
+  return { ...m, GLTFLoader: L };
+});
 
 // 지도 100×80 칸, 0.05 m, origin (-1, -2) → x -1~4 m, y -2~2 m. 접근 금지 x 2~3
 const V1: MapVersion = { upload_id: 'up-v1', id: 'v1', floor_id: 'f1', number: 1, base_version_id: null, copied_from_id: null, status: 'APPROVED', image_sha256: 'ab'.repeat(32),
@@ -26,6 +49,10 @@ const S1 = scen('s1', '공정 순찰 A', [wp(0, 0, '펌프'), wp(3.5, 0, '게이
 const S2 = scen('s2', '가스 점검', [wp(0, 1), wp(1, 1)], { finish: { mode: 'STAY', target: null }, est_distance_m: 30 });
 const S3 = scen('s3', '지난 임무', [wp(0, 0)], { archived_at: '2026-11-27T00:00:00Z' });
 const ALL = [S1, S2, S3];
+/** 둥근 차림 시험이 더하는 임무(다른 시험은 M1 만) */
+let moreJobs: Mission[] = [];
+/** 판 3D 모형(시험이 바꿈): null = 없음(model_sha256 null) · 'ok' = 받음 · '404' = 판엔 sha 가 있는데 모형 없음 */
+let model3: null | 'ok' | '404' = null;
 
 let calls: { method: string; path: string; q: URLSearchParams; body?: Record<string, unknown>; key?: string | null }[] = [];
 /** POST /assignments 답(시험이 바꿈). 기본 = 그 로봇 ACTIVE */
@@ -58,20 +85,24 @@ function serve() {
       srv.slots = [...srv.slots, x]; return new Response(JSON.stringify(x), { status: 201, headers: { 'Content-Type': 'application/json' } });
     }
     if (path === '/sites') return ok({ items: [{ id: 'st', name: '공장', purpose: 'REAL', buildings: [{ id: 'b1', site_id: 'st', name: '본동', floors: [{ id: 'f1', building_id: 'b1', name: '1층', level: 1, approved_version_id: 'v1', pending_count: 0 }] }] }], next_cursor: null });
-    if (path === '/map-versions/v1') return ok(V1);
+    if (path === '/map-versions/v1') return ok(model3 ? { ...V1, model_sha256: 'cd'.repeat(32), model_floor_z: 0 } : V1);
+    if (path === '/map-versions/v1/model') return model3 === 'ok' ? new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { 'Content-Type': 'model/gltf-binary' } })
+      : new Response(JSON.stringify({ error: { code: 'MODEL_NOT_FOUND', message: '이 층은 3D 모형이 없습니다.', detail: {} } }), { status: 404 });
     if (path === '/map-versions/v1/zone-grid') {
       const cells = [];
       for (let r = 0; r < 80; r++) for (let c = 0; c < 100; c++) { const x = -1 + (c + 0.5) * 0.05; if (x >= 2 && x <= 3) cells.push({ index: r * 100 + c, no_go: true, slow: false, max_speed_mps: null }); }
       return ok({ format_version: 1, map_version_id: 'v1', origin: V1.origin, resolution: 0.05, width: 100, height: 80, row_order: 'TOP_TO_BOTTOM', cursor: 0, cells, next_cursor: null });
     }
     if (path === '/scenarios') return ok({ items: ALL, next_cursor: null });
-    if (path === '/missions') return ok({ items: [M1], next_cursor: null });
+    if (path === '/missions') return ok({ items: [M1, ...moreJobs], next_cursor: null });
     const m = path.match(/^\/scenarios\/(s\d)$/);
+    if (m && method === 'PUT') { const x = ALL.find((s) => s.id === m[1])!; return ok({ ...x, ...body, version: x.version + 1 }); }
     if (m) { const x = ALL.find((s) => s.id === m[1]); return x ? ok(x) : new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: '없음', detail: {} } }), { status: 404 }); }
     if (method === 'POST' && path === '/scenarios/preview') return ok({ reachable: true, points: [], segments: [], floor_ids: ['f1'], map_version_ids: ['v1'], required_devices: [], est_distance_m: 3, distance_note: '' });
     if (path === '/actions') return ok([]);
-    if (path === '/assignments') return ok({ items: [{ id: 'as1', robot_id: 'r2', scenario_id: 's1', scenario_version: 1, status: 'ACTIVE' }, { id: 'as2', robot_id: 'r1', scenario_id: 's1', scenario_version: 1, status: 'REMOVED' },
-      { id: 'as3', robot_id: 'r1', scenario_id: 's2', scenario_version: 1, status: 'ACTIVE' }], next_cursor: null });
+    if (path === '/assignments') { const rid = new URLSearchParams(qs).get('robot_id');   // 서버처럼 robot_id 로 거른다
+      return ok({ items: [{ id: 'as1', robot_id: 'r2', scenario_id: 's1', scenario_version: 1, status: 'ACTIVE' }, { id: 'as2', robot_id: 'r1', scenario_id: 's1', scenario_version: 1, status: 'REMOVED' },
+      { id: 'as3', robot_id: 'r1', scenario_id: 's2', scenario_version: 1, status: 'ACTIVE' }].filter((x) => !rid || x.robot_id === rid), next_cursor: null }); }
     return new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: '없음', detail: {} } }), { status: 404 });
   });
 }
@@ -83,13 +114,13 @@ const ROBOTS: Robot[] = [
 ];
 let root: Root | null = null, box: HTMLDivElement;
 const flush = () => act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); await new Promise((r) => setTimeout(r, 0)); });
-async function mount(hash: string, who = 'u-kim') {
+async function mount(hash: string, who = 'u-kim', robots = ROBOTS) {
   window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
   if (!srv) fresh();
   serve();
   location.hash = hash;
   box = document.createElement('div'); document.body.append(box);
-  act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === who)} robots={ROBOTS} />); });
+  act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === who)} robots={robots} />); });
   await flush(); await flush();
 }
 afterEach(() => { assignReply = async (b) => new Response(JSON.stringify({ id: `new-${b.robot_id}`, robot_id: b.robot_id, scenario_id: b.scenario_id, scenario_version: b.scenario_version, status: 'ACTIVE' }), { status: 201, headers: { 'Content-Type': 'application/json' } }); act(() => root?.unmount()); root = null; box?.remove(); clearPlans(); keptMission.sel = ''; fresh(); leaving.ask = null; vi.unstubAllGlobals(); vi.restoreAllMocks(); localStorage.clear(); });
@@ -105,7 +136,7 @@ const click = async (e: Element | null) => { expect(e).toBeTruthy(); act(() => (
 describe('임무 탭(W2)', () => {
   // 시계: 오늘 08:05(지난 시각 · 처음 값 판정이 돌리는 때에 따라 바뀌지 않게). 타이머는 진짜 그대로
   beforeEach(() => { const d = new Date(); d.setHours(8, 5, 0, 0); vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'], now: d }); });
-  afterEach(() => { vi.useRealTimers(); });
+  afterEach(() => { vi.useRealTimers(); moreJobs = []; model3 = null; fake3.on = false; });
   it('주소 · 메뉴: #/missions 와 옛 #/mission 은 임무 탭, oldScenario 는 고를 id', () => {
     expect(tabFromHash('#/missions', false)).toBe('missions');
     expect(tabFromHash('#/mission', false)).toBe('missions');
@@ -115,49 +146,70 @@ describe('임무 탭(W2)', () => {
     expect(oldScenario('#/map')).toBeNull();
   });
 
-  it('로봇에 배정(W1 runctl 후속): 이미 배정된 로봇은 고르기에서 빠짐 · POST /assignments(멱등 key) · 답 전엔 성공 없음 · 답 뒤 성공 한 줄 + 그 로봇 실행 칸', async () => {
+  // 시안 u15_2: 배정 · 실행은 오늘 일정 칸을 눌러 «실제 로봇 시작 전 점검» 창에서. 로봇은 그 칸의 로봇(sl2 = 시뮬 r2 · s2 배정 없음, sl1 = 실기 r1 · s2 ACTIVE)
+  const preflight = async (slotId: string) => { await click($(`[data-slot="${slotId}"]`)); await click($('[data-preflight]')); expect($('[data-preflight-box]')).toBeTruthy(); };
+  it('u6_8: 오늘 일정 칸을 누르면 오른쪽에 그 칸의 시각 · 로봇을 읽기로 보이고 「새로 넣기 ›」 로 돌아감', async () => {
+    await mount('#/missions');
+    await click($('[data-slot="sl1"]'));
+    expect($('[data-slot-time="start"]')!.textContent).toBe('09:00'); expect($('[data-slot-time="end"]')!.textContent).toBe('10:00');
+    const r1 = $<HTMLButtonElement>('[data-robot="r1"]');
+    if (r1) { expect(r1.getAttribute('aria-pressed')).toBe('true'); expect(r1.disabled).toBe(true); }
+    expect($('[data-preflight]')).toBeTruthy();
+    await click($('[data-unpick]'));
+    expect($('[data-slot-time="start"]')).toBeNull(); expect($('[data-schedule-add]')).toBeTruthy();
+  });
+  it('로봇에 배정(u15_2 점검 창): 이미 배정된 로봇은 배정 단추 없음 · POST /assignments(멱등 key) · 답 전엔 넘어가지 않음 · 답 뒤 다음 관문(조종권 잡기)', async () => {
     let done!: () => void;
     assignReply = (b) => new Promise((ok) => { done = () => ok(new Response(JSON.stringify({ id: 'as9', robot_id: b.robot_id, scenario_id: b.scenario_id, scenario_version: b.scenario_version, status: 'ACTIVE' }), { status: 201, headers: { 'Content-Type': 'application/json' } })); });
     await mount('#/missions');
-    const sel = $<HTMLSelectElement>('[data-assign] select')!;
-    expect([...sel.options].map((o) => o.value)).toEqual(['r1', 'r3']);   // r2 는 s1 에 이미 ACTIVE
-    act(() => { sel.value = 'r1'; sel.dispatchEvent(new Event('change', { bubbles: true })); });
-    await click($('[data-assign] button'));
+    await preflight('sl1');   // r1 은 s2 에 이미 ACTIVE(as3) → 배정 단추 없음, 실기라 실행 못 함 까닭
+    expect($('[data-preflight-act]')).toBeNull();
+    expect($('[data-preflight-why]')!.textContent).toContain('실기는 아직 화면에서 임무를 실행할 수 없습니다');
+    expect($<HTMLButtonElement>('[data-preflight-go]')!.disabled).toBe(true);
+    await click($('[data-preflight-cancel]'));
+    await preflight('sl2');   // r2(시뮬) · s2 배정 없음
+    expect($('[data-preflight-act]')!.textContent).toContain('이 로봇에 배정');
+    await click($('[data-preflight-act]'));
     const post = calls.filter((c) => c.method === 'POST' && c.path === '/assignments');
     expect(post).toHaveLength(1);
-    expect(post[0].body).toEqual({ scenario_id: 's1', scenario_version: 1, robot_id: 'r1' });
+    expect(post[0].body).toEqual({ scenario_id: 's2', scenario_version: 1, robot_id: 'r2' });
     expect(post[0].key).toMatch(/^[0-9a-f-]{36}$/);
-    expect($('[data-assign-msg]')?.textContent ?? '').not.toContain('배정했습니다');
-    expect($$('[data-run-list] [data-run-ctl]').map((e) => e.dataset.runCtl)).toEqual(['r2']);
+    expect($('[data-preflight-why]')!.textContent).toContain('배정이 없습니다');   // 답 전엔 그대로
     await act(async () => { done(); }); await flush();
-    expect($('[data-assign-msg]')!.textContent).toBe('K-01 에 배정했습니다.');
-    expect($$('[data-run-list] [data-run-ctl]').map((e) => e.dataset.runCtl)).toEqual(['r2', 'r1']);
+    expect($('[data-preflight-act]')!.textContent).toContain('조종권 잡기');   // 배정 뒤 다음 관문
+    expect($<HTMLButtonElement>('[data-preflight-go]')!.disabled).toBe(true);
   });
-  it('로봇에 배정: 서버 거절(409 ASSIGNMENT_EXISTS)은 문구 한 줄 · 실행 칸은 생기지 않음 · 답 못 받으면 다시 보낼 때 같은 key', async () => {
+  it('로봇에 배정: 서버 거절(409 ASSIGNMENT_EXISTS)은 문구 한 줄 · 다음 관문으로 넘어가지 않음 · 답 못 받으면 다시 보낼 때 같은 key', async () => {
     let n = 0;
     assignReply = async () => (++n === 1 ? Promise.reject(new TypeError('network')) : new Response(JSON.stringify({ error: { code: 'ASSIGNMENT_EXISTS', message: '이미 배정되었거나 결재를 기다리는 시나리오 판입니다.', detail: {} } }), { status: 409, headers: { 'Content-Type': 'application/json' } }));
     await mount('#/missions');
-    await click($('[data-assign] button'));
-    await click($('[data-assign] button'));
+    await preflight('sl2');
+    await click($('[data-preflight-act]'));
+    await click($('[data-preflight-act]'));
     const post = calls.filter((c) => c.method === 'POST' && c.path === '/assignments');
     expect(post).toHaveLength(2);
     expect(post[1].key).toBe(post[0].key);   // 같은 시도의 다시 보내기
-    expect($('[data-assign-msg]')!.textContent).toContain('이미 배정되었거나 결재를 기다리는 시나리오 판입니다.');
-    expect($$('[data-run-list] [data-run-ctl]').map((e) => e.dataset.runCtl)).toEqual(['r2']);
+    expect($('[data-preflight-why]')!.textContent).toContain('이미 배정되었거나 결재를 기다리는 시나리오 판입니다.');
+    expect($('[data-preflight-act]')!.textContent).toContain('이 로봇에 배정');
   });
-  it('로봇에 배정: 담당 로봇이 없는 운영 관리자는 회색 단추 대신 까닭 한 줄 · 보내지 않음', async () => {
+  it('로봇에 배정: 담당 로봇이 아닌 운영 관리자는 배정 단추 대신 까닭 한 줄 · 보내지 않음', async () => {
     await mount('#/missions', 'u-park');
-    expect($('[data-assign] button')).toBeNull();
-    expect($('[data-assign]')!.textContent).toContain('배정은 담당 로봇에만 할 수 있습니다');
+    await preflight('sl2');
+    expect($('[data-preflight-act]')).toBeNull();
+    expect($('[data-preflight-why]')!.textContent).toContain('배정은 담당 로봇에만 할 수 있습니다');
     expect(calls.some((c) => c.method === 'POST' && c.path === '/assignments')).toBe(false);
   });
-  it('지금 실행(W1 runctl): 고른 임무가 ACTIVE 로 배정된 로봇만 실행 칸 · 조종권 없으면 «조종권 잡기»로 이음 · 다른 임무를 고르면 그 임무의 로봇', async () => {
+  it('지금 실행(u15_2): 점검 줄 넷(연결 · 조종권 · 로봇 상태 · 시작 자리) · 조종권 없으면 «조종권 잡기»로 이음 · 취소 = 창 닫힘(u6_8)', async () => {
+    fresh(); srv.slots = [...srv.slots, slot('sl9', 'r2', 'CONFIRMED', 11, 0, 11, 30, 's1')];   // r2 · s1 ACTIVE(as1)
     await mount('#/missions');
-    const ids = () => $$('[data-run-list] [data-run-ctl]').map((e) => e.dataset.runCtl);
-    expect(ids()).toEqual(['r2']);   // s1: r2 ACTIVE · r1 REMOVED 는 빠짐
-    expect($('[data-run-ctl="r2"]')!.textContent).toContain('조종권 잡기');
-    await click($('[data-mission="s2"]'));
-    expect(ids()).toEqual(['r1']);
+    await preflight('sl9');
+    expect($$('[data-ck]').map((e) => e.dataset.ck)).toEqual(['link', 'lease', 'state', 'start']);
+    expect($('[data-ck="lease"]')!.dataset.ok).toBe('false');
+    expect($('[data-preflight-act]')!.textContent).toContain('조종권 잡기');
+    expect($<HTMLButtonElement>('[data-preflight-go]')!.disabled).toBe(true);
+    await click($('[data-preflight-cancel]'));
+    expect($('[data-preflight-box]')).toBeNull();
+    expect($('[data-slot="sl9"]')!.className).toContain('u6-made');   // 누른 칸 그대로(u6_8)
   });
   it('탭 열림: 세 칸(목록 · 지도 · 일정 칸) + 오늘 일정, 첫 임무를 펼쳐 할 일 번호와 끝 동작', async () => {
     await mount('#/missions');
@@ -175,10 +227,25 @@ describe('임무 탭(W2)', () => {
     // 로봇 목록 · 배터리 · 실기/시뮬 = 지금 자료
     const rb = $$('[data-robot]');
     expect(rb.map((b) => b.dataset.robot)).toEqual(['r1', 'r2']);
-    expect(rb[0].textContent).toContain('실기'); expect(rb[0].textContent).toContain('86%');
+    expect(rb[0].textContent).toContain('실제'); expect(rb[0].textContent).toContain('86 %');   // 시안 글 «실제 · … 86 %»
     expect(rb[1].textContent).toContain('시뮬');
     await click($('[data-mission="s2"]'));
     expect(picked()).toEqual(['s2']); expect($('[data-side-name]')!.textContent).toBe('가스 점검');
+  });
+
+  it('u6_1 지도 칩: 경로 · 구역을 누르면 켜고 끔(끔 = .g.dk) · 경로를 꺼도 지점 번호는 남음 · 혼잡 시간은 잠김', async () => {
+    await mount('#/missions');
+    const chip = (k: string) => $(`[data-chip="${k}"]`)!;
+    expect(chip('route').className).toBe('g'); expect(chip('route').getAttribute('aria-pressed')).toBe('true');
+    const segs = $$('[data-seg]').length, nogo = $$('[data-nogo]').length, pts = $$('[data-pt]').length;
+    expect(segs).toBeGreaterThan(0); expect(pts).toBeGreaterThan(0);
+    await click(chip('route'));
+    expect(chip('route').className).toBe('g dk'); expect($$('[data-seg]').length).toBe(0); expect($$('[data-pt]').length).toBe(pts);
+    await click(chip('zone'));
+    expect(chip('zone').getAttribute('aria-pressed')).toBe('false'); expect($$('[data-nogo]').length).toBe(0);
+    await click(chip('route')); await click(chip('zone'));
+    expect($$('[data-seg]').length).toBe(segs); expect($$('[data-nogo]').length).toBe(nogo);
+    expect($('.chips [data-locked]')!.getAttribute('aria-disabled')).toBe('true');
   });
 
   it.each(['#/mission/s2', '#/mission?scenario_id=s2', '#/missions/s2'])('옛 주소 %s → 임무 탭에서 그 임무를 고름', async (h) => {
@@ -217,7 +284,7 @@ describe('임무 탭(W2)', () => {
     expect(new Date(q.get('end')!).getTime() - new Date(q.get('start')!).getTime()).toBeGreaterThan(0);
     const row = (id: string) => $<HTMLButtonElement>(`[data-robot="${id}"]`)!;
     expect($$('[data-robot]').map((b) => b.dataset.robot)).toEqual(['r1', 'r2', 'r3', 'r4']);
-    expect(row('r1').disabled).toBe(false); expect(row('r1').textContent).toContain('비어 있음'); expect(row('r1').textContent).toContain('86%');
+    expect(row('r1').disabled).toBe(false); expect(row('r1').textContent).toContain('비어 있음'); expect(row('r1').textContent).toContain('86 %');
     expect(row('r2').disabled).toBe(true); expect(row('r2').textContent).toContain('가스 점검'); expect(row('r2').textContent).toContain('14:30까지');
     expect(row('r3').disabled).toBe(true); expect(row('r3').textContent).toContain('연결 전');   // 한 번도 연결된 적 없는 로봇(관제 칩과 같은 robotStatus)
     expect(row('r4').disabled).toBe(false); expect(row('r4').textContent).toContain('충전 중');
@@ -228,7 +295,7 @@ describe('임무 탭(W2)', () => {
 
   it('예상(POST /estimates): 로봇 · 걷기 모드를 고르기 전엔 숫자 없음 · 고르면 예상 끝 · 여유 · 끝 배터리 · 걷기 + 할 일, 표 값이면 «추정», 여유 null = «다음 일정 없음»', async () => {
     await mount('#/missions');
-    for (const e of $$('[data-est]')) expect(e.textContent).toBe('—');
+    for (const e of $$('[data-est]')) expect(e.textContent).toBe('없음');
     expect(calls.filter((c) => c.path === '/estimates')).toEqual([]);
     expect($('[data-est-why]')!.textContent).toContain('로봇과 걷기 모드를 고르면');
     await click($('[data-robot="r1"]'));
@@ -239,16 +306,16 @@ describe('임무 탭(W2)', () => {
     expect(typeof b.start).toBe('string');
     const hm = (iso: string) => new Date(iso).toTimeString().slice(0, 5);
     expect($('[data-est="eta"]')!.textContent).toBe(hm(EST.eta));
-    expect($('[data-est="margin"]')!.textContent).toBe('3분');
-    expect($('[data-est="battery"]')!.textContent).toBe('54%');
+    expect($('[data-est="margin"]')!.textContent).toBe('3 분');
+    expect($('[data-est="battery"]')!.textContent).toBe('54 %');
     expect($$('[data-guess]').length).toBeGreaterThan(0);
-    expect($('[data-walk-task]')!.textContent).toBe('21 + 6분추정');
-    expect($('[data-mission="s1"] [data-dur]')!.textContent).toBe('27분');
+    expect($('[data-walk-task]')!.textContent).toBe('21 + 6 분추정');
+    expect($('[data-mission="s1"] [data-dur]')!.textContent).toBe('27 분');
     // 여유 = 같은 로봇의 다음 일정 시작 - 예상 끝(#531 margin_s). null = 다음 일정 없음 · 잰 값(MEASURED)은 «추정» 없음
     srv.est = { ...EST, margin_s: null, estimate_source: 'MEASURED' };
     await click($('[data-mode="Sport"]'));
     expect($('[data-est="margin"]')!.textContent).toBe('다음 일정 없음');
-    expect($('[data-est="margin"]')!.closest('div')!.querySelector('dt')!.textContent).toBe('다음 일정까지 여유');   // 무엇과 비교한 값인지(마감과 비교하는 «마감 넘음» 과 헷갈리지 않게)
+    expect($('[data-est="margin"]')!.closest('div')!.querySelector('.lab')!.getAttribute('title')).toBe('다음 일정까지 여유');   // 무엇과 비교한 값인지(마감과 비교하는 «마감 넘음» 과 헷갈리지 않게)
     expect($$('[data-guess]')).toEqual([]);
     // 여유가 음수 = 다음 일정과 겹침 · 크기는 쓰지 않는다(겹친 길이가 아님)
     srv.est = { ...EST, margin_s: -300 };
@@ -259,10 +326,10 @@ describe('임무 탭(W2)', () => {
     expect(calls.filter((c) => c.method !== 'GET' && !['/scenarios/preview', '/estimates'].includes(c.path))).toEqual([]);
   });
 
-  it('일정에 추가(POST /schedule/slots): 본문 · 성공이면 오늘 일정에 막대, 409 SCHEDULE_CONFLICT 면 겹치는 막대 표시 + 한 줄 까닭 · 모의 실행은 회색', async () => {
+  it('일정에 추가(POST /schedule/slots): 본문 · 성공이면 오늘 일정에 막대, 409 SCHEDULE_CONFLICT 면 겹치는 막대 표시 + 한 줄 까닭 · 넣은 뒤 «실제 로봇 시작 전 점검»', async () => {
     await mount('#/missions');
     expect($<HTMLButtonElement>('[data-schedule-add]')!.disabled).toBe(true);   // 로봇 · 걷기 모드 전
-    expect($<HTMLButtonElement>('[data-rehearse]')!.disabled).toBe(true);
+    expect($<HTMLButtonElement>('[data-rehearse]')!.disabled).toBe(false);   // 모의 실행 = 시뮬 로봇(r2)으로 run.start
     await setTime('end', '11:00'); await setTime('start', '10:30');
     srv.est = { ...EST, eta: at(10, 57) };
     await click($('[data-robot="r1"]')); await click($('[data-mode="START"]'));
@@ -281,6 +348,131 @@ describe('임무 탭(W2)', () => {
     expect($('[data-add-msg]')!.textContent).toContain('일정에 넣었습니다');
     // 넣은 뒤 예상을 다시 받는다 · 방금 넣은 칸은 빼고(자기 칸과 겹침으로 나오지 않게)
     expect(last(calls.filter((c) => c.path === '/estimates'))!.body).toMatchObject({ robot_id: 'r1', gait: 'start', exclude_slot_id: 'new1' });
+    // 시안 u6_8: 방금 넣은 칸에 고리 · 단추는 «실제 로봇 시작 전 점검»(배정 · 실행 칸으로)
+    expect($('[data-slot="new1"]')!.className).toContain('u6-made');
+    expect($('[data-schedule-add]')).toBeNull();
+    await click($('[data-preflight]'));
+    expect($('[data-preflight-box]')!.textContent).toContain('K-01 실제 로봇으로 시작');   // u15_2 점검 창
+  });
+
+  it('시안 u6_6 모의 실행: 위 띠에 배속 · 배속 칸 고른 값과 같음 · 아래 진행 칸에 일정 시작 ~ 끝 시간 눈금 넷', async () => {
+    await mount('#/missions');
+    await setTime('end', '11:00'); await setTime('start', '10:30');
+    await click($('[data-rehearse]')); await flush();
+    expect($('[data-band]')!.textContent).toContain('모의 실행 · 시뮬 · 1 배');
+    expect($('[data-band] .u6-bandsub')!.style.color).toBe('');   // 덧글 색은 판별 칸에서
+    expect($('[data-locked] .on')!.textContent).toBe('1 배');
+    expect($$('[data-ticks] span span').map((e) => e.textContent)).toEqual(['10:30', '10:40', '10:50', '11:00']);
+    expect(calls.filter((c) => c.method !== 'GET' && !['/scenarios/preview', '/estimates'].includes(c.path))).toEqual([]);   // 화면만 열고 보내지 않음
+  });
+  it('값이 없을 때 「없음 분」 · 「없음 %」 가 나오지 않음: 새 임무 걷기 모드는 「예상 시간 · 미확인」, 편집기 이 임무 칸은 단위를 뺌', async () => {
+    await mount('#/missions');
+    await click($('[data-new-mission]'));
+    const gaits = $$('[data-setup-gait]');
+    expect(gaits.length).toBe(3);
+    for (const g of gaits) { expect(g.querySelector('[data-setup-est]')!.textContent).toBe('미확인'); expect(g.textContent).toContain('예상 시간'); }
+    expect(document.body.textContent!.replace(/\s+/g, ' ')).not.toMatch(/없음 ?(분|%)/);
+    await click($('[data-setup-make]')); await flush();
+    expect($('[aria-label="임무 편집"]')).toBeTruthy();
+    expect(document.body.textContent!.replace(/\s+/g, ' ')).not.toMatch(/없음 ?(분|%)/);
+    await click($('[data-back-list]'));
+    await click($('[data-edit-mission]')); await flush();
+    expect(document.body.textContent!.replace(/\s+/g, ' ')).not.toMatch(/없음 ?(분|%)/);
+  });
+  describe('3D 지도 칸 (판에 모형)', () => {
+    const size = (w: number, h: number) => {
+      const a = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth')!, b = Object.getOwnPropertyDescriptor(Element.prototype, 'clientHeight')!;
+      Object.defineProperty(Element.prototype, 'clientWidth', { configurable: true, get: () => w });
+      Object.defineProperty(Element.prototype, 'clientHeight', { configurable: true, get: () => h });
+      return () => { Object.defineProperty(Element.prototype, 'clientWidth', a); Object.defineProperty(Element.prototype, 'clientHeight', b); };
+    };
+    const settle = async () => { for (let k = 0; k < 6; k++) { await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); await flush(); } };
+    afterEach(() => { resetModels(); });
+    it('모형 없음(model_sha256 null): 지금 2D 그대로 · /model 을 묻지 않음', async () => {
+      await mount('#/missions'); await settle();
+      expect($('[data-mission-map]')).toBeTruthy();
+      expect($('[data-map3d]')).toBeNull(); expect($('[data-map3d-mission]')).toBeNull();
+      expect(calls.filter((c) => c.path.endsWith('/model'))).toEqual([]);
+    });
+    it('모형 404: 그 판은 2D 로 돌아감 · 까닭 줄 없이 2D 경로 · 지점이 그대로', async () => {
+      model3 = '404'; fake3.on = true;
+      await mount('#/missions'); await settle();
+      expect(calls.filter((c) => c.path === '/map-versions/v1/model').length).toBe(1);
+      expect($('[data-map3d]')).toBeNull(); expect($('[data-map3d-mission]')).toBeNull();
+      expect($('[data-mission-map]')).toBeTruthy(); expect($$('[data-pt]').length).toBe(2);
+      expect($('[aria-label="임무 지도"] [role="alert"]')).toBeNull();
+    });
+    it('모형 있음: 점토 3D 칸 위 겹(칸 px)에 경로 · 지점 · 누른 자리 = 바닥면 지도 좌표(새 지점이 그 자리)', async () => {
+      model3 = 'ok'; fake3.on = true;
+      const undo = size(976, 900);
+      try {
+        await mount('#/missions'); await settle();
+        expect($('[data-map3d-mission]')).toBeTruthy();
+        const svg = $('svg[data-map3d]')!;
+        expect(svg.getAttribute('viewBox')).toBe('0 0 976 900');
+        const c = (n: number) => { const e = $(`[data-pt="${n}"] circle:last-of-type`)!; return [Number(e.getAttribute('cx')), Number(e.getAttribute('cy'))]; };
+        const [a, b] = [c(1), c(2)];
+        for (const p of [a, b]) { expect(p[0]).toBeGreaterThan(0); expect(p[0]).toBeLessThan(976); expect(p[1]).toBeGreaterThan(0); expect(p[1]).toBeLessThan(900); }
+        expect(b[0]).toBeGreaterThan(a[0]);   // 지점 2(x 3.5) 는 지점 1(x 0) 의 동쪽 = 화면 오른쪽
+        const seg = $('[data-seg="0"]')!;
+        expect([Number(seg.getAttribute('x1')), Number(seg.getAttribute('y1')), Number(seg.getAttribute('x2')), Number(seg.getAttribute('y2'))]).toEqual([...a, ...b]);
+        // 편집 지도: 지점 1 화면 자리 바로 옆 빈 곳을 누르면 둥근 메뉴 → 사진 → 새 지점이 지도 (0, 0) 근처
+        await click($('[data-edit-mission]')); await flush(); await click($('[data-look="map"]')); await settle();
+        const s2 = $('svg[data-map3d]')!, p1 = [Number($('[data-pt="1"] circle:last-of-type')!.getAttribute('cx')), Number($('[data-pt="1"] circle:last-of-type')!.getAttribute('cy'))];
+        await act(async () => { s2.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: p1[0], clientY: p1[1] })); });
+        expect($('[data-radial]')!.getAttribute('aria-label')).toBe('이 자리에 할 일');
+        await click($('[data-radial-kind="PHOTO"]'));
+        await click($('[data-look="list"]'));
+        expect($('[data-row="task"][data-row-i="2"]')!.textContent).toContain('(0.0, 0.0) m');
+      } finally { undo(); }
+    });
+  });
+  it('할 일 종류 대응표: steps 없음 = 이동 · PHOTO · WAIT 또는 wait_s · OPERATOR_CONFIRM · SENSOR_LOG · 모르는 action 은 「알 수 없는 일」(기록 아님)', () => {
+    const m = (id: string, steps: Mission['steps']): Mission => ({ ...M1, id, steps });
+    const jobs: Record<string, Mission> = {
+      mv: m('mv', []), ph: m('ph', [{ action: 'PHOTO', params: { camera: 'rgb' } }]), wt: m('wt', [{ action: 'WAIT', params: { seconds: 5 } }] as Mission['steps']),
+      ok: m('ok', [{ action: 'OPERATOR_CONFIRM', params: {} }] as Mission['steps']), lg: m('lg', [{ action: 'SENSOR_LOG', params: { device: 'lidar' } }] as Mission['steps']),
+      zz: m('zz', [{ action: 'TEMP_READ', params: {} }] as unknown as Mission['steps']),
+    };
+    const k = (mission_id: string, wait_s: number | null = null) => kindOf({ mission_id, wait_s }, jobs);
+    expect([k('mv'), k('ph'), k('wt'), k('ok'), k('lg')]).toEqual(['MOVE', 'PHOTO', 'WAIT', 'OPERATOR_CONFIRM', 'SENSOR_LOG']);
+    expect(k('mv', 30)).toBe('WAIT');   // 단계 없음 + 지점 wait_s = 대기
+    expect(k('ph', 30)).toBe('PHOTO');   // 첫 단계가 먼저
+    expect(k('zz')).toBe('UNKNOWN'); expect(kindLabel(k('zz'))).toBe('알 수 없는 일'); expect(kindLabel(k('zz'))).not.toBe('기록');
+    expect(k('없는-임무')).toBe('UNKNOWN');
+    expect([k('mv'), k('ph'), k('wt'), k('ok'), k('lg')].map(kindLabel)).toEqual(['여기로 가기', '사진', '기다리기', '사람 확인', '기록']);
+    expect(KINDS.filter((x) => 'soon' in x).map((x) => x.k)).toEqual(['GAUGE_READ', 'TEMP_READ', 'GAS_READ']);
+  });
+  it('시안 u6_5 둥근 할 일 메뉴: 지점 누르면 열림 · 지금 종류 칠함 · 온도 · 게이지 · 가스 꺼짐 + 「서버 준비 중」 · 종류 고르면 그 종류 임무로 바뀜', async () => {
+    moreJobs = [{ ...M1, id: 'm2', name: '들르기만', steps: [] }];
+    await mount('#/missions');
+    await click($('[data-edit-mission]')); await flush();
+    await click($('[data-look="map"]'));
+    await act(async () => { $('[data-pt="1"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 10, clientY: 10 })); });   // svg 지점
+    expect($('[data-radial]')!.getAttribute('aria-label')).toBe('이 지점의 할 일');
+    expect($$('[data-radial-kind]').map((b) => b.dataset.radialKind)).toEqual(['MOVE', 'GAUGE_READ', 'TEMP_READ', 'GAS_READ', 'PHOTO', 'WAIT', 'OPERATOR_CONFIRM', 'SENSOR_LOG']);
+    expect($('[data-radial-kind="PHOTO"]')!.getAttribute('aria-pressed')).toBe('true');   // m1 = PHOTO
+    for (const k of ['GAUGE_READ', 'TEMP_READ', 'GAS_READ']) { const b = $(`[data-radial-kind="${k}"]`)!; expect(b.getAttribute('aria-disabled')).toBe('true'); expect(b.title).toBe('서버 준비 중'); }
+    expect($('[data-radial-kind="WAIT"]')!.getAttribute('aria-disabled')).toBe('true');   // WAIT 임무 없음
+    await click($('[data-radial-kind="TEMP_READ"]'));   // 꺼진 칸은 아무 일 없음
+    expect($('[data-radial]')).toBeTruthy();
+    await click($('[data-radial-kind="MOVE"]'));
+    expect($('[data-radial]')).toBeNull();
+    await click($('[data-look="list"]'));   // 같은 초안: 고른 지점 1 의 할 일이 «들르기만»(m2) 으로, 지점 2 는 그대로
+    expect($<HTMLSelectElement>('[data-step-job]')!.value).toBe('m2');
+    expect($('[data-row="task"][data-row-i="0"]')!.textContent).toContain('들르기만');
+    expect($('[data-row="task"][data-row-i="1"]')!.textContent).toContain('게이지 읽기');
+  });
+  it('모의 실행 시간 눈금: 셋으로 나눈 네 눈금 · 자정 넘김 · 모양이 틀리면 비움', () => {
+    expect(ticks('15:00', '15:30')).toEqual(['15:00', '15:10', '15:20', '15:30']);
+    expect(ticks('23:30', '00:30')).toEqual(['23:30', '23:50', '00:10', '00:30']);
+    expect(ticks('', '15:30')).toEqual([]);
+  });
+  it('모의 실행: 시뮬 로봇이 없으면 회색 + 까닭(title) · 보내지 않음', async () => {
+    await mount('#/missions', 'u-kim', ROBOTS.filter((r) => !r.sim));
+    const b = $<HTMLButtonElement>('[data-rehearse]')!;
+    expect(b.disabled).toBe(true);
+    expect(b.title).toContain('시뮬 로봇이 없습니다');
   });
 
   it('마감 넘음: 예상 끝이 고른 마감보다 늦으면 빨간 한 줄 «마감 넘음 · 예상 끝 HH:MM» + 일정에 추가 막음, 안이면 풀림', async () => {
@@ -353,19 +545,21 @@ describe('임무 탭(W2)', () => {
     expect(bar('sl1').closest('[data-day-robot]')!.getAttribute('data-day-robot')).toBe('r1');
     expect(bar('sl2').closest('[data-day-robot]')!.getAttribute('data-day-robot')).toBe('r2');
     expect([bar('sl1').dataset.kind, bar('sl2').dataset.kind, bar('sl3').dataset.kind]).toEqual(['CONFIRMED', 'DRAFT', 'BATTERY_SWAP']);
-    expect(bar('sl1').textContent).toBe('가스 점검'); expect(bar('sl3').textContent).toBe('배터리 교체');
-    expect(parseFloat(bar('sl1').style.left)).toBeCloseTo((1 / 12) * 100, 1);   // 09:00 = 08~20 눈금의 1/12
-    expect($('[data-legend]')!.textContent).toBe('확정작성 중배터리 교체');
+    expect(bar('sl1').textContent).toBe('가스 점검'); expect(bar('sl3').textContent).toBe(''); expect(bar('sl3').getAttribute('aria-label')).toBe('배터리 교체');   // 시안: 배터리 교체 칸은 빗금만 · 이름은 aria-label
+    expect(Number(bar('sl1').dataset.x) * 100).toBeCloseTo((1 / 12) * 100, 1);   // 09:00 = 08~20 눈금의 1/12
+    expect($('[data-legend]')!.textContent).toBe('끝남진행 중예정작성 중배터리 교체');   // 시안 범례(확정은 지금 시각으로 끝남 · 진행 중 · 예정)
+    // 확정 칸 모양은 지금 시각(08:05) 기준: 09:00~10:00 = 예정 · 작성 중 = k2 · 배터리 교체 = k3
+    expect([bar('sl1').className, bar('sl2').className, bar('sl3').className]).toEqual(['bk kp', 'bk k2', 'bk k3']);
   });
 
   it('오늘 일정 칸 밖: 08~20 밖 일정이 있으면 눈금을 그 일정까지 넓혀 «일정 N건» 과 그린 막대 수가 같다', async () => {
     fresh();
     srv.slots = [...srv.slots, slot('late', 'r1', 'CONFIRMED', 21, 0, 21, 40), slot('early', 'r2', 'DRAFT', 6, 30, 7, 0)];
     await mount('#/missions');
-    expect($('[data-day-count]')!.textContent).toBe('일정 5건');
+    expect($('[data-day-count]')!.textContent).toBe('임무 5 건');
     expect($$('[data-slot]').length).toBe(5);
-    for (const b of $$('[data-slot]')) { const l = parseFloat(b.style.left), w = parseFloat(b.style.width); expect(l).toBeGreaterThanOrEqual(0); expect(l + w).toBeLessThanOrEqual(100.001); }
-    const ticks = $$('.mt-axis .mt-track span').map((x) => x.textContent);
+    for (const b of $$('[data-slot]')) { const l = Number(b.dataset.x) * 100, w = Number(b.dataset.w) * 100; expect(l).toBeGreaterThanOrEqual(0); expect(l + w).toBeLessThanOrEqual(100.001); }
+    const ticks = $$('.u6-hour').map((x) => x.textContent);
     expect(ticks[0]).toBe('06'); expect(last(ticks)).toBe('22');
   });
 
@@ -375,27 +569,142 @@ describe('임무 탭(W2)', () => {
     expect($('[data-seg="0"]')!.dataset.hit).toBe('true');
     expect($('[data-pt="2"]')!.dataset.hit).toBeUndefined();   // 3.5 m 지점 자체는 구역 밖, 가는 길만 겹침
     expect($('[data-overlap]')!.textContent).toContain('접근 금지 구역과 겹침');
-    expect($$('.mt-tags > *').length).toBeLessThanOrEqual(2);
-    expect($('[data-length]')!.textContent).toBe('1.28km');
-    expect($('[data-check]')!.textContent).toBe('✓ 모두 갈 수 있음');
+    expect($$('.u6-tags > *').length).toBeLessThanOrEqual(2);
+    expect($('[data-length]')!.textContent).toBe('1.28 km');
+    expect($('[data-check]')!.textContent).toBe(' 모두 갈 수 있음');   // 시안: 초록 ✓ 그림 + 글
+    expect($('[data-check] svg')).toBeTruthy();
     await click($('[data-mission="s2"]'));
     expect($('[data-overlap]')).toBeNull();
     expect($$('[data-seg][data-hit]')).toEqual([]);
-    expect($('[data-length]')!.textContent).toBe('30m');
+    expect($('[data-length]')!.textContent).toBe('30 m');
   });
 
+  it('시안 u6_1 «+ 새 임무» 는 칠한 단추 (계산된 바탕 = 초록 · 시안 html 의 테두리 꼴 .newm 아님)', async () => {
+    await mount('#/missions');
+    const cls = $('[data-new-mission]')!.className;
+    expect(cls.split(' ')).not.toContain('newm');
+    const st = document.createElement('style'); st.textContent = pcPvCss + u6Css; document.head.appendChild(st);
+    const box = document.createElement('div'); document.body.appendChild(box);
+    try {
+      box.className = 'proto u6'; box.innerHTML = `<button class="${cls}">새 임무</button>`;
+      const c = getComputedStyle(box.querySelector('button')!);
+      expect(c.backgroundImage || c.background).toContain('#00c389');
+      expect(c.color).toBe('rgb(255, 255, 255)');
+    } finally { st.remove(); box.remove(); }
+  });
   it('짜기: «편집» = 그 임무를 탭 안 편집 칸(이름 · 목록 ↔ 노드)으로, «‹ 임무 목록»으로 돌아옴 · «새 임무» = 빈 편집 칸', async () => {
     await mount('#/missions');
     await click($('[data-edit-mission]'));
     expect($('h1')!.textContent).toBe('임무');
     expect($('[aria-label="임무 편집"]')).toBeTruthy();
+    await flush();   // 편집기 본문(시나리오 받기) 뒤 이름 칸
     expect($<HTMLInputElement>('[data-name]')!.value).toBe('공정 순찰 A');
     await click($('[data-back-list]'));
     expect(picked()).toEqual(['s1']);
-    await click($('[data-new-mission]'));
+    await click($('[data-new-mission]'));   // 시안 u6_2: 새 임무 = 지도 · 로봇 · 걷기 모드 고르기 → «임무 만들기» = 빈 편집 칸
+    await click($('[data-setup-make]')); await flush();
+    expect($('[aria-label="임무 편집"]')).toBeTruthy();
     expect($<HTMLInputElement>('[data-name]')!.value).toBe('');
   });
 
+  it('시안 u6_2 지도 카드 작은 글: 「(날짜) 스캔 · 판 n · 출입 금지 n 곳」 (승인 판을 받아서) · 구역 0 이면 그 칸 뺌', async () => {
+    await mount('#/missions');
+    await click($('[data-new-mission]')); await flush();
+    const meta = $('[data-setup-map="f1"] [data-setup-meta]')!.textContent!;
+    const n = V1.features.zones.filter((z) => z.type === 'NO_GO').length;
+    expect(meta).toBe(cardMeta(V1));
+    expect(meta).toMatch(n ? new RegExp(`^\\d{2}/\\d{2} 스캔 · 판 1 · 출입 금지 ${n} 곳$`) : /^\d{2}\/\d{2} 스캔 · 판 1$/);
+    expect(cardMeta({ ...V1, number: 3, features: { ...V1.features, zones: [] } })).toMatch(/^\d{2}\/\d{2} 스캔 · 판 3$/);
+    expect(cardMeta(null)).toBeNull();
+  });
+
+  it('시안 u7_3 → u6_6: 지도 탭 「이 지도로 모의 실행」 이 넘긴 층 = 그 층 첫 임무를 골라 바로 모의 실행 칸 · 한 번 쓰고 비움 · 없는 층이면 목록 + 한 줄', async () => {
+    keptMission.rehearse = 'f1';
+    await mount('#/missions'); await flush();
+    expect($('[data-u6]')!.getAttribute('data-u6')).toBe('rehearse');
+    expect(keptMission.rehearse).toBe('');
+    act(() => root?.unmount()); box.remove();
+    keptMission.rehearse = 'f-none';
+    await mount('#/missions'); await flush();
+    expect($('[data-u6]')!.getAttribute('data-u6')).toBe('main');
+    expect($('[data-no-scen]')!.textContent).toContain('에는 임무가 없습니다');
+  });
+
+  it('시안 u6_3 편집기: 할 일 순서 줄(이동 · 할 일 · 끝) · 고른 줄 자세히(머무는 시간 · 순서 · 지우기) · 접근 금지 구역을 지나면 저장 막음 · 고친 뒤 PUT 본문', async () => {
+    await mount('#/missions');
+    await click($('[data-edit-mission]')); await flush();
+    expect($$('[data-plan] [data-row]').map((e) => e.dataset.row)).toEqual(['move', 'task', 'move', 'task', 'end']);
+    expect($('[data-row="task"][data-row-i="1"]')!.textContent).toContain('게이지 읽기');
+    expect($('[data-row="task"][data-row-i="1"]')!.textContent).toContain('게이지');
+    await click($('[data-row="task"][data-row-i="0"]'));
+    expect($('[data-step-detail="0"]')!.textContent).toContain('사진 찍기');   // 남길 것 = 임무 단계
+    // 할 일 칸은 긴 임무 이름에도 왼쪽 칸 안에 머문다(넓이 = 칸 넓이 · 줄 열은 minmax(0, 1fr))
+    const jobSel = $<HTMLSelectElement>('[data-step-job]')!;
+    expect(jobSel.style.width).toBe('100%'); expect(jobSel.style.minWidth).toBe('0');
+    expect((jobSel.parentElement as HTMLElement).style.gridTemplateColumns).toBe('96px minmax(0, 1fr)');
+    await act(async () => { const i = $<HTMLInputElement>('[data-step-wait]')!; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(i, '45'); i.dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 450)); }); await flush();
+    // 펌프(0,0) -> 게이지(3.5,0) 는 x 2~3 m 접근 금지 칸을 지난다 -> 저장 막음 · 까닭 한 줄
+    expect($<HTMLButtonElement>('[data-save]')!.disabled).toBe(true);
+    expect($('[data-block]')!.textContent).toContain('접근 금지 구역');
+    await click($('[data-row="task"][data-row-i="1"]')); await click($('[data-step-drop]'));
+    await act(async () => { await new Promise((r) => setTimeout(r, 450)); }); await flush();
+    expect($$('[data-plan] [data-row]').map((e) => e.dataset.row)).toEqual(['move', 'task', 'end']);
+    expect($('[data-block]')).toBeNull();
+    await click($('[data-save]')); await flush();
+    const put = last(calls.filter((c) => c.method === 'PUT' && c.path === '/scenarios/s1'))!;
+    expect((put.body!.waypoints as { wait_s?: number; x: number }[]).map((w) => [w.x, w.wait_s])).toEqual([[0, 45]]);
+  });
+  it('시안 u6_4 노드 · u6_5 지도: 같은 초안 · 노드 고르기 = 지도 보기에서 «○○ 고르는 중»', async () => {
+    await mount('#/missions');
+    await click($('[data-edit-mission]')); await flush();
+    await click($('[data-look="node"]'));
+    expect($$('[data-node]').map((e) => e.dataset.node)).toEqual(['start', '1', '2', 'end']);
+    // 시안 u6_4 작은 지도: 그림만 (확대 · 보기 · 축척 단추가 작은 칸에 겹치지 않게)
+    const mini = $('[aria-label="작은 지도"]')!;
+    expect(mini.querySelector('[data-mission-map]')).toBeTruthy();
+    expect(mini.querySelectorAll('button').length).toBe(0);
+    expect(mini.querySelector('[data-scale]')).toBeNull();
+    // 노드 카드 자리 글도 밝은 판에서 보이게 판별 칸(.u6-at)으로
+    expect($('[data-node="1"] .u6-at')!.style.color).toBe('');
+    await click($('[data-node-job="m1"]'));
+    expect($('[data-look="map"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect($('[data-pending]')!.textContent).toContain('게이지 읽기 고르는 중');
+    expect($('[data-map-steps]')!.textContent).toContain('펌프');
+    // 밝은 판 대비: 자리 글 · 고르는 중 줄은 흰 글을 박지 않고 판별 칸(.u6-at · .u6-pend)으로 칠한다
+    const at = $('[data-map-steps] .u6-at')!;
+    expect(at.style.color).toBe('');
+    expect($('[data-pending]')!.classList.contains('u6-pend')).toBe(true);
+    expect($('[data-pending]')!.style.color).toBe('');
+  });
+  it('밝은 판 대비 (계산된 색): 같은 클래스가 어둠 판은 밝은 글 · 밝은 판은 어두운 글', () => {
+    const st = document.createElement('style'); st.textContent = u6AppCss; document.head.appendChild(st);
+    const box = document.createElement('div'); document.body.appendChild(box);
+    try {
+      const color = (theme: string, html: string, sel: string) => { box.className = theme; box.innerHTML = html; return getComputedStyle(box.querySelector(sel)!).color; };
+      const at = '<span class="u6-at">(1.0, 4.0) m</span>', pend = '<div class="u6-pend">고르는 중</div>', seg = '<div class="mseg" data-locked><span class="on">1 배</span><span>10 배</span></div>';
+      expect(color('proto u6', at, '.u6-at')).toBe('rgba(255, 255, 255, 0.62)');
+      expect(color('proto light u6', at, '.u6-at')).toBe('rgb(94, 102, 98)');
+      expect(color('proto light u6', pend, '.u6-pend')).toBe('rgb(31, 36, 33)');
+      expect(color('proto light u6', seg, '.on')).toBe('rgb(31, 36, 33)');
+      expect(getComputedStyle(box.querySelector('.mseg')!).opacity).toBe('1');
+      const sub = '<span class="u6-bandsub">실제 로봇은 움직이지 않습니다</span>';   // 모의 실행 위 띠 덧글
+      expect(color('proto u6', sub, '.u6-bandsub')).toBe('rgba(159, 182, 255, 0.75)');
+      expect(color('proto light u6', sub, '.u6-bandsub')).toBe('rgb(94, 102, 98)');
+    } finally { st.remove(); box.remove(); }
+  });
+  it('3D 점토 지도 칸 바탕: 어둠 판에서 3D 칸일 때만 브랜드 어둠 토큰 --paper(#12161d · hero 바탕 #0b0f14 에 가장 가까움 · 지도 탭 미리 보기 --bg 와 같음) · 2D 칸 · 밝은 판은 그대로', () => {
+    const rules = u6AppCss.replace(/\s+/g, ' ');
+    expect(rules).toContain('.proto:not(.light).u6 .map:has([data-map3d-mission]){background:var(--paper)}');
+    expect(rules).toContain('.u6 .map{background:#dfe2e0}');
+  });
+  it('밝은 판 대비: 배속 고른 칸 · 지도 위 자리 글은 밝은 판에서 어두운 글 (기존 밝은 판 값)', () => {
+    const rules = u6AppCss.replace(/\s+/g, ' ');
+    expect(rules).toMatch(/\.proto\.light\.u6 \.mseg span\.on\{[^}]*color:#1F2421/);
+    expect(rules).toMatch(/\.proto\.light\.u6 \.u6-at\{color:#5E6662\}/);
+    expect(rules).toMatch(/\.proto\.light\.u6 \.u6-pend\{color:#1F2421/);
+    expect(rules).toMatch(/\.u6 \.mseg\[data-locked\]\{opacity:1\}/);   // 잠긴 배속 칸도 고른 값은 흐리지 않음
+  });
   it('편집 중 탭 떠날 때 확인창 그대로: 저장 안 한 지도 편집이 있으면 임무 탭 · 옛 주소로 가기 전에 묻는다', async () => {
     await mount('#/map');
     const ask = vi.fn();
@@ -409,12 +718,11 @@ describe('임무 탭(W2)', () => {
     expect($('h1')!.textContent).toBe('지도');
   });
 
-  it('지도 탭 링크: 지도 고르기 화면의 시나리오 안내는 임무 탭으로 가는 링크 한 줄(«시뮬» 탭으로 보내지 않음)', async () => {
+  // 지도 탭이 시안 u7 로 바뀜: 고르기(u7_1)에는 안내 글이 없고, 임무로 가는 길은 층 화면(u7_3) «이 지도로 모의 실행» = 임무 탭
+  it('지도 탭 링크: 지도 고르기(u7_1)는 «시뮬» 탭으로 보내지 않고, 층 화면 «이 지도로 모의 실행»은 임무 탭으로', async () => {
     await mount('#/map');
-    const a = $<HTMLAnchorElement>('[aria-label="지도 고르기"] a[data-mission-link]')!;
-    expect(a.getAttribute('href')).toBe('#/missions');
-    expect(a.textContent).toContain('임무');
-    expect($('[aria-label="지도 고르기"]')!.textContent).not.toContain('«시뮬» 탭에서 만들고 고칩니다');
+    expect($('[aria-label="지도 고르기"]')!.textContent).not.toContain('«시뮬» 탭');
+    expect($('[aria-label="지도 고르기"] a[href="#/sim"]')).toBeNull();
     act(() => { location.hash = '#/missions'; window.dispatchEvent(new HashChangeEvent('hashchange', { oldURL: 'http://x/#/map', newURL: 'http://x/#/missions' })); });
     await flush(); await flush();
     expect($('h1')!.textContent).toBe('임무');

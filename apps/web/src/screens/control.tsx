@@ -27,6 +27,29 @@ export const controlPick = {
   sub(f: () => void) { pickSubs.add(f); return () => { pickSubs.delete(f); }; },
 };
 export const useControlPick = () => useSyncExternalStore(controlPick.sub, controlPick.get);
+/** 관제 고르기 누름 규칙(팀장 00:19 · 타일 · 지도 보기 3D 표식 · 지도 보기 오른쪽 줄 같음): 한 번 = 고름, 고른 것을 다시 한 번 = 풂, 두 번(더블클릭) = 로봇 탭에서 열기.
+ *  더블클릭에도 click 이 먼저 두 번 온다. 그래서 고르기는 바로 하고(더블클릭이어도 고른 채로 넘어감), 풀기만 UNPICK_MS 뒤로 미룬다.
+ *  그 사이 두 번째 click(detail ≥ 2) 이나 dblclick 이 오면 미룬 풀기를 거둔다. detail ≥ 2 인 click 은 고르기 · 풀기를 하지 않는다.
+ *  키보드: Enter = 고르기 · 풀기(바로), Shift+Enter = 로봇 탭에서 열기(시안 밖 · 시안에 키 규칙 없음) */
+export const UNPICK_MS = 300;
+let unpick = 0;
+const keepPick = () => { clearTimeout(unpick); unpick = 0; };
+export function pickPress(id: string, sel: boolean, open: () => void) {
+  return {
+    onClick: (e: { detail: number }) => {
+      keepPick();
+      if (e.detail >= 2) return;
+      if (!sel) { controlPick.set(id); return; }
+      unpick = window.setTimeout(() => { unpick = 0; if (controlPick.get() === id) controlPick.set(''); }, UNPICK_MS);
+    },
+    onDoubleClick: () => { keepPick(); open(); },
+    onKeyDown: (e: { key: string; shiftKey: boolean; target: EventTarget; currentTarget: EventTarget; preventDefault(): void }) => {
+      if (e.key !== 'Enter' || e.target !== e.currentTarget) return;
+      e.preventDefault(); keepPick();
+      if (e.shiftKey) open(); else controlPick.set(sel ? '' : id);
+    },
+  };
+}
 /** 서버 주의 코드 중 상태 칩이 이미 말하지 않는 것(끊김·잠금·오류·칩과 같은 글은 뺌). 한 번도 연결된 적 없는 로봇의 OFFLINE 은 칩 «연결 전»이 말한다 */
 const rest = (x: Robot) => attn(x, ['OFFLINE', 'STOP_LATCHED', 'ERROR']).split(' · ').filter((a) => a && a !== robotStatus(x).text);
 /** 주의가 필요한 로봇 = 상태가 빨강·주황이거나, 칩이 말하지 않는 서버 주의 코드가 남음. 연결 전(칩 회색)만이면 경고 아님 */
@@ -108,6 +131,7 @@ function Figure({ x, front }: { x: Robot; front: boolean }) {
 function Tile({ x, sel, front, sim, pick, open, flip }: { x: Robot; sel: boolean; front: boolean; sim: boolean; pick: () => void; open: () => void; flip: () => void }) {
   const st = robotStatus(x), warn = needs(x), m = missionOf(x.mission), hot = hottest(x), loc = where(x), [ref, on] = useShown<HTMLDivElement>();
   const tone = warn ? (st.tone === 'bad' ? 'bad' : 'warn') : undefined, note = flagNote(x);
+  const lv = rt.get(x.id), ms = x.online ? lv.state?.latency_ms : null, holder = lv.holder ?? x.holder ?? null;
   const place = loc && loc.x != null && loc.y != null ? lastly(x, `위치 ${loc.x.toFixed(1)}, ${loc.y.toFixed(1)} m`, loc.updated_at || x.seenAt) : null;
   // Enter = 로봇 탭(두 번 누름과 같음). Space 는 전역 STOP 이라 여기서 받지 않는다. 안쪽 단추의 Enter 는 그 단추 몫
   return <article className="ct-tile" aria-label={`${x.name} 타일`} data-robot={x.id} data-tone={tone} data-sel={sel || undefined} data-sim={sim || undefined}
@@ -119,6 +143,8 @@ function Tile({ x, sel, front, sim, pick, open, flip }: { x: Robot; sel: boolean
       {sim ? <span className="ct-badge ct-face">시뮬 · 정면 상태만</span>
         : <button type="button" className="ct-badge ct-face ct-flip" aria-pressed={front} data-flip onClick={(e) => { e.stopPropagation(); flip(); }} onDoubleClick={(e) => e.stopPropagation()}>
           {front ? '동작 보기' : '정면 상태'}</button>}
+      {isLost(x) && <div className="ct-relink" data-relink><Icon d={<><path d="M2 9a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0" /><circle cx="12" cy="19" r="1" /></>} />
+        <b>다시 연결 중</b>{/^\d\d:\d\d/.test(x.seenAt) && <small>마지막 수신 {x.seenAt.slice(0, 5)}</small>}</div>}   {/* 시안 「다시 연결 중 · 마지막 화면」: 영상 시각이 없어 마지막 상태 수신 시각 */}
       {front && hot != null && <span className="ct-badge ct-temp" data-temp-badge>최고 관절 온도 {Math.round(hot)}°C</span>}   {/* 관절 온도는 값이 있을 때만 */}
     </div>
     <div className="ct-head">
@@ -140,7 +166,9 @@ function Tile({ x, sel, front, sim, pick, open, flip }: { x: Robot; sel: boolean
       {/* 연결은 위 상태 칩이 말한다(같은 낱말 한 번). 값이 없는 칸은 칸째 접는다(«미확인» 반복이 진짜 끊김을 묻지 않게). 끊긴 로봇 값은 «마지막 값 · HH:MM», 시각을 모르면 접음 */}
       <Fact k="배터리" v={lastly(x, x.battery != null ? pct(x.battery) : null, x.seenAt)} />
       <Fact k="관절 최고" v={hot != null ? `${Math.round(hot)}°C` : null} />
-      <Fact k="담당" v={ownerName(x)} />
+      {/* 시안 u5_1 칸 넷: 연결 = 실시간 latency_ms 그대로(끊김 · 값 없음이면 접음), 넷째 = 조종권자가 있으면 조종, 없으면 담당 */}
+      <Fact k="연결" v={ms != null && Number.isFinite(ms) && ms >= 0 ? `${Math.round(ms)} ms` : null} />
+      {holder ? <Fact k="조종" v={holder.type === 'RUN' ? '시나리오' : holder.name || '이름 모름'} /> : <Fact k="담당" v={ownerName(x)} />}
     </div>
   </article>;
 }
@@ -169,7 +197,7 @@ function Marked({ id, title, robots, sel, cancel, big }: { id: string; title: st
   const on = robots.flatMap((x) => { const l = where(x); return l && l.map_version_id === v.id && l.x != null && l.y != null ? [{ x, l: l as Location & { x: number; y: number } }] : []; });
   const r = Math.max(v.width, v.height) / (big ? 90 : 60);
   return <div className="ct-mapbox">
-    <MapFrame {...fit} photo={v} role="img" aria-label={`${title} 지도 · 로봇 ${on.length}대 표시`} data-map data-small-map style={{ display: 'block', width: '100%', height: big ? '68vh' : 240, borderRadius: 8 }}>
+    <MapFrame {...fit} photo={v} role="img" aria-label={`${title} 지도 · 로봇 ${on.length}대 표시`} data-map data-small-map style={{ display: 'block', width: '100%', height: big ? '68vh' : 250, borderRadius: big ? 8 : 14 }}>
       {/* 벽 = 중간 회색 토큰(두 테마 모두 덩어리가 무겁지 않게 · 지도 탭 지우개·벽 색과 같은 결) */}
       <MapImage id={v.id} width={v.width} height={v.height} tint="var(--muted)" />
       <Shapes v={v} f={v.features} />
@@ -209,7 +237,7 @@ export function Control(c: Ctx) {
   const sums: [string, number, ReactNode, Tone?][] = [
     ['임무 중', count((x) => x.online && !!x.mission && x.status !== 'PAUSED'), <path d="M5 21V4h11l-2 4 2 4H5" />],
     ['연결', count((x) => x.online), <><path d="M2 9a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0" /><circle cx="12" cy="19" r="1" /></>],
-    ['끊김', count(lost), <path d="M2 9a15 15 0 0 1 20 0M8.5 16a5 5 0 0 1 7 0M3 3l18 18" />],
+    ['연결 중', count(lost), <path d="M2 9a15 15 0 0 1 20 0M8.5 16a5 5 0 0 1 7 0M3 3l18 18" />],   // 시안 「연결 중」 = 끊겨 다시 잇는 중(rt 재시도)
     ['시뮬', count((x) => !!x.sim), <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5" />],
     ['경고', alerts.length, <path d="M12 4l9 16H3zM12 10v4M12 17v.5" />, alerts.length ? 'bad' : undefined],
   ];

@@ -14,6 +14,8 @@ import { Lidar3D, type Look } from './lidar3d';
 import { Cloud3D, QEmpty } from './quad';
 import { REPORT_STALE_MS, go2Pose } from './go2model';
 import type { Tone } from './fake';
+import { TakeoverAsk } from './screens/takeover';
+import { RestartAskBox, useRestartAsk } from './robotact';
 import './realdrive.css';
 
 const CLIP = '명령 범위 조정 · 로봇이 허용한 명령으로 잘랐습니다.';
@@ -25,6 +27,7 @@ export function RealDrive() {
   useTuneSettings();
   const s = useSim(), l = s.link!, st = l.st, w = l.welcome, real = s.real!;
   const open = l.at === 'open', mine = !!l.lease, ready = open && mine && st?.latched === false;
+  const restart = useRestartAsk(() => { const k = sim.get().link; return { mine: k?.at === 'open' && !!k.lease, latched: k?.st?.latched, gen: k?.st?.stop_gen, lease: k?.lease }; });   // 「다시 시작」 확인 창(u4_10 · reviewer H1 묶음)
   const input = useRef<[number, number]>([0, 0]);   // [전후, 회전]
   // 입력 세대(rt inputGen — 실기 drive.tsx·직결 시뮬 simdrive.tsx 와 같은 규칙): 스틱 손가락마다 잡은 순간의 세대. 잠김·해제·조종권·stop_gen·연결·STOP·숨김·live 가 바뀌거나 blur 면 +1.
   // 앞 세대 손가락이 아직 눌려 있으면 명령 전체 0 — 떼었다가 다시 눌러야 한다. sg = 스틱마다 잡은 손가락의 세대(없으면 null)
@@ -98,8 +101,8 @@ export function RealDrive() {
   const slot = useSlot(safe, rest, [Object.values(RESULT).includes(l.notice) ? l.notice : '', mine && l.clipped ? CLIP : ''].filter(Boolean));   // 확인 2 초
   const acts = [
     leaving === 'fail' && <button key="rel" type="button" className="btn pri" onClick={leave}>다시 반납</button>,
-    !leaving && open && !mine && <button key="take" type="button" className="btn pri" disabled={l.busy === 'take'} onClick={() => sim.take()}>조종 시작</button>,
-    !leaving && open && mine && st?.latched !== false && <button key="unlock" type="button" className="btn pri" disabled={l.busy === 'unlock'} onClick={() => sim.unlock()}>잠금 해제</button>,
+    !leaving && open && !mine && <button key="take" type="button" className="btn pri" disabled={l.busy === 'take'} onClick={() => sim.take()}>조종</button>,
+    !leaving && open && mine && st?.latched !== false && <button key="unlock" type="button" className="btn pri" disabled={l.busy === 'unlock'} onClick={restart.open}>다시 시작</button>,
     l.at === 'closed' && <button key="re" type="button" className="btn pri" onClick={() => sim.connect()}>다시 연결</button>,
     !leaving && open && left < 60 && <button key="pass" type="button" className="btn" onClick={() => sim.connect()}>새 출입증으로 다시 연결</button>,
   ].filter(Boolean);
@@ -131,9 +134,8 @@ export function RealDrive() {
           </>}
         </div>
         {acts.length > 0 && <div className="rd-band" role="group" aria-label="조종 단추" data-real-band>{acts}</div>}
-        {l.ask && mine && <div className="dv-ask" role="dialog" aria-labelledby="real-ask-t" aria-live="assertive">
-          <b id="real-ask-t">조종권 요청</b><p>다른 사람이 이 로봇의 조종권을 요청했습니다. 넘겨주시겠습니까?</p>
-          <div className="fh-row"><button type="button" className="btn" onClick={() => sim.respond(true)}>넘기기</button><button type="button" className="btn" onClick={() => sim.respond(false)}>계속 조종</button></div></div>}
+        {restart.live && <RestartAskBox name={real.name} cancel={restart.close} go={() => restart.go(() => sim.unlock())} />}
+        {l.ask && mine && <TakeoverAsk id="real-ask-t" title="다른 사람이 이 로봇의 조종권을 요청했습니다" give={() => sim.respond(true)} keep={() => sim.respond(false)} />}
         {mine && open && <>
           <Stick label="전후" vertical on={live} epoch={+live} gen={gen} press={sync} grip={(o) => { sg.current[0] = o; }} lift={push} set={(v) => put(0, v)} />
           <Stick label="회전" on={live} epoch={+live} gen={gen} press={sync} grip={(o) => { sg.current[1] = o; }} lift={push} set={(v) => put(1, v)} />
