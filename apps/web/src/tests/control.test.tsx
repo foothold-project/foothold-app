@@ -326,6 +326,20 @@ describe('관제 탭', () => {
     expect(tile('s3').dataset.live).toBeUndefined();   // 임무 없음 = 걷지 않음
     expect(tile('m1').dataset.live).toBeUndefined();   // speed 0 = 서 있음
   });
+  // reviewer 21:53: 조건 하나씩 — 하나만 빠져도 서기
+  it('speed 칸 없음: 로봇 잠금 + 임무 MOVING → 서기, 로봇 RUNNING + 임무 PAUSED → 서기, 목록에서 끊긴(OFFLINE) 요약 로봇 + 임무 중 → 서기', () => {
+    const run = (status: string) => ({ id: 'r', status, scenario_name: '순찰', progress: { done: 1, total: 4 } }) as never;
+    const R: Robot[] = [
+      { ...TWENTY[1], id: 'c1', name: 'C-1', owner: 'u-park', status: 'STOP_LATCHED', run: run('MOVING'), unknown: 'summary' },
+      { ...TWENTY[1], id: 'c2', name: 'C-2', owner: 'u-park', status: 'RUNNING', run: run('PAUSED'), unknown: 'summary' },
+      { ...TWENTY[1], id: 'c3', name: 'C-3', owner: 'u-park', status: 'RUNNING', run: run('MOVING'), unknown: 'summary', attention: ['OFFLINE'] },
+      { ...TWENTY[1], id: 'c4', name: 'C-4', owner: 'u-park', status: 'RUNNING', run: run('MOVING'), unknown: 'summary', attention: [] },
+      { ...TWENTY[0], id: 'm1', name: 'M-1', owner: 'u-lee' },
+    ];
+    mount('u-lee', R); feed(R.filter((r) => r.owner === 'u-lee'));
+    act(() => { seg('범위', 0).click(); });
+    expect(['c1', 'c2', 'c3', 'c4'].map((id) => tile(id).dataset.live ?? '-')).toEqual(['-', '-', '-', '1']);   // c4 = 세 조건 모두 맞는 대조군
+  });
 
   it('걷기 판정 문턱 0.05 m/s(rt 가 속도를 0.1 자리까지만 견주므로 그 반 · 가장 느린 시뮬 이동 0.2 보다 아래 · 로봇 탭 robotu4 «서 있음» 0.05 와 같음)', () => {
     expect(WALK_MIN_SPEED).toBe(0.05);
