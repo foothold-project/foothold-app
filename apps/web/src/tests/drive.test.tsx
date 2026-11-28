@@ -2454,6 +2454,64 @@ describe('폰 데모 로봇 = 서버 경유 u1 조종 화면', () => {
   });
 });
 
+// 총괄 강제 가져오기(app-lx e20c30ba 계약 · app-lead 11-28 22:47 조건 1 · 4 · 팀장 확인 전 따로 커밋): 총괄은 holder 와 상관없이 확인 창 뒤 lease.take.
+// 가져온 뒤 unlock · 「다시 시작」 을 스스로 보내지 않는다 — 첫 움직임은 사람이 잠김 「다시 시작」 확인을 한 다음에만
+describe('총괄 강제 가져오기', () => {
+  const held = () => recv(lease('r7', PARK));   // lease_id 없음 = 남이 쥠
+  const grab = () => $('[data-admin-take]');
+
+  it('총괄 · 남이 쥔 로봇: 「조종」 → 확인 창(글) · 취소면 0 번 · 확인하면 lease.take 1 번 · 요청은 0 번', () => {
+    mount(true, ADMIN, '#/drive/r7'); serve(KIM, 'r7'); held();
+    click(btn('조종'));
+    expect(grab()!.textContent).toContain('가져오면 로봇이 그 자리에 멈춥니다');
+    expect(w.of('lease.take')).toHaveLength(0);
+    click(btn('취소'));
+    expect(grab()).toBeNull();
+    expect(w.of('lease.take')).toHaveLength(0);
+    click(btn('조종'));
+    click(btn('가져오기'));
+    expect(grab()).toBeNull();
+    expect(w.of('lease.take')).toHaveLength(1);
+    expect(w.of('lease.request')).toHaveLength(0);
+  });
+
+  it('총괄 take 뒤 unlock 0 번 · 「다시 시작」 확인 전 cmd 는 0 뿐 · 확인 뒤에만 움직임', () => {
+    mount(true, ADMIN, '#/drive/r7'); serve(KIM, 'r7'); held();
+    click(btn('조종')); click(btn('가져오기'));
+    act(() => push('r7', { latched: true, stop_gen: 2 }));   // 서버: 앞사람 lease null → STOP → 잠김
+    tick(300);
+    expect(w.of('unlock')).toHaveLength(0);
+    key('keydown', 'KeyW'); tick(300); key('keyup', 'KeyW'); tick(100);
+    expect(cmds().every((m) => (m.axes as number[]).every((v) => v === 0))).toBe(true);
+    expect(w.of('unlock')).toHaveLength(0);
+    unlock(); tick(100);
+    expect(w.of('unlock')).toHaveLength(1);
+    key('keydown', 'KeyW'); tick(200);
+    expect(lastAxes()).toEqual([1.5, 0, 0]);
+    key('keyup', 'KeyW');
+  });
+
+  it('운영자 · 남이 쥔 로봇: 지금처럼 요청만(확인 창 · take 없음)', () => {
+    mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7'); recv(lease('r7', LEE));
+    click(btn('조종'));
+    expect(grab()).toBeNull();
+    expect(w.of('lease.request')).toHaveLength(1);
+    expect(w.of('lease.take')).toHaveLength(0);
+  });
+
+  it('앞사람 화면: cause admin_takeover 로 잃으면 한 줄 · 손잡이 사라짐 · 0 밖에 안 보냄', () => {
+    mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7'); ready();
+    expect($('[aria-label="이동 조이스틱"]')).not.toBeNull();
+    recv({ ...lease('r7', KIM, null), cause: 'admin_takeover' });
+    tick(200);
+    expect(text()).toContain('총괄이 조종을 가져갔습니다 · 로봇은 정지했습니다');
+    expect($('[aria-label="이동 조이스틱"]')).toBeNull();
+    const n = cmds().length;
+    key('keydown', 'KeyW'); tick(300); key('keyup', 'KeyW');
+    expect(cmds().slice(n).every((m) => (m.axes as number[]).every((v) => v === 0))).toBe(true);
+  });
+});
+
 // 설정 확인 알약(app-lead 11-28 22:26 · 시안 밖 · 새로 그림): 평소 숨김 · 입력이 0 이 되는 순간만 동작 줄 위 가운데 · 10 초 넘게 모르면 위 띠
 describe('설정 확인 중 알약', () => {
   const fwdEl = () => {

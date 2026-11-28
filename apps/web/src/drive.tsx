@@ -182,7 +182,7 @@ function Screen(c: Ctx) {
   // got = 이 화면이 조직 설정을 받음. 받기 전(앞 화면이 남긴 값 포함)·못 받으면 실기 입력은 0 — 서버가 상한 밖이라 거절·STOP 하지 않게
   const [got, setGot] = useState(false), gotRef = useRef(got); gotRef.current = got;
   const [view, setView] = useState<'rgb' | 'depth' | 'map'>('rgb');
-  const [ask, setAsk] = useState(false);   // 시나리오 일시정지 확인창(F-TO-03, 03 §2 U10)
+  const [ask, setAsk] = useState(false), [grab, setGrab] = useState(false), admin = c.user.role === 'ORG_ADMIN';   // grab = 총괄 강제 가져오기 확인 창(app-lx e20c30ba)   // 시나리오 일시정지 확인창(F-TO-03, 03 §2 U10)
   const [back, setBack] = useState(false), [side, setSide] = useState(false), [combo, setCombo] = useState(false);   // combo = 표에 없는 키 조합을 누르는 중   // side = 옆걸음 키를 누르는 중(막혔으면 까닭 한 줄)
   const [sheet, setSheet] = useState<SheetId | null>(null);   // 아래 줄 시트(조종권은 그대로, 입력은 0으로)
   const [chip, setChip] = useState(false), light = useTheme()[1];   // chip = 로봇 칩 펼침(시안 u1_10)
@@ -287,7 +287,8 @@ function Screen(c: Ctx) {
     setAsk(false);
     if (rt.get(r.id).releasing) return;   // 반납 확인 전에는 요청·받기를 보내지 않는다(내게 요청하게 됨)
     if (l.holder?.type === 'RUN' && !pauseRun) return setAsk(true);
-    if (l.holder?.type === 'USER') rt.request(r.id);
+    // 총괄은 사람이 쥐어도 확인 창 뒤 lease.take(강제). 가져온 뒤 unlock · 다시 시작은 보내지 않는다 — 첫 움직임은 사람이 「다시 시작」 확인한 뒤(app-lead 11-28 22:47)
+    if (l.holder?.type === 'USER') { if (admin) setGrab(true); else rt.request(r.id); }
     else rt.take(r.id);
   };
   const wait = link !== 'open' ? '서버 연결이 끊겨 조종할 수 없습니다. 다시 연결되면 누르세요.'
@@ -400,6 +401,13 @@ function Screen(c: Ctx) {
         <div className="h" id="dv-run-t">조종 시작</div>
         <div className="s">{r.name}이 시나리오를 실행 중입니다. 조종을 시작하면 시나리오가 일시정지됩니다.</div>
         <div className="bts"><button type="button" className="dsec" onClick={() => setAsk(false)}>취소</button><button type="button" className="dpri" onClick={() => start(true)}>일시정지하고 조종</button></div>
+      </div></>}
+    {grab && !mine && <><div className="scrim" />
+      <div className="g dlg" role="dialog" aria-label="조종 가져오기 확인" data-admin-take>
+        <div className="h">조종 가져오기</div>
+        <div className="s">가져오면 로봇이 그 자리에 멈춥니다.</div>
+        <div className="bts"><button type="button" className="dsec" onClick={() => setGrab(false)}>취소</button>
+          <button type="button" className="dpri" onClick={() => { setGrab(false); rt.take(r.id); }}>가져오기</button></div>
       </div></>}
     {restart.live && <><div className="scrim" />
       <div className="g dlg" role="dialog" aria-label="다시 시작 확인" data-restart-ask>

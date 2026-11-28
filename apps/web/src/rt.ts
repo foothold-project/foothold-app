@@ -304,6 +304,8 @@ function onState(s: ScreenState) {
   set(s.robot, { state: s, stateAt: now(), neutral: s.latched === false && l.neutral && s.stop_gen === p?.stop_gen, stop, runReq });   // 잠기면·잠김 보고 없이 세대만 올라도 해제 뒤 새 중립부터
 }
 
+/** 총괄이 강제로 가져가 내 조종권을 잃음(ScreenLeaseUpdate.cause admin_takeover · app-lx e20c30ba) — 앞사람 화면 한 줄(app-lead 11-28 22:47) */
+export const ADMIN_TOOK = '총괄이 조종을 가져갔습니다 · 로봇은 정지했습니다';
 function onLease(m: ScreenLeaseUpdate) {
   const h = m.holder as { holder_type?: string; user?: { id: string; display_name: string } | null } | null;
   const holder: Holder | null = h ? { type: h.holder_type === 'RUN' ? 'RUN' : 'USER', id: h.user?.id ?? null, name: h.user?.display_name ?? '' } : null;
@@ -312,7 +314,7 @@ function onLease(m: ScreenLeaseUpdate) {
     rev: l.rev + 1, neutral: false, busy: null, failed: false, outgoing: null, incoming: null,
     notice: l.busy === 'take' || l.outgoing ? '조종권을 받았습니다. 잠금 해제 후 조종하세요.' : undefined,
   });
-  if (!lease && l.lease) Object.assign(p, { neutral: false, incoming: null });
+  if (!lease && l.lease) Object.assign(p, { neutral: false, incoming: null }, (m as ScreenLeaseUpdate & { cause?: string }).cause === 'admin_takeover' ? { notice: ADMIN_TOOK } : {});
   // 내가 요청한 로봇의 조종권이 비면 넘김이 시작된 것 — 수락이면 곧 내 lease, 아니면 CANCELED 결과가 뒤따른다.
   // 정지 확인 중(최대 2 s)에도 서버가 취소를 받으므로 요청(outgoing)은 확정(내 lease)·결과까지 남긴다
   if (!holder && l.outgoing && !lease) p.busy = 'take';
