@@ -1,5 +1,5 @@
 // 멈춘 로봇 바닥 표시(충전 고리 · 점검 네모)와 그 위로 층층이 오르는 같은 꼴(팀장 11-29 01:37).
-// 바닥(100 %)은 그대로 두고, 같은 꼴이 원 중심 기준으로 조금씩 작아지며(98 · 96 · 94 %) 한 박에 한 층씩 오르고 흐려져 사라진 뒤 다시 바닥부터.
+// 바닥(100 %)은 그대로 두고, 같은 꼴이 원 중심 기준으로 조금씩 작아지며(98 · 96 · 94 · 92 · 90 %) 한 박에 한 층씩 오르고 흐려져 사라진 뒤 다시 바닥부터(팀장 02:14 「5 층까지」).
 // 박은 끊어서(「당당당당」 · 부드러운 이음 없음). 관제 타일(tileview)과 로봇 탭 큰 무대(go2view)가 이 두 함수를 같이 쓴다.
 import * as THREE from 'three';
 
@@ -8,18 +8,29 @@ import * as THREE from 'three';
 export const PAD_LIGHT = { charge: 0x18a07e, check: 0x5e6662 } as const;
 export const PAD = { charge: { col: 0x00c389, rings: [[0.34, 0.85], [0.40, 0.3]] as [number, number][], sz: 1.25 }, check: { col: 0xa9b8c6, W: 0.38, D: 0.5, out: 0.06, op: [0.75, 0.22] } };
 
+/** 오르는 층 n 개: 꼭대기 높이 0.25 m(5 층 × 0.05 m) · 꼭대기 크기 0.90 은 층 수와 상관없이 같고, 그 사이를 고르게 나눈다.
+ *  진하기는 첫 층 0.5 에서 꼭대기 0.065 까지 같은 비로 흐려진다(5 층이면 0.5 · 0.3 · 0.18 · 0.11 · 0.065). */
+export const PAD_TOP = { dy: 0.25, scale: 0.9, op: [0.5, 0.065] } as const;
+export function padRise(n: number) {
+  const k = Array.from({ length: n + 1 }, (_, i) => i), f = (i: number) => (n > 1 ? (i - 1) / (n - 1) : 0);
+  return { scale: k.map((i) => 1 - (1 - PAD_TOP.scale) * (i / n)), dy: PAD_TOP.dy / n, op: k.map((i) => (i === 0 ? 1 : PAD_TOP.op[0] * (PAD_TOP.op[1] / PAD_TOP.op[0]) ** f(i))) };
+}
+/** 안 A = 5 층(층 간격 0.05 m · 98 ~ 90 %) · 안 B = 7 층(같은 꼭대기 · 더 촘촘). 이 한 줄로 고른다 */
+export const PAD_PLANS = { A: 5, B: 7 } as const;
+export const PAD_PLAN: keyof typeof PAD_PLANS = 'A';
+
 /** 오르는 층 값 한 곳: 크기(바닥 = 1) · 층 간격(m) · 한 박(s) · 층 진하기(바닥 진하기에 곱함) · 채도 낮춤(회색 쪽으로 섞는 몫) */
-export const PAD_RISE = { scale: [1, 0.98, 0.96, 0.94], dy: 0.05, beat: 0.42, op: [1, 0.5, 0.3, 0.14], grey: 0x8d9590, desat: 0.35 } as const;
+export const PAD_RISE = { ...padRise(PAD_PLANS[PAD_PLAN]), beat: 0.42, grey: 0x8d9590, desat: 0.35 } as const;
 /** 한 바퀴 박 수 = 바닥 한 박 + 오르는 층마다 한 박 */
 export const PAD_BEATS = PAD_RISE.scale.length;
 
-/** t 초에 보이는 오른 층 수(0 = 바닥만 · 1 ~ 3). 박 안에서는 바뀌지 않고 박 경계에서 한 번에 바뀐다 */
-export const padStep = (t: number) => Math.floor(Math.max(0, t) / PAD_RISE.beat) % PAD_BEATS;
+/** t 초에 보이는 오른 층 수(0 = 바닥만 · 1 ~ beats - 1). 박 안에서는 바뀌지 않고 박 경계에서 한 번에 바뀐다 */
+export const padStep = (t: number, beats: number = PAD_BEATS) => Math.floor(Math.max(0, t) / PAD_RISE.beat) % beats;
 
 export const calmMotion = () => typeof matchMedia === 'function' && !!matchMedia('(prefers-reduced-motion: reduce)')?.matches;
 
 /** 바닥 꼴(LineLoop 둘) + 오르는 층 무리(name 'rise' · 층마다 같은 꼴을 작게 · 낮은 채도) */
-export function padGroup(kind: 'charge' | 'check', light = false) {
+export function padGroup(kind: 'charge' | 'check', light = false, rise = PAD_RISE) {
   const col = light ? PAD_LIGHT[kind] : kind === 'charge' ? PAD.charge.col : PAD.check.col, g = new THREE.Group(); g.name = `pad-${kind}`;
   const shapes: [THREE.Vector3[], number][] = [];
   if (kind === 'charge') for (const [r, op] of PAD.charge.rings) shapes.push([Array.from({ length: 96 }, (_, i) => new THREE.Vector3(Math.cos((i / 96) * 6.2832) * r, 0.002, Math.sin((i / 96) * 6.2832) * r * PAD.charge.sz)), op]);
@@ -29,13 +40,13 @@ export function padGroup(kind: 'charge' | 'check', light = false) {
   }
   const loop = (pts: THREE.Vector3[], c: THREE.Color | number, op: number) => new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: c, transparent: true, opacity: op, depthWrite: false }));
   for (const [pts, op] of shapes) g.add(loop(pts, col, op));
-  const rise = new THREE.Group(); rise.name = 'rise'; g.add(rise);
+  const up = new THREE.Group(); up.name = 'rise'; g.add(up);
   const soft = new THREE.Color(col).lerp(new THREE.Color(PAD_RISE.grey), PAD_RISE.desat);
-  for (let k = 1; k < PAD_BEATS; k++) {
+  for (let k = 1; k < rise.scale.length; k++) {
     const layer = new THREE.Group(); layer.name = `rise-${k}`;
-    layer.scale.set(PAD_RISE.scale[k], 1, PAD_RISE.scale[k]); layer.position.y = PAD_RISE.dy * k; layer.visible = false;
-    for (const [pts, op] of shapes) layer.add(loop(pts, soft, op * PAD_RISE.op[k]));
-    rise.add(layer);
+    layer.scale.set(rise.scale[k], 1, rise.scale[k]); layer.position.y = rise.dy * k; layer.visible = false;
+    for (const [pts, op] of shapes) layer.add(loop(pts, soft, op * rise.op[k]));
+    up.add(layer);
   }
   return g;
 }
@@ -43,6 +54,6 @@ export function padGroup(kind: 'charge' | 'check', light = false) {
 /** 시각 t(초 · 그리는 쪽 시계)에 맞춰 오른 층을 켜고 끔. 움직임 줄이기면 바닥만 */
 export function padTick(g: THREE.Object3D, t: number, calm = calmMotion()) {
   const rise = g.getObjectByName('rise'); if (!rise) return;
-  const n = calm ? 0 : padStep(t);
+  const n = calm ? 0 : padStep(t, rise.children.length + 1);
   rise.children.forEach((l, i) => { l.visible = i < n; });
 }
