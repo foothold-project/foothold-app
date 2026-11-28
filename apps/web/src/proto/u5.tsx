@@ -200,6 +200,7 @@ function Tile({ f, sel, front, pick, open }: { f: TileFacts; sel: boolean; front
 
 // ── 오른쪽 칸 ─────────────────────────────────────────────
 /** 작은 지도 = 시안 공장 터 그림(3200 × 2000 px 를 400 × 250 으로). 그 판으로 보는 서버 지도 판 = 같은 크기(3200 × 2000)인 판 */
+// 할 일: 공장 판 판별은 임시(크기로 봄 · 미확인). 재기동 뒤 /sites 에 demo 표시가 오면 데모 현장 층의 승인 판 id(approved_version_id)와 같은지로 바꾼다
 export const SITE_PX = [3200, 2000] as const;
 const VERS = new Map<string, MapVersion | null>(), verSubs = new Set<() => void>();
 /** 지도 판 메타(GET /map-versions/{id}) — 한 번 받아 두고 같이 씀. 실패면 null(점을 그리지 않음) */
