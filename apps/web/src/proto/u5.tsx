@@ -110,11 +110,18 @@ export const lying = (f: Pick<TileFacts, 'x' | 'act' | 'charging'>) => {
   const p = stateOf(f.x)?.posture?.state;
   return f.charging || (p === 'LYING' ? true : p === 'STANDING' || p === 'TRANSITIONING' ? false : f.act === 'lie');
 };
+/** 정지 잠금 까닭 = 서버 latch_reason(화면 소켓 state 가 칸을 주면 그 값, 아니면 로봇 목록 값) 하나만. 없거나 모르는 값이면 «까닭 미상»(다른 값으로 짐작하지 않음 · 팀장 21:37) */
+export const LATCH_WHY: Record<string, string> = { BOOT: '기동 잠금', USER_STOP: '사람 정지', FALL: '넘어짐', LINK_LOST: '연결 끊김', DEVICE_FAULT: '장치 고장', POLICY: '권한 확인 늦음', LEASE_END: '조종권 끝남', OTHER: '기타' };
+export const lockWhy = (x: Robot, s: ReturnType<typeof stateOf>) => {
+  const st = s as { latch_reason?: string | null } | null | undefined, v = st && 'latch_reason' in st ? st.latch_reason : x.latchReason;
+  return (v && LATCH_WHY[v]) || '까닭 미상';
+};
 const RUN_END = new Set<string>(['COMPLETED', 'FAILED', 'CANCELED', 'ABORTED']);   // 서버 TERMINAL_RUNS 와 같음(ABORTED 는 계약 열거 밖이지만 서버가 씀)
 /** 타일 한 장의 글 · 칸(서버 값만 · 없으면 그 글을 비움) */
 export type TileFacts = {
   x: Robot; demo: boolean; charging: boolean; job: Job | null; level: Level; flag: string | null; why: string; alert: boolean; sim: boolean; lostAt: string | null; lostNow: boolean;
   act: ReturnType<typeof actOf>; walk: boolean; paused: string | null;
+  /** 머리표 · 최근 경고 제목이 관절 온도에서 왔음(아니면 잠금 · 상태 · 주의 코드) */ byTemp: boolean;
   /** 그 로봇에 진행 중인 임무(state.run · 끝남 · 실패 · 취소 아님)가 있음 = 임무 중 보기(뒤 1 m + 현장). 팀장 21:16 */ onRun: boolean;
   /** 정지 한 줄(serverdrive stopLine 과 같은 판정 · 미전달 · 현장 관문 포함). 정지를 보낸 적 없으면 null */ stop: { tone: string; text: string } | null;
   mode: string; mission: { name: string; done: number; total: number } | null; place: string;
@@ -124,8 +131,11 @@ export function facts(x: Robot, me: string, places: Map<string, string>, av?: Av
   // 데모 로봇(가용 demo = true)은 시뮬이어도 실기 타일과 똑같이(1 m 뒤 모형 · 배터리 · 온도 · 연결 · 걸음 · 담당), 차이는 «데모» 칩 하나. 시뮬 꼴은 사용자 시뮬만
   const s = stateOf(x), h = hotJoint(x), lvTemp = tempLevel(h?.t ?? null), gone = isLost(x), sim = !!x.sim && !av?.demo, st = robotStatus(x);
   // 테두리 · 머리표: 관절 온도 단계, 아니면 연결 중인 로봇의 기존 경고(잠금 · 오류 = 빨강, 배터리 낮음 · 일시정지 · 남은 주의 코드 = 주황). 끊김은 칸 위 «다시 연결 중»(시안 K-07)
-  const level: Level = lvTemp ?? (gone || !needs(x) ? null : st.tone === 'bad' ? 'bad' : 'warn');
-  const why = lvTemp && h ? `${jointName(h.j)} ${Math.round(h.t)} °C` : flagNote(x) || st.text;
+  // 팀장 21:26: 정지 잠금이면 머리표 = 잠금(+ 서버가 준 까닭). 관절 온도는 위험(70 °C ~)일 때만 잠금보다 앞서고, 그 아래 온도는 온도 칩에만 단계 색
+  const lk: Level = gone || !needs(x) ? null : st.tone === 'bad' ? 'bad' : 'warn', latched = !gone && x.online && x.status === 'STOP_LATCHED';
+  const level: Level = lvTemp === 'crit' ? 'crit' : lvTemp === 'bad' || lk === 'bad' ? 'bad' : lvTemp ?? lk;
+  const byTemp = !!lvTemp && !!h && (lvTemp === 'crit' || !latched), lw = latched ? lockWhy(x, s) : '';
+  const why = byTemp ? `${jointName(h!.j)} ${Math.round(h!.t)} °C` : latched ? (lw ? `${st.text} · ${lw}` : st.text) : flagNote(x) || st.text;
   const run = s?.run ?? null, paused = run?.status === 'PAUSED' ? (run.wait_reason === 'LINK_LOST' ? '일시정지 · 연결 끊김' : '일시정지') : null;
   const m = missionOf(x.mission) ?? (run && run.progress.total ? { name: '', done: run.progress.done, total: run.progress.total } : null);
   const loc = s?.location ?? (x.unknown === 'summary' ? null : x.location ?? null);
@@ -140,7 +150,7 @@ export function facts(x: Robot, me: string, places: Map<string, string>, av?: Av
   const bat = x.battery != null ? `${Math.round(x.battery)} %` : null, tv = h ? lastly(x, `${Math.round(h.t)} °C`, x.seenAt) : null;
   return {
     stop: x.unknown === 'summary' ? null : stopLine(rt.get(x.id)),
-    x, demo: !!av?.demo, charging, job: av?.job ?? null, level, why, alert: needs(x) || !!lvTemp, flag: level ? `${LEVEL_TEXT[level]} · ${why}` : null, sim, lostNow: gone, lostAt: gone ? hm(x.seenAt) ?? '' : null, paused,
+    x, byTemp, demo: !!av?.demo, charging, job: av?.job ?? null, level, why, alert: needs(x) || !!lvTemp, flag: level ? `${LEVEL_TEXT[level]} · ${why}` : null, sim, lostNow: gone, lostAt: gone ? hm(x.seenAt) ?? '' : null, paused,
     act, walk: walking(act, paused, s?.speed), onRun: !!run && !RUN_END.has(run.status), mode: s?.gait?.gait ? GAIT_NAME[s.gait.gait] ?? s.gait.gait : '', mission: m, place, hot: h,
     bat: sim ? ['시뮬', '배터리 해당 없음'] : [bat ?? '', charging ? '충전 중' : av?.job ? (av.job.kind === 'maint' ? '점검 중' : '배터리 교체') : left != null ? `약 ${left} 분` : ''],
     temp: sim ? ['없음', stText(x), ''] : tv ? [tv, lvTemp ? LEVEL_TEXT[lvTemp] : '보통', lvTemp === 'bad' || lvTemp === 'crit' ? ' r' : lvTemp === 'warn' ? ' w' : ''] : ['', '', ''],
@@ -180,6 +190,11 @@ export const tilePose = (l: Location | null | undefined, boards: Set<string>) =>
 export const tileView = (f: TileFacts, front: boolean, l: Location | null | undefined, boards: Set<string>) =>
   ({ front: front || !f.onRun, pose: f.onRun ? tilePose(l, boards) : null });
 const locOf = (f: TileFacts) => stateOf(f.x)?.location ?? (f.x.unknown === 'summary' ? null : f.x.location);
+/** 정면 온도 칩: 관절 온도가 문턱(tempLevel · 50 / 60 / 70 °C)을 넘을 때만 경고색 · 관절 이름, 아니면 회색 «최고 관절 온도 N °C»(잠금 등 다른 경고 색을 빌리지 않음) */
+function TempOv({ f }: { f: TileFacts }) {
+  const lv = f.hot ? tempLevel(f.hot.t) : null, col = lv === 'warn' ? 'var(--u5-amb)' : lv ? 'var(--u5-red)' : undefined;
+  return <span className="g dk ov" style={{ left: '8px', bottom: '8px', ...(col ? { color: col } : {}) }}>{I(14, IC.temp)}{f.hot ? (lv ? `${jointName(f.hot.j)} ${Math.round(f.hot.t)} °C` : `최고 관절 온도 ${Math.round(f.hot.t)} °C`) : '최고 관절 온도'}</span>;
+}
 function Cv({ f, front, hotMap, boards }: { f: TileFacts; front: boolean; hotMap: Record<string, string>; boards: Set<string> }) {
   const ref = useRef<HTMLCanvasElement>(null), look = useRef<TileLook>({ pose: null, front, cyber: f.sim, walk: false, down: false, hot: {} });
   // 시뮬도 실기 · 데모와 같은 규칙(팀장 20:49 · 21:16). 파란 결은 로봇 재질 · 테두리 · 이름표로만
@@ -194,7 +209,7 @@ function Cv({ f, front, hotMap, boards }: { f: TileFacts; front: boolean; hotMap
     <canvas ref={ref} className={showFront ? 'front' : 'rear'} data-go2={go2}></canvas>
     {f.lostNow ? <div className="lk">{I(24, IC.wifi, 'var(--u5-amb)')}다시 연결 중<small>마지막 화면 {f.lostAt}</small></div>   /* 끊김은 시점과 상관없이 먼저(임무 전 정면이어도) */
       : f.sim && showFront ? <span className="g dk ov" style={{ left: '8px', bottom: '8px' }}>{I(14, IC.temp)}{stText(f.x)} · 정면 보기</span>
-      : showFront ? <span className="g dk ov" style={{ left: '8px', bottom: '8px', ...(f.level === 'bad' || f.level === 'crit' ? { color: 'var(--u5-red)' } : {}) }}>{I(14, IC.temp)}{f.hot ? (f.level === 'bad' || f.level === 'crit' ? `${jointName(f.hot.j)} ${Math.round(f.hot.t)} °C` : `최고 관절 온도 ${Math.round(f.hot.t)} °C`) : '최고 관절 온도'}</span>
+      : showFront ? <TempOv f={f} />
       : f.x.sim ? <span className="g dk ov" style={{ left: '8px', top: '8px' }}>{I(14, IC.cam)}뒤 1 m</span>
       : <RealCam id={f.x.id} />}
     {f.stop ? <span className="stb" style={{ color: TONE_COL[f.stop.tone] ?? 'var(--mu2)' }} data-stop-line={f.stop.tone} title={f.stop.text}>{I(14, IC.stop)}{f.stop.text}</span>
@@ -274,8 +289,8 @@ function alertAt(f: TileFacts, seen: Since): { t: string; title: string } | null
 function Recent({ list, pick, open, seen }: { list: TileFacts[]; pick: (id: string) => void; open: (id: string) => void; seen: Since }) {
   return <div className="pane" style={{ padding: '16px 18px 6px', flex: '1', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }} aria-label="최근 경고"><div className="row" style={{ justifyContent: 'space-between', marginBottom: '4px' }}><span className="ttl" style={{ fontSize: '17px' }}>최근 경고</span><a href="#/history" style={{ color: 'inherit', textDecoration: 'none' }}><span className="mu2" style={{ fontSize: '12.5px' }}>기록 탭에서 모두 보기</span></a></div>
     {/* 칸에 다 들어가지 않는 줄은 반쯤 잘려 보이지 않게 옆 칸으로 넘겨 숨김(시안: 온전한 줄만) · 모두는 기록 탭 */}
-    <div className="alist">{list.map((f) => { const red = f.level === 'bad' || f.level === 'crit', at = alertAt(f, seen), joint = !!f.hot && !!f.level && !!tempLevel(f.hot.t);   // 관절 제목은 단계가 온도에서 왔을 때만(정지 잠금 등 다른 경고에 관절 이름을 붙이지 않음)
-      const head = joint ? `관절 ${LEVEL_TEXT[f.level!]}` : f.lostNow ? '연결 끊김' : f.why;
+    <div className="alist">{list.map((f) => { const red = f.level === 'bad' || f.level === 'crit', at = alertAt(f, seen), joint = f.byTemp && !!f.hot;   // 관절 제목은 단계가 온도에서 왔을 때만(정지 잠금 등 다른 경고에 관절 이름을 붙이지 않음)
+      const head = joint ? `관절 ${LEVEL_TEXT[tempLevel(f.hot!.t)!]}` : f.lostNow ? '연결 끊김' : f.why;
       const sub = joint ? f.why : f.lostNow ? `${f.place ? `${f.place.replace(' (마지막 위치)', '')} · ` : ''}다시 연결 중` : f.mission?.name ?? stText(f.x);
       return <div className="al" key={f.x.id} data-alert={f.x.id} role="button" tabIndex={0} onClick={() => pick(f.x.id)} onDoubleClick={() => open(f.x.id)}><span style={{ color: red ? 'var(--u5-red)' : 'var(--u5-amb)' }}>{I(18, joint ? IC.temp : f.lostNow ? IC.wifi : IC.warn)}</span><div>{f.x.name} {head}<small>{sub}</small></div>{at && <time data-alert-at title={at.title}>{at.t}</time>}</div>; })}</div>
   </div>;

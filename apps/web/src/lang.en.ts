@@ -125,6 +125,8 @@ export const EN: Record<string, string> = {
 
 const LV: Record<string, string> = { 위험: 'Danger', 경고: 'Warning', 주의: 'Caution' };
 const SIDE: Record<string, string> = { '왼쪽 앞다리': 'Front-left', '오른쪽 앞다리': 'Front-right', '왼쪽 뒷다리': 'Rear-left', '오른쪽 뒷다리': 'Rear-right', '앞 왼': 'Front-left', '앞 오른': 'Front-right', '뒤 왼': 'Rear-left', '뒤 오른': 'Rear-right' };
+/** 정지 잠금 까닭(서버 latch_reason 화면 글 · proto/u5 LATCH_WHY) */
+const LOCK_WHY: Record<string, string> = { '기동 잠금': 'boot latch', '사람 정지': 'stopped by a person', 넘어짐: 'fall', '연결 끊김': 'link lost', '장치 고장': 'device fault', '권한 확인 늦음': 'permission check late', '조종권 끝남': 'control ended', 기타: 'other', '까닭 미상': 'reason unknown' };
 const PART: Record<string, string> = { 고관절: 'hip', 허벅지: 'thigh', 무릎: 'knee', 종아리: 'calf' };
 /** 관절 이름(proto/u5 jointName «오른쪽 앞다리 무릎» · go2model jointName «앞 오른 종아리») → «Front-right knee». 모르면 그대로 */
 const joint = (s: string) => { const g = /^(.+) (\S+)$/.exec(s); return g && SIDE[g[1]] && PART[g[2]] ? `${SIDE[g[1]]} ${PART[g[2]]}` : s; };
@@ -160,6 +162,7 @@ export const EN_RULES: [RegExp, (m: RegExpExecArray) => string][] = [
   [/^알림 안 읽음 (\d+)건$/, (m) => `${m[1]} unread alerts`],
   [/^사건 (\d+) 건 이상$/, (m) => `${m[1]}+ events`],
   [/^오늘 · (\d+)월 (\d+)일$/, (m) => `Today · ${m[1]}/${m[2]}`],
+  [new RegExp(`^(?:(위험|경고|주의) · )?정지 잠금 · (${Object.keys(LOCK_WHY).join('|')})$`), (m) => `${m[1] ? `${LV[m[1]]} · ` : ''}Stop latched · ${LOCK_WHY[m[2]]}`],
   [/^(위험|경고|주의) · (.+) (\d+) °C$/, (m) => `${LV[m[1]]} · ${joint(m[2])} ${m[3]} °C`],
   [/^(.+) (\d+) °C · (위험|경고|주의)$/, (m) => `${joint(m[1])} ${m[2]} °C · ${LV[m[3]]}`],
   [/^(.+?)이? (\d+) °C 입니다\.$/, (m) => `${joint(m[1])} is ${m[2]} °C.`],

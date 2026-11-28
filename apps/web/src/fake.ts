@@ -16,6 +16,8 @@ export type Robot = { id: string; name: string; owner: string; ownerName?: strin
   run?: CurrentRun | null;
   /** 서버 status_since(그 status 를 서버가 처음 받은 시각 · ISO)와 그 값이 붙은 status. 서버가 안 주면(null · 칸 없음) null */
   statusSince?: { status: Status | null; at: string } | null;
+  /** 서버 latch_reason(잠금 까닭 코드 · 잠기지 않으면 null). 서버가 안 주면 null */
+  latchReason?: string | null;
   unknown?: 'link' | 'wait' | 'summary'; holder?: Holder | null; listedAt?: string; location?: Location | null; devices?: Device[]; sim?: boolean;
   phoneRelay?: PhoneRelayState | null; phoneRelayAt?: number;
   /** 실기 Go2 직접 값(서버 robot_info — 자세·상태 번호·넘어짐 추정, 표시만). 구독 로봇은 실시간 state 가 덮음 */
@@ -98,7 +100,7 @@ export const toRobot = (r: RobotSummary, sims: string[] = []): Robot => ({
   serverDrive: r.server_drive_allowed === true,
   serverDriveBlocked: r.server_drive_blocked,
   approvalUntil: r.field_approval_expires_at ?? null, serial: r.robot_serial ?? null, attention: r.attention,
-  statusSince: sinceOf(r),
+  statusSince: sinceOf(r), latchReason: (r as RobotSummary & { latch_reason?: string | null }).latch_reason ?? null,
 });
 // status_since: 서버 RobotSummary 의 선택 칸(계약 생성물에 오기 전이라 여기서 선택 칸으로 읽음)
 const sinceOf = (r: RobotSummary & { status_since?: string | null }) => (typeof r.status_since === 'string' && r.status_since ? { status: r.status, at: r.status_since } : null);
