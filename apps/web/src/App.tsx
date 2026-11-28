@@ -29,6 +29,7 @@ import { Trash } from './screens/trash';
 import { ScanPanel, ScanStart } from './screens/scanentry';
 import { ThemeNav, ThemePick, useTheme } from './theme';
 import { BellFace, PcBar, STOP_FACE } from './proto/bar';
+import { Control5 } from './proto/u5';
 
 /** STOP 결과 한 줄 — 서버가 받았는지와 로봇이 알린 잠금을 나눠 쓴다. 확인 안 된 «정지됨»은 쓰지 않는다(F-COM-01) */
 function stopText(r: Robot, l: Live) {
@@ -409,6 +410,10 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         <p id="fh-soon" className="lv-note" style={{ flexBasis: '100%' }}>흐린 단추는 아직 준비 중인 기능입니다(권한 때문인 비활성은 단추 옆에 이유가 따로 나옵니다).</p></main>;
   if (!phone) {
     // PC = 시안 틀(.proto · proto/bar): 머리줄 .bar 그대로, 그 아래 STOP 결과 띠 · 정지 고르기는 모든 화면 위. 시안으로 옮긴 탭은 .proto 바로 아래 화면, 아직이면 옛 본문
+    // 시안으로 옮긴 탭: 관제(u5). 로봇 0 대 · 시뮬 창 · 상세 서랍이면 옛 본문
+    const proto5 = tab === 'control' && !!ctx && !simOpen && !open;
+    /** 경보 칸 «K-05 정지» = 그 로봇 한 대에 기존 정지(halt · rt.stop), STOP 단추가 대상 로봇에 하는 것과 같은 길 */
+    const stopOne = (id: string) => { const r = stops.find((x) => x.id === id); if (r) halt([r]); };
     const goTab = (id: string) => { const h = `#/${id}`; if (!leaving.ask) { away.current = null; setWant(h); } location.hash = h; };
     const barTabs = [...PC_TABS.filter((t) => !t.hidden), PC_BOTTOM].map((t) => ({ id: t.id, label: labelOf(t, user.role) }));
     return <div className={`proto${light ? ' light' : ''}`} data-layout="pc">
@@ -416,12 +421,14 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         bell={<Guard quiet><Bell cancel={cancel} face={(n) => <BellFace unread={n} />} pop={`fh${light ? ' light' : ''}`} /></Guard>}
         stop={(canStop || toSim) && <button type="button" className="allstop" aria-label="비상 정지" data-stop style={{ minHeight: 44 }} {...barStop}>{STOP_FACE}</button>}
         menu={<>{logout && <button type="button" className="btn" onClick={logout}>로그아웃</button>}<ThemeNav /></>} />
-      <div className={`fh ap-in old${light ? ' light' : ''}`}>
+      {proto5 ? <><Guard key="u5"><Control5 {...ctx!} stop={stopOne} mayStop={(id) => stops.some((r) => r.id === id)} /></Guard>
+        <div className={`fh ap-in${light ? ' light' : ''}`}><h1 className="ap-sr">{title}</h1>{pickEl}{bandEl}</div></>
+        : <div className={`fh ap-in old${light ? ' light' : ''}`}>
         <h1 className="ap-sr">{title}</h1>
         {pickEl}
         {bandEl}
         <div className="fh-body">{mainEl}</div>
-      </div>
+      </div>}
       {!inApp() && <Guard quiet><SimWindow /></Guard>}
     </div>;
   }
