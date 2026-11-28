@@ -7,7 +7,7 @@ import { api, type ApiFail } from './api';
 
 /** both = 서버 401(계정 · 비밀번호를 가르지 않음): 두 칸 모두 표시, 초점은 계정 칸부터 */
 export type LoginBad = 'username' | 'password' | 'both' | null;
-export const ACCOUNT_ASK = '계정은 총괄에게 요청하세요.';
+export const ACCOUNT_ASK = '계정은 총괄에게 요청하세요';   // 시안 u10_1 그대로(끝 마침표 없음)
 // 로그인 전 비밀번호 바꾸기 창(u10_2 시안 그대로): 서버 /me/password 는 로그인한 세션이 있어야 하므로
 // 이 창은 아이디 · 지금 비밀번호로 로그인 → POST /me/password → 로그아웃 을 차례로 한다(새 API 없음).
 // 8 자 이상 · 스페이스 금지는 이 창이 보내기 전에 막는다(서버 최소 길이는 1 · 빈칸 목록 u9_2). 임시 비밀번호도 로그인이 되므로 「지금 비밀번호」 칸에 넣으면 된다.

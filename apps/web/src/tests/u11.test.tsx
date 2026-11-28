@@ -54,6 +54,23 @@ describe('u11 겹 부품', () => {
     expect($('.line1.ok.over[data-drive-line="handed"]').textContent).toBe('조종권을 운영자 A 님에게 넘겼습니다보기 전용입니다 · 정지 버튼은 계속 쓸 수 있습니다');
   });
 
+  it('u11_5 서버 끊김 줄: 제목은 지금 글(까닭을 지어내지 않음) · 오른쪽 «핫스팟으로 바꾸기» 단추 · 누르면 안내 펼침, 다른 줄에는 단추 없음', () => {
+    const base = { link: { at: 'lost' as const }, me: 'u-me', now: 0, handedTo: null, fresh: true };
+    draw(<DriveLine f={driveLine({ ...base, l: L() })!} />);
+    const line = $('[data-drive-line="link"]');
+    expect(line.textContent).toContain('서버와 연결이 끊겼습니다');
+    expect(line.textContent).not.toContain('로그인이 필요합니다');
+    const hot = $('[data-hot]');
+    expect(hot.textContent).toBe('핫스팟으로 바꾸기'); expect(hot.getAttribute('aria-expanded')).toBe('false');
+    expect(box.querySelector('[data-hotspot-guide]')).toBeNull();
+    act(() => { hot.click(); });
+    expect(hot.getAttribute('aria-expanded')).toBe('true');
+    expect($('[data-hotspot-guide]').textContent).toContain('폰 설정 › Wi-Fi 에서 로봇 핫스팟을 고릅니다');
+    act(() => { root?.unmount(); }); box.remove();
+    draw(<DriveLine f={driveLine({ ...base, link: OPEN, handedTo: '운영자 A', l: L() })!} />);
+    expect(box.querySelector('[data-hot]')).toBeNull();
+  });
+
   it('u11_6 ~ u11_8 빈 화면: 시안 그림 · 제목 · 글 · 단추(기록은 단추 없음)', () => {
     draw(<><EmptyRobots /><EmptyMap /><EmptyLog /></>);
     const t = (k: string) => [$(`[data-empty="${k}"] h2`).textContent, $(`[data-empty="${k}"] p`).textContent, $(`[data-empty="${k}"] .btnp`)?.textContent ?? null];

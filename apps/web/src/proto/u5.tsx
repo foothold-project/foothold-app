@@ -191,9 +191,10 @@ function fitGrid(n: number): { cols: number; rows: number; zoom: number } {
 // ── 타일 ──────────────────────────────────────────────────
 /** 타일 · 작은 지도 공통: 데모 현장 승인 판(boards)의 위치만 현장 좌표로. 판 id 가 다르거나 없으면 null(엉뚱한 자리보다 뺌) */
 export const tilePose = (l: Location | null | undefined, boards: Set<string>) => (l?.map_version_id && boards.has(l.map_version_id) ? sitePose(l) : null);
-/** 타일 시점(팀장 21:16): 임무 중 = 뒤 1 m 따라가기 + 현장 glb(서버 위치 그대로 · 뒤집기면 정면), 임무 전 = 늘 정면 + 초록 점 바닥(현장 · 가림 당김 없음) */
+/** 타일 시점(팀장 21:16): 임무 중 = 뒤 1 m 따라가기 + 현장 glb(서버 위치 그대로), 임무 전 = 늘 정면 + 초록 점 바닥(현장 · 가림 당김 없음).
+ *  뒤집기(정면)는 임무 중이어도 시안 u5_4 대로 현장 없이 어두운 바탕(조정 22:03) */
 export const tileView = (f: TileFacts, front: boolean, l: Location | null | undefined, boards: Set<string>) =>
-  ({ front: front || !f.onRun, pose: f.onRun ? tilePose(l, boards) : null });
+  ({ front: front || !f.onRun, pose: f.onRun && !front ? tilePose(l, boards) : null });
 const locOf = (f: TileFacts) => stateOf(f.x)?.location ?? (f.x.unknown === 'summary' ? null : f.x.location);
 /** 정면 온도 칩: 관절 온도가 문턱(tempLevel · 50 / 60 / 70 °C)을 넘을 때만 경고색 · 관절 이름, 아니면 회색 «최고 관절 온도 N °C»(잠금 등 다른 경고 색을 빌리지 않음) */
 function TempOv({ f }: { f: TileFacts }) {
