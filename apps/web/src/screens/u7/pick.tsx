@@ -41,8 +41,8 @@ export type Ed = { own: (s: Place['site']) => boolean; busy: boolean; edits: Rea
 
 /** 층 줄 썸네일 선 그림 거름(u7.css). 판 그림 바탕이 밝으면(점유 격자 · 흰 빈 곳) 어두운 픽셀(밝기 < 0.4)이 선, 바탕이 어두우면(어두운 색 그림) 밝은 픽셀(밝기 > 0.6)이 선.
  *  알파 = ±밝기 로 0.6 넘는 곳만 남김 · 색 = 어둠 흰색 / 밝음 글자색 #1F2421. id 끝 -i = 어두운 바탕 그림용 */
-const LINE = (id: string, [r, g, b]: number[], inv: boolean) => `<filter id="${id}" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0 0 0 0 ${r} 0 0 0 0 ${g} 0 0 0 0 ${b} ${inv ? '0.299 0.587 0.114 0 0' : '-0.299 -0.587 -0.114 1 0'}"/>`
-  + '<feComponentTransfer><feFuncA type="discrete" tableValues="0 0 0 0 0 0 1 1 1 1"/></feComponentTransfer></filter>';
+const LINE = (id: string, [r, g, b]: number[], inv: boolean) => `<filter id="${id}" color-interpolation-filters="sRGB" primitiveUnits="objectBoundingBox"><feColorMatrix type="matrix" values="0 0 0 0 ${r} 0 0 0 0 ${g} 0 0 0 0 ${b} ${inv ? '0.299 0.587 0.114 0 0' : '-0.299 -0.587 -0.114 1 0'}"/>`
+  + '<feComponentTransfer><feFuncA type="discrete" tableValues="0 0 0 0 0 0 1 1 1 1"/></feComponentTransfer><feMorphology operator="dilate" radius="0.004"/></filter>';
 const WHITE = [1, 1, 1], INK = [31 / 255, 36 / 255, 33 / 255];
 export const LINE_DEFS = LINE('u7-line-d', WHITE, false) + LINE('u7-line-l', INK, false) + LINE('u7-line-d-i', WHITE, true) + LINE('u7-line-l-i', INK, true);
 /** 판 그림 바탕 밝기(작게 줄여 평균): 'light' = 밝은 바탕, 'dark' = 어두운 바탕. 그리기가 없거나 못 받으면 'light'(점유 격자 기본) */
@@ -109,8 +109,15 @@ function TrashPane({ again }: { again: () => void }) {
 }
 
 /** 왼쪽 현장 두 묶음(시안 u7_1): 지도가 있는(또는 시뮬) 건물 = 머리 빈 자리(시안 「국내 · 해외 · 시험」 = 지역 칸, 서버에 아직 없음), 실제 현장(purpose REAL)인데 지도 0 개 = 「실제 현장 · 아직 스캔 전」. 장소 순서 = 서버 목록 */
+/** 현장 순서: 서버 sort_order 가 있으면 그것(작은 수 먼저), 없으면 시안 u7_1 순서를 이름으로 고정한 임시 표, 표에 없으면 서버 순서 그대로(조정 23:39 · sort_order 오면 표는 지움) */
+const PROTO_ORDER = ['큰 공장', '지하 공동구', '해외 플랜트', '장애물 경기장'];
+export const siteOrder = (sites: MapSite[]) => {
+  const key = (st: MapSite, i: number) => { const o = (st as { sort_order?: number | null }).sort_order, k = PROTO_ORDER.indexOf(st.name);
+    return [typeof o === 'number' ? 0 : k >= 0 ? 1 : 2, typeof o === 'number' ? o : k >= 0 ? k : i] as const; };
+  return sites.map((st, i) => ({ st, k: key(st, i) })).sort((a, b) => a.k[0] - b.k[0] || a.k[1] - b.k[1]).map((x) => x.st);
+};
 export function railGroups(sites: MapSite[], blds: { site: Place['site']; building: Place['building'] }[]) {
-  const rows = sites.flatMap((st) => blds.filter((x) => x.site.id === st.id).map((x) => ({ site: st, building: x.building, n: x.building.floors.filter((f) => f.approved_version_id).length })));
+  const rows = siteOrder(sites).flatMap((st) => blds.filter((x) => x.site.id === st.id).map((x) => ({ site: st, building: x.building, n: x.building.floors.filter((f) => f.approved_version_id).length })));
   const late = rows.filter((r) => !r.n && purposeOf(r.site) === 'REAL'), maps = rows.filter((r) => !late.includes(r));
   return [...(maps.length ? [{ head: '', rows: maps, late: false }] : []),
     ...(late.length ? [{ head: '실제 현장 · 아직 스캔 전', rows: late, late: true }] : [])];
@@ -138,7 +145,7 @@ export function PickU7({ maker, t, places, vers, choose, make, note, manage, set
       {t.tree && rail.map((g, k) => <div key={g.late ? 'late' : 'maps'} aria-label={g.head || '현장'} data-rail-group={g.late ? 'late' : 'maps'}><div className="h3" style={k ? { marginTop: '14px' } : undefined}>{g.head}</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>{g.rows.map(({ site: st, building: b, n }) =>
           <div key={b.id} className={`site${b.id === cur?.building.id ? ' on' : ''}`} style={n ? undefined : { opacity: 0.72 }} role="button" tabIndex={0} aria-pressed={b.id === cur?.building.id} data-building={b.id} data-site={st.name}
-            onClick={() => { setBid(b.id); setFid(''); }}><span className="av" style={n ? undefined : { background: 'transparent', border: '1.5px dashed rgba(255,255,255,.28)' }}>{ic(19, PIN)}</span>
+            onClick={() => { setBid(b.id); setFid(''); }}><span className="av" style={n || b.id === cur?.building.id ? undefined : { background: 'transparent', border: '1.5px dashed rgba(255,255,255,.28)' }}>{ic(19, PIN)}</span>
             <div style={{ flex: 1, minWidth: 0 }}>{b.name}<small>{g.late ? byLevel(b.floors).map((f) => f.name).join(' · ') : `${st.name === b.name ? '' : `${st.name} · `}${b.floors.length} 층${n ? '' : ' · 지도 없음'}`}</small></div><span className="mu2" style={{ fontSize: '12.5px' }}>{n}</span></div>)}</div></div>)}
       {t.tree && !blds.length && <p className="mu2" style={{ fontSize: '13px', margin: '14px 6px' }}>아직 층이 있는 건물이 없습니다. 「관리」 에서 장소 · 건물 · 층을 만듭니다.</p>}
       <div style={{ position: 'absolute', left: '20px', right: '20px', bottom: '20px', fontSize: '12.5px', lineHeight: '1.55', color: 'var(--mu2)' }}>로봇이 현장을 걸으며 스캔한 3D 지도입니다. 층마다 따로 만듭니다.</div></div>
