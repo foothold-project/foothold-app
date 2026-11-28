@@ -7,6 +7,7 @@ import { allowed, runHolds, runMoving, sim, useSim, velocity, type Sim } from '.
 import { inputGen, metaCut } from '../rt';
 import { runView, startBlock, startFloor, useScenarios } from '../run';
 import { useStopPress } from '../App';
+import { RestartAskBox, useRestartAsk } from '../robotact';
 import { EXP, HeldRun, KEYS, SIDE_OFF, STATE, SimLaunch, canDrive, field, forward, Video, blockNote, relink, remainingTime, short, stopText, timeNotice, useDeadline, useTick, worldName } from '../simdrive';
 import { SimMap, useFloorMap, type FloorMap } from '../simmap';
 import { needsRelink, useFeed } from '../media';
@@ -63,6 +64,7 @@ function SimStop() {
 function SimView({ admin }: { admin: boolean }) {
   const s = useSim(), l = s.link!, r = s.robot!, st = l.st, w = l.welcome, open = l.at === 'open', mine = !!l.lease;
   const keys = w?.simulation === true, live = canDrive(), can = allowed(w);
+  const restart = useRestartAsk(() => { const k = sim.get().link; return { mine: k?.at === 'open' && !!k.lease, latched: k?.st?.latched, gen: k?.st?.stop_gen, lease: k?.lease }; });   // 「다시 시작」 확인 창(u4_10 · 폰 직결과 같은 묶음 · 21:08 결정)
   useDeadline(!!r.expires_at);
   useTick(true);
   const [out, setOut] = useState({ vx: 0, note: '' }), [ending, setEnding] = useState(false);   // ending = «시뮬 종료·정리» 화면 안 확인 단계
@@ -130,7 +132,7 @@ function SimView({ admin }: { admin: boolean }) {
       </div>
       <div className="fh-row" style={{ flexWrap: 'wrap' }}>
         {open && keys && !mine && <button type="button" className="btn pri" disabled={l.busy === 'take' || runHolds(l)} onClick={() => sim.take()}>조종</button>}
-        {open && keys && mine && st?.latched !== false && <button type="button" className="btn pri" disabled={l.busy === 'unlock'} onClick={() => sim.unlock()}>다시 시작</button>}
+        {open && keys && mine && st?.latched !== false && <button type="button" className="btn pri" disabled={l.busy === 'unlock'} onClick={restart.open}>다시 시작</button>}
         {open && mine && <button type="button" className="btn" disabled={l.busy === 'release'} onClick={() => sim.release()}>조종권 반납</button>}
         {l.at === 'closed' && l.code !== 403 && <button type="button" className="btn pri" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>}
         <button type="button" className="btn" onClick={close}>보기 닫기</button>
@@ -138,6 +140,7 @@ function SimView({ admin }: { admin: boolean }) {
         <span className="fh-grow" style={{ flex: 1 }} />
         {!ending && <button type="button" className="btn" data-simtab-end onClick={() => setEnding(true)}>시뮬 종료·정리</button>}
       </div>
+      {restart.live && <RestartAskBox name={short(r.robot_id)} inline cancel={restart.close} go={() => restart.go(() => sim.unlock())} />}
       {ending && <div className="fh-row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }} role="group" aria-label="시뮬 종료·정리 확인" data-simtab-end-ask>
         <span className="fh-why">이 시뮬을 끝내고 정리합니다 — 조종권 반납·연결 종료·시뮬 삭제. 다시 쓰려면 새로 띄워야 합니다.</span>
         <button type="button" className="btn" data-simtab-end-cancel onClick={() => setEnding(false)}>취소</button>

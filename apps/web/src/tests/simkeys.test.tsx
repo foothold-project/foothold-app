@@ -77,7 +77,7 @@ const launch = async () => { act(() => { void sim.start(sim.get().catalog!.world
 /** 마지막 cmd(50 ms 박자) — 다음 박자까지 기다린 뒤 */
 const lastCmd = async () => { await sleep(60); const c = agent().of('cmd'); return c[c.length - 1]; };
 
-/** 띄우기 → 직결 → 조종 시작 → 잠금 해제 → 움직일 수 있음 */
+/** 띄우기 → 직결 → 조종 → 다시 시작 → 확인 창 일어서기 → 움직일 수 있음 */
 async function ready(w = welcome(), more: typeof routes = {}) {
   serve(more); await mount();
   await launch();
@@ -89,6 +89,10 @@ async function ready(w = welcome(), more: typeof routes = {}) {
   await click(btn('조종'));
   await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true }));
   await click(btn('다시 시작'));
+  expect(a.of('unlock')).toHaveLength(0);                                // PC 시뮬 탭도 확인 창(u4_10)을 거쳐야 unlock(21:08 결정)
+  expect(box.querySelector('[data-restart-ask]')?.textContent).toContain('을 일으킬까요?');
+  await click(box.querySelector('[data-restart-go]'));
+  expect(a.of('unlock')).toHaveLength(1);
   expect(a.of('unlock')[0]).toMatchObject({ lease_id: LEASE, stop_gen: 1 });
   await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: false }));
   return a;
@@ -266,7 +270,7 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
     expect(a.of('cmd').slice(n).every((m) => m.vx === 0 && m.wz === 0)).toBe(true);
     await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: true, stop_gen: 2 }));
     expect(btn('다시 시작')).toBeTruthy();
-    await click(btn('다시 시작'));
+    { const b = btn('다시 시작')!; await click(b); if (!b.disabled) await click(box.querySelector('[data-restart-go]')); }   // 옛 「잠금 해제」 한 번 누름과 같게(막혀 있으면 아무 일 없음)
     await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: false, stop_gen: 2 }));
     await key('keydown', 'KeyW', { repeat: true });   // 정지 전부터 누르던 W — 다시 눌러야 움직임
     expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0 });
