@@ -31,7 +31,7 @@ const HOT: Record<string, number> = { warn: 0xf2b705, hot: 0xff4d4f, ok: 0x00c38
 /** 시뮬(cyber) 로봇 재질. 시뮬 칸도 실기 · 데모와 같은 현장 · 따라가기 카메라(팀장 20:49) · 파란 결은 로봇 · 테두리 · 이름표로만.
  *  밝은 판: 흰 땅 위에서 더하기 섞기는 보이지 않아 보통 섞기 · 예행 색 #2F6FE0(u5.css 밝음 1 «예행», .chip.sim · .tile.sim 과 같은 값) */
 /** 현장 위 시뮬 로봇: 밝기 = k0 + k1 · 테두리 몫, 진하기 = a0 + a1 · 테두리 몫(보통 섞기). 점 바닥(어두운 바탕)은 로봇 탭과 같은 더하기 값 그대로 */
-export const SITE_SIM_BASE = { k: [0.62, 0.9], a: [0.6, 0.4], s: 0.8 };
+export const SITE_SIM_BASE = { k: [0.45, 0.95], a: [0.4, 0.5], s: 0.5 };   // 03:23 실측 후보 c3(비침 · 줄무늬 · 어둠 밝기 차이 64)
 /** 값 견주기: 주소 ?siteSim=k0,k1,a0,a1,s (또는 #… ?siteSim=…). 숫자 다섯이 아니면 SITE_SIM_BASE */
 export const siteSimOf = (q: string): typeof SITE_SIM_BASE => {
   const v = (new URLSearchParams(q).get('siteSim') ?? '').split(',').map(Number);
