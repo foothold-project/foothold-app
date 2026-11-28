@@ -414,6 +414,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     // PC = 시안 틀(.proto · proto/bar): 머리줄 .bar 그대로, 그 아래 STOP 결과 띠 · 정지 고르기는 모든 화면 위. 시안으로 옮긴 탭은 .proto 바로 아래 화면, 아직이면 옛 본문
     const goTab = (id: string) => { const h = `#/${id}`; if (!leaving.ask) { away.current = null; setWant(h); } location.hash = h; };
     const barTabs = [...PC_TABS.filter((t) => !t.hidden), PC_BOTTOM].map((t) => ({ id: t.id, label: labelOf(t, user.role) }));
+    const u8 = tab === 'history' && !simOpen;   // 기록 = 시안 u8 화면을 .proto 바로 아래(screens/historyu8.tsx), 폰은 옛 판
     return <div className={`proto${light ? ' light' : ''}`} data-layout="pc">
       <PcBar light={light} tabs={barTabs} cur={navTab} go={goTab} role={user.role} name={user.name} roleName={ROLE_NAME[user.role]} online={pool.filter((r) => r.online).length} net={net.at}
         bell={<Guard quiet><Bell cancel={cancel} face={(n) => <BellFace unread={n} />} pop={`fh${light ? ' light' : ''}`} /></Guard>}
@@ -421,12 +422,15 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         approvals={user.role === 'ORG_ADMIN' ? { n: dash.d ? dash.d.approvals_pending : null, why: dash.err ? `요약을 받지 못했습니다. ${dash.err}` : undefined } : undefined}
         driving={pool.filter((r) => !!rt.get(r.id).lease).map((r) => r.name)}
         menu={<>{logout && <button type="button" className="btn" onClick={logout}>로그아웃</button>}<ThemeNav /></>} />
-      <div className={`fh ap-in old${light ? ' light' : ''}`}>
+      {u8 ? <>
+        <main className="fh-main" aria-label={title} style={{ display: 'contents' }}><Guard key={tab}><History key={`history-${user.id}`} user={user} robots={withSlots} robot={robot} pick={setRid} go={go} phone={false} cancel={cancel} focus={focus} /></Guard></main>
+        <div className={`fh ap-in${light ? ' light' : ''}`}><h1 className="ap-sr">{title}</h1>{pickEl}{bandEl}</div>
+      </> : <div className={`fh ap-in old${light ? ' light' : ''}`}>
         <h1 className="ap-sr">{title}</h1>
         {pickEl}
         {bandEl}
         <div className="fh-body">{mainEl}</div>
-      </div>
+      </div>}
       {!inApp() && <Guard quiet><SimWindow /></Guard>}
     </div>;
   }

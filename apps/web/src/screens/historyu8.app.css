@@ -1,0 +1,123 @@
+/* 시안 u8 를 앱으로 옮기며 더한 것(시안 값 아님): span 단추를 button · input · select 로 바꾼 데서 생기는 브라우저 기본 모양 지우기,
+   목록 · 사건 줄이 판 안에서만 넘기게(화면 스크롤 0), 서버 빈칸 까닭 한 줄, 영상 · 사진 자리, 밝은 판 */
+/* 앱 머리줄(PcBar) .proto 안에 놓일 때: 바깥 .proto 가 화면 틀, 이 칸은 그 위를 덮는다(시안 좌표 그대로 · 머리줄 64 아래부터 칸) */
+.proto .proto.u8{position:absolute;inset:0;width:auto;height:auto;background:transparent;pointer-events:none}
+.proto .proto.u8>*{pointer-events:auto}
+/* 머리줄 알림 · 메뉴 펼침이 기록 판 위에 오게(창 .dim 은 머리줄 아래 64 px 부터라 겹치지 않음) */
+.proto:has(.proto.u8)>.bar{z-index:7}
+
+.u8 button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;letter-spacing:inherit;text-align:inherit}
+.u8 button:disabled{cursor:default;opacity:.45}
+.u8 button:focus-visible,.u8 .ev:focus-visible,.u8 select:focus-visible,.u8 input:focus-visible{outline:2px solid #00c389;outline-offset:2px}
+.u8 [aria-disabled="true"]{cursor:default}
+.u8 .flt [aria-disabled="true"],.u8 .tool [aria-disabled="true"],.u8 .fm [aria-disabled="true"]{opacity:.5}
+.u8 .u8-why{font-size:12px;font-weight:600;color:var(--mu2);line-height:1.45;margin:4px 10px 0}
+
+/* 왼쪽 거르기 판 */
+.u8 .cat{width:100%;text-align:left}
+.u8 .cat b:empty{display:none}
+.u8 .cat[aria-disabled="true"] b{font-size:11.5px}
+.u8 .u8-pick{cursor:pointer}
+.u8 .u8-pick select{flex:1;min-width:0;appearance:none;-webkit-appearance:none;background:none;border:0;color:inherit;font:inherit;outline:none;cursor:pointer;color-scheme:dark}
+.u8 .u8-pick select option{color:#1f2421}
+.u8 .flt .seg2{opacity:.5}
+
+/* 오른쪽 목록 판: 머리(찾기 · 필터 줄 · 표 머리)는 고정, 줄만 판 안에서 넘김 */
+.u8 .lst{display:flex;flex-direction:column}
+.u8 .lst>.tool,.u8 .lst>.chips,.u8 .lst>.thd{flex:none}
+.u8 .u8-rows{flex:1;min-height:0;overflow-y:auto;scrollbar-width:thin;padding-bottom:16px}
+.u8 .srch input{flex:1;min-width:0;background:none;border:0;color:inherit;font:inherit;outline:none}
+.u8 .srch input::placeholder{color:var(--mu2)}
+.u8 .u8-tag{margin:0;white-space:nowrap;font-size:11.5px}
+.u8 .seg2 button{height:36px;padding:0 18px;border-radius:10px;display:flex;align-items:center;font-size:14px;font-weight:700;color:var(--mu2)}
+.u8 .seg2 button.on{background:#ffffff;color:#000000}
+.u8 .chips button.chip{font-weight:700}
+.u8 .ev{cursor:pointer}
+.u8 .ev .t2{overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+.u8 .ev .t2 small{-webkit-line-clamp:1}
+.u8 .th{background-color:rgba(255,255,255,.06)}
+.u8 .u8-msg{font-size:13.5px;font-weight:600;line-height:1.5;padding:12px 14px;color:#ff8a8b}
+.u8 .u8-msg.mu2{color:var(--mu2)}
+.u8 .u8-focus{display:flex;align-items:center;gap:12px}
+.u8 .u8-focus .btns{height:36px;padding:0 14px;font-size:13.5px}
+.u8 .u8-more{display:flex;justify-content:center;padding:12px}
+.u8 .u8-more .btns{height:40px;padding:0 18px;font-size:14px}
+
+/* 사건 자세히 */
+.u8 .side{display:flex;flex-direction:column}
+.u8 .u8-sevs{flex:1;min-height:0;overflow-y:auto;scrollbar-width:thin}
+.u8 .sev{width:100%;text-align:left}
+.u8 .sev>div{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.u8 .sev>div small{overflow:hidden;text-overflow:ellipsis}
+.u8 .eh .ttl{flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.u8 .eh>.lv,.u8 .eh>.st,.u8 .eh>.btns,.u8 .eh>.row{flex:none}
+.u8 .u8-ehmsg{position:absolute;left:388px;right:24px;top:140px;padding:0;font-size:12.5px}
+.u8 .vid.c{background:radial-gradient(520px 360px at 50% 62%,#1d2833,#0d1116 75%);border:1px solid var(--line)}
+.u8 .vid video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+.u8 .u8-vwhy{position:absolute;left:48px;right:48px;top:50%;transform:translateY(-50%);z-index:2;text-align:center;font-size:15px;font-weight:700;line-height:1.6;color:rgba(255,255,255,.75)}
+.u8 .u8-vwhy .btns{display:inline-flex;height:38px;padding:0 14px;margin-left:8px;font-size:13.5px;vertical-align:middle}
+.u8 .pp:disabled{opacity:.45;box-shadow:none}
+.u8 .spd button{height:36px;width:58px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:var(--mu2)}
+.u8 .spd button.on{background:#ffffff;color:#000000}
+.u8 .trp[aria-disabled="true"] .tl,.u8 .trp[aria-disabled="true"] .now,.u8 .trp[aria-disabled="true"] .spd{opacity:.5}
+.u8 .inf .mm .im{background:rgba(255,255,255,.04)}
+.u8 .inf b.u8-none{font-size:15px;color:var(--mu2)}
+.u8 .u8-said{flex:1;padding:24px 32px;text-align:center}
+.u8 .u8-said [data-said]{line-height:1.4}
+.u8 .u8-photo{width:340px;height:200px;object-fit:cover;border-radius:20px;flex:none}
+.u8 .u8-nophoto{display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:var(--mu2);background:rgba(255,255,255,.04);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+.u8 .u8-near{position:absolute;left:24px;right:24px;top:96px;bottom:92px;overflow-y:auto;scrollbar-width:thin;margin-top:0!important}
+.u8 .u8-run{left:50%;top:50%;transform:translate(-50%,-50%);width:760px;max-height:820px;overflow-y:auto;padding:24px;border-radius:24px;z-index:6}
+
+/* 창(u8_6 · u8_8): 시안 span 칸을 button · input 으로 */
+.u8 #n-x{display:flex;color:#1f2421}
+.u8 .ck button{height:34px;padding:0 12px;border-radius:10px;display:flex;align-items:center;gap:6px;font-size:13.5px;font-weight:700;background:rgba(255,255,255,.7);border:1px solid rgba(0,0,0,.08);color:var(--mu)}
+.u8 .ck button.on{color:#0b7a5a;background:rgba(0,195,137,.12);border-color:rgba(0,195,137,.45)}
+.u8 .ck span[aria-disabled="true"]{height:34px;padding:0 12px;border-radius:10px;display:flex;align-items:center;font-size:13.5px;font-weight:700;background:rgba(255,255,255,.7);border:1px solid rgba(0,0,0,.08);color:var(--mu)}
+.u8 .lseg span[aria-disabled="true"]{opacity:.5}
+.u8 .inp input{flex:1;min-width:0;background:none;border:0;font:inherit;color:#1f2421;outline:none}
+.u8 .inp input[type="date"]{flex:none;width:136px;color-scheme:light}
+.u8 .inp[aria-invalid="true"]{border-color:#e04a2f}
+.u8 .mb button{flex:1;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;gap:7px;font-weight:800;font-size:15px}
+.u8 .mdl .u8-msg{padding:10px 0 0;color:#b8361f}
+.u8 .toast .btns{display:flex}
+
+/* u11_8 빈 기록(.pane.empty · 값은 시안 u11 공통 그대로) */
+.u8 .empty{position:absolute;left:24px;right:24px;top:88px;bottom:24px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.u8 .empty .art{width:560px;height:340px}
+.u8 .empty h2{font-size:26px;font-weight:800;letter-spacing:-.02em;margin-top:18px}
+.u8 .empty p{font-size:15px;font-weight:600;color:var(--mu2);margin-top:10px;line-height:1.6}
+
+/* 밝은 판(시안은 어둠 판만): 화면 <style> 의 어둠 전용 흰 글자 · 흰 테두리를 DESIGN.md 밝음 1 값으로. 공통 유리 · 단추 · 판은 light.pv.css */
+.proto.light.u8 .cat,.proto.light.u8 .tg,.proto.light.u8 .catx,.proto.light.u8 .cl,.proto.light.u8 .ev .tm{color:#3A413D}
+.proto.light.u8 .cat.on{background:rgba(24,160,126,.10);color:#1F2421;box-shadow:inset 0 0 0 1px #18A07E}
+.proto.light.u8 .lvt{background:#F6F7F6}
+.proto.light.u8 .lvt.on{color:#1F2421;background:#FFFFFF;border-color:#C9CFCC}
+.proto.light.u8 .sw{background:#DCE0DE}
+.proto.light.u8 .srch{background:#F6F7F6}
+.proto.light.u8 .seg2 button.on,.proto.light.u8 .spd button.on{background:#1F2421;color:#FFFFFF}
+.proto.light.u8 .u8-pick select{color-scheme:light}
+.proto.light.u8 .ev.sel,.proto.light.u8 .sev.sel{background:#F6F7F6;box-shadow:inset 0 0 0 1px #DCE0DE}
+.proto.light.u8 .lv.i,.proto.light.u8 .dt.i{color:#5E6662;background:#F6F7F6;box-shadow:inset 0 0 0 1px #DCE0DE}
+.proto.light.u8 .rt2{color:#3A413D;border-color:#C9CFCC}
+.proto.light.u8 .rt2.sim{color:#2F6FE0;border-color:#2F6FE0}
+.proto.light.u8 .th{background-color:#DCE0DE;box-shadow:none}
+.proto.light.u8 .noclip{background:#F6F7F6}
+.proto.light.u8 .inf b{color:#1F2421}
+.proto.light.u8 .inf b.u8-none{color:#5E6662}
+.proto.light.u8 .inf .mm .im{background:#F6F7F6;box-shadow:inset 0 0 0 1px #DCE0DE}
+.proto.light.u8 .tl .tr{background:#DCE0DE}
+.proto.light.u8 .tl .done{background:rgba(31,36,33,.35)}
+.proto.light.u8 .u8-said{color:#1F2421!important;background:rgba(24,160,126,.10)!important;box-shadow:inset 0 0 0 1px #18A07E!important}
+.proto.light.u8 [data-keep] .row{color:#3A413D!important}
+.proto.light.u8 .u8-msg{color:#B8361F}
+.proto.light.u8 .u8-msg.mu2{color:#5E6662}
+.proto.light.u8 .empty h2{color:#1F2421}
+.proto.light.u8 .empty p{color:#5E6662}
+.proto.light.u8 .empty .art [stroke="rgba(255,255,255,.07)"]{stroke:rgba(94,102,98,.16)}
+.proto.light.u8 .empty .art [stroke="rgba(255,255,255,.16)"]{stroke:rgba(94,102,98,.30)}
+.proto.light.u8 .empty .art [stroke="rgba(255,255,255,.25)"]{stroke:rgba(94,102,98,.45)}
+.proto.light.u8 .empty .art [fill="rgba(255,255,255,.04)"]{fill:rgba(94,102,98,.06)}
+.proto.light.u8 .empty .art [stroke="#00c389"]{stroke:#18A07E}
+.proto.light.u8 .empty .art [fill="rgba(0,195,137,.08)"]{fill:rgba(24,160,126,.08)}
+.proto.light.u8 .empty .art [fill="rgba(0,195,137,.10)"]{fill:rgba(24,160,126,.10)}
