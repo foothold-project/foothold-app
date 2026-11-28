@@ -142,6 +142,21 @@ describe('관제 탭', () => {
     expect(got).toEqual(list.map((f) => f.x.id).filter((id) => got.includes(id)));   // 줄 차례 그대로
     expect(wallPick(list.slice(0, 5)).map((f) => f.x.id)).toEqual(list.slice(0, 5).map((f) => f.x.id));   // 8 대 이하면 전부
   });
+  it('서버 구성(팀장 00:37 · K-01 시뮬 · K-02~07 데모 · Go2 X 실기 · K-08 은 8 칸 밖) = 시안 u5_1 과 같은 8 칸 · 같은 차례(위험 → 실기 → 데모 → 시뮬)', () => {
+    const base = { owner: 'u-kim', ownerName: '김OO', battery: 70, online: true, seenAt: '14:05:20' };
+    const av = (demo: boolean, x: object = {}) => ({ demo, label: null, charging: false, job: null, ...x });
+    const F = (r: Partial<Robot>, a: ReturnType<typeof av>) => facts({ ...base, ...r } as Robot, 'u-kim', new Map(), a);
+    const go2 = F({ id: 'go2', name: 'Go2 X', status: 'IDLE' }, av(false));
+    const k01 = F({ id: 'k01', name: 'K-01', sim: true, status: 'RUNNING' }, av(false));   // 사용자 시뮬
+    const D = (n: number, x: Partial<Robot> = {}, a: object = {}) => F({ id: `k0${n}`, name: `K-0${n}`, sim: true, status: 'RUNNING', ...x }, av(true, a));
+    // 시안 u5_1: K-05 경고(빨간 칸) · K-04 충전 · K-06 점검 · 나머지 데모 임무 중, 시뮬 K-08 자리 = 서버 K-01
+    const demos = (k08: Partial<Robot>, k08demo: boolean) => [D(2), D(3), D(4, { status: 'IDLE' }, { charging: true }), D(5, { status: 'ERROR' }), D(6, { status: 'IDLE' }, { job: { kind: 'maint', text: '점검 중' } }), D(7),
+      F({ id: 'k08', name: 'K-08', sim: true, ...k08 }, av(k08demo))];
+    for (const [k08, dm] of [[{ status: 'IDLE' }, true], [{ status: 'RUNNING' }, true], [{ status: 'IDLE' }, false]] as [Partial<Robot>, boolean][]) {
+      const got = wallPick(order([k01, ...demos(k08, dm), go2])).map((f) => f.x.name);
+      expect(got, JSON.stringify([k08, dm])).toEqual(['K-05', 'Go2 X', 'K-02', 'K-03', 'K-04', 'K-06', 'K-07', 'K-01']);
+    }
+  });
   it('배치: 4 대 이하 2×2 (u5_6), 8 대 이하 4×2 (u5_1), 22 대 = 줄인 칸이 1472×900 안에 다 들어감', () => {
     expect(wallGrid(3)).toEqual({ cols: 2, rows: 2, zoom: 1 });
     expect(wallGrid(8)).toEqual({ cols: 4, rows: 2, zoom: 1 });

@@ -37,8 +37,9 @@ const HEAD = new THREE.Vector3(0, 0.3, 0), ray = new THREE.Raycaster();
 export const REAR_DIST = 1.0, FRONT_DIST = 1.25;
 /** 로봇 발밑 그림자(원 반지름 m · 앞뒤 늘림 · 진하기). 로봇 탭 무대도 같은 값 */
 export const SHADOW = { r: 0.22, sy: 1.5, opacity: 0.35 };
-/** 그릴 층: 현장(임무 중 · 자리 있음 · glb 받음)이면 현장만, 아니면 초록 점 바닥만(현장 바닥 위로 점이 비치지 않게 · 팀장 21:45) */
-export const layers = (pose: boolean, site: boolean) => ({ world: pose && site, dots: !(pose && site) });
+/** 그릴 층: 현장(임무 중 · 자리 있음 · glb 받음)이면 현장만, 아니면 점 바닥만(현장 바닥 위로 점이 비치지 않게 · 팀장 21:45).
+ *  시뮬(cyber)은 임무 중이어도 늘 시뮬 공간 = 파란 로봇 + 점 바닥, 공장 현장을 깔지 않음(팀장 00:37). 데모 · 실기는 그대로 */
+export const layers = (pose: boolean, site: boolean, cyber = false) => { const w = pose && site && !cyber; return { world: w, dots: !w }; };
 export function camPull(world: THREE.Object3D, cam: THREE.Vector3) {
   const to = cam.clone().sub(HEAD), len = to.length();
   ray.set(HEAD, to.clone().normalize()); ray.far = len;
@@ -189,7 +190,7 @@ class Tiles {
       // 현장 = 그 로봇 지도 안 실제 자리 · 방향(서버 위치 · yaw 를 보간). 로봇은 늘 가운데 · 시점은 뒤쪽 위 그대로라 걷고 돌면 현장이 지나가고 돈다
       v.at = look.pose ? follow(v.at, look.pose, dt) : null;
       const p = v.at;
-      const ly = layers(!!p, !!this.site); this.world.visible = ly.world; this.grid.visible = ly.dots;
+      const ly = layers(!!p, !!this.site, look.cyber); this.world.visible = ly.world; this.grid.visible = ly.dots;
       if (this.pads) { this.pads.charge.visible = ly.dots && look.pad === 'charge'; this.pads.check.visible = ly.dots && look.pad === 'check'; }
       if (p) { this.world.rotation.set(0, -p.rot, 0); this.world.position.set(0, 0, 0); this.world.updateMatrix();
         const off = new THREE.Vector3(-p.x, 0, -p.z).applyAxisAngle(new THREE.Vector3(0, 1, 0), -p.rot); this.world.position.copy(off);
