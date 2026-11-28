@@ -116,3 +116,10 @@
 .u1d .u1-mission .ml.pz{color:#d9a21f}
 .proto.light.u1d .u1-mission{color:var(--ink)}.proto.light.u1d .u1-mission .mn,.proto.light.u1d .u1-mission .me{color:var(--mu);opacity:1}
 .proto.light.u1d .u1-mission .mb i{background:#d5dae0}.proto.light.u1d .u1-mission .mb i.on{background:var(--pr)}
+/* 임무 바탕 2D 지도(시안 u1_1 평면 · 판 그림 + 경로 · u1mission.tsx MissionMap). 시안 경로 초록 · 지난 길 흐리게 · 지금 지점 번호표 */
+.u1d .u1-mmap{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+.u1d .u1-mmap .rt{fill:none;stroke:#18a07e;stroke-width:3;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}
+.u1d .u1-mmap .rt.done{stroke:rgba(24,160,126,.45)}
+.u1d .u1-mmap .wp{fill:#fff;stroke:#18a07e;stroke-width:2;vector-effect:non-scaling-stroke}.u1d .u1-mmap .wp.on{fill:#18a07e}
+.u1d .u1-mmap .me{fill:#fff;stroke:#18a07e;stroke-width:4;vector-effect:non-scaling-stroke}
+.u1d .u1-mmap .lbl{font-size:12px;font-weight:700;fill:currentColor;paint-order:stroke;stroke:rgba(0,0,0,.35);stroke-width:3px}.u1d .u1-mmap .lbl .no{fill:#18a07e}
