@@ -45,7 +45,8 @@ export const SIM_MODELS = [['nvidia-demo', 'nvidia'], ['ame2-demo', 'AME-2'], ['
 
 /** 로봇이 0대여도 열리는 탭이라 Ctx 전체가 아니라 필요한 것만 받는다. 고른 탭은 화면 상태(주소 #해시 아님).
  *  묶음은 늘 그려 두고 hidden 으로만 숨긴다. 탭을 바꿔도 쓰던 칸·한 번만 보이는 임시 비밀번호가 사라지지 않게 */
-export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) {
+/** only = 시안 u9 화면(settingsu9.tsx)에서 시안 그림이 없는 묶음만 이 판으로 그릴 때: 옆 묶음 목록 · 표시 뜻 없이 그 묶음들을 펼쳐 그린다 */
+export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'> & { only?: string[] }) {
   const admin = c.user.role === 'ORG_ADMIN', [tab, setTab] = useState<Tab>('acct'), org = useOrg(c.cancel), list = useRef<HTMLDivElement>(null);
   const TABS = GROUPS.flatMap(([, ts]) => ts.filter((t) => admin || !t[2]).map(([id, name]) => [id, name] as [Tab, string]));
   // 탭 목록 키(WAI-ARIA tabs): ←/→ 앞뒤(끝에서 돌아감), Home/End 처음·끝 — 고르면서 초점도 옮긴다
@@ -63,7 +64,8 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) 
     if (!to) return;
     e.preventDefault(); setTab(to); document.getElementById(`st-t-${to}`)?.focus();
   };
-  const panel = (id: Tab, kids: ReactNode) => <div className="st-grid" role="tabpanel" id={`st-p-${id}`} aria-labelledby={`st-t-${id}`} hidden={tab !== id}>{kids}</div>;
+  const panel = (id: Tab, kids: ReactNode) => (c.only ? c.only.includes(id) && <div className="st-grid" data-only-panel={id}>{kids}</div>
+    : <div className="st-grid" role="tabpanel" id={`st-p-${id}`} aria-labelledby={`st-t-${id}`} hidden={tab !== id}>{kids}</div>);
   const card = (p: Omit<CardProps, 'org' | 'admin' | 'cancel'>) => <OrgCard org={org} admin={admin} cancel={c.cancel} {...p} />;
   // 고른 모델의 카드는 처음 고를 때 그려 두고 hidden 으로만 숨긴다 — 모델을 오가도 쓰던 칸이 사라지지 않게(탭과 같은 방식). '' = 공통
   const [model, setModel] = useState(''), [opened, setOpened] = useState<string[]>([]);
@@ -75,13 +77,13 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) 
   </div>;
   const modelName = SIM_MODELS.find(([id]) => id === model)?.[1];
   return <div className="st">
-    <div className="st-tabs st-side" role="tablist" aria-label="설정 묶음" aria-orientation="vertical" ref={list} onKeyDown={key}>
+    {!c.only && <div className="st-tabs st-side" role="tablist" aria-label="설정 묶음" aria-orientation="vertical" ref={list} onKeyDown={key}>
       {GROUPS.map(([g, ts]) => <Fragment key={g}><span className="st-group" aria-hidden="true" data-st-group>{g}</span>
         {ts.filter((t) => admin || !t[2]).map(([id, name, , only]) => <button key={id} type="button" role="tab" id={`st-t-${id}`} aria-controls={`st-p-${id}`} aria-selected={tab === id} tabIndex={tab === id ? 0 : -1} onClick={() => setTab(id)} data-only={only || undefined} title={only ? '총괄만' : undefined}>{name}</button>)}
       </Fragment>)}
-    </div>
+    </div>}
     <div className="st-body">
-    <div className="st-legend" aria-label="표시 뜻"><span className="st-tag adm">총괄만 고침</span><span className="st-tag cap">시뮬 모드·연결 상한 안에서만</span><span className="st-tag lock">바꾸려면 별도 승인(보기만)</span></div>
+    {!c.only && <div className="st-legend" aria-label="표시 뜻"><span className="st-tag adm">총괄만 고침</span><span className="st-tag cap">시뮬 모드·연결 상한 안에서만</span><span className="st-tag lock">바꾸려면 별도 승인(보기만)</span></div>}
     {org.err && <p className="fh-msg" role="alert">{org.err}</p>}
     {panel('acct', <MyInfo user={c.user} setMe={c.setMe} cancel={c.cancel} />)}
     {admin && panel('users', <Accounts me={c.user} cancel={c.cancel} />)}
@@ -112,11 +114,11 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) 
     </>)}
     {panel('alert', <>
       {card({ id: 'org', label: '조직 기준값', note: '실기·시뮬 모두에 쓰는 값. 저장하면 다음 실행부터 적용.', fields: COMMON })}
-      <Later label="관절 온도" items={[['관절 온도 기준', '관절 온도 단계(주의 · 경고 · 위험) 기준은 서버 값이 아직 없습니다.']]} />
+      {!c.only && <Later label="관절 온도" items={[['관절 온도 기준', '관절 온도 단계(주의 · 경고 · 위험) 기준은 서버 값이 아직 없습니다.']]} />}
     </>)}
     {panel('clip', <Later label="기록과 클립" items={[['클립 보관 기간', '사건 클립은 서버 클립 기능이 생긴 뒤 보관 기간을 여기서 바꿉니다.']]} />)}
     {panel('ctl', <>
-      <ControlsGuide />
+      {!c.only && <ControlsGuide />}
       <div className="st-modelbar">
         <div className="st-tabs" role="group" aria-label="값을 고칠 모델">
           {[['', '공통'] as const, ...SIM_MODELS].map(([id, name]) => <button key={id} type="button" aria-pressed={model === id} onClick={() => pickModel(id)}>{name}</button>)}
@@ -341,7 +343,7 @@ function MyInfo({ user, setMe, cancel }: { user: User; setMe: (u: ApiUser) => vo
 export const LAST_ADMIN = '남은 총괄 계정이 이 계정 하나뿐이라 잠그거나 지우거나 운영 관리자로 바꿀 수 없습니다. 다른 총괄 계정을 먼저 만드세요.';
 export const HAS_ROBOTS = '담당 로봇이 있어 지울 수 없습니다. 로봇의 담당자를 먼저 바꾸세요.';
 export const TAKEN = '같은 아이디가 이미 있습니다(지운 계정 포함). 다른 아이디를 쓰세요.';
-const failText = (e: unknown, conflict?: string) => {
+export const failText = (e: unknown, conflict?: string) => {
   const f = e as ApiFail;
   return f.code === 'LAST_ORG_ADMIN' ? LAST_ADMIN : f.code === 'VERSION_CONFLICT' && conflict ? conflict : f.message;
 };
@@ -417,7 +419,8 @@ function Once({ label, value, text, close, more }: { label: string; value: strin
   </div>;
 }
 
-function Account({ u, self, put, gone, cancel }: { u: ApiUser; self: boolean; put: (u: ApiUser) => void; gone: (text: string) => void } & Cancel) {
+/** 계정 상세(이름 · 역할 · 잠그기 · 지우기 · 기기). 시안 u9 사용자 표에서 줄을 누르면 뜨는 창에도 쓴다(settingsu9.tsx) */
+export function Account({ u, self, put, gone, cancel }: { u: ApiUser; self: boolean; put: (u: ApiUser) => void; gone: (text: string) => void } & Cancel) {
   const [name, setName] = useState(u.display_name), [role, setRole] = useState<Role>(u.role);
   const [ask, setAsk] = useState<'lock' | 'delete' | null>(null), [msg, setMsg] = useState<Msg>(null), [busy, setBusy] = useState(false);
   const run = async (f: () => Promise<string>, conflict?: string) => {
@@ -437,10 +440,10 @@ function Account({ u, self, put, gone, cancel }: { u: ApiUser; self: boolean; pu
   const why = self ? SELF : null, noDel = self ? SELF : u.robot_ids.length ? HAS_ROBOTS : null;
   return <section className="lv-card" aria-label="계정 상세">
     <div className="fh-row"><h2 className="fh-grow" style={WRAP}>{u.display_name}</h2><span className="mono" style={WRAP}>{u.username}</span>{u.locked ? <Chip tone="bad" text="잠김" /> : <Chip tone="ok" text="사용 중" />}</div>
-    {self ? <p className="lv-note">내 이름은 위 «내 정보»에서 바꿉니다.</p> : <form className="fh-form" onSubmit={save} noValidate>
+    {self ? <p className="lv-note">내 이름은 «계정» 묶음의 「이름 바꾸기」에서 바꿉니다.</p> : <form className="fh-form" onSubmit={save} noValidate>
       <label className="fh-field"><span>이름</span><input className="inp" name="display_name" maxLength={128} value={name} onChange={(e) => setName(e.target.value)} /></label>
       <label className="fh-field"><span>역할</span><select className="inp" name="role" value={role} onChange={(e) => setRole(e.target.value as Role)}>
-        <option value="OPERATOR">{ROLE_NAME.OPERATOR}</option><option value="ORG_ADMIN">{ROLE_NAME.ORG_ADMIN}</option></select></label>
+        <option value="OPERATOR">운영자</option><option value="ORG_ADMIN">총괄</option></select></label>   {/* 사용자 고치기 창(시안 u9 이름) */}
       <div className="fh-row"><button type="submit" className="btn pri" disabled={busy}>저장</button></div>
     </form>}
     <div className="fh-row">

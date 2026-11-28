@@ -19,28 +19,28 @@ import './missiontab.css';
 /** 고른 임무 id · 옛 주소(#/mission/<id> · ?scenario_id=)면 App 이 넣고, 목록에서 고르면 탭이 넣는다(다른 탭에 갔다 와도 그대로) */
 export const keptMission: { sel: string } = { sel: '' };
 /** 걷기 모드 넷(화면 이름 → 계약 값). 예상 · 일정 본문에만 쓰고 로봇에는 보내지 않는다(#525 전) */
-const MODES = [['Classic', 'classic'], ['Sport', 'sport'], ['START', 'start'], ['AME-2', 'ame2']] as const;
-type Gait = (typeof MODES)[number][1];
-const KIND: Record<ScheduleSlot['kind'], string> = { CONFIRMED: '확정', DRAFT: '작성 중', BATTERY_SWAP: '배터리 교체' };
-const STATE: Record<RobotAvailability['state'], string> = { FREE: '비어 있음', BUSY: '다른 일정', CHARGING: '충전 중', OFFLINE: '연결 끊김' };
-const two = (n: number) => String(n).padStart(2, '0');
+export const MODES = [['Classic', 'classic'], ['Sport', 'sport'], ['START', 'start'], ['AME-2', 'ame2']] as const;
+export type Gait = (typeof MODES)[number][1];
+export const KIND: Record<ScheduleSlot['kind'], string> = { CONFIRMED: '확정', DRAFT: '작성 중', BATTERY_SWAP: '배터리 교체' };
+export const STATE: Record<RobotAvailability['state'], string> = { FREE: '비어 있음', BUSY: '다른 일정', CHARGING: '충전 중', OFFLINE: '연결 끊김' };
+export const two = (n: number) => String(n).padStart(2, '0');
 /** 오늘(이 브라우저 시간대) YYYY-MM-DD · 시간대 이름 */
-const today = () => { const d = new Date(); return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`; };
+export const today = () => { const d = new Date(); return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`; };
 const zone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 /** 오늘 HH:MM → ISO */
-const isoAt = (hm: string) => { const [h, m] = hm.split(':').map(Number), d = new Date(); d.setHours(h, m, 0, 0); return d.toISOString(); };
-const hm = (iso: string) => { const d = new Date(iso); return `${two(d.getHours())}:${two(d.getMinutes())}`; };
+export const isoAt = (hm: string) => { const [h, m] = hm.split(':').map(Number), d = new Date(); d.setHours(h, m, 0, 0); return d.toISOString(); };
+export const hm = (iso: string) => { const d = new Date(iso); return `${two(d.getHours())}:${two(d.getMinutes())}`; };
 /** 지금 HH:MM */
 const nowHm = () => hm(new Date().toISOString());
 /** 처음 시작 = 다음 30분 칸, 마감 = 30분 뒤(사용자가 바꾸는 입력의 처음 값). 오늘 안에 칸이 없으면 23:30~23:59(지난 시각 한 줄이 막는다) */
 const firstTimes = () => { const n = new Date(), d = new Date(n); d.setSeconds(0, 0); d.setMinutes(Math.floor(n.getMinutes() / 30) * 30 + 30);
   if (d.getDate() !== n.getDate()) return ['23:30', '23:59'];
   const e = new Date(d.getTime() + 30 * 60_000); return [hm(d.toISOString()), e.getDate() !== d.getDate() ? '23:59' : hm(e.toISOString())]; };
-const mins = (s: number) => Math.round(s / 60);
+export const mins = (s: number) => Math.round(s / 60);
 /** 오늘 일정 기본 눈금 08~20시. 그 밖 일정이 있으면 그 일정까지 넓힌다 */
-const DAY_FROM = 8, DAY_TO = 20;
+export const DAY_FROM = 8, DAY_TO = 20;
 /** 오늘 0시부터 잰 시(0~24로 자름 · 어제 시작 · 내일 끝인 칸도 오늘 안에 그린다) */
-const hourOf = (iso: string) => { const d = new Date(iso), m = new Date(); m.setHours(0, 0, 0, 0); return Math.min(24, Math.max(0, (d.getTime() - m.getTime()) / 3_600_000)); };
+export const hourOf = (iso: string) => { const d = new Date(iso), m = new Date(); m.setHours(0, 0, 0, 0); return Math.min(24, Math.max(0, (d.getTime() - m.getTime()) / 3_600_000)); };
 
 type P = [number, number];
 const I = (d: ReactNode) => <svg className="mt-i" viewBox="0 0 24 24" aria-hidden="true">{d}</svg>;
@@ -52,41 +52,46 @@ const ICON = {
   warn: I(<><path d="M12 4l9 16H3z" /><path d="M12 10v4M12 17v.5" /></>),
 };
 
-/** 임무 탭. user·robots·cancel 은 App 이 준 값(로봇 0대여도 열린다) */
-export function MissionTab(c: Pick<Ctx, 'user' | 'robots' | 'cancel'>) {
-  const tree = useTree(c.cancel), places = useMemo(() => floorsOf(tree.tree), [tree.tree]);
+/** 임무 목록(GET /scenarios · 휴지통 · 보관 뺌) · 할 일 이름(GET /missions) · 고른 임무(옛 주소 · 목록). 폰 판과 시안 u6 판이 같이 쓴다 */
+export function useMissionList(cancel?: AbortSignal) {
   const [all, setAll] = useState<Scenario[] | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0);
   const [jobs, setJobs] = useState<Record<string, Mission>>({});
   const [sel, setSel0] = useState<string>(keptMission.sel), setSel = (id: string) => { keptMission.sel = id; setSel0(id); }, [extra, setExtra] = useState<Scenario | null>(null), [lost, setLost] = useState(false);
-  const [edit, setEdit] = useState<string | null>(null), [en, setEn] = useState(0), [msg, setMsg] = useState<Msg>(null), [slot, setSlot] = useState<HTMLElement | null>(null);
   useEffect(() => {
     let live = true;
     setErr('');
-    api.allPlans('scenarios', c.cancel).then((l) => { if (live) setAll((l as Scenario[]).filter((x) => isPlan(x) && !x.archived_at)); },
+    api.allPlans('scenarios', cancel).then((l) => { if (live) setAll((l as Scenario[]).filter((x) => isPlan(x) && !x.archived_at)); },
       (e: ApiFail) => { if (live && e.code !== 'CANCELED') setErr(e.message); });
-    api.allPlans('missions', c.cancel).then((l) => { if (live) setJobs(Object.fromEntries((l as Mission[]).filter((x) => isPlan(x) && 'steps' in x).map((x) => [x.id, x]))); }, () => {});
+    api.allPlans('missions', cancel).then((l) => { if (live) setJobs(Object.fromEntries((l as Mission[]).filter((x) => isPlan(x) && 'steps' in x).map((x) => [x.id, x]))); }, () => {});
     return () => { live = false; };
   }, [n]);
   // 목록에 없는 임무(휴지통 · 다른 사람 것)를 옛 주소가 골랐으면 그 하나를 따로 받는다
   useEffect(() => {
     if (!all || !sel || all.some((x) => x.id === sel) || extra?.id === sel) return;
     let live = true;
-    api.plan('scenarios', sel, null, c.cancel).then((x) => { if (live) { if (isPlan(x)) setExtra(x as Scenario); else setLost(true); } },
+    api.plan('scenarios', sel, null, cancel).then((x) => { if (live) { if (isPlan(x)) setExtra(x as Scenario); else setLost(true); } },
       (e: ApiFail) => { if (live && e.code !== 'CANCELED') { setLost(true); setSel(''); } });
     return () => { live = false; };
   }, [all, sel]);
   const list = useMemo(() => (all ? [...(extra && !all.some((x) => x.id === extra.id) ? [extra] : []), ...all] : []), [all, extra]);
   const cur = list.find((x) => x.id === sel) ?? (sel ? undefined : list[0]);
+  return { all, err, again: () => setN((x) => x + 1), n, jobs, sel, setSel, list, cur, lost };
+}
+/** 임무 탭. user·robots·cancel 은 App 이 준 값(로봇 0대여도 열린다) */
+export function MissionTab(c: Pick<Ctx, 'user' | 'robots' | 'cancel'>) {
+  const tree = useTree(c.cancel), places = useMemo(() => floorsOf(tree.tree), [tree.tree]);
+  const { all, err, again, jobs, sel, setSel, list, cur, lost } = useMissionList(c.cancel);
+  const [edit, setEdit] = useState<string | null>(null), [en, setEn] = useState(0), [msg, setMsg] = useState<Msg>(null), [slot, setSlot] = useState<HTMLElement | null>(null);
   const floorOf = (x?: Scenario) => x?.floor_ids?.[0] ?? x?.waypoints[0]?.floor_id ?? '';
   const plan = usePlan(cur, c.cancel);
 
   if (edit != null) {
-    const close = () => { setEdit(null); setN((x) => x + 1); };
+    const close = () => { setEdit(null); again(); };
     return <section className="mx mt-edit" aria-label="임무 편집">
       <div className="mx-bar"><button type="button" className="btn" data-back-list onClick={close}>‹ 임무 목록</button><span ref={setSlot} style={{ display: 'contents' }} /></div>
       <ScenarioEdit id={edit} n={en} user={c.user} robots={c.robots} cancel={c.cancel} places={places} treeAgain={tree.again} floor={edit ? floorOf(list.find((x) => x.id === edit)) : floorOf(cur)}
         slot={slot} side={<b>임무</b>} close={close} top={msg && <Note m={msg} />}
-        done={(x, m) => { setMsg(m); setN((k) => k + 1); if (x && x.id !== edit) { setEdit(x.id); setSel(x.id); } }} />
+        done={(x, m) => { setMsg(m); again(); if (x && x.id !== edit) { setEdit(x.id); setSel(x.id); } }} />
     </section>;
   }
   const open = (id: string) => { setMsg(null); if (!id) setEn((x) => x + 1); setEdit(id); };
@@ -109,7 +114,7 @@ export function MissionTab(c: Pick<Ctx, 'user' | 'robots' | 'cancel'>) {
           </li>; })}</ul>
         {all && !list.length && !err && <p className="lv-note">임무가 없습니다. «새 임무»로 지도에 지점을 찍고 지점마다 할 일을 고르세요.</p>}
         {!all && !err && <p className="lv-note" role="status">임무 목록을 불러오는 중…</p>}
-        {err && <div className="fh-row"><p className="fh-msg" role="alert">임무 목록을 받지 못했습니다. {err}</p><button type="button" className="btn" onClick={() => setN((x) => x + 1)}>다시 시도</button></div>}
+        {err && <div className="fh-row"><p className="fh-msg" role="alert">임무 목록을 받지 못했습니다. {err}</p><button type="button" className="btn" onClick={again}>다시 시도</button></div>}
       </aside>
       <RouteMap x={cur} places={places} cancel={c.cancel} est={plan.est} />
       <Side x={cur} robots={c.robots} p={plan} run={<Runs x={cur} robots={c.robots} user={c.user} cancel={c.cancel} />} />
@@ -133,6 +138,14 @@ function Steps({ x, jobs, edit }: { x: Scenario; jobs: Record<string, Mission>; 
 
 /** 가운데 지도: 고른 임무의 첫 층 · 지금 승인 판 위에 경로 · 지점 번호 · 접근 금지 겹침, 아래 줄 = 길이 · 걷기 + 할 일 · 미리 확인 */
 function RouteMap({ x, places, cancel, est }: { x?: Scenario; places: Place[]; cancel?: AbortSignal; est: Estimate | null }) {
+  const { floor, place, vid, v, look, mapErr, retry, pr, on, segs, hits, inNoGo, px, r, more } = useRoute(x, places, cancel);
+  return <RouteView x={x} est={est} floor={floor} place={place} vid={vid} v={v} look={look} mapErr={mapErr} retry={retry} pr={pr} on={on} segs={segs} hits={hits} inNoGo={inNoGo} px={px} r={r} more={more} />;
+}
+
+/** 고른 임무의 첫 층 · 지금 승인 판 · 접근 금지 칸 · 미리 확인(POST /scenarios/preview) · 경로 조각과 겹침 판정. 폰 판(RouteMap)과 시안 u6 판이 같이 쓴다 */
+/** key = 미리 확인을 다시 낼 때(기본: 저장된 판 id:version · 시안 편집기는 초안 내용) */
+export function useRoute(x: Scenario | undefined, places: Place[], cancel?: AbortSignal, key?: string) {
+  const pk = key ?? `${x?.id}:${x?.version}`;
   const floor = x?.floor_ids?.[0] ?? x?.waypoints[0]?.floor_id ?? '', place = places.find((p) => p.floor.id === floor), vid = place?.floor.approved_version_id ?? null;
   const [maps, setMaps] = useState<Record<string, MapVersion>>({}), [mapErr, setMapErr] = useState(''), [mn, setMn] = useState(0);
   useEffect(() => {
@@ -158,11 +171,11 @@ function RouteMap({ x, places, cancel, est }: { x?: Scenario; places: Place[]; c
   useEffect(() => {
     if (!x || !x.waypoints.length) return;
     let live = true;
-    api.preview(bodyOf(x) as ScenarioWrite, cancel).then((r) => { if (live) setPv({ id: `${x.id}:${x.version}`, r, err: '' }); },
-      (e: ApiFail) => { if (live && e.code !== 'CANCELED') setPv({ id: `${x.id}:${x.version}`, r: null, err: e.message }); });
+    api.preview(bodyOf(x) as ScenarioWrite, cancel).then((r) => { if (live) setPv({ id: pk, r, err: '' }); },
+      (e: ApiFail) => { if (live && e.code !== 'CANCELED') setPv({ id: pk, r: null, err: e.message }); });
     return () => { live = false; };
-  }, [x?.id, x?.version]);
-  const pr = pv && x && pv.id === `${x.id}:${x.version}` ? pv : null;
+  }, [pk]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const pr = pv && x && pv.id === pk ? pv : null;
 
   const on = v && x ? x.waypoints.map((w, i) => ({ w, i })).filter(({ w }) => w.floor_id === floor) : [];
   const px = (w: { x: number; y: number }): P => toPixel(v!, w.x, w.y);
@@ -171,11 +184,15 @@ function RouteMap({ x, places, cancel, est }: { x?: Scenario; places: Place[]; c
   const hits = segs.filter((s) => s.hit).length + on.filter(({ w }) => inNoGo(w)).length;
   const r = v ? Math.max(v.width, v.height) / 70 : 1;
   const more = x ? x.waypoints.length - on.length : 0;
+  return { floor, place, vid, v, look, mapErr, retry: () => setMn((k) => k + 1), pr, on, segs, hits, inNoGo, px, r, more };
+}
+export type Route = ReturnType<typeof useRoute>;
 
+function RouteView({ x, est, floor, place, vid, v, look, mapErr, retry, pr, on, segs, hits, inNoGo, px, r, more }: Route & { x?: Scenario; est: Estimate | null }) {
   return <div className="mt-card mt-map" aria-label="임무 지도">
     {!x ? <div className="mt-empty"><p className="lv-note">임무를 고르면 지도에 경로가 보입니다.</p></div>
       : !vid ? <div className="mt-empty"><p className="lv-note">{floor ? '이 임무의 층에 승인된 지도가 없습니다.' : '이 임무에는 지점이 없습니다. «편집»에서 지도에 지점을 찍으세요.'}</p></div>
-      : !v ? <div className="mt-empty">{mapErr ? <div className="fh-row"><p className="fh-msg" role="alert">지도를 받지 못했습니다. {mapErr}</p><button type="button" className="btn" onClick={() => setMn((k) => k + 1)}>다시 시도</button></div>
+      : !v ? <div className="mt-empty">{mapErr ? <div className="fh-row"><p className="fh-msg" role="alert">지도를 받지 못했습니다. {mapErr}</p><button type="button" className="btn" onClick={retry}>다시 시도</button></div>
           : <p className="lv-note" role="status">지도를 불러오는 중…</p>}</div>
       : <MapFrame {...look} photo={v} at={{ right: 10, top: 10 }} role="img" aria-label={`${x.name} 경로 · ${floorName(place!.floor.name)}`} data-map data-mission-map style={{ display: 'block', width: '100%', height: '100%' }}>
           <MapImage id={v.id} width={v.width} height={v.height} tint="var(--muted)" />
@@ -203,10 +220,10 @@ function RouteMap({ x, places, cancel, est }: { x?: Scenario; places: Place[]; c
 }
 
 /** 표 값(아직 재지 않음)이면 값 옆 «추정» */
-const Guess = ({ e }: { e: Estimate }) => (e.estimate_source === 'TABLE_UNMEASURED' ? <small className="mt-guess" data-guess title="재지 않은 표 값으로 낸 예상입니다">추정</small> : null);
+export const Guess = ({ e }: { e: Estimate }) => (e.estimate_source === 'TABLE_UNMEASURED' ? <small className="mt-guess" data-guess title="재지 않은 표 값으로 낸 예상입니다">추정</small> : null);
 
 /** 일정 칸 상태: 시작 · 마감(오늘) · 로봇 · 걷기 모드 → 가용 · 예상 · 일정 추가 · 오늘 일정(겹침 표시) */
-function usePlan(x: Scenario | undefined, cancel?: AbortSignal) {
+export function usePlan(x: Scenario | undefined, cancel?: AbortSignal) {
   // 지금 시각은 분마다 다시 잰다(폼을 열어 둔 채 시각이 지나도 «지난 시각»이 걸리게)
   const [nowM, setNowM] = useState(nowHm);
   useEffect(() => { const t = setInterval(() => setNowM(nowHm()), 60_000); return () => clearInterval(t); }, []);
@@ -256,9 +273,9 @@ function usePlan(x: Scenario | undefined, cancel?: AbortSignal) {
           else setMsg({ text: `일정에 넣지 못했습니다. ${e.message}` }); });
   };
   return { start, end, ok, past, nowM, late, setStart: (v: string) => setTimes([v, end]), setEnd: (v: string) => setTimes([start, v]), rid, setRid, gait, setGait,
-    avail, availErr, est, estErr, slots, dayErr, clash, msg, busy, add, again: () => setDn((k) => k + 1) };
+    avail, availErr, est, estErr, slots, dayErr, clash, msg, busy, add, again: () => setDn((k) => k + 1), made: made?.id ?? null };
 }
-type Plan = ReturnType<typeof usePlan>;
+export type Plan = ReturnType<typeof usePlan>;
 
 /** 오른쪽 칸: 고른 임무 · 시작/마감 · 이 시간에 쓸 수 있는 로봇 · 걷기 모드 · 예상 끝 · 여유 · 끝 배터리 · 모의 실행(회색) · 일정에 추가 */
 function Side({ x, robots, p, run }: { x?: Scenario; robots: Robot[]; p: Plan; run?: ReactNode }) {
@@ -315,7 +332,7 @@ function Side({ x, robots, p, run }: { x?: Scenario; robots: Robot[]; p: Plan; r
 
 /** 지금 실행: 이 임무가 ACTIVE 로 배정된 내 로봇마다 실행 칸(05 §6.5 서버 길). 실행 칸이 그 로봇의 조종권을 쥐고 있다(탭을 떠나면 돌려줌).
  *  위에 «로봇에 배정»(POST /assignments · 멱등 key): 담당 로봇(총괄은 조직 로봇)만. 성공은 서버 답 뒤에만, 생기면 그 로봇 실행 칸이 바로 나온다 */
-function Runs({ x, robots, user, cancel }: { x?: Scenario; robots: Robot[]; user: Ctx['user']; cancel?: AbortSignal }) {
+export function Runs({ x, robots, user, cancel }: { x?: Scenario; robots: Robot[]; user: Ctx['user']; cancel?: AbortSignal }) {
   const [all, setAll] = useState<Assignment[] | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0);
   const [pick, setPick] = useState(''), [key, setKey] = useState(''), [busy, setBusy] = useState(false), [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   useEffect(() => {

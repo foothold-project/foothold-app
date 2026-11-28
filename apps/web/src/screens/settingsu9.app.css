@@ -1,0 +1,53 @@
+/* 시안 u9 를 앱으로 옮기며 더한 것(시안 값 아님): 시안의 span 단추 · 칸을 button · input 으로 바꾼 데서 생기는 브라우저 기본 모양만 지운다 */
+.u9 button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;letter-spacing:inherit}
+.u9 button:disabled{cursor:default;opacity:.45}
+.u9 button:focus-visible,.u9 [role="tab"]:focus-visible{outline:2px solid var(--pr3);outline-offset:2px}
+.u9 .inp input{flex:1;min-width:0;height:100%;border:0;background:none;color:inherit;font:inherit;outline:none}
+.u9 .inp input.dots{font-size:18px;letter-spacing:.18em}
+.u9 .ni{cursor:pointer}
+.u9 .u9-why{font-size:13px;font-weight:600;padding:14px 0;border-top:1px solid var(--line)}
+.u9 .u9-pager .btns.sb{width:38px;padding:0}
+.u9 [aria-disabled="true"]{opacity:.45;cursor:default}
+.u9 .ni[hidden]{display:none}
+.u9 .pv[aria-disabled="true"]{opacity:1}
+/* 시안 그림이 없는 묶음: 지금 앱 판을 시안 칸 안에. 시안 공통의 여백 지우기(*{margin:0;padding:0})를 이 칸 안에서는 앱 값으로 되돌린다 */
+.u9 .u9-legacy{overflow:auto}
+.u9 .u9-legacy .st{display:block;height:100%}
+.u9 .u9-legacy .st-body{display:block;height:100%;column-count:4;column-gap:14px;column-fill:auto}
+.u9 .u9-legacy .st-grid{display:contents}
+.u9 .u9-legacy .st-scope{display:contents}
+.u9 .u9-legacy .st-body>*>*,.u9 .u9-legacy .st-scope>*{break-inside:avoid;margin-bottom:14px;display:block}
+.u9 .u9-legacy .st-modelbar{break-inside:avoid;margin-bottom:14px}
+/* 사용자 고치기 창: 지금 판 계정 상세를 밝은 유리 위에. 앱 칸 · 단추는 앱 값, 여백만 되살린다 */
+.u9 .u9-edit{max-height:900px}
+.u9 .u9-edit .lv-card{background:none;border:0;box-shadow:none;padding:0;color:#1f2421;display:flex;flex-direction:column;gap:12px}
+.u9 .u9-edit .fh-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.u9 .u9-edit .fh-form{display:flex;flex-direction:column;gap:10px}
+.u9 .u9-edit .fh-field{display:flex;flex-direction:column;gap:6px}
+.u9 .u9-edit .inp{height:44px;padding:0 12px;border-radius:12px;background:rgba(255,255,255,.8);border:1px solid rgba(0,0,0,.08);color:#1f2421}
+.u9 .u9-edit .btn{height:40px;padding:0 14px;border-radius:12px;font-weight:700}
+.u9 .u9-edit h2{font-size:18px}
+/* 밝은 판(시안은 어둠 판만): 시안 u9 화면 <style> 의 어둠 전용 값을 DESIGN.md 밝음 1 값으로. 공통 유리 · 단추 · 판은 light.pv.css */
+.proto.light.u9 .ni{color:#5E6662}
+.proto.light.u9 .ni.on{background:rgba(24,160,126,.12);color:#0E7F63;box-shadow:inset 0 0 0 1px rgba(24,160,126,.35)}
+.proto.light.u9 .ni.on .ic{color:#0E7F63}
+.proto.light.u9 .av2{background:#F6F7F6;color:#1F2421;border:1px solid #DCE0DE}
+.proto.light.u9 .rp{background:#F6F7F6;border-color:#DCE0DE;color:#1F2421}
+.proto.light.u9 .rp.lead{color:#0E7F63;background:rgba(24,160,126,.12);border-color:rgba(24,160,126,.35)}
+.proto.light.u9 .only{color:#1F2421;background:rgba(217,162,31,.18);border-color:#D9A21F}
+.proto.light.u9 .sw{background:#DCE0DE;border-color:#DCE0DE;box-shadow:none}
+.proto.light.u9 .sw.on{background:#18A07E;border-color:#18A07E}
+.proto.light.u9 .radio.on{border-color:#18A07E}
+.proto.light.u9 .kb kbd{background:#FFFFFF;border-color:#DCE0DE;color:#1F2421;box-shadow:0 2px 0 #DCE0DE}
+.proto.light.u9 .tl2,.proto.light.u9 .step{background:#F6F7F6;border-color:#DCE0DE}
+.proto.light.u9 .step span{background:#FFFFFF;color:#1F2421}
+/* 시안 JSX 의 흰 글자 인라인 값(어둠 판 전용): 바탕색이 없는 글자만 그라파이트로 */
+.proto.light.u9 [style*="color: rgb(255, 255, 255)"]:not([style*="background"]){color:#1F2421!important}
+/* u9_7 조이스틱 · 폰 터치 그림: 어둠 판 흰 선 · 흰 채움이 밝은 판 흰 판 위에서 안 보임 = 흑연 선 · 옅은 흑연 채움 · 민트 · 빨강은 밝음 1 값 */
+.proto.light.u9 .pane svg [stroke^="rgba(255,255,255"]{stroke:#5E6662}
+.proto.light.u9 .pane svg [fill^="rgba(255,255,255"]{fill:rgba(31,36,33,.06)}
+.proto.light.u9 .pane svg circle[r="9"][fill^="rgba(255,255,255"],.proto.light.u9 .pane svg circle[r="6"][fill^="rgba(255,255,255"]{fill:#5E6662}
+.proto.light.u9 .pane svg [stroke="#00c389"]{stroke:#18A07E}
+.proto.light.u9 .pane svg [fill="#00c389"]{fill:#18A07E}
+.proto.light.u9 .pane svg [fill="rgba(0,195,137,.18)"]{fill:rgba(24,160,126,.18)}
+.proto.light.u9 .pane svg [fill="#ff4d4f"]{fill:#E04A2F}

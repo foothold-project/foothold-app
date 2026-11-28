@@ -1,6 +1,6 @@
 // 화면 자료 모양 + 아직 가짜인 묶음. USERS·ROBOTS 는 처음 비어 있고 로그인하면 서버 값(/me·/robots)으로 채운다(setServerData).
 // 로봇 상태·조종권은 실시간 연결(rt.ts)이 얹는다. 폰 시나리오 카드는 아직 가짜(임무 탭 목록·편집은 /missions·/scenarios — screens/missions.tsx, 사건은 서버 /events — screens/history.tsx, 장소·지도는 /sites — screens/maps.tsx, 결재는 /approvals — screens/approvals.tsx).
-import type { Device, Go2RobotInfo, Location, PhoneRelayState, RobotSummary } from '../../contracts/ts';
+import type { CurrentRun, Device, Go2RobotInfo, Location, PhoneRelayState, RobotSummary } from '../../contracts/ts';
 export type Role = 'ORG_ADMIN' | 'OPERATOR';
 export type User = { id: string; name: string; role: Role };
 /** 로봇 요약 상태(02 §4 «로봇 요약 상태와 실행 상태»). 끊긴 로봇이면 마지막 확인 값 */
@@ -12,6 +12,8 @@ export type Status = 'STOP_LATCHED' | 'ERROR' | 'TELEOP' | 'PAUSED' | 'RUNNING' 
  *  sim = 시뮬 로봇(서버 RobotSummary.simulation — «시뮬» 표시는 이 값만 쓴다, 05 §13.9) */
 export type Holder = { type: 'USER' | 'RUN'; id: string | null; name: string };
 export type Robot = { id: string; name: string; owner: string; ownerName?: string; battery: number | null; online: boolean; seenAt: string; status: Status | null; mission?: string;
+  /** 서버 요약 current_run 그대로(임무 이름 · 진행) · 없으면 null */
+  run?: CurrentRun | null;
   unknown?: 'link' | 'wait' | 'summary'; holder?: Holder | null; listedAt?: string; location?: Location | null; devices?: Device[]; sim?: boolean;
   phoneRelay?: PhoneRelayState | null; phoneRelayAt?: number;
   /** 실기 Go2 직접 값(서버 robot_info — 자세·상태 번호·넘어짐 추정, 표시만). 구독 로봇은 실시간 state 가 덮음 */
@@ -87,7 +89,7 @@ export const robotName = (r: Pick<RobotSummary, 'id' | 'name' | 'simulation'>, s
 export const toRobot = (r: RobotSummary, sims: string[] = []): Robot => ({
   id: r.id, name: robotName(r, sims), owner: r.owner?.id ?? '', ownerName: r.owner?.display_name,
   battery: r.battery?.soc ?? null, online: r.connection === 'ONLINE', seenAt: clock(r.location?.updated_at ?? r.battery?.updated_at), status: r.status,
-  mission: r.current_run ? `${r.current_run.scenario_name} ${r.current_run.progress.done}/${r.current_run.progress.total}` : undefined,
+  mission: r.current_run ? `${r.current_run.scenario_name} ${r.current_run.progress.done}/${r.current_run.progress.total}` : undefined, run: r.current_run ?? null,
   holder: r.lease && { type: r.lease.holder_type === 'RUN' ? 'RUN' : 'USER', id: r.lease.user?.id ?? null, name: r.lease.user?.display_name ?? '' },
   listedAt: clock(new Date().toISOString()), location: r.location, devices: r.devices, sim: r.simulation,
   phoneRelay: r.phone_relay ?? null, phoneRelayAt: performance.now(), robotInfo: r.robot_info ?? null,

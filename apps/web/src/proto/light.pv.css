@@ -26,4 +26,4 @@
 .proto.light .warncell{background:rgba(224,74,47,.12);border:1px solid #E04A2F}
 .proto.light .warntag{background:#B8361F;color:#FFFFFF}
 /* 예행(시뮬): 파랑 점선 */
-.proto.light .rehearse{border:1px dashed #2F6FE0;color:#2F6FE0}
+.proto.light .rehearse:not(.btnp){border:1px dashed #2F6FE0;color:#2F6FE0}

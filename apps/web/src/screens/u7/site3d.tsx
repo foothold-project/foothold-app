@@ -1,0 +1,184 @@
+// 지도 탭 데모 현장 3D (시안 u7_1 미리 보기 「3D 보기 · 미리 보기」 · u7_4 「3D 보기」).
+// 모형 = 공장 질감판(proto/site.ts loadSite · SITE_TEX_GLB, 없으면 옛 SITE_GLB) · 관제 · 로봇 탭과 같은 로더 · 재질 색 곱(TEX_TONE) · 빛(TEX_LOOK).
+// 좌표 = 로봇 탭 · 관제와 같은 현장 m(x 동 · y 위 · z 남, toMapPx). 해 방향 · 카메라는 시안 build_scene.py 값 그대로(높이각 37° 방위 -12° · 렌즈 70/50 mm).
+// 캔버스는 마운트마다 새 렌더러가 만든 것을 쓰고 거둘 때 지운다(같은 캔버스에 렌더러를 다시 붙이면 forceContextLoss 뒤라 흰 칸이 된다 · 7c07a9b7).
+import { useEffect, useRef, useState } from 'react';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { K, OX, OY, SITE_TOP, TEX_LOOK, lightNow, loadGo2, loadSite, ringLine, sitePose, toneSite } from '../../proto/site';
+import { useRt } from '../../rt';
+import type { Robot } from '../../fake';
+import { whereOf } from '../map3d';
+
+const SITE_W = 3200 / K, SITE_H = 2000 / K;   // 공장 그림 전체(m)
+
+type View = 'iso' | 'k01';
+/** 시안 카메라(build_scene.py look_cam): 대상(현장 m) · 거리 · 렌즈(36 mm 가로 기준). iso 는 단지 폭(916 m)이 가로에 꽉 차게(fit_cam) */
+const CAM: Record<View, { at: [number, number]; dist: number; lens: number }> = {
+  iso: { at: [450, 280], dist: (458 / (18 / 70)) * 1.06, lens: 70 },
+  k01: { at: [(1720 - OX) / K, (976 - OY) / K], dist: 330, lens: 50 },
+};
+const EL = (37 * Math.PI) / 180, AZ = (-12 * Math.PI) / 180;
+/** 시안 그림 가로세로비(iso 6336×2688 · k01 2576×1093). 칸에는 시안처럼 «cover» 로 — 칸이 이보다 좁으면 높이를 맞추고 옆을 자른다 */
+export const PIC_ASPECT = 6336 / 2688;
+/** 카메라 자리 · 대상 · 세로 시야각(three 는 세로 fov). 시험이 시안 값과 맞춰 본다 */
+export function camOf(view: View, aspect: number) {
+  const c = CAM[view], d = c.dist;
+  const pos: [number, number, number] = [c.at[0] + Math.sin(AZ) * Math.cos(EL) * d, Math.sin(EL) * d, c.at[1] + Math.cos(AZ) * Math.cos(EL) * d];
+  const fov = (2 * Math.atan(18 / c.lens / Math.max(aspect, PIC_ASPECT)) * 180) / Math.PI;
+  return { pos, at: [c.at[0], 0, c.at[1]] as [number, number, number], fov };
+}
+/** 해 방향(빛 쪽 단위 벡터): Blender 해(기울기 50° · 방위 140°)를 three 좌표(x, z_b, -y_b)로 */
+const SUN = new THREE.Vector3(0.492, 0.643, -0.587).normalize();
+
+/** 질감판 · 옛 모형 모두 금지 구역(붉은 반투명)은 재질 표시(tex · kind)가 없는 그물 → 「금지 구역」 스위치로 켜고 끔 */
+export function markNogo(site: THREE.Object3D) {
+  site.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.userData.nogo = !m.userData.tex && !m.userData.kind; m.castShadow = !m.userData.nogo; m.receiveShadow = true; } });
+  return site;
+}
+/** 판(밝음 · 어둠)에 맞춘 질감판 빛 · 바탕(관제 3D 와 같은 TEX_LOOK) */
+const lookOf = (light: boolean) => TEX_LOOK[light ? 'light' : 'dark'];
+
+type Rig = { draw: () => void; home: () => void; eye: () => void; nogo: (on: boolean) => void; marks: THREE.Group; dispose: () => void };
+
+/** 로봇 표시 배율(시안 site3d.js S · 900 m 현장에서 0.62 m 로봇이 보이게) */
+const S = 10;
+export type Bot = { id: string; name: string; x: number; y: number; yaw: number | null };
+/** 이 층에 있는 로봇(서버 위치 · 실시간 값 우선). 층(floor_id)이나 이 판(map_version_id) 위치만 · 좌표 없으면 빠짐 */
+export function botsOn(robots: Robot[], floor: string, vid: string): Bot[] {
+  return robots.flatMap((r) => { const l = whereOf(r);
+    return l && (l.floor_id === floor || l.map_version_id === vid) && Number.isFinite(l.x) && Number.isFinite(l.y) ? [{ id: r.id, name: r.name, x: l.x as number, y: l.y as number, yaw: l.yaw ?? null }] : []; });
+}
+
+/** preview = 미리 보기(시안 u7_1 · 단지 전체 · 돌리기만) · 아니면 층 화면 3D(시안 u7_4 · K-01 둘레 · 작은 지도 · 안내 줄 · 로봇 눈높이) */
+export function DemoSite3D({ preview, nogo = true, robots = [], floor = '', vid = '' }: { preview?: boolean; nogo?: boolean; robots?: Robot[]; floor?: string; vid?: string }) {
+  useRt();
+  const bots = preview ? [] : botsOn(robots, floor, vid);
+  const [tags, setTags] = useState<{ id: string; name: string; x: number; y: number }[]>([]);   // 로봇 이름표 화면 자리(px)
+  const host = useRef<HTMLDivElement>(null), rig = useRef<Rig | null>(null);
+  const [at, setAt] = useState<'wait' | 'ok' | 'bad' | 'nogl'>('wait'), [n, setN] = useState(0);
+  const [box, setBox] = useState<[number, number, number, number] | null>(null);   // 작은 지도 속 보이는 땅(0~1 · 왼 · 위 · 폭 · 높이)
+
+  useEffect(() => {
+    let live = true, done: Rig | null = null;
+    setAt('wait');
+    loadSite().then((src) => {
+      if (!live) return;
+      if (!src) { setAt('bad'); return; }
+      let gl: THREE.WebGLRenderer;
+      try { gl = new THREE.WebGLRenderer({ antialias: true }); } catch { setAt('nogl'); return; }
+      const el = host.current!, canvas = gl.domElement;
+      gl.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+      gl.outputColorSpace = THREE.SRGBColorSpace;
+      gl.shadowMap.enabled = true; gl.shadowMap.type = THREE.PCFShadowMap;
+      el.prepend(canvas);
+      const scene = new THREE.Scene(), cam = new THREE.PerspectiveCamera(30, 1, 0.3, 8000);
+      let lit = lightNow(), L = lookOf(lit);
+      scene.background = new THREE.Color(L.bg);
+      scene.fog = new THREE.Fog(L.bg, 2200, 5200);
+      const site = markNogo(src);   // loadSite 가 부를 때마다 새로 복제해 준다
+      toneSite(site, lit);
+      const ground = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), new THREE.MeshStandardMaterial({ color: L.bg, roughness: 1 }));
+      ground.rotation.x = -Math.PI / 2; ground.position.set(SITE_W / 2 - OX / K, -0.05, SITE_H / 2 - OY / K); ground.receiveShadow = true;
+      const hemi = new THREE.HemisphereLight(L.hemi[0], L.hemi[1], L.hemi[2]), sun = new THREE.DirectionalLight(0xffffff, L.sun);
+      gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = L.exp;
+      /** 판이 바뀌면 다음 그림부터 질감 색 곱 · 바탕 · 빛을 따라감 */
+      const tone = () => { const l = lightNow(); if (l === lit) return; lit = l; L = lookOf(l); toneSite(site, l);
+        (scene.background as THREE.Color).setHex(L.bg); scene.fog!.color.setHex(L.bg); (ground.material as THREE.MeshStandardMaterial).color.setHex(L.bg);
+        hemi.color.setHex(L.hemi[0]); hemi.groundColor.setHex(L.hemi[1]); hemi.intensity = L.hemi[2]; sun.intensity = L.sun; gl.toneMappingExposure = L.exp; };
+      sun.position.set(450 + SUN.x * 1500, SUN.y * 1500, 280 + SUN.z * 1500); sun.target.position.set(450, 0, 280);
+      sun.castShadow = true; sun.shadow.mapSize.set(4096, 4096); sun.shadow.bias = -0.0004;
+      Object.assign(sun.shadow.camera, { left: -620, right: 620, top: 620, bottom: -620, near: 10, far: 4000 });
+      scene.add(site, ground, hemi, sun, sun.target);
+      const orbit = new OrbitControls(cam, canvas);
+      orbit.maxPolarAngle = Math.PI / 2 - 0.01; orbit.minDistance = 1; orbit.maxDistance = 4000; orbit.enableRotate = true; orbit.enablePan = !preview; orbit.enableZoom = !preview;
+      const ray = new THREE.Raycaster(), floor = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hit = new THREE.Vector3();
+      /** 화면 네 모서리 시선이 땅에 닿는 자리 → 작은 지도 칸(지평선 위 시선은 단지 끝으로) */
+      const seen = () => {
+        const xs: number[] = [], zs: number[] = [];
+        for (const [u, w] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+          ray.setFromCamera(new THREE.Vector2(u, w), cam);
+          if (ray.ray.intersectPlane(floor, hit)) { xs.push(hit.x); zs.push(hit.z); } else { xs.push(u < 0 ? -OX / K : SITE_W); zs.push(-OY / K); }
+        }
+        const px = (x: number) => Math.min(1, Math.max(0, (x * K + OX) / 3200)), py = (z: number) => Math.min(1, Math.max(0, (z * K + OY) / 2000));
+        const l = px(Math.min(...xs)), r = px(Math.max(...xs)), t = py(Math.min(...zs)), b = py(Math.max(...zs));
+        setBox([l, t, r - l, b - t]);
+      };
+      const marks = new THREE.Group(); scene.add(marks);
+      const v3 = new THREE.Vector3();
+      /** 로봇 이름표: 모형 머리 위를 화면 px 로(시안 u7_3 K-01 이름표 꼴) */
+      const label = () => { cam.updateMatrixWorld(); setTags(marks.children.flatMap((o) => { v3.set(o.position.x, (o.userData.top as number) + 2, o.position.z).project(cam);
+        return v3.z < 1 && Math.abs(v3.x) <= 1 && Math.abs(v3.y) <= 1 ? [{ id: o.userData.bot as string, name: o.userData.name as string, x: ((v3.x + 1) / 2) * el.clientWidth, y: ((1 - v3.y) / 2) * el.clientHeight }] : []; })); };
+      const draw = () => { tone(); gl.render(scene, cam); if (!preview) { seen(); label(); } };
+      const put = (v: View) => { const w = el.clientWidth || 1, h = el.clientHeight || 1, c = camOf(v, w / h); cam.fov = c.fov; cam.position.set(...c.pos); orbit.target.set(...c.at); cam.updateProjectionMatrix(); orbit.update(); draw(); };
+      const home = () => put(preview ? 'iso' : 'k01');
+      const eye = () => {   // 로봇 눈높이: 지금 보는 곳(대상) 앞 6 m · 높이 0.45 m(Go2 앞 카메라 높이 쯤)에서 대상 쪽으로
+        const t = orbit.target.clone(), d = cam.position.clone().sub(t).setY(0).normalize();
+        t.y = 0.4; cam.position.set(t.x + d.x * 6, 0.45, t.z + d.z * 6); orbit.target.copy(t); cam.fov = 60; cam.updateProjectionMatrix(); orbit.update(); draw();
+      };
+      orbit.addEventListener('change', draw);
+      const fit = () => { const w = el.clientWidth, h = el.clientHeight; if (!w || !h) return; gl.setSize(w, h); cam.aspect = w / h; cam.updateProjectionMatrix(); draw(); };
+      const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit);
+      ro?.observe(el);
+      done = {
+        draw, home, eye, marks,
+        nogo: (on) => { site.traverse((o) => { if (o.userData.nogo) o.visible = on; }); draw(); },
+        dispose: () => {
+          ro?.disconnect(); orbit.dispose();
+          site.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) (m.material as THREE.Material).dispose(); });   // 형상은 원본과 같이 씀
+          ground.geometry.dispose(); (ground.material as THREE.Material).dispose();
+          marks.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh || (o as THREE.Line).isLine) (Array.isArray(m.material) ? m.material : [m.material]).forEach((x) => x?.dispose()); });
+          gl.dispose(); gl.forceContextLoss(); canvas.remove();
+        },
+      };
+      rig.current = done;
+      fit(); home(); setAt('ok');
+    });
+    return () => { live = false; done?.dispose(); rig.current = null; };
+  }, [n, preview]);
+  useEffect(() => { if (at === 'ok') rig.current?.nogo(nogo); }, [at, nogo]);
+  // 로봇 = Go2 모형(시안 site3d.js 와 같은 배율) + 바닥 고리, 자리는 로봇 탭 · 관제와 같은 sitePose. 위치가 바뀔 때만 다시
+  const key = bots.map((b) => `${b.id}:${b.name}:${b.x.toFixed(2)},${b.y.toFixed(2)},${(b.yaw ?? 0).toFixed(2)}`).join('|');
+  useEffect(() => {
+    const r = rig.current; if (!r || at !== 'ok') return;
+    let live = true;
+    (async () => {
+      const want = new Set(bots.map((b) => b.id));
+      for (const o of [...r.marks.children]) if (!want.has(o.userData.bot)) {
+        r.marks.remove(o);
+        o.traverse((m) => { const x = (m as THREE.Mesh).material; if (x) (Array.isArray(x) ? x : [x]).forEach((y) => y.dispose()); });
+      }
+      for (const b of bots) {
+        let o = r.marks.children.find((c) => c.userData.bot === b.id);
+        if (!o) {
+          const body = await loadGo2(S);
+          if (!live || rig.current !== r) return;
+          o = new THREE.Group(); o.userData = { bot: b.id, top: body?.top ?? 0.4 * S };
+          if (body) { body.root.traverse((m) => { m.castShadow = true; }); o.add(body.root); }
+          o.add(ringLine(new THREE.Vector3(0, 0.3, 0), 0.6 * S, 0x00c389, 0.95));
+          r.marks.add(o);
+        }
+        const p = sitePose({ x: b.x, y: b.y, yaw: b.yaw } as Parameters<typeof sitePose>[0])!;
+        o.position.set(p.x, 0, p.z); o.rotation.y = p.rot; o.userData.name = b.name;
+      }
+      r.draw();
+    })();
+    return () => { live = false; };
+  }, [at, key]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  return <div className={`vx mp-3d${preview ? ' pre' : ''}`} data-site3d={preview ? 'preview' : 'view'}>
+    <div ref={host} className="vx-3d" role={preview ? 'img' : 'application'} aria-label={preview ? '3D 미리 보기' : '3D 보기 · 끌어서 회전, 오른쪽 버튼 끌어 이동, 휠로 확대'} tabIndex={preview ? undefined : 0} />
+    {!preview && at === 'ok' && <>
+      <div className="mp-hint3" role="group" aria-label="3D 다루기"><span>끌어서 회전</span><span>오른쪽 버튼 끌어 이동</span><span>휠로 확대</span>
+        <button type="button" data-eye onClick={() => rig.current?.eye()}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" /><circle cx="12" cy="12" r="2.8" /></svg>로봇 눈높이</button></div>
+      {tags.map((t) => <span key={t.id} className="mp-bot3" data-bot3={t.id} style={{ left: t.x, top: t.y }}>{t.name}</span>)}
+      <div className="mp-mini3" aria-label="작은 지도 · 보이는 곳"><img src={SITE_TOP[lightNow() ? 'light' : 'dark']} alt="" data-site-top />
+        {box && <i data-seen style={{ left: `${box[0] * 100}%`, top: `${box[1] * 100}%`, width: `${box[2] * 100}%`, height: `${box[3] * 100}%` }} />}</div></>}
+    <div className="vx-over">
+      {at === 'wait' && <p className="lv-note" role="status" data-site3d-wait>3D 모형을 불러오는 중…</p>}
+      {at === 'nogl' && <p className="lv-note" role="alert">이 브라우저에서는 3D 화면을 볼 수 없습니다. «2D 보기» 로 보세요.</p>}
+      {at === 'bad' && <div className="fh-row" data-site3d-bad><p className="fh-msg" role="alert">3D 모형을 불러오지 못했습니다. 다시 불러오세요.</p>
+        <button type="button" className="btn" onClick={() => setN(n + 1)}>다시 불러오기</button></div>}
+    </div>
+  </div>;
+}

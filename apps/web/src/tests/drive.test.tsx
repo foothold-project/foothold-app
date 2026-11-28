@@ -3,6 +3,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
+import { pcBoard } from '../pcboard';
 import type { ScreenState } from '../../../contracts/ts';
 import { App, PHONE_Q } from '../App';
 import { ROBOTS, USERS, type Robot } from './fixtures';
@@ -18,6 +19,9 @@ import { simTune } from '../phone';
 import { REAL_STICK, REAL_WAIT } from '../drive';
 import driveCss from '../drive.css?raw';
 import frameCss from '../frame.css?raw';
+// 옛 PC 관제 부품(관제 요약 · 상세 서랍 · 연결 상태 · 조종 준비) 시험: PC 로봇 탭은 시안 u4 라 부품을 앱 맥락 안에 직접 그린다 → W1 u5
+beforeEach(() => { pcBoard.on = true; });
+afterEach(() => { pcBoard.on = false; });
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -325,7 +329,10 @@ describe('조종 화면', () => {
     serve(PARK, 'r7');
     ready();
     recv(ask());
-    expect($('[role="dialog"]').textContent).toContain('총괄 김OO님이 Go2-7 조종권을 요청했습니다. 넘겨주시겠습니까?');
+    // 시안 u13_5 글: 제목 「역할 이름 님이 로봇 조종권을 요청했습니다」 + 「넘겨주시겠습니까? N 초 안에 …」(N = 서버 expires_at 으로 센 남은 초)
+    expect($('#dv-ask-t').textContent).toBe('총괄 김OO 님이 Go2-7 조종권을 요청했습니다');
+    expect($('[role="dialog"]').className).toBe('proto pv u135');   // 시안 u13_5 요청 칸 · 옛 .dv-ask 창 아님
+    expect($('[data-takeover-left]').textContent).toBe(`넘겨주시겠습니까? ${REQUEST_S} 초 안에 답하지 않으면 조종권을 넘기지 않습니다`);
     const give = $('[data-ask="give"]');
     give.focus();
     key('keydown', 'ArrowUp', give); tick(100);
@@ -2236,39 +2243,42 @@ describe('폰 실기 조종 = 서버 명령표', () => {
     key('keyup', 'KeyW'); key('keyup', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
   });
 
-  it('d5 키: A·← / D·→ = 회전, Q/E = 옆걸음 표 값 ±1(조직 옆 상한이 허락할 때), Q+E·창 밖 = 0, 옆 상한 0 이면 0 + 까닭', () => {
+  it('키(11-28 17:25): A / D = 회전, ← / → = 옆걸음 표 값 ±1(조직 옆 상한이 허락할 때), Q · E 없음, ←+→·창 밖 = 0, 옆 상한 0 이면 0 + 까닭', () => {
     open();
-    key('keydown', 'ArrowLeft'); tick(100); expect(lastAxes()).toEqual([0, 0, MAX_TURN_RATE]);
-    key('keyup', 'ArrowLeft'); key('keydown', 'ArrowRight'); tick(100); expect(lastAxes()).toEqual([0, 0, -MAX_TURN_RATE]);
-    key('keyup', 'ArrowRight'); key('keydown', 'KeyQ'); tick(100); expect(lastAxes()).toEqual([0, 1, 0]);
-    key('keyup', 'KeyQ'); key('keydown', 'KeyE'); tick(100); expect(lastAxes()).toEqual([0, -1, 0]);
-    key('keydown', 'KeyQ'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);   // 함께 누름 = 0
-    key('keyup', 'KeyQ'); key('keyup', 'KeyE'); key('keydown', 'KeyQ'); tick(100); expect(lastAxes()).toEqual([0, 1, 0]);
+    key('keydown', 'KeyA'); tick(100); expect(lastAxes()).toEqual([0, 0, MAX_TURN_RATE]);
+    key('keyup', 'KeyA'); key('keydown', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, -MAX_TURN_RATE]);
+    key('keyup', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    key('keydown', 'KeyQ'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]); key('keyup', 'KeyQ');   // Q · E 는 뺌
+    key('keydown', 'KeyE'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]); key('keyup', 'KeyE');
+    key('keydown', 'ArrowLeft'); tick(100); expect(lastAxes()).toEqual([0, 1, 0]);
+    key('keyup', 'ArrowLeft'); key('keydown', 'ArrowRight'); tick(100); expect(lastAxes()).toEqual([0, -1, 0]);
+    key('keydown', 'ArrowLeft'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);   // 함께 누름 = 0
+    key('keyup', 'ArrowLeft'); key('keyup', 'ArrowRight'); key('keydown', 'ArrowLeft'); tick(100); expect(lastAxes()).toEqual([0, 1, 0]);
     act(() => { window.dispatchEvent(new Event('blur')); }); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
-    key('keyup', 'KeyQ');
+    key('keyup', 'ArrowLeft');
     act(() => simTune({ ...ORG, real_max_vy: 0 }));
-    key('keydown', 'KeyQ'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    key('keydown', 'ArrowLeft'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
     expect(text()).toContain(SIDE_BLOCK);
-    key('keyup', 'KeyQ'); tick(100); expect(text()).not.toContain(SIDE_BLOCK);
+    key('keyup', 'ArrowLeft'); tick(100); expect(text()).not.toContain(SIDE_BLOCK);
   });
 
-  it('글 입력칸에 초점이면 조종 키(Q·W)는 명령 0 · 글자는 막지 않음, 입력칸에서 누른 키는 뗄 때까지 0', () => {
+  it('글 입력칸에 초점이면 조종 키(←·W)는 명령 0 · 글자는 막지 않음, 입력칸에서 누른 키는 뗄 때까지 0', () => {
     open();
     const input = document.createElement('input'); input.setAttribute('data-go2-ip', ''); document.body.append(input); input.focus();
-    for (const c of ['KeyQ', 'KeyW']) {
+    for (const c of ['ArrowLeft', 'KeyW']) {
       const e = new KeyboardEvent('keydown', { code: c, bubbles: true, cancelable: true });
       act(() => { input.dispatchEvent(e); }); tick(100);
       expect(e.defaultPrevented).toBe(false);
       expect(lastAxes()).toEqual([0, 0, 0]);
     }
-    key('keydown', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);   // 입력칸에서 누른 Q·W 가 남아 있는 동안 0
-    key('keyup', 'KeyQ', input); key('keyup', 'KeyW', input); key('keyup', 'KeyD'); input.remove();
+    key('keydown', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);   // 입력칸에서 누른 ←·W 가 남아 있는 동안 0
+    key('keyup', 'ArrowLeft', input); key('keyup', 'KeyW', input); key('keyup', 'KeyD'); input.remove();
     key('keydown', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, -MAX_TURN_RATE]);
     key('keyup', 'KeyD');
   });
-  it('표에 없는 키 조합(W+Q · A+Q · A+D)은 0 + 까닭 한 줄, 떼면 사라짐', () => {
+  it('표에 없는 키 조합(W+← · A+← · A+D)은 0 + 까닭 한 줄, 떼면 사라짐', () => {
     open();
-    for (const [a, b] of [['KeyW', 'KeyQ'], ['KeyA', 'KeyQ'], ['KeyA', 'KeyD']]) {
+    for (const [a, b] of [['KeyW', 'ArrowLeft'], ['KeyA', 'ArrowLeft'], ['KeyA', 'KeyD']]) {
       key('keydown', a); key('keydown', b); tick(100);
       expect(lastAxes()).toEqual([0, 0, 0]);
       expect(text()).toContain(COMBO_BLOCK);

@@ -53,10 +53,10 @@ function Scan({ found, close, at }: { found: (code: string) => void; close: () =
 }
 
 type Os = RobotInstallerInfo['items'][number]['platform'];
-const OS_NAME: Record<Os, string> = { linux: 'Ubuntu 노트북', windows: '윈도우 노트북' };
+export const OS_NAME: Record<Os, string> = { linux: 'Ubuntu 노트북', windows: '윈도우 노트북' };
 /** 서버가 아직 만드는 중(첫 info 요청이 빌드를 시작 — not_built 는 곧 building) → 10초마다 다시 묻는다 */
-const MAKING = new Set(['building', 'not_built']);
-const WHY: Record<string, string> = {
+export const MAKING = new Set(['building', 'not_built']);
+export const WHY: Record<string, string> = {
   build_failed: '설치 파일을 만들지 못했습니다. 총괄 운영 관리자에게 알려 주세요.',
   invalid_artifact: '설치 파일을 만들지 못했습니다. 총괄 운영 관리자에게 알려 주세요.',
   build_tools_missing: '이 서버에서는 설치 파일을 만들 수 없습니다. 총괄 운영 관리자에게 알려 주세요.',
@@ -65,16 +65,16 @@ const WHY: Record<string, string> = {
   not_supported_yet: '준비 중입니다. 곧 받을 수 있습니다.',
 };
 /** 이 브라우저의 운영체제(그 줄을 위에·강조). 모르면 null */
-const myOs = (): Os | null => {
+export const myOs = (): Os | null => {
   const p = `${(navigator as { userAgentData?: { platform?: string } }).userAgentData?.platform ?? ''} ${navigator.userAgent}`;
   return /Windows/i.test(p) ? 'windows' : /Android/i.test(p) ? null : /Linux|X11|Ubuntu/i.test(p) ? 'linux' : null;
 };
 
 /** 새 로봇 추가 위 «노트북에 연결 프로그램이 없나요?» — 운영체제별 받기·만드는 중·이유. 실패해도 코드 입력은 그대로(카드 안 한 줄).
  *  폰(좁은 화면·앱)은 노트북 브라우저에서 받으라는 안내, 받기 링크는 작게 */
-function Installer({ cancel, phone }: Cancel & { phone: boolean }) {
+/** 설치 파일 정보(GET /robot-installer). 닫으면 조회를 끊고, 만드는 중이면 10 초마다 다시 묻는다. 로봇 탭 u2_1 도 같은 값을 쓴다 */
+export function useInstallers(cancel?: AbortSignal) {
   const [items, setItems] = useState<RobotInstallerInfo['items'] | null>(null), [fail, setFail] = useState('');
-  const mine = myOs();
   useEffect(() => {
     // 닫으면(언마운트) 대기 중 조회를 끊는다 — 다시 열어도 옛·새 요청이 겹치지 않게. 로그인 세션이 끝나도 끊김. 늦게 온 옛 답은 live 로 버림
     let live = true, timer = 0;
@@ -89,6 +89,11 @@ function Installer({ cancel, phone }: Cancel & { phone: boolean }) {
     load();
     return () => { live = false; clearTimeout(timer); stop.abort(); cancel?.removeEventListener('abort', off); };
   }, []);
+  return { items, fail };
+}
+
+function Installer({ cancel, phone }: Cancel & { phone: boolean }) {
+  const { items, fail } = useInstallers(cancel), mine = myOs();
   const rows = [...(items ?? [])].sort((a, b) => Number(b.platform === mine) - Number(a.platform === mine));
   return <div className="fh-form" role="group" aria-label="설치 파일 받기" data-installer style={phone ? { padding: 8, borderRadius: 8, border: '1px solid var(--line)' } : undefined}>
     <b>노트북에 연결 프로그램이 없나요?</b>
@@ -205,7 +210,7 @@ export function AddRobot({ user, mine, close, refresh, cancel }: { user?: User; 
 /** 진행 중인 담당 넘기기: 로봇 id → 끝나면 풀리는 약속. 컴포넌트 밖에 두어 상세가 다시 그려져도(내 로봇 A→B→A) 같은 로봇의 두 번째 PATCH 를 막는다.
  *  로그인 세션이 끝나면 cancel 로 요청이 끊겨 finally 에서 풀린다 */
 const transferring = new Map<string, Promise<void>>();
-function TransferOwner({ r, refresh, cancel }: { r: Robot; refresh: () => void } & Cancel) {
+export function TransferOwner({ r, refresh, cancel }: { r: Robot; refresh: () => void } & Cancel) {
   const [open, setOpen] = useState(false), [list, setList] = useState<RobotOwnerCandidate[] | null>(null), [to, setTo] = useState('');
   const [ask, setAsk] = useState(false), [msg, setMsg] = useState<{ text: string; ok?: boolean } | null>(null), [busy, setBusy] = useState(false);
   const seq = useRef(0), askBox = useRef<HTMLDivElement>(null);

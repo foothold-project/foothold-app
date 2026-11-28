@@ -8,10 +8,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MapVersion, MappingProgress, MappingSources } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import type { Robot, User } from '../fake';
-import { Note, type Msg, type Place } from './maps';
-import { ServerDrive, canDrive } from '../serverdrive';
+import type { Msg, Place } from './maps';
+import { canDrive } from '../serverdrive';
 import { usePhone } from '../App';
-import { SlamView, useSlamLive } from './slammap';
+import { SlamView, useSlamLive, type SlamPic } from './slammap';
 
 /** 완료를 알린 세션(같은 SAVED 를 두 번 알리지 않게 — 화면 메모리에만, 그 층에서 알릴 때만 넣는다) */
 const told = new Set<string>();
@@ -43,7 +43,7 @@ export const LIO_WHY: Record<string, string> = {
   STALE: '위치 자료가 끊겼습니다', INVALID_DATA: '받은 위치 자료가 올바르지 않습니다',
 };
 export const GLIM_STAGE: Record<string, string> = { OFF: '꺼짐', STARTING: '켜는 중', RECEIVING: '받는 중', SAVING: '저장 중', UNKNOWN: '상태를 알 수 없습니다' };
-export const BEFORE = '지도 만들기를 누르면 켜집니다';
+export const BEFORE = '스캔 시작을 누르면 켜집니다';
 const LAMP = { ok: 'var(--ok)', warn: 'var(--warn)', bad: 'var(--bad)' } as const;
 type Lamp = keyof typeof LAMP;
 /** 받은 값 검사(RV-519 — 서버·로봇이 보낸 모양을 믿지 않음): 유한수만 · 나이는 0 이상만 · 글은 200자까지 · 객체만 */
@@ -93,8 +93,9 @@ export const meters = (m: number) => `${m < 10 ? m.toFixed(1) : Math.round(m).to
 export const points = (n: number) => (n >= 1e8 ? `${(n / 1e8).toFixed(1)} 억` : n >= 1e4 ? `${n < 1e5 ? (n / 1e4).toFixed(1) : Math.round(n / 1e4).toLocaleString('ko-KR')} 만` : Math.round(n).toLocaleString('ko-KR'));
 const WALK: ['elapsed_s' | 'distance_m' | 'point_count', string, (n: number) => string][] = [['elapsed_s', '걸은 시간', clock], ['distance_m', '걸은 거리', meters], ['point_count', '로봇이 모은 점', points]];
 const WALK_KEY = { elapsed_s: 'time', distance_m: 'dist', point_count: 'points' } as const;
-export function MapBox({ robot, p, link }: { robot: string; p: MappingProgress; link: number }) {
-  const pic = useSlamLive(robot, p, link);
+/** given = 이미 받는 그림(지도 탭 시안 u7_6 이 한 번만 받아 여러 칸에 씀) · fill = 시안 칸을 꽉 채우고 줄은 칸 아래에 겹쳐 띄움 */
+export function MapBox({ robot, p, link, given, fill }: { robot: string; p: MappingProgress; link: number; given?: SlamPic; fill?: boolean }) {
+  const own = useSlamLive(robot, given ? null : p, link), pic = given ?? own;
   const [lio, setLio] = useState(true), [gl, setGl] = useState(true);
   const gp = obj(p.glim_preview);
   const same = !!gp && pic.sid === p.session_id && pic.rev === p.revision && pic.frame != null && pic.frame === gp.frame_id;
@@ -105,8 +106,9 @@ export function MapBox({ robot, p, link }: { robot: string; p: MappingProgress; 
   const walk = WALK.flatMap(([k, name, f]) => { const x = p[k]; return ok(x) ? [[k, name, f, x] as const] : []; }), moving = walk.some(([, , , x]) => x > 0);
   const pick = (to: 'lio' | 'gl') => (same ? (to === 'lio' ? setLio((v) => !v) : setGl((v) => !v)) : (setLio(to === 'lio'), setGl(to === 'gl')));
   return <>
-    <div style={{ position: 'relative', aspectRatio: '640 / 400', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--line)' }} data-make-mapbox>
+    <div style={fill ? { position: 'absolute', inset: 0 } : { position: 'relative', aspectRatio: '640 / 400', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--line)' }} data-make-mapbox>
       <SlamView pic={shown} over={over} hideBase={hide} empty={hide ? '보이게 고른 지도에 아직 받은 칸이 없습니다.' : moving ? '로봇은 지도를 만드는 중 · 화면에 아직 받은 칸이 없습니다.' : '아직 받은 지도가 없습니다.'} /></div>
+    {fill ? <div className="g dk" style={{ left: '20px', bottom: '20px', maxWidth: 'calc(100% - 40px)', padding: '10px 14px', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12.5px' }} data-mapbox-rows>
     {gp && <div className="fh-row" style={{ flexWrap: 'wrap', alignItems: 'center' }} data-glim-preview={same ? 'over' : 'apart'}>
       <span role="group" aria-label="겹쳐 보기 고르기" className="fh-row">
         <button type="button" className="btn" aria-pressed={onLio} data-layer="point_lio" onClick={() => pick('lio')}>Point-LIO</button>
@@ -118,13 +120,26 @@ export function MapBox({ robot, p, link }: { robot: string; p: MappingProgress; 
     {walk.length > 0 && <div className="mx-sum" aria-label="로봇 진행" data-walk-row>
       {walk.map(([k, name, f, x]) => <span key={k} data-walk={WALK_KEY[k]}><b>{f(x)}</b>{name}</span>)}</div>}
     {pic.gap && <p className="lv-note" data-gap>이 세션의 3D 칸은 서버에서 처음부터 받을 수 없습니다. 저장한 뒤 다시 열면 전부 보입니다.</p>}
+    </div> : <>
+    {gp && <div className="fh-row" style={{ flexWrap: 'wrap', alignItems: 'center' }} data-glim-preview={same ? 'over' : 'apart'}>
+      <span role="group" aria-label="겹쳐 보기 고르기" className="fh-row">
+        <button type="button" className="btn" aria-pressed={onLio} data-layer="point_lio" onClick={() => pick('lio')}>Point-LIO</button>
+        <button type="button" className="btn" aria-pressed={onGl} data-layer="glim" onClick={() => pick('gl')}>GLIM</button></span>
+      <span className="lv-note">GLIM 미리보기, 저장 전{same ? '' : ' · 좌표 맞춤 전이라 겹치지 않고 따로 봅니다'}</span></div>}
+    <div className="mx-sum" aria-label="진행" data-progress={p.status}>
+      <span><b>{pic.n.toLocaleString('ko-KR')}</b>받은 3D 칸</span><span><b>{pic.patches.length.toLocaleString('ko-KR')}</b>받은 2D 조각</span></div>
+    {/* 로봇이 보낸 진행 값(서버 MappingProgress)은 이 화면이 받은 칸과 출처가 달라 줄을 나눈다 */}
+    {walk.length > 0 && <div className="mx-sum" aria-label="로봇 진행" data-walk-row>
+      {walk.map(([k, name, f, x]) => <span key={k} data-walk={WALK_KEY[k]}><b>{f(x)}</b>{name}</span>)}</div>}
+    {pic.gap && <p className="lv-note" data-gap>이 세션의 3D 칸은 서버에서 처음부터 받을 수 없습니다. 저장한 뒤 다시 열면 전부 보입니다.</p>}
+    </>}
   </>;
 }
 
-/** 창 «로봇으로 지도 만들기» 안 — 창이 열릴 때만 그린다(닫으면 언마운트 = 조회 멈춤). made = 이 층에 새 지도가 저장됨(그 판 id, 알림 글).
+/** 지도 만들기 상태 · 조회 · 동작 (지도 탭 시안 u7_6 · u7_7 · u7_8 = u7/scan.tsx). 화면이 열릴 때만 그린다(닫으면 언마운트 = 조회 멈춤). made = 이 층에 새 지도가 저장됨(그 판 id, 알림 글).
  *  approved·list = 이 층 지금 승인 판 id·받은 판 목록(받는 중 null) — 지난 SAVED(이미 반영·그 뒤 바뀜)를 다시 알리지 않게.
  *  지도 만들기는 지도 탭에서만(11-25 RB-SLAM-WEB4 — 조종 화면 오른쪽 칸 «지도 만들기» 없앰) */
-export function MakeMap({ floor, user, robots, places, cancel, made, approved, list }: { floor: string; user: User; robots: Robot[]; places: Place[]; cancel?: AbortSignal; made: (version: string, text: string) => void;
+export function useMakeMap({ floor, user, robots, places, cancel, made, approved, list }: { floor: string; user: User; robots: Robot[]; places: Place[]; cancel?: AbortSignal; made: (version: string, text: string) => void;
   approved: string | null; list: MapVersion[] | null }) {
   const mine = makers(user, robots);
   const [rid, setRid] = useState(() => (mine.find((r) => r.online) ?? mine[0])?.id ?? ''), robot = mine.find((r) => r.id === rid);
@@ -182,7 +197,6 @@ export function MakeMap({ floor, user, robots, places, cancel, made, approved, l
     } finally { setBusy(false); setN((k) => k + 1); }   // 성공·실패 모두 서버 상태를 다시 받는다(409 세션 어긋남 등)
   };
 
-  if (!mine.length) return <p className="lv-note">지도 만들기는 로봇의 담당 운영자만 할 수 있습니다.</p>;
   const open = !!prog && OPEN.has(prog.status), here = open && prog!.floor_id === floor;
   const elsewhere = open && !here && places.find((x) => x.floor.id === prog!.floor_id);
   const p = here ? prog! : null, isStale = stale || p?.error_code === 'STALE';
@@ -191,44 +205,6 @@ export function MakeMap({ floor, user, robots, places, cancel, made, approved, l
   const slow = p?.status === 'STARTING' && Date.now() - startAt.current.t > SLOW_START_S * 1000;
   const asked = !!p?.times?.save_requested_at, stuck = p?.status === 'FAILED' || p?.status === 'UNKNOWN';
   const rej = p?.last_report_rejection ?? got?.last_report_rejection;
-  return <div className="fh-form" style={{ gap: 10 }} data-make-map>
-    <label className="fh-field"><span>로봇</span>
-      <select className="inp" value={rid} disabled={busy || (here && !stuck)} onChange={(e) => { setRid(e.target.value); setProg(undefined); setMsg(null); setStale(false); }}>
-        {mine.map((r) => <option key={r.id} value={r.id}>{r.name}{r.online ? '' : ' (연결 안 됨)'}</option>)}</select></label>
-    {prog === undefined && !poll && <p className="lv-note" role="status">진행 상황을 확인하는 중…</p>}
-    {open && !here && <p className="fh-msg" role="status" data-elsewhere>이 로봇은 {elsewhere ? `«${elsewhere.building.name} ${elsewhere.floor.name}»` : '다른 층'}에서 지도를 만드는 중입니다. 그 층에서 저장하거나 취소하세요.</p>}
-    {prog !== undefined && !open && <>
-      {got && <div className="fh-row" role="status" data-received><p className="fh-msg fh-grow">{RECEIVED_TEXT}</p>
-        {got.map_version_id && <button type="button" className="btn" onClick={() => madeRef.current(got.map_version_id!, RECEIVED_TEXT)}>받은 지도 보기</button>}</div>}
-      <Sources st={null} />
-      <p className="lv-note">로봇이 돌아다니며 이 층 지도를 그립니다. «지도 만들기»를 누른 뒤 {how} 로봇을 움직이고, 다 돌면 «지도 저장»을 누릅니다.</p>
-      {robot && !robot.online && <p className="fh-msg" role="alert" data-offline>{OFF}</p>}
-      <div className="fh-row"><button type="button" className="btn pri" disabled={busy || !robot?.online} onClick={() => act('start')}>지도 만들기</button></div>
-    </>}
-    {p && <>
-      {/* 왼쪽 실시간 지도·진행, 오른쪽 조종(좁으면 아래로) — 지도를 보면서 스크롤 없이 STOP·조종 */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: 10 }}>
-        <div style={{ flex: '1.4 1 340px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}><Sources st={p.status} s={p.sources} /><MapBox robot={rid} p={p} link={link} /></div>
-        {p.status === 'RUNNING' && drive && <div data-make-drive style={{ flex: '1 1 300px', minWidth: 0 }}><ServerDrive c={{ user }} r={robot!} inline /></div>}
-      </div>
-      {p.status === 'STARTING' && <p className="lv-note" role="status" data-starting>시작하는 중… 로봇이 지도 기능을 켜고 있습니다.</p>}
-      {slow && <p className="fh-msg" role="alert" data-slow>{SLOW_TEXT}</p>}
-      {p.status === 'RUNNING' && <p className="fh-msg ok" role="status">만드는 중 · {how} 로봇을 천천히 움직이세요.</p>}
-      {(p.status === 'SAVING' || p.status === 'FINALIZING') && <p className="lv-note" role="status" data-saving>지도를 저장하는 중… 마무리까지 시간이 걸릴 수 있습니다.</p>}
-      {p.status === 'UNKNOWN' && <p className="fh-msg" role="alert" data-unknown>{p.error_code === 'LINK_LOST' ? LINK_LOST : p.reason || '로봇 상태를 확인하지 못했습니다. 저장하거나 취소하세요.'}</p>}
-      {p.status === 'FAILED' && <p className="fh-msg" role="alert" data-failed>{failText(p)}</p>}
-      {ask ? <div className="fh-row" role="group" aria-label="확인"><span>지금까지 그린 것을 버리고 지도 만들기를 취소할까요?</span>
-          <button type="button" className="btn pri" disabled={busy} onClick={() => act('cancel')}>취소하기</button>
-          <button type="button" className="btn" onClick={() => setAsk(false)}>돌아가기</button></div>
-        : <div className="fh-row">
-          {p.status === 'RUNNING' && <button type="button" className="btn pri" disabled={busy || isStale} onClick={() => act('save')}>지도 저장</button>}
-          {stuck && !isStale && <button type="button" className="btn pri" disabled={busy} onClick={() => act('save')}>{asked || p.status === 'FAILED' ? '다시 저장' : '지도 저장'}</button>}
-          <button type="button" className="btn" disabled={busy} onClick={() => setAsk(true)}>취소</button></div>}
-    </>}
-    {rej && <p className="lv-note" data-rejected>로봇이 보낸 자료 일부를 서버가 받지 않았습니다: {rej.reason}</p>}
-    {isStale && !msg && p?.status !== 'FAILED' && <p className="fh-msg" role="alert">{STALE_TEXT}</p>}
-    <Note m={msg} />
-    {busy && <p className="lv-note" role="status" data-make-busy>요청을 보내는 중… 답이 오면 단추가 다시 켜집니다.</p>}
-    {poll && <p className="fh-msg" role="alert">{poll}</p>}
-  </div>;
+  return { mine, rid, setRid, robot, prog, setProg, busy, msg, setMsg, poll, ask, setAsk, stale, setStale, link, act, drive, how, madeRef, open, here, elsewhere, p, isStale, got, slow, asked, stuck, rej };
 }
+

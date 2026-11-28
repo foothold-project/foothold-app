@@ -24,7 +24,8 @@ describe('시뮬 지도 칸이 비었을 때', () => {
   it('두 테마 모두 글 대비 4.5:1 이상', () => {
     const bridge = brandCss.replace(/\s+/g, '');
     expect(bridge).toContain('--panel2:var(--paper-2);');
-    expect(bridge).toContain('--muted:var(--ink-2);');
+    expect(bridge).toContain('--muted:var(--b-ink-2);');   // .proto 안 옛 .fh 글자색을 위해 :root 에서 먼저 잡아 둔 ink-2
+    expect(bridge).toContain('--b-ink-2:var(--ink-2);');
     for (const theme of ['dark', 'light']) expect(ratio(token(theme, 'ink-2'), token(theme, 'paper-2')), theme).toBeGreaterThanOrEqual(4.5);
   });
   it('영상 위 3D 칸(점군 · 라이다)의 빈 글은 어두운 바탕(#05080A) 위 4.5:1 이상, 어두움 판 --ink-2 값으로 두 테마 같게', () => {

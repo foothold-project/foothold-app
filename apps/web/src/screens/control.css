@@ -68,3 +68,66 @@
 .ct-alarm[data-tone="warn"] h2{color:var(--warn)}
 .ct-recent a{color:var(--muted)}
 .ct-recent .fh-list button,.ct-list .fh-list button{display:flex;align-items:center;gap:8px;width:100%;text-align:left}
+
+/* ── 시안 u5_1 값(11-28 · CONTROL-DIFF-1128.md) ─────────────────
+   어두움 = proto/screens/u5_1_tiles.html 의 .tb · .seg2 · .cnt · .tile · .cv · .inf · .ln · .pg · .s · .side · .mini · .al 값 그대로.
+   밝음 = 같은 구조에 공식 토큰만. 그림 칸은 메시 색이 어두운 바탕 기준이라 두 테마 모두 어두운 바탕(점 바닥 포함) */
+.ct{--ct-tile:linear-gradient(180deg,rgba(255,255,255,.065),rgba(255,255,255,.025));--ct-tline:rgba(255,255,255,.10);--ct-tshadow:0 12px 30px rgba(0,0,0,.30),inset 0 1px 0 rgba(255,255,255,.08);
+  --ct-ln:rgba(232,235,240,.78);--ct-mu:#9aa19d;--ct-s:rgba(255,255,255,.04);--ct-sline:rgba(255,255,255,.06);--ct-pg:rgba(255,255,255,.08);--ct-pr:#00c389;
+  --ct-red:#ff4d4f;--ct-yel:#f2b705;--ct-seg:rgba(255,255,255,.05);--ct-segon:#ffffff;--ct-segonink:#000000;--ct-line:rgba(255,255,255,.08)}
+.fh.light .ct{--ct-tile:var(--card);--ct-tline:var(--rule);--ct-tshadow:0 1px 2px rgba(22,28,38,.06);--ct-ln:var(--ink-2);--ct-mu:var(--ink-2);--ct-s:var(--paper);--ct-sline:var(--rule);
+  --ct-pg:var(--rule);--ct-pr:var(--brand);--ct-red:var(--bad);--ct-yel:var(--warn);--ct-seg:var(--paper-2);--ct-segon:var(--card);--ct-segonink:var(--ink);--ct-line:var(--rule)}
+/* 위 띠 = .tb(카드 아님 · 한 줄) */
+.ct .ct-bar-top{min-height:56px;padding:0;border:0;background:none;gap:14px}
+.ct .ct-seg{gap:2px;padding:4px;border-radius:13px;background:var(--ct-seg);border:1px solid var(--ct-line)}
+.ct .ct-seg button{min-height:34px;padding:0 14px;border-radius:10px;gap:7px;font-size:14px;font-weight:700;color:var(--ct-mu)}
+.ct .ct-seg button[aria-pressed="true"]{background:var(--ct-segon);color:var(--ct-segonink);box-shadow:none}
+.ct .ct-sums{gap:6px 16px;font-size:13.5px;font-weight:700;color:var(--ct-ln)}
+.ct .ct-sums b{font-weight:800}
+.ct .ct-sums li[data-tone="bad"],.ct .ct-sums li[data-tone="bad"] b{color:var(--ct-red)}
+/* 4 열 2 줄 큰 타일 · 오른쪽 380 */
+.ct .ct-body{grid-template-columns:minmax(0,1fr) 380px;gap:14px}
+.ct .ct-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:20px 14px;grid-auto-rows:minmax(360px,calc((100vh - 200px) / 2))}
+@media (max-width:1500px){.ct .ct-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:1100px){.ct .ct-body{grid-template-columns:minmax(0,1fr)}.ct .ct-grid{grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}}
+.ct .ct-tile{gap:8px;padding:6px 6px 12px;border-radius:18px;background:var(--ct-tile);border:1px solid var(--ct-tline);box-shadow:var(--ct-tshadow)}
+.ct .ct-tile[data-sim]{border:1.5px dashed rgba(138,147,163,.7)}
+.ct .ct-tile[data-sel]{border:1.5px solid var(--ct-pr);box-shadow:0 0 0 4px color-mix(in srgb,var(--ct-pr) 18%,transparent),var(--ct-tshadow)}
+.ct .ct-tile[data-tone="warn"]{border:1.5px solid var(--ct-yel);background:linear-gradient(180deg,color-mix(in srgb,var(--ct-yel) 10%,transparent),color-mix(in srgb,var(--ct-yel) 3%,transparent))}
+.ct .ct-tile[data-tone="bad"]{border:1.5px solid var(--ct-red);background:linear-gradient(180deg,color-mix(in srgb,var(--ct-red) 13%,transparent),color-mix(in srgb,var(--ct-red) 4%,transparent))}
+.ct .ct-flag{top:-12px;left:14px;height:24px;display:flex;align-items:center;padding:0 10px;border-radius:8px;font-size:12px;font-weight:800;color:#fff;background:var(--ct-red);box-shadow:0 4px 12px rgba(0,0,0,.35)}
+.ct .ct-tile[data-tone="warn"] .ct-flag{background:var(--ct-yel);color:#1f2421}
+/* 그림 칸 = .cv + 점 바닥 */
+.ct .ct-video{flex:1 1 auto;min-height:150px;aspect-ratio:auto;border-radius:13px;background:radial-gradient(120% 95% at 50% 78%,#14191d 0%,#0a0d10 55%,#050607 100%);box-shadow:inset 0 0 0 1px rgba(255,255,255,.05)}
+.fh.light .ct .ct-video{background:radial-gradient(120% 95% at 50% 78%,#14191d 0%,#0a0d10 55%,#050607 100%)}
+.ct .ct-video::before{content:"";position:absolute;left:-60%;right:-60%;bottom:-6%;height:72%;pointer-events:none;
+  background:radial-gradient(circle,rgba(0,195,137,.55) 1.1px,transparent 1.7px) 0 0/16px 16px;transform:perspective(260px) rotateX(64deg);transform-origin:50% 100%;
+  -webkit-mask-image:linear-gradient(to top,#000 20%,transparent 92%);mask-image:linear-gradient(to top,#000 20%,transparent 92%)}
+.ct .ct-badge{min-height:26px;padding:0 10px;border-radius:8px;font-size:12px;font-weight:800;background:rgba(8,10,12,.72);backdrop-filter:blur(4px)}
+.ct .ct-relink{position:absolute;inset:0;z-index:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:rgba(12,15,20,.62);backdrop-filter:blur(3px);font-size:13px;font-weight:700;color:#ffffff}
+.ct .ct-relink .ct-i{width:22px;height:22px;color:var(--ct-yel)}
+.ct .ct-relink small{font-size:12px;font-weight:600;color:#9aa19d}
+/* 글 칸 = .inf · .nm · .ln · .pg · .s */
+.ct .ct-head,.ct .ct-line,.ct .ct-facts{padding:0 8px}
+.ct .ct-head{padding-top:6px}
+.ct .ct-name{font-size:18px;font-weight:800;letter-spacing:-.02em}
+.ct .ct-tile[data-tone="bad"] .ct-name{color:var(--ct-red)}
+.ct .ct-line{font-size:13.5px;font-weight:600;color:var(--ct-ln)}
+.ct .ct-line .lbl{font-size:12px;color:var(--ct-mu)}
+.ct .ct-ico svg{color:var(--ct-mu)}
+.ct .ct-bar{height:4px;margin:0 8px;background:var(--ct-pg);overflow:hidden}
+.ct .ct-bar i{background:var(--ct-pr)}
+.ct .ct-facts{margin-top:auto;gap:6px}
+.ct .ct-fact{height:40px;align-items:center;gap:7px;padding:0 9px;border-radius:10px;background:var(--ct-s);border:1px solid var(--ct-sline)}
+.ct .ct-fact b{font-size:13.5px;font-weight:800}
+.ct .ct-fact .lbl{font-size:12px;font-weight:600;color:var(--ct-mu)}
+.ct .ct-fact[data-last]{height:auto;min-height:40px}
+/* 오른쪽 = .side · .mini · .al */
+.ct .ct-side{gap:14px}
+.ct .ct-side .lv-card{padding:18px 18px 14px}
+.ct .ct-side h2{font-size:17px;font-weight:800;letter-spacing:-.02em}
+.ct .ct-small .ct-mapbox [data-small-map]{background:#0e1116}   /* 높이 250 · 둥근 14 = 시안 .mini(control.tsx SmallMap) */
+.ct .ct-recent .fh-list>li{border-bottom:1px solid var(--ct-line)}
+.ct .ct-recent .fh-list>li:last-child{border-bottom:0}
+.ct .ct-recent .fh-list button{padding:11px 2px;font-size:13.5px;font-weight:700;border:0;background:none;color:inherit}
+.ct .ct-recent [data-alert-at]{font-size:12px;color:var(--ct-mu);white-space:nowrap}
