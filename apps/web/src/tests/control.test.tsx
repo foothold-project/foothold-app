@@ -916,6 +916,20 @@ describe('관제 탭', () => {
     expect(tile('k8').querySelector('.ln span')!.textContent).toBe('임무 전 · 시뮬 등록');
     expect([fact('k8', 'battery'), small('k8', 'battery')]).toEqual(['시뮬', '배터리 해당 없음']);
   });
+  it('데모 = 실기 꼴: 가용 demo = true 인 시뮬 로봇은 시뮬 점선 · 칩 · «배터리 해당 없음» 없이 실기 타일과 같고 «데모» 칩만 더함', async () => {
+    const av = vi.spyOn(api, 'availability').mockResolvedValue({ items: [{ robot_id: 'k8', robot_name: 'K-08', state: 'FREE', busy_until: null, busy_slot_id: null, busy_label: null, battery_pct: 70, demo: true, sim: true, location_label: null }] } as never);
+    const sc = vi.spyOn(api, 'schedule').mockResolvedValue({ day: '2026-11-28', tz: 'Asia/Seoul', slots: [] } as never);
+    try {
+      mount('u-kim', EIGHT); feed(EIGHT);
+      await act(async () => {});
+      const t = tile('k8');
+      expect(t.classList.contains('sim')).toBe(false);
+      expect(t.querySelector('.chip.sim')).toBeNull();
+      expect(t.querySelector('.nm [data-demo]')!.textContent).toBe('데모');
+      expect(fact('k8', 'battery')).toBe('70 %');
+      expect(t.textContent).not.toContain('시뮬 등록');
+    } finally { av.mockRestore(); sc.mockRestore(); }
+  });
   it('최근 경고 제목은 경고 종류대로: 정지 잠금(관절 온도는 보통)이면 «정지 잠금», 관절 이름 · 온도 아이콘을 붙이지 않음', () => {
     mount('u-kim', EIGHT); feed(EIGHT, { k2: { ...temp([30, 31, 32, 30, 31, 32, 30, 31, 32, 30, 31, 32]), latched: true, status: 'STOP_LATCHED' } as never });
     const al = $('[data-alert="k2"]');
