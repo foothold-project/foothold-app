@@ -124,6 +124,27 @@ class Pairing(Tenant, Base):
     consumed: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
+class PairingOffer(Tenant, Base):
+    """Phone-shown QR offer (u08). Holds no robot credential; the key stays on pairings."""
+    __tablename__ = 'pairing_offers'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id'], ['organizations.id']),
+        ForeignKeyConstraint(['org_id', 'created_by'], ['users.org_id', 'users.id']),
+        ForeignKeyConstraint(['pairing_id'], ['pairings.id'], ondelete='SET NULL'),
+        UniqueConstraint('code_hash'),
+        CheckConstraint("state IN ('WAITING','READ','PAIRED','EXPIRED','FAILED')", name='pairing_offer_state'),
+        Index('pairing_offers_creator', 'org_id', 'created_by'),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4)
+    created_by: Mapped[UUID] = mapped_column(PGUUID)
+    code_hash: Mapped[bytes] = mapped_column(LargeBinary)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    state: Mapped[str] = mapped_column(Text, default='WAITING')
+    robot_serial: Mapped[str | None] = mapped_column(Text)
+    pairing_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    robot_id: Mapped[UUID | None] = mapped_column(PGUUID)
+
+
 class PairingRate(Tenant, Base):
     __tablename__ = 'pairing_rates'
     __table_args__ = (ForeignKeyConstraint(['org_id'], ['organizations.id']),)

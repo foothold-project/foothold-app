@@ -149,11 +149,15 @@
 | POST `/pairing/claim` | `{code}` → `{pairing_id,robot_serial,expires_at}` | 운영만 |
 | POST `/pairing/{id}/confirm` | `{name}` → `RobotSummary`; 새 등록은 담당=claim한 운영·simulation=false, 같은 담당 기체는 기존 id 재연결 | 같은 운영만 |
 | POST `/pairing/{id}/poll` | `{poll_secret}` → `{state:"waiting"}` / `{state:"paired",robot_id,agent_token,agent_ws_url}` / `{state:"consumed"}` | 시작 프로그램의 비밀 필요 |
+| POST `/pairing/offer` | 본문 없음 → `{offer_id,code,expires_at}` (u08 폰 QR). poll_secret·연결 키 없음 | 운영만 |
+| POST `/pairing/offer/claim` | `{code,robot_serial}` → `{pairing_id,expires_at,poll_secret}`; 로봇이 QR에서 읽은 코드로 1회만 | 로그인 없음 (로봇) |
+| GET `/pairing/offer/{offer_id}` | → `{offer_id,state,expires_at,robot_serial,pairing_id,robot_id}`; state `WAITING`·`READ`·`PAIRED`·`EXPIRED`·`FAILED` | 만든 운영만 |
 | POST `/robots/{id}/field-approval` | 폐기된 사람 승인 API →410 `FIELD_APPROVAL_RETIRED` | 실기 담당 운영만 |
 | DELETE `/robots/{id}/field-approval` | 폐기된 사람 승인 API →410 `FIELD_APPROVAL_RETIRED` | 실기 담당 운영만 |
 | DELETE `/robots/{id}/connection` | 연결 키·폰 출입증 폐기, 진행 중 조종 STOP·잠금·조종권 회수, 연결 종료 →204 | 실기 담당 운영만 |
 
 - serial은 DDS uint32 두 개를 정규화한 `앞숫자-뒷숫자`다. 같은 serial의 활성 실기가 있고 담당이 confirm한 운영 본인이면 기존 robot_id로 재연결한다. 이름을 바꾸고 새 토큰을 발급하며 옛 토큰·폰 출입증·현장 승인을 폐기하고 진행 중 조종은 연결 끊기와 같은 STOP·잠금·조종권 회수 뒤 옛 연결을 닫는다. 토큰이 살아 있는 노트북 재설치도 같은 처리다. 다른 담당의 기체는409와 «담당 운영에게 넘겨받기 또는 삭제 요청» 안내를 준다. 기존 serial 없는 로봇·토큰은 그대로 둔다.
+- **폰 QR 방향 (u08, 2026-11-28)**: 로그인한 운영의 폰이 QR `foothold-offer:<code>`를 띄우고 Go2 앞 카메라가 읽는다. code는 24자 무작위(`[A-Za-z0-9_-]`)·5분·1회용이며 원문은 저장하지 않는다. offer 응답과 상태 응답에는 poll_secret·연결 키가 없다. 로봇이 `offer/claim`을 하면 서버가 기존 pairings 행을 만들어 poll_secret을 로봇 응답에만 주고 offer는 `READ`가 된다. 폰은 상태에서 읽힌 serial과 `pairing_id`를 보고 기존 `/pairing/{pairing_id}/confirm`으로 이름을 정한다 (`PAIRED`). 연결 키는 로봇이 기존 `poll`로만 받는다. 이미 쓴 코드·만료 코드·다른 조직 코드는 404 `PAIRING_NOT_FOUND`이고 만료된 offer는 `EXPIRED`로 닫힌다. 같은 운영이 새 offer를 받으면 앞의 열린 offer는 즉시 `EXPIRED`, 읽혔던 pairing은 consumed가 되어 confirm 404·poll `consumed`다. 다른 담당 기체라 confirm이 409이면 offer는 `FAILED`. `offer`는 사용자당 10회·IP당 20회, `offer/claim`은 IP당 20회 (10분 창). 로봇 앞 카메라 QR 읽기는 계약(`read_offer_qr_from_front_camera`)만 있고 실기 시험은 팀장 현장 확인 뒤다. QR로 Wi-Fi 비밀번호 넘기기는 보류(팀장 결정). 기존 `start`·`claim` 흐름은 호환으로 남는다.
 - 코드는 10분·1회용, poll_secret은 32바이트 무작위이며 start 응답에서만 전달한다. claim한 다른 운영의 claim/confirm, 없는 코드·사용한 코드·만료 코드는 같은404 `PAIRING_NOT_FOUND`다. 같은 운영의 대기 claim 재요청은 허용한다.
 - start는 실제 연결 IP당 10분 고정 창 10회, claim은 사용자당 10회·IP당 20회다(429). 프록시의 임의 전달 헤더는 신뢰하지 않는다. DB에 카운터를 저장해 실패·재시작으로 초기화되지 않는다. 조직당 확인 전 대기 상한100건이다.
 - 모든 pairing 응답은 `Cache-Control: no-store`. poll_secret은 해시만, 전달 전 토큰은 poll_secret에서 별도로 유도한 키로 AES-GCM 암호화해 저장한다. 한 번 poll하면 암호문을 지운다. 코드·비밀·토큰·serial 원문은 사건에 기록하지 않는다.

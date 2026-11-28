@@ -165,6 +165,8 @@ erDiagram
 | claimed_by, robot_id | uuid NULL | 같은 조직 사용자·로봇의 복합 FK, 행 잠금으로 claim·confirm·poll 직렬화. 같은 serial의 담당 본인 재연결이면 기존 robot_id를 참조하고 토큰 교체 |
 | consumed | bool | 자격을 한 번만 전달했는지 |
 
+**pairing_offers** (이관0038, u08 폰 QR): `id`, `org_id`, `created_by`(같은 조직 사용자 복합 FK), `code_hash bytea UNIQUE`(24자 code SHA-256, 원문 없음), `expires_at`(5분), `state`(`WAITING`·`READ`·`PAIRED`·`EXPIRED`·`FAILED` CHECK), `robot_serial NULL`, `pairing_id NULL`(pairings FK, 삭제 시 NULL), `robot_id NULL`. 비밀·키 열은 없다. 로봇이 읽으면 pairings 행을 따로 만들어 기존 confirm·poll로 키를 전달한다. 새 offer 때 하루 지난 행을 지운다. 앱 계정 SELECT/INSERT/UPDATE/DELETE, 읽기 계정 SELECT.
+
 **pairing_rates**: `(org_id,key_hash,window_start)` 복합 PK, `count integer`. 실제 연결 IP·사용자별 start/claim 시도를10분 창으로 집계한다. 원래 식별값은 저장하지 않고 실패 응답 전에도 카운터를 commit한다. 앱 DB 계정에 두 표의 SELECT/INSERT/UPDATE/DELETE, 읽기 계정에 SELECT만 부여한다. 로봇 승인 사건은 기존 append-only events를 쓴다.
 
 0022 downgrade는 단기 페어링·승인 정보만 없애고 기존 로봇·에이전트 토큰 해시는 보존한다. 이전 서버는 현장 승인 관문을 알지 못하므로 배포 담당은 되돌리기 전에 전체 실기 조종 스위치를 닫고 기존 목록 설정도 비워야 한다. Git revert만으로 운영 이관·설정이 바뀌지는 않는다.

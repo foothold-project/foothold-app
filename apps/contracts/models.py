@@ -3524,6 +3524,45 @@ class PairingPaired(Contract):
     agent_ws_url: str
 
 
+# u08 phone-shown QR pairing. QR text is `foothold-offer:<code>`; the phone never
+# receives a poll secret or robot key. The robot claims with the code it read and
+# its serial, then uses the existing poll path; the phone confirms the read serial.
+PAIRING_OFFER_CODE = r'^[A-Za-z0-9_-]{24}$'
+PairingOfferState = Literal['WAITING', 'READ', 'PAIRED', 'EXPIRED', 'FAILED']
+
+
+class PairingOffered(Contract):
+    offer_id: UUID
+    code: str = Field(pattern=PAIRING_OFFER_CODE)
+    expires_at: UTCDateTime
+
+
+class PairingOfferStatus(Contract):
+    offer_id: UUID
+    state: PairingOfferState
+    expires_at: UTCDateTime
+    robot_serial: str | None
+    pairing_id: UUID | None
+    robot_id: UUID | None
+
+
+class PairingOfferClaim(Contract):
+    code: str = Field(pattern=PAIRING_OFFER_CODE)
+    robot_serial: str = Field(pattern=r'^(0|[1-9][0-9]{0,9})-(0|[1-9][0-9]{0,9})$')
+
+    @model_validator(mode='after')
+    def valid_serial(self):
+        if any(int(part) > 0xFFFFFFFF for part in self.robot_serial.split('-')):
+            raise ValueError('serial components must be uint32')
+        return self
+
+
+class PairingOfferClaimed(Contract):
+    pairing_id: UUID
+    expires_at: UTCDateTime
+    poll_secret: str = Field(min_length=43, max_length=43)
+
+
 FIELD_APPROVAL_CHECKS = frozenset({'space_clear', 'emergency_stop_ready', 'robot_verified'})
 
 
@@ -3594,6 +3633,8 @@ REQUEST_MODELS.add(StopRequestAck)
 REQUEST_MODELS.add(PhoneStateUpload)
 REQUEST_MODELS.update({PairingStart, PairingClaim, PairingConfirm, PairingPoll, FieldApprovalRequest})
 TOP['PairingPollResult'] = PairingWaiting | PairingPaired
+REQUEST_MODELS.add(PairingOfferClaim)
+TOP['PairingOfferState'] = PairingOfferState
 
 REQUEST_MODELS.update({TerrainSpec, TerrainPose, TerrainBox, TerrainStairs, TerrainRamp, TerrainGap, TerrainWrite})
 
