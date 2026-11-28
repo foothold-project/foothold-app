@@ -90,6 +90,12 @@ export function stopLine({ stop: p, state: s }: Pick<Live, 'stop' | 'state'>): {
     return { tone: 'ok', text: '로봇 정지 확인 — 잠금·출력 0·수평 속도 0' };
   return { tone: 'warn', text: `정지 요청 접수${p.phase === 'fallback' ? '(대체 경로)' : ''} — 로봇 정지 확인 대기` };
 }
+/** 자세 멈춤(app-lx 검토 · 03:48): 일어서기 · 엎드리기 도중 STOP 을 받으면 몸이 그 자리에 붙잡히고 posture.state 는 TRANSITIONING 으로 남음.
+ *  posture_result 가 STOPPED(계약 밖 · 서버가 보냄) 또는 FAILED 이면 «바꾸는 중» 이 아니라 멈춤으로 읽는다. 화면 글만 · 명령 · 이동 잠금은 그대로 */
+export const POSTURE_HALTED = '자세 멈춤 · 일어서기나 엎드리기로 다시';
+export const postureHalted = (s: { posture?: { state?: string | null } | null; posture_result?: { status: string } | null } | null | undefined) =>
+  s?.posture?.state === 'TRANSITIONING' && (s.posture_result?.status === 'STOPPED' || s.posture_result?.status === 'FAILED');
+
 /** 자세 단추(11-16): 일어서기·엎드리기 — 계약 ScreenPosture.action 으로 보내고, 결과는 로봇이 보고한 state.posture_result 로 안다 */
 export const POSE = {
   up: { act: 'stand_up', name: '일어서기', doing: '일어서는 중…', done: '일어섰습니다.', fail: '일어서지 못했습니다' },
@@ -220,6 +226,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   if (res?.status === 'RUNNING' && run.current?.id !== res.request_id) run.current = { id: res.request_id, at: pose && res.request_id !== pose.prev ? pose.at : rt.now() };
   const running = res?.status === 'RUNNING' && rt.now() - run.current!.at < POSE_WAIT_MS ? POSE_KEY[res.action] : null;
   const lost = res?.status === 'RUNNING' && !running ? `${POSE[POSE_KEY[res.action]].fail} — ${POSE_LOST}` : '';
+  const halted = !pose && !running && postureHalted(s);
   const poseNow: PoseKey | null = pose?.k ?? running, shifting = !!poseNow || posture === 'TRANSITIONING' || s?.action_result?.status === 'RUNNING';
   // 서 있을 때만 이동(자세 보고가 없는 옛 에이전트는 그대로). 엎드림·자세 모름·자세 바꾸는 중에는 이동 단추·키 잠금 — STOP 은 따로라 늘 살아 있다
   // off = 로봇 연결 끊김(서버 목록 허용 꺼짐 — 보통 AGENT_OFFLINE · 시뮬은 목록 연결 끊김, 또는 state OFFLINE). 어느 쪽이 먼저 와도 이동 잠금(RB-PC-DRIVE-OFFLINE-FIX)
@@ -359,7 +366,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
         : `해제 대기 — 로봇이 정지를 확인하면 풀립니다.${refused ? ` ${refused}` : ''}`}</span>}
   </div>;
   const lock = !s || s.connection !== 'ONLINE' ? { tone: 'off' as const, text: '상태 모름' } : s.latched !== false ? { tone: 'bad' as const, text: '정지 잠금' }
-    : !mine ? { tone: 'off' as const, text: '보는 중' } : posture === 'LYING' ? { tone: 'warn' as const, text: '엎드려 있음' } : shifting ? { tone: 'warn' as const, text: '자세 바꾸는 중' }
+    : !mine ? { tone: 'off' as const, text: '보는 중' } : posture === 'LYING' ? { tone: 'warn' as const, text: '엎드려 있음' } : halted ? { tone: 'warn' as const, text: '자세 멈춤' } : shifting ? { tone: 'warn' as const, text: '자세 바꾸는 중' }
     : posture === 'UNKNOWN' ? { tone: 'off' as const, text: '자세 모름' } : l.neutral ? { tone: 'ok' as const, text: '움직일 수 있음' } : { tone: 'warn' as const, text: '중립 확인 중' };
   const status = <div className="fh-row lbl mono" style={{ flexWrap: 'wrap', gap: 10 }} data-sd-status>
     <span>배터리 {s?.battery?.soc != null ? `${s.battery.soc}%` : '—'}</span>
@@ -391,7 +398,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
     {(['up', 'down'] as const).map((k) => <button key={k} type="button" className="btn" data-sd-pose={k} disabled={shifting || link !== 'open' || s?.connection !== 'ONLINE' || k === 'up' && s?.control === 'LOWLEVEL'}
       onClick={() => askPose(k)}>{POSE[k].name}</button>)}
     <span className="lbl">{POWER_HINT}</span>
-    {(shifting || poseMsg || lost) && <span role="status" className="lbl" style={{ flexBasis: '100%' }} data-sd-pose-msg>{poseNow ? POSE[poseNow].doing : shifting ? '자세를 바꾸는 중…' : poseMsg || lost}</span>}
+    {(shifting || poseMsg || lost) && <span role="status" className="lbl" style={{ flexBasis: '100%' }} data-sd-pose-msg data-sd-pose-halted={halted ? '' : undefined}>{poseNow ? POSE[poseNow].doing : halted ? POSTURE_HALTED : shifting ? '자세를 바꾸는 중…' : poseMsg || lost}</span>}
   </div>;
   const trial = <ActionTrial robot={r} allowed={!!r.serverDrive && !r.sim} beforeSend={zero} />;
   const releasing = l.releasing?.why && <div className="fh-row" role="status"><span className="fh-why">조종권 반납을 확인하지 못했습니다. {l.releasing.why}</span>

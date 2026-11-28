@@ -444,6 +444,16 @@ describe('자세 단추 — 일어서기·엎드리기(11-16)', () => {
     posture('TRANSITIONING');   // 리모컨 등 다른 곳에서 바꾸는 중
     expect(msg()).toBe('자세를 바꾸는 중…'); expect(locked()).toBe('true,true'); expect(hold(['ArrowUp'])).toBe('0,0,0');
   });
+
+  it('바꾸는 도중 STOP · 실패로 붙잡히면(TRANSITIONING 그대로 + 결과 STOPPED · FAILED) 글은 «자세 멈춤» · 이동 잠금은 그대로(app-lx 03:48)', () => {
+    ready(); view();
+    posture('TRANSITIONING'); act(() => push('r7', { posture_result: { request_id: 'x1', action: 'stand_up', status: 'STOPPED' as 'FAILED', code: 'ESTOP', sdk_code: null } }));
+    expect(msg()).toBe('자세 멈춤 · 일어서기나 엎드리기로 다시'); expect($('[data-sd-pose-halted]')).not.toBeNull();
+    expect($('[data-sd-full-head]')?.textContent ?? '').not.toContain('자세 바꾸는 중');
+    expect(hold(['ArrowUp'])).toBe('0,0,0');
+    result('x2', 'stand_down', 'FAILED', 'SDK'); expect(msg()).toBe('자세 멈춤 · 일어서기나 엎드리기로 다시');
+    posture('STANDING'); expect(msg()).not.toContain('자세 멈춤');
+  });
 });
 
 describe('서버 경유 카메라·라이다', () => {

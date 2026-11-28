@@ -14,7 +14,7 @@ import { facts, hotJoint as hotOf, lying as tileLying, tempLevel, useAvail } fro
 import { actOf, isLost, needs } from '../control';
 import type { ApiFail } from '../../api';
 import { NO_SIGNAL, driveFeedHeld, driveFeedText, useDriveFeed } from '../../drivemedia';
-import { DriveView, canDrive, keepDrive, useServerDrive, type Tok } from '../../serverdrive';
+import { DriveView, POSTURE_HALTED, canDrive, keepDrive, postureHalted, useServerDrive, type Tok } from '../../serverdrive';
 import { GAITS, NO_GAIT } from '../../gait';
 import { field } from '../../simdrive';
 import { LidarMap } from '../../lidarmap';
@@ -476,7 +476,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   // 글도 모형과 같은 차례: 관절값이 오면 모형은 그 값대로라 자세 보고(LYING)만, 없으면 관제 타일 판단(down)
   const lie = pose ? s?.posture?.state === 'LYING' : down;
   const walk = moving ? `걷는 중 · ${sp.toFixed(1)} m/s ${a && a[0] < 0 ? '뒤로' : a && Math.abs(a[1] ?? 0) > Math.abs(a[0] ?? 0) ? '옆으로' : '앞으로'}`
-    : (pad === 'charge' ? '충전 중 · ' : '') + (lie ? '엎드림' : pose || (online && sp != null) ? '서 있음' : '걷기 보고 없음');
+    : postureHalted(s) ? POSTURE_HALTED : (pad === 'charge' ? '충전 중 · ' : '') + (lie ? '엎드림' : pose || (online && sp != null) ? '서 있음' : '걷기 보고 없음');
   // 3D 관절 색: 조종 = 60 °C 넘은 가장 뜨거운 관절만(u4_2), 점검 = 관절마다 주의 50 · 경고 60(u4_4 범례)
   const hot: Record<string, string> = tab === 'check' ? Object.fromEntries((temps?.joints ?? []).flatMap((v, i) => (v != null && v >= 50 ? [[JOINTS[i].replace(/_joint$/, ''), v >= 60 ? 'hot' : 'warn']] : [])))
     : temps && temps.hot >= 0 && hotJ != null && hotJ >= 60 ? { [JOINTS[temps.hot].replace(/_joint$/, '')]: 'hot' } : {};
