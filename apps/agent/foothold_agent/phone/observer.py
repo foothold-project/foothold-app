@@ -256,11 +256,16 @@ class Observer:
                 return
         except ValueError:
             return
+        stop_gen = f.get('stop_gen')
+        if type(stop_gen) is not int or stop_gen != h.session._generation():
+            return  # sent before a newer STOP (phone · sim · server): that STOP waits for a fresh unlock (H1)
         name = f.get('display_name')
         self._relay_peer(user, name if isinstance(name, str) and 1 <= len(name) <= 64 else None)
         if self._relay_control() is not None:
             return
         try:
+            # Checked above against the screen's stop_gen. A newer generation here is only the relay's own
+            # lease.take STOP in this same call (nothing else runs in between), so it is ours to clear.
             self._hub('unlock', lease_id=h.session.lease_id, stop_gen=h.session.core.stop_gen)
         except PhoneError:
             pass

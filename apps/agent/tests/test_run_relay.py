@@ -38,7 +38,9 @@ def server_control(r, lease=None):
     lease = lease or r.lease
     r.observer.receive({'t': 'lease', 'lease_id': lease, 'holder_type': 'USER'})
     r.state(True)
-    r.observer.receive({'t': 'unlock', 'lease_id': lease, 'stop_gen': 0, 'user_id': r.user})
+    # The server forwards the stop_gen the screen saw in the agent's state (AgentUnlock).
+    r.observer.receive({'t': 'unlock', 'lease_id': lease, 'stop_gen': r.hub.session._generation(),
+                        'user_id': r.user})
     r.state(False)
 
 
@@ -234,3 +236,47 @@ def test_server_drive_session_without_run_machine_reports_unsupported():
     assert session._state()['run_result'] == dict(request_id='req-9', op='start', run_id=run,
                                                   status='REJECTED', code='RUN_UNSUPPORTED')
     assert session.core.out == before
+
+
+def test_late_unlock_from_before_a_phone_stop_never_clears_it(cloud):
+    """H1 (Codex 11/28): the server screen controls the demo Hub and presses unlock; before that unlock
+    reaches the agent the phone STOPs. The late unlock carries the old stop_gen and must not clear the new STOP."""
+    r = cloud
+    free_phone(r)
+    r.run_id = uid()
+    server_control(r)
+    assert isinstance(r.hub.owner, ServerRelay) and not r.hub.session.core.latch
+    seen = r.hub.session._generation()  # the generation the screen saw when it pressed unlock
+    assert r.send(r.peer, 'stop')['ok']  # phone STOP arrives first
+    assert r.hub.session.core.latch and r.hub.session._generation() != seen
+    r.state(True)  # the sim confirms the STOP (an unlock is now possible)
+    r.observer.receive({'t': 'unlock', 'lease_id': r.lease, 'stop_gen': seen, 'user_id': r.user})
+    r.state(False)
+    assert r.hub.session.core.latch  # the new STOP stays
+    got = send_run(r, 'run.start')
+    assert got['status'] == 'REJECTED' and r.runs.current is None and not r.actions.goals
+
+
+def test_unlock_with_the_current_stop_gen_still_works_after_a_phone_stop(cloud):
+    """H1 control: a fresh unlock that saw the new STOP's generation clears it as before."""
+    r = cloud
+    free_phone(r)
+    r.run_id = uid()
+    server_control(r)
+    assert r.send(r.peer, 'stop')['ok']
+    server_control(r)
+    assert not r.hub.session.core.latch and isinstance(r.hub.owner, ServerRelay)
+
+
+def test_running_relay_run_shows_run_holder_then_user_after_pause(cloud):
+    """L5 (Codex 11/28): while the run machine holds the Hub (session holder RUN) the direct phone sees RUN."""
+    r = cloud
+    free_phone(r)
+    r.run_id = uid()
+    server_control(r)
+    assert r.hub.holder()['holder_type'] == 'USER'
+    assert send_run(r, 'run.start')['code'] == 'OK'
+    assert wait_moving(r) == 'MOVING' and r.hub.session.holder_type == 'RUN'
+    assert r.hub.holder() == {'holder_type': 'RUN', 'holder_name': None}
+    assert send_run(r, 'run.control', op='pause')['code'] == 'OK'
+    assert r.hub.session.holder_type != 'RUN' or r.hub.holder()['holder_type'] == 'RUN'

@@ -341,6 +341,11 @@ purge 이후 NULL 기록이 생겼거나 파일 대기열이 남으면
   아님, 실기는 현장 승인 · 서버 조종 켬을 더한다. 시작은 ACTIVE 배정 (로봇 · 시나리오 판 · 층 · 지도 판) 이어야
   한다. 시작 · 이어 가기는 멈춰 있을 때만. 정지 · 반납 · 승인 · 조종권이 바뀌면 큐에 남은 `run.*` 는 보내지 않는다.
   거절 코드 `RUN_NOT_ALLOWED` · `RUN_MOVING` · `RUN_ASSIGNMENT_INVALID` · `RUN_STOPPED` (배정 확인 중 STOP, 큐에 넣지 않음) (+ 기존 lease · 권한 코드).
+  `run.*` 의 `reply` 는 서버가 에이전트 소켓에 실제로 보낸 뒤에 `ok:true` 다. 마지막 발신 관문에서 막히면 `RUN_NOT_DELIVERED`,
+  STOP · lease 로 큐에서 지워지면 `RUN_STOPPED`, 에이전트가 끊기면 `ROBOT_OFFLINE`. `run.start` 는 보내기 바로 앞에서 배정을 한 번 더 읽고,
+  그 사이 철회되면 `RUN_ASSIGNMENT_INVALID`, 그 사이 STOP 이면 `RUN_STOPPED` (Codex 검토 M3 · M4, 11/28).
+  데모 로봇에서 조종권을 쥔 화면 소켓이 닫히면 서버는 15 초를 기다리지 않고 바로 조종권을 거둔다 (cause `screen_disconnected`, M2).
+  중계기는 서버 unlock 의 `stop_gen` 이 지금 세대와 같을 때만 푼다. 그 사이 다른 STOP 이 있었으면 버린다 (H1).
 - 데모 (시뮬) 로봇도 같은 메시지 · 같은 관문이다. 다른 것은 지금 있는 안전 차이 (현장 승인 · 서버 조종 켬은 실기만) 뿐.
 - 이어 가기 증명: 서버가 «그 로봇의 지금 USER lease 주인» 을 확인한다 (같은 run 을 시작한 사용자이거나 지금
   lease 를 넘겨받은 사용자). 비밀값은 서버 상태에 싣지 않는다. 잠김 중이면 거절.
@@ -596,6 +601,7 @@ P1-B의 `phone.revoke`/`phone.revoke.ack`는 현재 구현 프로토콜 `fh-agen
 ## 12. 변경 이력
 | 판 | 날짜 | 내용 |
 |---|---|---|
+| 0.23 | 2026-11-28 | Codex 검토 (#537): `run.*` reply 는 보낸 뒤 · `RUN_NOT_DELIVERED`, 보내기 앞 배정 재확인, 데모 화면 끊김 즉시 회수, 늦은 unlock 의 `stop_gen` 확인 (§6.5) |
 | 0.22 | 2026-11-28 | 웹 시뮬 탭 요청: §13 PhoneState · LEASE_HELD reply 에 `holder_type` · `holder_name`, PhoneHello 선택 `display_name`, 에이전트 `unlock.display_name` |
 | 0.21 | 2026-11-28 | 팀장 05:09 · 05:14: §6.5 실행 명령을 화면 → 서버 → 에이전트 실시간 길 (`run.start` · `run.control`) 로, 데모도 같은 길, 서버 길 이어 가기 증명, 폰 직결은 서버 장애 때 정지 · 끝 길 |
 | 0.19 | 2026-10-25 | ADR-003 ⑤ 후속 계약(§13.10): 고정 시나리오 자료 참조·직결 run 프레임·단일 층·3초 감시 제안·같은 화면 재개·에이전트 보고/영속 기록·구현 분할. 현재 미구현과 제품 결정을 구분 |
