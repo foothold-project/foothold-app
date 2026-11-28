@@ -83,13 +83,13 @@ const ROBOTS: Robot[] = [
 ];
 let root: Root | null = null, box: HTMLDivElement;
 const flush = () => act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); await new Promise((r) => setTimeout(r, 0)); });
-async function mount(hash: string, who = 'u-kim') {
+async function mount(hash: string, who = 'u-kim', robots = ROBOTS) {
   window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
   if (!srv) fresh();
   serve();
   location.hash = hash;
   box = document.createElement('div'); document.body.append(box);
-  act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === who)} robots={ROBOTS} />); });
+  act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === who)} robots={robots} />); });
   await flush(); await flush();
 }
 afterEach(() => { assignReply = async (b) => new Response(JSON.stringify({ id: `new-${b.robot_id}`, robot_id: b.robot_id, scenario_id: b.scenario_id, scenario_version: b.scenario_version, status: 'ACTIVE' }), { status: 201, headers: { 'Content-Type': 'application/json' } }); act(() => root?.unmount()); root = null; box?.remove(); clearPlans(); keptMission.sel = ''; fresh(); leaving.ask = null; vi.unstubAllGlobals(); vi.restoreAllMocks(); localStorage.clear(); });
@@ -119,6 +119,7 @@ describe('임무 탭(W2)', () => {
     let done!: () => void;
     assignReply = (b) => new Promise((ok) => { done = () => ok(new Response(JSON.stringify({ id: 'as9', robot_id: b.robot_id, scenario_id: b.scenario_id, scenario_version: b.scenario_version, status: 'ACTIVE' }), { status: 201, headers: { 'Content-Type': 'application/json' } })); });
     await mount('#/missions');
+    await click($('[data-open-run]'));   // 시안 u6 오른쪽 칸: 일정에 추가 ↔ 배정 · 실행
     const sel = $<HTMLSelectElement>('[data-assign] select')!;
     expect([...sel.options].map((o) => o.value)).toEqual(['r1', 'r3']);   // r2 는 s1 에 이미 ACTIVE
     act(() => { sel.value = 'r1'; sel.dispatchEvent(new Event('change', { bubbles: true })); });
@@ -137,6 +138,7 @@ describe('임무 탭(W2)', () => {
     let n = 0;
     assignReply = async () => (++n === 1 ? Promise.reject(new TypeError('network')) : new Response(JSON.stringify({ error: { code: 'ASSIGNMENT_EXISTS', message: '이미 배정되었거나 결재를 기다리는 시나리오 판입니다.', detail: {} } }), { status: 409, headers: { 'Content-Type': 'application/json' } }));
     await mount('#/missions');
+    await click($('[data-open-run]'));
     await click($('[data-assign] button'));
     await click($('[data-assign] button'));
     const post = calls.filter((c) => c.method === 'POST' && c.path === '/assignments');
@@ -147,12 +149,14 @@ describe('임무 탭(W2)', () => {
   });
   it('로봇에 배정: 담당 로봇이 없는 운영 관리자는 회색 단추 대신 까닭 한 줄 · 보내지 않음', async () => {
     await mount('#/missions', 'u-park');
+    await click($('[data-open-run]'));
     expect($('[data-assign] button')).toBeNull();
     expect($('[data-assign]')!.textContent).toContain('배정은 담당 로봇에만 할 수 있습니다');
     expect(calls.some((c) => c.method === 'POST' && c.path === '/assignments')).toBe(false);
   });
   it('지금 실행(W1 runctl): 고른 임무가 ACTIVE 로 배정된 로봇만 실행 칸 · 조종권 없으면 «조종권 잡기»로 이음 · 다른 임무를 고르면 그 임무의 로봇', async () => {
     await mount('#/missions');
+    await click($('[data-open-run]'));
     const ids = () => $$('[data-run-list] [data-run-ctl]').map((e) => e.dataset.runCtl);
     expect(ids()).toEqual(['r2']);   // s1: r2 ACTIVE · r1 REMOVED 는 빠짐
     expect($('[data-run-ctl="r2"]')!.textContent).toContain('조종권 잡기');
@@ -175,7 +179,7 @@ describe('임무 탭(W2)', () => {
     // 로봇 목록 · 배터리 · 실기/시뮬 = 지금 자료
     const rb = $$('[data-robot]');
     expect(rb.map((b) => b.dataset.robot)).toEqual(['r1', 'r2']);
-    expect(rb[0].textContent).toContain('실기'); expect(rb[0].textContent).toContain('86%');
+    expect(rb[0].textContent).toContain('실제'); expect(rb[0].textContent).toContain('86 %');   // 시안 글 «실제 · … 86 %»
     expect(rb[1].textContent).toContain('시뮬');
     await click($('[data-mission="s2"]'));
     expect(picked()).toEqual(['s2']); expect($('[data-side-name]')!.textContent).toBe('가스 점검');
@@ -217,7 +221,7 @@ describe('임무 탭(W2)', () => {
     expect(new Date(q.get('end')!).getTime() - new Date(q.get('start')!).getTime()).toBeGreaterThan(0);
     const row = (id: string) => $<HTMLButtonElement>(`[data-robot="${id}"]`)!;
     expect($$('[data-robot]').map((b) => b.dataset.robot)).toEqual(['r1', 'r2', 'r3', 'r4']);
-    expect(row('r1').disabled).toBe(false); expect(row('r1').textContent).toContain('비어 있음'); expect(row('r1').textContent).toContain('86%');
+    expect(row('r1').disabled).toBe(false); expect(row('r1').textContent).toContain('비어 있음'); expect(row('r1').textContent).toContain('86 %');
     expect(row('r2').disabled).toBe(true); expect(row('r2').textContent).toContain('가스 점검'); expect(row('r2').textContent).toContain('14:30까지');
     expect(row('r3').disabled).toBe(true); expect(row('r3').textContent).toContain('연결 전');   // 한 번도 연결된 적 없는 로봇(관제 칩과 같은 robotStatus)
     expect(row('r4').disabled).toBe(false); expect(row('r4').textContent).toContain('충전 중');
@@ -239,16 +243,16 @@ describe('임무 탭(W2)', () => {
     expect(typeof b.start).toBe('string');
     const hm = (iso: string) => new Date(iso).toTimeString().slice(0, 5);
     expect($('[data-est="eta"]')!.textContent).toBe(hm(EST.eta));
-    expect($('[data-est="margin"]')!.textContent).toBe('3분');
-    expect($('[data-est="battery"]')!.textContent).toBe('54%');
+    expect($('[data-est="margin"]')!.textContent).toBe('3 분');
+    expect($('[data-est="battery"]')!.textContent).toBe('54 %');
     expect($$('[data-guess]').length).toBeGreaterThan(0);
-    expect($('[data-walk-task]')!.textContent).toBe('21 + 6분추정');
-    expect($('[data-mission="s1"] [data-dur]')!.textContent).toBe('27분');
+    expect($('[data-walk-task]')!.textContent).toBe('21 + 6 분추정');
+    expect($('[data-mission="s1"] [data-dur]')!.textContent).toBe('27 분');
     // 여유 = 같은 로봇의 다음 일정 시작 - 예상 끝(#531 margin_s). null = 다음 일정 없음 · 잰 값(MEASURED)은 «추정» 없음
     srv.est = { ...EST, margin_s: null, estimate_source: 'MEASURED' };
     await click($('[data-mode="Sport"]'));
     expect($('[data-est="margin"]')!.textContent).toBe('다음 일정 없음');
-    expect($('[data-est="margin"]')!.closest('div')!.querySelector('dt')!.textContent).toBe('다음 일정까지 여유');   // 무엇과 비교한 값인지(마감과 비교하는 «마감 넘음» 과 헷갈리지 않게)
+    expect($('[data-est="margin"]')!.closest('div')!.querySelector('.lab')!.getAttribute('title')).toBe('다음 일정까지 여유');   // 무엇과 비교한 값인지(마감과 비교하는 «마감 넘음» 과 헷갈리지 않게)
     expect($$('[data-guess]')).toEqual([]);
     // 여유가 음수 = 다음 일정과 겹침 · 크기는 쓰지 않는다(겹친 길이가 아님)
     srv.est = { ...EST, margin_s: -300 };
@@ -259,10 +263,10 @@ describe('임무 탭(W2)', () => {
     expect(calls.filter((c) => c.method !== 'GET' && !['/scenarios/preview', '/estimates'].includes(c.path))).toEqual([]);
   });
 
-  it('일정에 추가(POST /schedule/slots): 본문 · 성공이면 오늘 일정에 막대, 409 SCHEDULE_CONFLICT 면 겹치는 막대 표시 + 한 줄 까닭 · 모의 실행은 회색', async () => {
+  it('일정에 추가(POST /schedule/slots): 본문 · 성공이면 오늘 일정에 막대, 409 SCHEDULE_CONFLICT 면 겹치는 막대 표시 + 한 줄 까닭 · 넣은 뒤 «실제 로봇 시작 전 점검»', async () => {
     await mount('#/missions');
     expect($<HTMLButtonElement>('[data-schedule-add]')!.disabled).toBe(true);   // 로봇 · 걷기 모드 전
-    expect($<HTMLButtonElement>('[data-rehearse]')!.disabled).toBe(true);
+    expect($<HTMLButtonElement>('[data-rehearse]')!.disabled).toBe(false);   // 모의 실행 = 시뮬 로봇(r2)으로 run.start
     await setTime('end', '11:00'); await setTime('start', '10:30');
     srv.est = { ...EST, eta: at(10, 57) };
     await click($('[data-robot="r1"]')); await click($('[data-mode="START"]'));
@@ -281,6 +285,18 @@ describe('임무 탭(W2)', () => {
     expect($('[data-add-msg]')!.textContent).toContain('일정에 넣었습니다');
     // 넣은 뒤 예상을 다시 받는다 · 방금 넣은 칸은 빼고(자기 칸과 겹침으로 나오지 않게)
     expect(last(calls.filter((c) => c.path === '/estimates'))!.body).toMatchObject({ robot_id: 'r1', gait: 'start', exclude_slot_id: 'new1' });
+    // 시안 u6_8: 방금 넣은 칸에 고리 · 단추는 «실제 로봇 시작 전 점검»(배정 · 실행 칸으로)
+    expect($('[data-slot="new1"]')!.className).toContain('u6-made');
+    expect($('[data-schedule-add]')).toBeNull();
+    await click($('[data-preflight]'));
+    expect($('[data-assign]')).toBeTruthy();
+  });
+
+  it('모의 실행: 시뮬 로봇이 없으면 회색 + 까닭(title) · 보내지 않음', async () => {
+    await mount('#/missions', 'u-kim', ROBOTS.filter((r) => !r.sim));
+    const b = $<HTMLButtonElement>('[data-rehearse]')!;
+    expect(b.disabled).toBe(true);
+    expect(b.title).toContain('시뮬 로봇이 없습니다');
   });
 
   it('마감 넘음: 예상 끝이 고른 마감보다 늦으면 빨간 한 줄 «마감 넘음 · 예상 끝 HH:MM» + 일정에 추가 막음, 안이면 풀림', async () => {
@@ -354,18 +370,20 @@ describe('임무 탭(W2)', () => {
     expect(bar('sl2').closest('[data-day-robot]')!.getAttribute('data-day-robot')).toBe('r2');
     expect([bar('sl1').dataset.kind, bar('sl2').dataset.kind, bar('sl3').dataset.kind]).toEqual(['CONFIRMED', 'DRAFT', 'BATTERY_SWAP']);
     expect(bar('sl1').textContent).toBe('가스 점검'); expect(bar('sl3').textContent).toBe('배터리 교체');
-    expect(parseFloat(bar('sl1').style.left)).toBeCloseTo((1 / 12) * 100, 1);   // 09:00 = 08~20 눈금의 1/12
-    expect($('[data-legend]')!.textContent).toBe('확정작성 중배터리 교체');
+    expect(Number(bar('sl1').dataset.x) * 100).toBeCloseTo((1 / 12) * 100, 1);   // 09:00 = 08~20 눈금의 1/12
+    expect($('[data-legend]')!.textContent).toBe('끝남진행 중예정작성 중배터리 교체');   // 시안 범례(확정은 지금 시각으로 끝남 · 진행 중 · 예정)
+    // 확정 칸 모양은 지금 시각(08:05) 기준: 09:00~10:00 = 예정 · 작성 중 = k2 · 배터리 교체 = k3
+    expect([bar('sl1').className, bar('sl2').className, bar('sl3').className]).toEqual(['bk kp', 'bk k2', 'bk k3']);
   });
 
   it('오늘 일정 칸 밖: 08~20 밖 일정이 있으면 눈금을 그 일정까지 넓혀 «일정 N건» 과 그린 막대 수가 같다', async () => {
     fresh();
     srv.slots = [...srv.slots, slot('late', 'r1', 'CONFIRMED', 21, 0, 21, 40), slot('early', 'r2', 'DRAFT', 6, 30, 7, 0)];
     await mount('#/missions');
-    expect($('[data-day-count]')!.textContent).toBe('일정 5건');
+    expect($('[data-day-count]')!.textContent).toBe('임무 5 건');
     expect($$('[data-slot]').length).toBe(5);
-    for (const b of $$('[data-slot]')) { const l = parseFloat(b.style.left), w = parseFloat(b.style.width); expect(l).toBeGreaterThanOrEqual(0); expect(l + w).toBeLessThanOrEqual(100.001); }
-    const ticks = $$('.mt-axis .mt-track span').map((x) => x.textContent);
+    for (const b of $$('[data-slot]')) { const l = Number(b.dataset.x) * 100, w = Number(b.dataset.w) * 100; expect(l).toBeGreaterThanOrEqual(0); expect(l + w).toBeLessThanOrEqual(100.001); }
+    const ticks = $$('.u6-hour').map((x) => x.textContent);
     expect(ticks[0]).toBe('06'); expect(last(ticks)).toBe('22');
   });
 
@@ -375,13 +393,14 @@ describe('임무 탭(W2)', () => {
     expect($('[data-seg="0"]')!.dataset.hit).toBe('true');
     expect($('[data-pt="2"]')!.dataset.hit).toBeUndefined();   // 3.5 m 지점 자체는 구역 밖, 가는 길만 겹침
     expect($('[data-overlap]')!.textContent).toContain('접근 금지 구역과 겹침');
-    expect($$('.mt-tags > *').length).toBeLessThanOrEqual(2);
-    expect($('[data-length]')!.textContent).toBe('1.28km');
-    expect($('[data-check]')!.textContent).toBe('✓ 모두 갈 수 있음');
+    expect($$('.u6-tags > *').length).toBeLessThanOrEqual(2);
+    expect($('[data-length]')!.textContent).toBe('1.28 km');
+    expect($('[data-check]')!.textContent).toBe(' 모두 갈 수 있음');   // 시안: 초록 ✓ 그림 + 글
+    expect($('[data-check] svg')).toBeTruthy();
     await click($('[data-mission="s2"]'));
     expect($('[data-overlap]')).toBeNull();
     expect($$('[data-seg][data-hit]')).toEqual([]);
-    expect($('[data-length]')!.textContent).toBe('30m');
+    expect($('[data-length]')!.textContent).toBe('30 m');
   });
 
   it('짜기: «편집» = 그 임무를 탭 안 편집 칸(이름 · 목록 ↔ 노드)으로, «‹ 임무 목록»으로 돌아옴 · «새 임무» = 빈 편집 칸', async () => {

@@ -21,6 +21,7 @@ import { Bell, History } from './screens/history';
 import { kept } from './screens/mapedit';
 import { Maps } from './screens/maps';
 import { MissionTab, keptMission } from './screens/missiontab';
+import { MissionsU6 } from './screens/missionsu6';
 import { Settings } from './screens/settings';
 import { EmptyControl, useControlPick } from './screens/control';
 import { SimTab } from './screens/sim';
@@ -435,7 +436,8 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         : tab === 'control' ? <EmptyControl />   // 로봇 0대 관제 = 한 줄 + 로봇 탭 링크
         : tab === 'fleet' ? <EmptyFleet user={user} cancel={cancel} dash={dash} robots={withSlots} refresh={refresh} />   // 로봇 0대여도 관제 요약·운영 관리자 표
         : tab === 'history' ? <History key={`history-${user.id}`} user={user} robots={withSlots} go={go} phone={phone} cancel={cancel} focus={focus} />   // 로봇 0대여도 계정·내 행동 기록과 알림 링크
-        : tab === 'missions' ? <MissionTab key={`missions-${mapN}-${user.id}`} user={user} robots={pool} cancel={cancel} />   // 로봇 0대여도 임무 목록·짜기
+        : tab === 'missions' ? phone ? <MissionTab key={`missions-${mapN}-${user.id}`} user={user} robots={pool} cancel={cancel} />
+          : <MissionsU6 key={`missions-${mapN}-${user.id}`} user={user} robots={pool} cancel={cancel} />   // PC = 시안 u6 1920 화면, 폰 = 지금 판   // 로봇 0대여도 임무 목록·짜기
         : tab === 'map' ? <Maps key={`map-${mapN}-${user.id}`} user={user} cancel={cancel} dash={dash} robots={withSlots} />   // 로봇 0대여도 장소·지도·시나리오
         : tab === 'approval' ? <Approvals key={`approval-${user.id}`} user={user} cancel={cancel} focus={focus} dash={dash} />   // 로봇 0대여도 결재
         : tab === 'sim' ? <SimTab user={user} robots={robots} refresh={refresh} />   // 로봇 0대여도 시뮬 띄우기
