@@ -17,7 +17,7 @@ const ev = (id: string, p: Partial<Ev> = {}): Ev => ({ id, at: AT, robot_at: nul
 const ITEMS = [
   ev('1'),
   ev('2', { category: 'ROUTE', code: 'ROUTE_LOST', severity: 'WARN', message: '14:12 길을 못 찾았습니다.' }),
-  ev('3', { category: 'LINK', code: 'STOP_CONFIRM_FAILED', severity: 'INFO', user_id: 'o1' }),
+  ev('3', { category: 'LINK', code: 'STOP_CONFIRM_FAILED', severity: 'INFO', user_id: 'o1', robot_at: new Date(2026, 10, 28, 13, 5).toISOString() }),
   ev('4', { category: 'RUN', code: 'RUN_DONE', severity: 'INFO', run_id: 'run-1' }),
 ];
 const HIST = { id: 'run-1', scenario_version_id: 'sv1', floor_id: 'f1', map_version_id: 'm1', scenario_name: '공정 순찰 A', floor_name: '1층', scenario_name_snapshot: null, floor_name_snapshot: null,
@@ -71,6 +71,9 @@ describe('폰 기록 = 타일', () => {
     expect(a.querySelector('[data-tile-sub]')!.textContent).toBe('■위험 · 안전 · Go2-A');
     expect(c.querySelector('[data-tile-sub]')!.textContent).toBe('▲주의 · 연결 · Go2-A · 이운영');
     expect(a.querySelector('[data-tile-time]')!.textContent).toBe(when(stamp(ITEMS[0])));
+    expect(c.querySelector('[data-tile-time]')!.textContent).toBe(when(ITEMS[2].robot_at!));   // 늦게 온 로봇 사건은 로봇 발생 시각(표와 같은 stamp)
+    const icon = (t: HTMLElement) => t.querySelector('[data-tile-icon]')!.innerHTML;
+    expect(new Set(tiles().map(icon)).size).toBe(4);   // 분류마다 다른 아이콘
   });
   it('run_id 있는 타일에만 「실행 기록 보기」 → 보고서, 닫으면 초점은 그 단추로', async () => {
     serve();
