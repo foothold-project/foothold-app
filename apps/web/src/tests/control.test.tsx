@@ -543,6 +543,13 @@ describe('관제 탭', () => {
     expect(band().textContent).not.toContain(NOT_SENT);
   });
   // Codex #535 M4: 서버 경유가 꺼진(SWITCH_OFF) 실기는 서버가 STOP 을 PHONE_DIRECT_REQUIRED 로 거절한다 → 모두 정지에 세지 않고 «현장 폰» 한 줄
+  it('이 계정이 못 세우는 타일(총괄이 남의 시뮬)을 고르면 정지 단추 글은 «모두 정지» 그대로(reviewer G1)', () => {
+    const T = TWENTY.map((r) => (r.id === 'g6' ? { ...r, sim: true, owner: 'u-lee' } : r));
+    mount('u-kim', T); feed(T);
+    act(() => { tile('g6').click(); });
+    expect(stopBtn().textContent).toBe('모두 정지');
+    expect(stopBtn().textContent).not.toContain(T.find((r) => r.id === 'g6')!.name);
+  });
   it('M4: 서버 경유 정지가 꺼진 실기는 «모두 정지» 대수 · 보냄에서 빠지고 현장 폰 안내 한 줄', () => {
     const T = TWENTY.map((r) => (r.id === 'g6' ? { ...r, serverDriveBlocked: ['SWITCH_OFF'] as Robot['serverDriveBlocked'] } : r));
     mount('u-lee', T); feed(T);
