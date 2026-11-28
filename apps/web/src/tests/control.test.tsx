@@ -493,6 +493,20 @@ describe('관제 탭', () => {
     expect(walking('lie', null, 0.4)).toBe(false);
     expect(walking('lost', null, 0.4)).toBe(false);
   });
+  it('조종 중: 서버 lease.driving === true 일 때만 · 임무 다음 · 대기 앞 · 임무 중과 같은 틀', () => {
+    const sum = (lease: object | null) => ({ id: 'd1', name: 'D', owner: { id: 'u-kim', display_name: '김OO' }, connection: 'ONLINE', status: 'IDLE', battery: { soc: 70, updated_at: '2026-11-29T00:00:00Z' },
+      location: null, current_run: null, lease, devices: [], simulation: false }) as never;
+    const L = (driving?: boolean) => ({ holder_type: 'USER', user: { id: 'u-kim', display_name: '김OO' }, since: '2026-11-29T00:00:00Z', ...(driving === undefined ? {} : { driving }) });
+    const F = (r: Robot) => facts({ ...r, seenAt: '14:05:20' }, 'u-kim', new Map(), { demo: false, label: null, charging: false, job: null });
+    const on = F(toRobot(sum(L(true))));
+    expect(on.x.holder?.driving).toBe(true); expect(on.driving).toBe(true);
+    const b = tileBadge(on)!; expect([b.key, b.text, b.col, badgeDot(b), b.pulse]).toEqual(['driving', '조종 중', 'var(--u5-ok)', 'var(--u5-dot-red)', true]);
+    for (const off of [F(toRobot(sum(L(false)))), F(toRobot(sum(L()))), F(toRobot(sum(null)))]) {   // false · 칸 없음 · 조종권 없음(lease null)
+      expect(off.driving).toBe(false); expect(tileBadge(off)!.key).toBe('idle');
+    }
+    const run = F({ ...toRobot(sum(L(true))), status: 'RUNNING', run: { id: 'r1', run_id: 'r1', scenario_name: '순찰', status: 'MOVING', step: 0, wait_reason: null, fail_code: null, progress: { done: 1, total: 4 } } as never });
+    expect(tileBadge(run)!.key).toBe('run');   // 임무가 먼저
+  });
   it('관절 보간: 도착 시각 기준 선형 · 떨림은 간격 평균 · 값이 안 오면 마지막 값에 멈춤 · 없어지면 null', () => {
     const L0 = jointLerp(), L = (q: number[] | null, t: number) => L0(q, t)!, A = Array(12).fill(0), B = Array(12).fill(1), C = Array(12).fill(2);
     expect(L(A, 0)).toEqual(A);                     // 첫 값은 그대로

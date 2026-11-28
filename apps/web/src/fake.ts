@@ -10,7 +10,8 @@ export type Status = 'STOP_LATCHED' | 'ERROR' | 'TELEOP' | 'PAUSED' | 'RUNNING' 
  *  unknown = 지금 상태를 단정할 수 없음(rt.withLive): link 실시간 끊김, wait 첫 state 전, summary 구독 안 하는 로봇(목록 요약 값뿐).
  *  holder·listedAt = 목록 요약의 조종권자와 그 목록을 받은 시각(구독 안 하는 로봇의 조종권자 표시용).
  *  sim = 시뮬 로봇(서버 RobotSummary.simulation — «시뮬» 표시는 이 값만 쓴다, 05 §13.9) */
-export type Holder = { type: 'USER' | 'RUN'; id: string | null; name: string };
+/** driving = 서버 목록 · 상세의 lease.driving(조종권을 가진 사람이 0 아닌 입력을 보낸 지 2 초 안). 화면 WS lease 알림에는 없음 */
+export type Holder = { type: 'USER' | 'RUN'; id: string | null; name: string; driving?: boolean };
 export type Robot = { id: string; name: string; owner: string; ownerName?: string; battery: number | null; online: boolean; seenAt: string; status: Status | null; mission?: string;
   /** 서버 요약 current_run 그대로(임무 이름 · 진행) · 없으면 null */
   run?: CurrentRun | null;
@@ -108,7 +109,7 @@ export const toRobot = (r: RobotSummary, sims: string[] = []): Robot => ({
   id: r.id, name: robotName(r, sims), owner: r.owner?.id ?? '', ownerName: r.owner?.display_name,
   battery: r.battery?.soc ?? null, online: r.connection === 'ONLINE', seenAt: clock(r.location?.updated_at ?? r.battery?.updated_at), status: r.status,
   mission: r.current_run ? `${r.current_run.scenario_name} ${r.current_run.progress.done}/${r.current_run.progress.total}` : undefined, run: r.current_run ?? null,
-  holder: r.lease && { type: r.lease.holder_type === 'RUN' ? 'RUN' : 'USER', id: r.lease.user?.id ?? null, name: r.lease.user?.display_name ?? '' },
+  holder: r.lease && { type: r.lease.holder_type === 'RUN' ? 'RUN' : 'USER', id: r.lease.user?.id ?? null, name: r.lease.user?.display_name ?? '', driving: (r.lease as { driving?: boolean }).driving === true },   // driving: 계약 생성물에 오기 전이라 선택 칸으로 읽음
   listedAt: clock(new Date().toISOString()), location: r.location, devices: r.devices, sim: r.simulation,
   phoneRelay: r.phone_relay ?? null, phoneRelayAt: performance.now(), robotInfo: r.robot_info ?? null,
   serverDrive: r.server_drive_allowed === true,

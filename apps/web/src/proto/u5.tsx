@@ -140,6 +140,7 @@ export type TileFacts = {
   x: Robot; demo: boolean; charging: boolean; job: Job | null; level: Level; flag: string | null; why: string; alert: boolean; sim: boolean; lostAt: string | null; lostNow: boolean;
   act: ReturnType<typeof actOf>; walk: boolean; paused: string | null;
   /** 머리표 · 최근 경고 제목이 관절 온도에서 왔음(아니면 잠금 · 상태 · 주의 코드) */ byTemp: boolean;
+  /** 조종 중 = 서버 목록 lease.driving === true(사람 조종권 · 입력 2 초 안). 값이 없으면 false */ driving: boolean;
   /** 그 로봇에 진행 중인 임무(state.run · 끝남 · 실패 · 취소 아님)가 있음 = 임무 중 보기(뒤 1 m + 현장). 팀장 21:16 */ onRun: boolean;
   /** 정지 한 줄(serverdrive stopLine 과 같은 판정 · 미전달 · 현장 관문 포함). 정지를 보낸 적 없으면 null */ stop: { tone: string; text: string } | null;
   mode: string; mission: { name: string; done: number; total: number } | null; place: string;
@@ -176,7 +177,7 @@ export function facts(x: Robot, me: string, places: Map<string, string>, av?: Av
   return {
     stop: x.unknown === 'summary' ? null : stopLine(rt.get(x.id)),
     x, byTemp, demo: !!av?.demo, charging, job: av?.job ?? null, level, why, alert: needs(x) || !!lvTemp, flag: level ? `${LEVEL_TEXT[level]} · ${why}` : null, sim, lostNow: gone, lostAt: gone ? hm(x.seenAt) ?? '' : null, paused,
-    act, walk, onRun, mode: s?.gait?.gait ? GAIT_NAME[s.gait.gait] ?? s.gait.gait : '', mission: m, place, hot: h,
+    act, walk, onRun, driving: holder?.type === 'USER' && x.holder?.driving === true, mode: s?.gait?.gait ? GAIT_NAME[s.gait.gait] ?? s.gait.gait : '', mission: m, place, hot: h,
     bat: sim ? ['시뮬', '배터리 해당 없음'] : [bat ?? '', charging ? '충전 중' : av?.job ? (av.job.kind === 'maint' ? '점검 중' : '배터리 교체') : left != null ? `약 ${left} 분` : ''],
     temp: sim ? ['없음', stText(x), ''] : tv ? [tv, lvTemp ? LEVEL_TEXT[lvTemp] : '보통', lvTemp === 'bad' || lvTemp === 'crit' ? ' r' : lvTemp === 'warn' ? ' w' : ''] : ['', '', ''],
     link: sim ? ['서버', '시뮬 계산', ''] : gone ? ['연결 중', hm(x.seenAt) ? `${hm(x.seenAt)} 끊김` : '', ' w'] : x.online ? ['연결', lat != null ? `${Math.round(lat)} ms` : '', ''] : [st.text, '', ''],
@@ -286,7 +287,7 @@ function RealCam({ id }: { id: string }) {
  *  1 끊김(다시 붙는 중 = «다시 연결 중», 꺼짐 = «연결 끊김») 2 정지 잠금 3 넘어짐(robot_info.fallen) 4 점검(가용 MAINTENANCE)
  *  5 충전(가용 CHARGING) · 그 둘이 아닐 때 일정 칸 배터리 교체 6 임무(사용자 시뮬 = «시뮬 중», 데모 · 실기 = «임무 중», 멈춤 = «임무 멈춤») 7 그 밖 «대기 · 임무 전».
  *  «조종 중»은 서버가 조종권 안에 실제 입력 여부를 줄 때까지 내지 않는다(값 없으면 7). 상태를 아직 모르면(요약 · 받는 중) null */
-export type Badge = { key: 'relink' | 'lost' | 'pre' | 'latched' | 'fallen' | 'maint' | 'swap' | 'charging' | 'paused' | 'run' | 'simrun' | 'idle'; text: string; icon: keyof typeof IC; col: string; pulse: boolean; dim?: boolean; why?: string };
+export type Badge = { key: 'relink' | 'lost' | 'pre' | 'latched' | 'fallen' | 'maint' | 'swap' | 'charging' | 'paused' | 'run' | 'simrun' | 'driving' | 'idle'; text: string; icon: keyof typeof IC; col: string; pulse: boolean; dim?: boolean; why?: string };
 const GREY = '#a9b8c6';
 /** «연결 전» 점(팀장 02:14 두 안): 'still' = B 하얀 점 멈춤 · 흐리게(기본), 'pulse' = A 하얀 점 펄스. 주소 ?preDot=pulse(또는 #… ?preDot=pulse)로 A 를 볼 수 있음 */
 export const PRE_DOT: 'still' | 'pulse' = 'still';
@@ -309,11 +310,13 @@ export function tileBadge(f: TileFacts): Badge | null {
   if (f.job) return { key: 'swap', text: '배터리 교체', icon: 'bat', col: GREY, pulse: false };
   if (f.onRun) return f.paused ? { key: 'paused', text: '임무 멈춤', icon: 'warn', col: 'var(--u5-amb)', pulse: true, why: f.paused }
     : f.sim ? { key: 'simrun', text: '시뮬 중', icon: 'box', col: 'var(--u5-sim)', pulse: true } : { key: 'run', text: '임무 중', icon: 'flag', col: 'var(--u5-ok)', pulse: true };
+  // 조종 중: 서버 lease.driving === true 일 때만(팀장 01:4x) · 임무 다음 · 대기 앞. 틀은 임무 중과 같게(글 초록 · 점 빨강 · 펄스)
+  if (f.driving) return { key: 'driving', text: '조종 중', icon: 'mode', col: 'var(--u5-ok)', pulse: true };
   return { key: 'idle', text: '대기 · 임무 전', icon: 'home', col: GREY, pulse: false };
 }
 /** 배지 점 색은 여기 한 곳(팀장 02:14): 임무 중 = 빨강(--u5-dot-red) · 충전 = 초록 · 시뮬 = 파랑 · 연결 전 = 하양(--u5-on), 나머지 = 배지 글 색 */
 export const badgeDot = (b: Badge): string =>
-  b.key === 'run' ? 'var(--u5-dot-red)' : b.key === 'charging' ? 'var(--u5-ok)' : b.key === 'simrun' ? 'var(--u5-sim)' : b.key === 'pre' ? 'var(--u5-on)' : b.col;
+  b.key === 'run' || b.key === 'driving' ? 'var(--u5-dot-red)' : b.key === 'charging' ? 'var(--u5-ok)' : b.key === 'simrun' ? 'var(--u5-sim)' : b.key === 'pre' ? 'var(--u5-on)' : b.col;
 function BadgeTag({ b }: { b: Badge }) {
   return <span className={`stb${b.pulse ? ' chk' : ''}`} style={{ color: b.col }} title={b.why} data-badge={b.key} data-pulse={b.pulse ? '1' : '0'} {...{ [`data-${b.key}`]: '' }}>{I(14, IC[b.icon])}{b.text}
     <i className={b.dim ? 'dim' : undefined} style={{ background: badgeDot(b) }}></i></span>;
