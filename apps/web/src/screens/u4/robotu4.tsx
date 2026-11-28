@@ -26,7 +26,7 @@ import { Guide, RealView, prepSteps } from '../fleet';
 import { Empty as EmptyCard } from '../../empty';
 import { mount, type Go2Api } from './go2view';
 import { Detail } from './detail';
-import { RobotLine } from '../../proto/u11';
+import { DriveLine, useRobotLine } from '../../proto/u11';
 import { stageRect, sx, sy } from '../../stage';
 import { FACTORY_H, FACTORY_PNG, FACTORY_W, attach, factoryFrame, factoryPx, site, siteKey } from './simcam';
 import { nextIdx, remaining, ro, runOf, useRoute, type Route, type Run } from './route';
@@ -367,6 +367,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   const res = s?.action_result;
   useEffect(() => { if (pending && res?.request_id === pending && res.status !== 'RUNNING') { say(actionResultText(res)); setPending(null); } }, [res?.request_id, res?.status]);
   useEffect(() => () => clearTimeout(tm.current), []);
+  const rl = useRobotLine(r.id, c.user.id), line = tab === 'drive' ? rl : null;   // 시안 u11_2 ~ u11_5 한 줄. 뜨면 아래 옛 글은 비켜 섬
   const now = rt.now(), fresh = !!s && now - l.stateAt < REPORT_STALE_MS;
   const pose = go2Pose(s, fresh), temps = go2Temps(s, fresh, s ? (now - l.stateAt) / 1000 : 0);
   const link = rt.link(), ms = link.at === 'open' && link.latencyMs != null ? `${Math.round(link.latencyMs)} ms` : '';
@@ -423,14 +424,14 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
         {([['drive', '조종', ''], ['check', '점검', 'u4_4_check'], ['settings', '로봇 설정', 'u4_5_settings']] as const).map(([k, t, go]) =>
           <span key={k} {...(go ? { 'data-go': go } : {})} className={tab === k ? 'on' : ''} data-seg={t} role="tab" aria-selected={tab === k} tabIndex={0} onClick={() => { setTab(k); setGuide(false); }}>{t}</span>)}
       </div></div>
-    {tab === 'drive' && <RobotLine id={r.id} me={c.user.id} />}{/* 시안 u11_2 ~ u11_5 조종 화면 위 한 줄 */}
-    <div className="stage3d" data-stale={pose ? undefined : ''}><Stage r={r} q={pose?.q ?? null} drive={drive} hot={hot} />
+    {line && <DriveLine f={line} />}{/* 시안 u11_2 ~ u11_5 조종 화면 위 한 줄 */}
+    <div className="stage3d" data-stale={pose ? undefined : ''} data-line={line?.at}><Stage r={r} q={pose?.q ?? null} drive={drive} hot={hot} />
       <span className="g dk tag hint"><svg className="ic" viewBox="0 0 24 24" style={{ width: '14px', height: '14px' }}><path d="M16.466 7.5C15.643 4.237 13.952 2 12 2 9.239 2 7 6.477 7 12s2.239 10 5 10c.342 0 .677-.069 1-.2" /><path d="m15.194 13.707 3.814 1.86-1.86 3.814" /><path d="M19 15.57c-1.804.885-4.274 1.43-7 1.43-5.523 0-10-2.239-10-5s4.477-5 10-5c4.838 0 8.873 1.718 9.8 4" /></svg>끌어서 돌려 보기</span>
-      {offTag ? <div className="g dk tag" style={{ left: '24px', top: '24px', color: '#ff4d4f', fontSize: '14px', fontWeight: '800' }} role="status" data-u4-offline>{offTag}</div>
-        : stopTag ? <div className="g dk tag" style={{ left: '24px', top: '24px', color: lying && !d.unlockState ? '#f2b705' : '#ff4d4f', fontSize: '14px', fontWeight: '800' }} role="status" data-u4-stopped>{stopTag}</div>
-        : d.stopLine ? <div className="g dk tag" style={{ left: '24px', top: '24px', color: d.stopLine.tone === 'bad' ? '#ff4d4f' : d.stopLine.tone === 'ok' ? '#00c389' : '#f2b705', fontSize: '14px', fontWeight: '800' }} role="status" data-sd-stop-phase data-tone={d.stopLine.tone}>{d.stopLine.text}</div> : null}
+      {offTag ? <div className="g dk tag" style={{ left: '24px', top: line ? '92px' : '24px', color: '#ff4d4f', fontSize: '14px', fontWeight: '800' }} role="status" data-u4-offline>{offTag}</div>
+        : stopTag ? <div className="g dk tag" style={{ left: '24px', top: line ? '92px' : '24px', color: lying && !d.unlockState ? '#f2b705' : '#ff4d4f', fontSize: '14px', fontWeight: '800' }} role="status" data-u4-stopped>{stopTag}</div>
+        : d.stopLine ? <div className="g dk tag" style={{ left: '24px', top: line ? '92px' : '24px', color: d.stopLine.tone === 'bad' ? '#ff4d4f' : d.stopLine.tone === 'ok' ? '#00c389' : '#f2b705', fontSize: '14px', fontWeight: '800' }} role="status" data-sd-stop-phase data-tone={d.stopLine.tone}>{d.stopLine.text}</div> : null}
       {hotTag && <span className="g dk tag warntag" style={{ left: '150px', top: '300px', color: '#ff4d4f' }} data-u4-hot>{hotTag}</span>}
-      <div className="g bub" style={{ left: '58%', top: '70px' }} data-u4-notes>{d.notes}</div>
+      <div className="g bub" style={{ left: '58%', top: line ? '140px' : '70px' }} data-u4-notes>{d.notes}</div>
       {tab === 'check' ? <div className="foot" data-u4-legend><span className="g dk tag" style={{ position: 'static', color: '#00c389' }}>보통</span><span className="g dk tag" style={{ position: 'static', color: '#f2b705' }}>주의 50 °C</span><span className="g dk tag" style={{ position: 'static', color: '#ff4d4f' }}>경고 60 °C</span><span className="mu2" style={{ marginLeft: 'auto', fontSize: '12.5px' }}>관절 온도는 색으로 표시 · 마우스를 올리면 값이 보입니다</span></div>
       : sim ? <div className="foot" data-u4-simfoot><span className="g dk tag" style={{ position: 'static', color: '#4c9bff' }} data-u4-simplace>{`시뮬 · ${place || '현장 모름'}`}</span>
         <span className="mu2" style={{ marginLeft: 'auto', fontSize: '12.5px' }}>시뮬 로봇</span></div>
