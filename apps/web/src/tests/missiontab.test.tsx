@@ -378,7 +378,7 @@ describe('임무 탭(W2)', () => {
     expect(bar('sl1').closest('[data-day-robot]')!.getAttribute('data-day-robot')).toBe('r1');
     expect(bar('sl2').closest('[data-day-robot]')!.getAttribute('data-day-robot')).toBe('r2');
     expect([bar('sl1').dataset.kind, bar('sl2').dataset.kind, bar('sl3').dataset.kind]).toEqual(['CONFIRMED', 'DRAFT', 'BATTERY_SWAP']);
-    expect(bar('sl1').textContent).toBe('가스 점검'); expect(bar('sl3').textContent).toBe('배터리 교체');
+    expect(bar('sl1').textContent).toBe('가스 점검'); expect(bar('sl3').textContent).toBe(''); expect(bar('sl3').getAttribute('aria-label')).toBe('배터리 교체');   // 시안: 배터리 교체 칸은 빗금만 · 이름은 aria-label
     expect(Number(bar('sl1').dataset.x) * 100).toBeCloseTo((1 / 12) * 100, 1);   // 09:00 = 08~20 눈금의 1/12
     expect($('[data-legend]')!.textContent).toBe('끝남진행 중예정작성 중배터리 교체');   // 시안 범례(확정은 지금 시각으로 끝남 · 진행 중 · 예정)
     // 확정 칸 모양은 지금 시각(08:05) 기준: 09:00~10:00 = 예정 · 작성 중 = k2 · 배터리 교체 = k3

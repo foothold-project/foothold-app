@@ -1,6 +1,6 @@
 /** 시안 u6_3 · u6_4 · u6_5 만들기와 u15_1 시간 넘김 알림. 머리줄(이름 · 지도 · 로봇 · 걷기 모드 · 시간 칩 · 목록 / 노드 / 지도) · 가운데 · 왼쪽 · 오른쪽 «이 임무» 모두 시안 DOM.
  *  편집 상태 · 저장 · 저장 확인 · 충돌 · 휴지통 · 저장 기록은 지도 탭 편집 칸과 같은 훅(missions.tsx usePlanEdit) */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Estimate, Mission, ScenarioWrite } from '../../../contracts/ts';
 import type { Robot, User } from '../fake';
 import { floorName, Note, type Msg, type Place } from './maps';
@@ -13,6 +13,7 @@ import { RouteStage } from './missionsu6';
 const GAIT_NOTE: Record<string, string> = { classic: '평지 기본', sport: '빠른 걷기', start: '험지 기본', ame2: '준비 중' };
 
 type Props = { id: string; floor: string; robot: string; gait: string; user: User; robots: Robot[]; cancel?: AbortSignal; places: Place[]; p: Plan; jobs: Record<string, Mission>;
+  /** 일정 칸 임무 이름(시나리오 목록에서 · ScheduleSlot.scenario_name 이 오면 그것) */ names: (id: string | null) => string | undefined;
   close: () => void; saved: (id: string) => void; rehearse: () => void };
 
 /** 저장으로 새 id 가 생기면 그 id 로 다시 연다(지도 탭 편집 칸과 같음) */
@@ -25,13 +26,16 @@ export function MissionPlan(props: Props) {
     done={(x, m) => { setMsg(m); if (x) { props.saved(x.id); if (x.id !== cur) setCur(x.id); } }} />;
 }
 
-function Body({ id, floor, user, robots, cancel, places, p, jobs, close, rehearse, look, setLook, msg, done }: Props & { look: Look; setLook: (l: Look) => void; msg: Msg; done: (x: { id: string } | null, m: Msg) => void }) {
+function Body({ id, floor, user, robots, cancel, places, p, jobs, names, close, rehearse, look, setLook, msg, done }: Props & { look: Look; setLook: (l: Look) => void; msg: Msg; done: (x: { id: string } | null, m: Msg) => void }) {
   const e = usePlanEdit('scenarios', id, user, cancel, (x, m) => done(x, m));
   const body = e.body as ScenarioWrite | null, ro = !!e.view || !e.editable;
   const { x, route, checking } = useDraftRoute(body, id, floor, places, cancel);
   const block = blockOf(body, route, checking);
   useEffect(() => { e.setBlock(block); }, [block]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [sel, setSel] = useState<number | 'end' | null>(null), [adding, setAdding] = useState(false), [pending, setPending] = useState<Mission | null>(null), [last, setLast] = useState<number | null>(null);
+  // 시안처럼 처음엔 첫 할 일을 골라 자세히를 보인다(한 번만)
+  const first = useRef(true);
+  useEffect(() => { if (first.current && body?.waypoints.length) { first.current = false; setSel(0); } }, [body]);   // eslint-disable-line react-hooks/exhaustive-deps
   const put = (b: ScenarioWrite) => {
     if (e.lock || ro || !body) return;
     if (b.waypoints.length > body.waypoints.length) setLast(b.waypoints.length - 1); else setLast(null);
@@ -55,11 +59,11 @@ function Body({ id, floor, user, robots, cancel, places, p, jobs, close, rehears
       <span className="g dk chip"><Ic d={IC.mount} />{gName ?? '걷기 모드 없음'}<small>{g ? GAIT_NOTE[g] : ''}</small></span>
       <span className="g dk chip"><Ic d={IC.clock} />{p.start} ~ {p.end}<small /></span>
       <div className="row" style={{ marginLeft: 'auto', gap: '10px' }}>
+        {/* 시안 밖 · 새로 그림: 목록으로 돌아가기(시안 u6_3 에는 없음) */}<button type="button" className="btns" style={{ height: '44px', padding: '0 16px', fontSize: '14.5px' }} onClick={close} data-back-list>‹ 임무 목록</button>
         {!ro && body && <button type="button" className="btnp" style={{ height: '44px', padding: '0 18px', fontSize: '14.5px' }} disabled={e.lock || !!block || (!e.dirty && !!id)} title={block ?? undefined} onClick={() => e.save()} data-save>
           <Ic d={IC.check} />{e.busy ? '저장하는 중…' : '저장'}</button>}
         <div className="seg2 wseg" role="group" aria-label="목록 · 노드 · 지도 보기">{seg('list', '목록', 'w-list', IC.list)}{seg('node', '노드', 'w-node', IC.node)}{seg('map', '지도', 'w-pin', IC.pin)}</div></div>
     </div>
-    <button type="button" className="u6-close lab u6-link" style={{ top: '142px' }} onClick={close} data-back-list>‹ 임무 목록</button>
     {!body ? <div className="pane" style={{ left: '24px', top: '156px', width: '1500px', bottom: '24px', padding: '22px' }}>
       {e.err ? <p className="lab u6-why" role="alert">{e.err.text} <button type="button" className="btns" onClick={() => { e.setErr(null); e.load(e.err!.adopt); }}>다시 받기</button></p> : <Why>불러오는 중…</Why>}</div>
       : look === 'list' ? <>
@@ -73,10 +77,10 @@ function Body({ id, floor, user, robots, cancel, places, p, jobs, close, rehears
         <div className="g dk" style={{ position: 'absolute', left: '50%', bottom: '20px', transform: 'translateX(-50%)', zIndex: 3, display: 'flex', gap: '18px', alignItems: 'center', padding: '10px 18px', borderRadius: '14px', fontSize: '13.5px', fontWeight: '600', whiteSpace: 'nowrap' }}>
           <span className="row" style={{ gap: '4px' }}><kbd className="u6-kbd">누름</kbd>&nbsp;· <kbd className="u6-kbd">우클릭</kbd>&nbsp;이 자리에 할 일</span>
           {pending && <button type="button" className="lab u6-link" onClick={() => setPending(null)}>고르기 그만</button>}</div>
-        {r && <span className="g dk pill" style={{ right: '20px', top: '20px', zIndex: 3 }} title="키보드 조종은 이 칸에서 아직 하지 않습니다 · 로봇 탭 조종 화면에서"><Ic d={IC.robot} />{r.name} {r.sim ? '시뮬' : '실제'} · 지금 자리</span>}
+        {r && <span className="g dk pill" style={{ right: '20px', top: '20px', zIndex: 3, opacity: .55 }} aria-disabled="true" title="키보드 조종은 이 칸에 아직 없습니다(실기 안전 관문 · 속도 설정을 옮기기 전)" data-kbd-drive><Ic d={IC.robot} />키보드로 {r.name} 조종</span>}
       </div>}
     <Notices e={e} msg={msg} block={!ro && body ? block : null} />
-    <This p={p} robots={robots} rehearse={rehearse} ready={!!id && !e.dirty && !e.lock} />
+    <This p={p} robots={robots} rehearse={rehearse} ready={!!id && !e.dirty && !e.lock} names={names} />
     {p.est && p.late && body && <Over p={p} est={p.est} last={last} drop={() => { if (last != null) { put({ ...body, waypoints: body.waypoints.filter((_, k) => k !== last) }); setLast(null); } }} jobs={jobs} body={body} />}
   </section>;
 }
@@ -118,11 +122,12 @@ function Over({ p, est, last, drop, jobs, body }: { p: Plan; est: Estimate; last
 }
 
 /** 오른쪽 «이 임무»: 길이 · 걷기 + 할 일 · 예상 끝 · 끝 배터리(일정 칸에서 고른 로봇 · 걷기 모드로 받은 예상) · 모의 실행 전 · 같은 시간대 다른 로봇(오늘 일정) */
-function This({ p, robots, rehearse, ready }: { p: Plan; robots: Robot[]; rehearse: () => void; ready: boolean }) {
+function This({ p, robots, rehearse, ready, names }: { p: Plan; robots: Robot[]; rehearse: () => void; ready: boolean; names: (id: string | null) => string | undefined }) {
   const e: Estimate | null = p.est, [ln, lu] = e ? dist(e.length_m) : ['—', ''];
   const a = hourOf(new Date(new Date().toDateString() + ' ' + p.start).toISOString()), b = hourOf(new Date(new Date().toDateString() + ' ' + p.end).toISOString());
   const lo = a - 0.5, hi = b + 0.5, f = (h: number) => `${Math.max(0, Math.min(1, (h - lo) / (hi - lo))) * 100}%`;
-  const others = useMemo(() => (p.slots ?? []).filter((s) => hourOf(s.end) > a && hourOf(s.start) < b).slice(0, 4), [p.slots, a, b]);
+  const mine = robots.find((r) => r.id === p.rid);   // 시안 첫 줄: 고른 로봇 · 이 임무(예상 끝까지)
+  const others = useMemo(() => (p.slots ?? []).filter((s) => hourOf(s.end) > a && hourOf(s.start) < b).slice(0, mine ? 3 : 4), [p.slots, a, b, mine]);
   const sims = robots.filter((r) => r.sim);
   return <div className="pane" style={{ left: '1548px', top: '156px', right: '24px', bottom: '24px', padding: '22px' }} aria-label="이 임무">
     <div className="lab">이 임무</div>
@@ -137,14 +142,24 @@ function This({ p, robots, rehearse, ready }: { p: Plan; robots: Robot[]; rehear
       <div className="row" style={{ gap: '8px', fontSize: '14px', fontWeight: '800', color: '#4c9bff' }}><Ic d={IC.play} />모의 실행 전</div>
       <div className="lab" style={{ marginTop: '6px', lineHeight: '1.5', fontSize: '13px' }}>시뮬 로봇에서 이 임무를 실제로 돌려 지점 도착 · 할 일 결과를 봅니다.</div></div>
     <div className="lab" style={{ margin: '20px 0 8px' }}>같은 시간대 다른 로봇</div>
+    {mine && <div className="row" style={{ gap: '10px', height: '34px', fontSize: '13.5px', fontWeight: '700' }} data-plan-mine>
+      <span style={{ width: '64px' }}>{mine.name}</span>
+      <span style={{ position: 'relative', flex: '1', height: '22px', borderRadius: '6px', background: 'rgba(255,255,255,.04)' }}>
+        <i style={{ position: 'absolute', left: f(a), width: `calc(${f(b)} - ${f(a)})`, top: '-3px', bottom: '-3px', border: '1.5px solid rgba(0,195,137,.6)', borderRadius: '6px' }} />
+        <i className="bk k2" style={{ left: f(a), width: `calc(${f(p.est ? Math.min(b, hourOf(p.est.eta)) : b)} - ${f(a)})`, top: 0, height: '22px', padding: 0 }} /></span>
+      <span className="lab" style={{ width: '70px', textAlign: 'right' }}>이 임무</span></div>}
     {others.map((s) => <div key={s.id} className="row" style={{ gap: '10px', height: '34px', fontSize: '13.5px', fontWeight: '700' }} data-plan-other={s.id}>
       <span style={{ width: '64px' }}>{robots.find((r) => r.id === s.robot_id)?.name ?? '다른 로봇'}</span>
       <span style={{ position: 'relative', flex: '1', height: '22px', borderRadius: '6px', background: 'rgba(255,255,255,.04)' }}>
         <i style={{ position: 'absolute', left: f(a), width: `calc(${f(b)} - ${f(a)})`, top: '-3px', bottom: '-3px', border: '1.5px solid rgba(0,195,137,.6)', borderRadius: '6px' }} />
         <i className={`bk ${s.kind === 'DRAFT' ? 'k2' : 'kp'}`} style={{ left: f(hourOf(s.start)), width: `calc(${f(hourOf(s.end))} - ${f(hourOf(s.start))})`, top: 0, height: '22px', padding: 0 }} /></span>
-      <span className="lab" style={{ width: '70px', textAlign: 'right' }}>{hm(s.start)}</span></div>)}
-    {p.slots && !others.length && <Why>이 시간대({p.start} ~ {p.end})에 다른 일정이 없습니다.</Why>}
+      <span className="lab" style={{ width: '70px', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={names(s.scenario_id) ?? undefined}>{names(s.scenario_id) ?? hm(s.start)}</span></div>)}
+    {(mine || others.length > 0) && <div className="row lab num" style={{ gap: '10px', fontSize: '11.5px' }}><span style={{ width: '64px' }} /><span style={{ flex: '1', display: 'flex', justifyContent: 'space-between' }}>
+      {[0, 1, 2, 3].map((k) => <span key={k}>{hhmm(lo + (k * (hi - lo)) / 3)}</span>)}</span><span style={{ width: '70px' }} /></div>}
+    {p.slots && !others.length && !mine && <Why>이 시간대({p.start} ~ {p.end})에 다른 일정이 없습니다.</Why>}
     <button type="button" className="btnp" style={{ position: 'absolute', left: '22px', right: '22px', bottom: '22px', height: '54px', fontSize: '15.5px' }} disabled={!sims.length || !ready}
       title={!sims.length ? '모의 실행은 시뮬 로봇으로 돌립니다. 이 조직에 시뮬 로봇이 없습니다.' : !ready ? '저장한 뒤 모의 실행합니다.' : undefined} onClick={rehearse} data-plan-rehearse><Ic d={IC.play} />모의 실행 돌리기</button>
   </div>;
 }
+
+const hhmm = (h: number) => { const t = Math.round(((h % 24) + 24) % 24 * 60); return `${String(Math.floor(t / 60) % 24).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`; };

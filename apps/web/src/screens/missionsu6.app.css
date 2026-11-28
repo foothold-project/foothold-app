@@ -67,3 +67,12 @@
 
 /* 예상이 없을 때는 값 자리(—)를 비워 아래 까닭 한 줄과 겹치지 않게 */
 .u6 .u6-est.none b{visibility:hidden}
+
+/* 시안 밖 · 새로 그림: 지도 확대 · 맞춤 · 실제 모습/장애물 지도 단추와 축척. 옛 앱 .btn 대신 시안 지도 위 칩(.chips span + .g)과 같은 값 */
+.u6 [data-map-ctl] .btn{height:34px;border-radius:11px;font-size:13px;font-weight:700;display:flex;align-items:center;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.48));border:1px solid rgba(255,255,255,.85)!important;box-shadow:0 8px 24px rgba(20,30,50,.14),inset 0 1px 0 rgba(255,255,255,.95);color:#1f2421}
+.u6 [data-map-ctl] .btn[aria-pressed="true"]{background:#1f2421!important;color:#fff}
+.u6 [data-scale]{background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.48))!important;border:1px solid rgba(255,255,255,.85)!important;color:#1f2421!important;font-weight:700}
+.u6 [data-scale] span{border-color:#1f2421!important}
+.u6 [aria-label="작은 지도"] [data-map-ctl]{display:none}
+/* 시안 u6_6: 모의 실행 중 지도 사진은 흐리고 어둡게(시안 img filter 값) */
+.u6 .u6-reh image{filter:saturate(.35) brightness(.72) contrast(1.05)}

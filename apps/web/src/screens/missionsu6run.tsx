@@ -10,7 +10,7 @@ import { RUN_FAIL, RUN_STATUS } from '../run';
 import { useLive } from '../rt';
 import type { Ctx } from '../screens';
 import { floorName } from './maps';
-import { hm, type Plan, type Route } from './missiontab';
+import { hm, MODES, type Plan, type Route } from './missiontab';
 import { IC, Ic, Pager, RouteStage, Why, type Fix } from './missionsu6';
 import { useRunGate } from './missionsu6pre';
 import { result, stops, took } from './runreport';
@@ -53,7 +53,13 @@ export function Rehearse({ x, route, robots, user, cancel, p, close, result: toR
       <div className="row" style={{ justifyContent: 'space-between', margin: '20px 0 6px' }}><span className="lab">지금까지 점검</span><span className="lab">생기면 지도에 표시</span></div>
       {['겹침', '충돌', '중복', '혼잡'].map((t) => <div key={t} className="chk" data-chk={t}><span className="mu2"><Ic d={IC.clock} /></span><div>{t}</div><span className="v mu2">{NO}</span></div>)}
       {sim && <Battery robot={sim} />}
-      <Why data-rehearse-why>겹침 · 충돌 · 중복 · 혼잡 · 배속은 서버에 아직 값이 없어 비워 둡니다. 실행 상태 · 지점 진행 · 배터리만 실제 값입니다.</Why>
+      <div style={{ marginTop: '22px', padding: '16px 18px', borderRadius: '14px', background: 'rgba(255,255,255,.03)', border: '1px solid var(--line)' }} data-rehearse-basis>
+        <div className="lab" style={{ marginBottom: '10px' }}>이 모의 실행의 기준</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '92px 1fr', rowGap: '10px', fontSize: '13.5px', fontWeight: '600' }}>
+          <span className="lab">지도</span><span>{route.place ? `${floorName(route.place.floor.name)}${route.v ? ` · 판 ${route.v.number}` : ''}` : NO}</span>
+          <span className="lab">물리</span><span>MuJoCo{p.gait ? ` · ${MODES.find(([, v]) => v === p.gait)?.[0] ?? p.gait} Mode` : ''}</span>
+          <span className="lab">중복</span><span className="mu2">{NO}</span>
+          <span className="lab">혼잡</span><span className="mu2">{NO}</span></div></div>
       {!sim && <Why alert>이 조직에 시뮬 로봇이 없어 모의 실행을 돌릴 수 없습니다.</Why>}
       {sim && !g.on && (g.why || g.say) && <div className="u6-whyslot" style={{ bottom: '92px' }}>
         <p className={`lab u6-why${g.say ? ' bad' : ''}`} role={g.say ? 'alert' : 'status'} data-rehearse-gate>{g.say || g.why}</p>
