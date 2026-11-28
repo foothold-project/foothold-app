@@ -329,40 +329,39 @@ describe('관제 탭', () => {
   });
 
 
-  it('총괄 요약 = 수 칸: 임무 중 = 타일 실행 상태로 셈(시뮬 포함 · 서버 요약은 실기만이라 안 씀) · 경고 = 서버 GET /dashboard(시뮬 몫은 뺌), 결재 대기 = 머리줄 메뉴 끝 작은 표', async () => {
+  it('총괄 요약 = 수 칸: 임무 중 = 타일 실행 상태로 셈(시뮬 포함 · 서버 요약은 실기만이라 안 씀) · 경고 = 타일 테두리 경고 수(서버 요약은 실기만이라 안 씀), 결재 대기 = 서버 GET /dashboard = 머리줄 메뉴 끝 작은 표', async () => {
     dashOk({ robots_running: 5, robots_attention: 2, approvals_pending: 4 });
     mount('u-kim', TWENTY); feed(TWENTY);
     await act(async () => {});
     expect([$('[data-sum="임무 중"]').dataset.src, $('[data-sum="임무 중"] b').textContent]).toEqual([undefined, String(TWENTY.filter((r) => r.status === 'RUNNING' && r.online).length)]);
-    expect($('[data-sum="경고"]').dataset.src).toBe('dashboard');
-    expect($('[data-sum="경고"] b').textContent).toBe('2');
+    expect($('[data-sum="경고"]').dataset.src).toBeUndefined();
+    expect($('[data-sum="경고"] b').textContent).toBe(String(document.querySelectorAll('.u5 .tile[class*="lv-"]').length));
     const ap = $('.bar .tabs [data-approvals]');
     expect([ap.dataset.approvals, ap.hidden, ap.textContent]).toEqual(['4', false, '결재 4']);
     act(() => { ap.click(); window.dispatchEvent(new HashChangeEvent('hashchange')); });
     expect(location.hash).toBe('#/approval');
   });
-  it('요약을 10 s 마다 다시 받아 수 칸을 바꾼다', async () => {
+  it('요약을 10 s 마다 다시 받아 결재 표를 바꾼다', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     try {
-      const d = dashOk({ robots_attention: 1 });
+      const d = dashOk({ approvals_pending: 1 });
       mount('u-kim', EIGHT); feed(EIGHT);
       await act(async () => {});
-      expect($('[data-sum="경고"] b').textContent).toBe('1');
-      d.mockResolvedValue({ ...DASH, robots_attention: 3 } as never);
+      expect($('.bar [data-approvals]').dataset.approvals).toBe('1');
+      d.mockResolvedValue({ ...DASH, approvals_pending: 3 } as never);
       const n = d.mock.calls.length;
       await act(async () => { vi.advanceTimersByTime(10_000); });
       expect(d.mock.calls.length).toBe(n + 1);
-      expect($('[data-sum="경고"] b').textContent).toBe('3');
+      expect($('.bar [data-approvals]').dataset.approvals).toBe('3');
     } finally { vi.useRealTimers(); }
   });
-  it('요약 실패(403 · 500 · 형식 틀림) → 수를 지어내지 않고 «—» + 까닭(칸 title · 화면 읽기 한 줄), 결재 표는 숨김', async () => {
+  it('요약 실패(403 · 500 · 형식 틀림) → 결재 수를 지어내지 않고 결재 표는 숨김 + 까닭(화면 읽기 한 줄), 수 칸은 타일로 셈', async () => {
     for (const [rep, says] of [[{ code: 'FORBIDDEN', status: 403, message: '권한이 없습니다.' }, '권한이 없습니다.'], [{ code: 'INTERNAL', status: 500, message: '서버 오류' }, '서버 오류'], [{}, '요약 형식이 맞지 않습니다']] as const) {
       const d = vi.spyOn(api, 'dashboard');
       if ('code' in rep) d.mockRejectedValue(rep); else d.mockResolvedValue(rep as never);
       mount('u-kim', EIGHT); feed(EIGHT);
       await act(async () => {});
-      expect(['임무 중', '경고'].map((k) => $(`[data-sum="${k}"] b`).textContent)).toEqual(['6', '']);   // 임무 중은 타일로 셈 · 경고만 서버 요약
-      expect($('[data-sum="경고"]').title).toContain(`요약을 받지 못했습니다. ${says}`);
+      expect(['임무 중', '경고'].map((k) => $(`[data-sum="${k}"] b`).textContent)).toEqual(['6', String(document.querySelectorAll('.u5 .tile[class*="lv-"]').length)]);   // 수 칸은 타일로 셈 · 요약 실패와 무관
       expect($('[data-dash-err]').textContent).toContain(says);
       expect($('.bar [data-approvals]').dataset.approvals).toBe('');
       expect($('.bar [data-approvals]').hidden).toBe(true);

@@ -279,7 +279,8 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
       {/* 시안 칸 줄 그대로 여섯 칸 · 0 이면 0. 서버에 없는 값은 수를 비우고 까닭은 title */}
       {cnt('연결 중', IC.wifi, nLink)}
       {cnt('시뮬 대기', IC.box, nSim)}
-      {admin ? cnt('경고', IC.warn, d ? d.robots_attention : null, true, 'dashboard') : cnt('경고', IC.warn, n((f) => !!f.level), true)}
+      {/* 경고 = 타일 테두리가 경고인 로봇(시뮬 포함). 서버 요약 robots_attention 은 실기만이라 타일과 어긋나서 쓰지 않음 */}
+      {cnt('경고', IC.warn, n((f) => !!f.level), true)}
       {why && <span className="ap-sr" role="alert" data-dash-err>{why}</span>}
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '14px' }}>
         {view === 'tiles' && <span className="btns flipb" style={{ height: '42px', padding: '0 14px', fontSize: '13.5px', ...(front ? { background: 'rgba(0,195,137,.16)', borderColor: 'rgba(0,195,137,.45)', color: '#00c389' } : {}) }} role="button" tabIndex={0} aria-pressed={front}
