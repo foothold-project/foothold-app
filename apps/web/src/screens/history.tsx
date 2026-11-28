@@ -1,7 +1,7 @@
 // 기록 탭·서랍 «최근 사건»·알림 종(01 LG-01·02·04·05, 02 F-LG·F-COM-03, 03 UX §5.5, 05 §8 · S2 /events·/notifications).
 // 목록·범위·문장은 서버 값 그대로: 화면은 필터를 요청 매개변수로 넘길 뿐 다시 거르거나 문장을 짓지 않는다(운영 관리자 범위도 서버가 정함).
 // 이 요청들이 실패·지연돼도 머리줄·STOP·조종 화면은 그대로다 · 오류는 이 칸 안에만 쓴다.
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useId, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import type { Event as Ev, EventList, NotificationList, Notification, NotificationsRead } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import { idleSim, myRobots, simName, type Robot, type Tone } from '../fake';
@@ -74,12 +74,14 @@ const Row = ({ e, n = 1, lo, hi }: { e: Ev; n?: number; lo?: Ev; hi?: Ev }) => <
   <span className="lbl hs-meta"><span className="mono">{n > 1 && lo && hi ? span(lo, hi) : when(stamp(e))}</span> · <Kind e={e} />{n > 1 && <span data-repeat={n}> · {n}번</span>}</span></li>;
 /** 기록 표: 시각 · 종류 · 상태 · 내용 · 로봇·사람. 좁으면(history.css 컨테이너 질의) 줄마다 카드로 · 가로로 넘치지 않게 */
 /** run = 「실행 기록 보기」(run_id 있는 줄만, 누른 단추를 넘겨 닫으면 초점을 돌려줌) */
-const Table = ({ items, who, label, run }: { items: Ev[]; who: (e: Ev) => string; label?: string; run?: (id: string, from: HTMLElement) => void }) => <div className="hs-wrap">
+const Table = ({ items, n, label, run }: { items: Ev[]; n: Names; label?: string; run?: (id: string, from: HTMLElement) => void }) => { const o = useOpen();
+  return <div className="hs-wrap">
   <table className="hs-table" aria-label={label} hidden={!items.length}>
     <thead><tr><th scope="col">시각</th><th scope="col">종류</th><th scope="col">상태</th><th scope="col">내용</th><th scope="col">로봇·사람</th></tr></thead>
-    <tbody>{items.map((e) => { const w = who(e);
-      return <tr key={e.id}><td className="mono">{when(stamp(e))}</td><td><Kind e={e} /></td><td><Sev e={e} /></td><td><Said e={e} /><Photo e={e} /><Clip e={e} />{run && e.run_id && <button type="button" className="btn rr-open" onClick={(x) => run(e.run_id!, x.currentTarget)}>실행 기록 보기</button>}</td><td className="lbl" data-none={!w || undefined}>{w || '없음'}</td></tr>; })}</tbody>
-  </table></div>;
+    <tbody>{items.map((e) => { const w = n.who(e), on = o.open === e.id;
+      return <Fragment key={e.id}><tr data-open={on || undefined} onClick={o.row(e.id)}><td className="mono"><Opener e={e} on={on} o={o} /></td><td><Kind e={e} /></td><td><Sev e={e} /></td><td><Said e={e} /><Photo e={e} /><Clip e={e} />{run && e.run_id && <button type="button" className="btn rr-open" onClick={(x) => run(e.run_id!, x.currentTarget)}>실행 기록 보기</button>}</td><td className="lbl" data-none={!w || undefined}>{w || '없음'}</td></tr>
+        {on && <tr className="hs-detail-row"><td colSpan={5}><Detail e={e} n={n} id={o.id(e.id)} /></td></tr>}</Fragment>; })}</tbody>
+  </table></div>; };
 /** 분류 아이콘(lucide ISC 선 path 를 옮김, 패키지 없음): 임무 route · 이탈 triangle-alert · 연결 wifi · 조종권 key-round · 결재 file-check · 안전 shield · 계정 user · 기타 info */
 const TI = (d: JSX.Element) => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{d}</svg>;
 const TILE_ICON: Record<string, JSX.Element> = {
@@ -94,24 +96,56 @@ const TILE_ICON: Record<string, JSX.Element> = {
 const OTHER_ICON = TI(<><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></>);
 /** 폰 기록 = 사건 타일(U3-04 · u3_3_list): 등급 색으로 옅게 물든 칸 + 1 px 테 · 분류 아이콘 · 문장 · 아래 줄(등급 · 분류 · 로봇·사람) · 오른쪽 시각.
  *  사진 · 클립 · 「실행 기록 보기」 는 표와 같다 */
-const Tiles = ({ items, who, run }: { items: Ev[]; who: (e: Ev) => string; run: (id: string, from: HTMLElement) => void }) =>
-  <ul className="hs-tiles" aria-label="사건" hidden={!items.length}>{items.map((e) => { const w = who(e);
-    return <li key={e.id} className="hs-tile" data-tile data-tone={sevOf(e)[0]}>
+const Tiles = ({ items, n, run }: { items: Ev[]; n: Names; run: (id: string, from: HTMLElement) => void }) => { const o = useOpen();
+  return <ul className="hs-tiles" aria-label="사건" hidden={!items.length}>{items.map((e) => { const w = n.who(e), on = o.open === e.id;
+    return <li key={e.id} className="hs-tile" data-tile data-tone={sevOf(e)[0]} data-open={on || undefined} onClick={o.row(e.id)}>
       <span className="hs-tile-ic" data-tile-icon={e.category}>{TILE_ICON[e.category] ?? OTHER_ICON}</span>
       <div className="hs-tile-body">
         <div className="hs-tile-title" data-tile-title><Said e={e} /></div>
         <span className="lbl hs-tile-sub" data-tile-sub><Sev e={e} /> · <Kind e={e} />{w && ` · ${w}`}</span>
         <Photo e={e} /><Clip e={e} />{e.run_id && <button type="button" className="btn rr-open" onClick={(x) => run(e.run_id!, x.currentTarget)}>실행 기록 보기</button>}
+        {on && <Detail e={e} n={n} id={o.id(e.id)} />}
       </div>
-      <span className="mono hs-tile-time" data-tile-time>{when(stamp(e))}</span>
-    </li>; })}</ul>;
+      <span className="mono hs-tile-time" data-tile-time><Opener e={e} on={on} o={o} /></span>
+    </li>; })}</ul>; };
 /** 사건의 로봇·사람 이름 · 화면이 아는 것만(로봇 목록·나·담당자). id 는 있는데 이름을 모르면 «이름 모름», 둘 다 없으면 빈 글 */
 const NAMELESS = '이름 모름';
-const whoOf = (c: Pick<Ctx, 'user' | 'robots'>) => (e: Ev) => {
-  const r = !e.robot_id ? '' : c.robots.find((x) => x.id === e.robot_id)?.name || NAMELESS;
-  const u = !e.user_id ? '' : (e.user_id === c.user.id ? c.user.name : c.robots.find((x) => x.owner === e.user_id)?.ownerName) || NAMELESS;
-  return [...new Set([r, u].filter(Boolean))].join(' · ');
+type Names = { who: (e: Ev) => string; robot: (e: Ev) => string; user: (e: Ev) => string; sim: (e: Ev) => boolean | undefined };
+const namesOf = (c: Pick<Ctx, 'user' | 'robots'>): Names => {
+  const find = (e: Ev) => c.robots.find((x) => x.id === e.robot_id);
+  const robot = (e: Ev) => (!e.robot_id ? '' : find(e)?.name || NAMELESS);
+  const user = (e: Ev) => (!e.user_id ? '' : (e.user_id === c.user.id ? c.user.name : c.robots.find((x) => x.owner === e.user_id)?.ownerName) || NAMELESS);
+  return { robot, user, sim: (e) => find(e)?.sim, who: (e) => [...new Set([robot(e), user(e)].filter(Boolean))].join(' · ') };
 };
+/** 한 번에 한 줄만 펼침(u8_4). 줄 어디를 눌러도 펼치고 접되, 줄 안 단추 · 링크 · 접힌 상세 · 사진 · 펼친 칸 안을 누른 것은 그 자리 일 */
+function useOpen() {
+  const [open, setOpen] = useState<string | null>(null), base = useId();
+  const flip = (id: string) => setOpen((o) => (o === id ? null : id));
+  return { open, id: (e: string) => `${base}-${e}`,
+    row: (id: string) => (x: MouseEvent) => { if (!(x.target as Element).closest('a,button,summary,details,input,select,label,[data-detail]')) flip(id); },
+    key: (id: string) => (x: KeyboardEvent) => { if (x.key === 'Enter' || x.key === ' ') { x.preventDefault(); flip(id); } } };
+}
+/** 줄의 시각 = 펼침 손잡이(키보드 초점 · aria-expanded, 화살 모양은 history.css). 누름은 줄로 올라가 줄이 펼친다 */
+const Opener = ({ e, on, o }: { e: Ev; on: boolean; o: ReturnType<typeof useOpen> }) => { const t = when(stamp(e));
+  return <span role="button" tabIndex={0} className="hs-open" data-row-open aria-expanded={on} aria-controls={on ? o.id(e.id) : undefined} aria-label={`${t} 기록 자세히`} onKeyDown={o.key(e.id)}>
+    {t}</span>; };
+/** 현지 yyyy/mm/dd HH:MM:SS */
+const full = (at: string) => { const d = new Date(at), p = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${d.toTimeString().slice(0, 8)}`; };
+const NO_VALUE = '서버에 값 없음';
+/** 펼친 한 줄(u8_4 시안 상세 중 서버 /events 응답에 있는 칸만). 시안의 진행 순서 · 어디서 · 걸린 시간은 서버가 주지 않아 짓지 않는다 */
+const Detail = ({ e, n, id }: { e: Ev; n: Names; id: string }) => { const r = n.robot(e), sim = n.sim(e);
+  return <div className="hs-detail" id={id} data-detail>
+    <dl className="hs-facts">
+      <div><dt>로봇 시각</dt><dd className="mono">{e.robot_at ? full(e.robot_at) : NO_VALUE}</dd></div>
+      <div><dt>서버가 받은 시각</dt><dd className="mono">{full(e.at)}</dd></div>
+      <div><dt>등급</dt><dd><Sev e={e} /></dd></div>
+      <div><dt>묶음</dt><dd>{KIND_NAME[e.category] ?? '기타'}</dd></div>
+      <div><dt>로봇</dt><dd>{r ? `${r}${sim === undefined ? '' : sim ? ' · 시뮬' : ' · 실기'}` : '없음'}</dd></div>
+      <div><dt>사람</dt><dd>{n.user(e) || '없음'}</dd></div>
+      <div><dt>기록 코드</dt><dd className="mono">{e.code || NO_VALUE}</dd></div>
+    </dl>
+    <p className="lv-note">진행 순서 · 어디서 · 걸린 시간은 서버에 값 없음</p>
+  </div>; };
 
 /** 필터(기간은 날짜 칸 값 yyyy-mm-dd · 그날 0시부터 끝까지, 브라우저 시간대) */
 type Filter = { category: string; severity: string; robot: string; from: string; to: string };
@@ -237,9 +271,9 @@ export function History(c: HistoryCtx) {
     }
   };
   const [runOf, setRunOf] = useState<{ id: string; from: HTMLElement } | null>(null);   // 열린 실행 기록(u15_3)
-  const filtered = !c.phone && params(f)?.toString() !== '', who = whoOf(c);
+  const filtered = !c.phone && params(f)?.toString() !== '', n = namesOf(c);
   return <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="기록">
-    {c.focus && <Focus key={c.focus} id={c.focus} cancel={c.cancel} who={who} close={() => c.go('history')} />}
+    {c.focus && <Focus key={c.focus} id={c.focus} cancel={c.cancel} n={n} close={() => c.go('history')} />}
     {!c.phone && <>
       <div className="fh-row" role="group" aria-label="분류">{KINDS.map(([k, name]) => <button key={name} type="button" className="btn" aria-pressed={f.category === k} onClick={() => set({ category: k })}>{name}</button>)}</div>
       <div className="fh-row" role="group" aria-label="등급"><span className="lbl">등급</span>{GRADES.map(([k, mark, name]) => <button key={name} type="button" className="btn" aria-pressed={f.severity === k} onClick={() => set({ severity: k })}>{mark && <span aria-hidden="true">{mark}</span>}{name}</button>)}</div>
@@ -264,7 +298,7 @@ export function History(c: HistoryCtx) {
       {out && <p className={`fh-msg${out.ok ? ' ok' : ''}`} role={out.ok ? 'status' : 'alert'}>{out.text}</p>}
     </>}
     {runOf && <RunReport key={runOf.id} id={runOf.id} cancel={c.cancel} close={() => { runOf.from.focus(); setRunOf(null); }} />}
-    {c.phone ? <Tiles items={ev.items} who={who} run={(id, from) => setRunOf({ id, from })} /> : <Table items={ev.items} who={who} label="사건" run={(id, from) => setRunOf({ id, from })} />}
+    {c.phone ? <Tiles items={ev.items} n={n} run={(id, from) => setRunOf({ id, from })} /> : <Table items={ev.items} n={n} label="사건" run={(id, from) => setRunOf({ id, from })} />}
     {ev.err && <p className="fh-msg" role="alert">기록을 받지 못했습니다. {why(ev.err)}</p>}
     {ev.busy && <p className="lv-note" role="status">기록을 불러오는 중…</p>}
     {!ev.busy && !ev.err && !ev.items.length && (c.phone && c.robot || filtered ? <p className="lv-note">{c.phone && c.robot ? '이 로봇의 기록이 아직 없습니다.' : '조건에 맞는 기록이 없습니다.'}</p>
@@ -276,7 +310,7 @@ export function History(c: HistoryCtx) {
 }
 
 /** 알림에서 연 사건 하나(#/history?event_id=…). 범위 밖·없음이면 그렇게 쓴다 */
-function Focus({ id, cancel, who, close }: { id: string; cancel?: AbortSignal; who: (e: Ev) => string; close: () => void }) {
+function Focus({ id, cancel, n, close }: { id: string; cancel?: AbortSignal; n: Names; close: () => void }) {
   const [e, setE] = useState<Ev | null>(null), [err, setErr] = useState('');
   useEffect(() => {
     api.event(id, cancel).then(shape(isEvent)).then(setE, (x: ApiFail) => {
@@ -285,7 +319,7 @@ function Focus({ id, cancel, who, close }: { id: string; cancel?: AbortSignal; w
   }, []);
   return <div className="card" style={{ padding: 10 }} aria-label="알림에서 연 기록">
     <div className="fh-row"><b className="fh-grow">알림에서 연 기록</b><button type="button" className="btn" onClick={close}>닫기</button></div>
-    {e && <Table items={[e]} who={who} />}
+    {e && <Table items={[e]} n={n} />}
     {err && <p className="fh-msg" role="alert">{err}</p>}
   </div>;
 }
