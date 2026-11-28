@@ -95,7 +95,7 @@ export function PcDrive({ c, r, back, floorMap }: { c: Ctx; r: Robot; back: () =
   const off = d.off;
   const server = LINK[d.link] ?? { tone: 'off' as const, text: '연결 중' };
   const robot = !s ? { tone: 'off' as const, text: '모름' } : s.connection === 'ONLINE' ? { tone: 'ok' as const, text: '연결' } : { tone: 'bad' as const, text: '끊김' };
-  const why = !s?.latched ? '' : d.stalled ? STALLED : d.refused || (l.stop ? '정지 요청으로 잠겼습니다.' : '로봇이 정지 잠금을 알렸습니다 — 잠금 해제 전에 현장을 확인하세요.');
+  const why = !s?.latched ? '' : d.stalled ? STALLED : d.refused || (l.stop ? '정지 요청으로 잠겼습니다.' : '로봇이 정지 잠금을 알렸습니다. 잠금 해제 전에 현장을 확인하세요.');
   const lidarText = driveFeedText(lidar, 'lidar'), held = driveFeedHeld(lidar).replace('\n', ' · ');   // 큰 칸이면 머리줄에(RV-435 ②)
   const tiles: QTile[] = [
     { id: 'map', label: '지도', body: () => <div className="pd-floor">{floorMap}</div> },
