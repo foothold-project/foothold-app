@@ -1321,6 +1321,22 @@
       "default": null,
       "title": "Devices Changed"
     },
+    "field_gate": {
+      "anyOf": [
+        {
+          "enum": [
+            "OPEN",
+            "CLOSED"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Field Gate"
+    },
     "latched": {
       "title": "Latched",
       "type": "boolean"

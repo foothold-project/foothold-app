@@ -1392,6 +1392,23 @@
       "title": "Devices",
       "type": "array"
     },
+    "field_gate": {
+      "anyOf": [
+        {
+          "enum": [
+            "OPEN",
+            "CLOSED"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "CLOSED면 앱 정지가 로봇에 가지 않는다. latched에 applied 0만으로 정지 출력을 뜻하지 않는다. 옛 에이전트는 null.",
+      "title": "Field Gate"
+    },
     "latched": {
       "anyOf": [
         {

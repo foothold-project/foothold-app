@@ -29,6 +29,9 @@ SitePurpose = Literal['SIM', 'REAL']
 Role = Literal['ORG_ADMIN', 'OPERATOR']
 Category = Literal['RUN', 'ROUTE', 'LINK', 'LEASE', 'APPROVAL', 'SAFETY', 'ACCOUNT']
 SafetyReason = Literal['OUTPUT_STALLED']
+# Agent-local field approval gate. CLOSED: a STOP is not forwarded to the robot,
+# so latched with zero applied does not mean a stop was output. null: no gate or unknown.
+FieldGate = Literal['OPEN', 'CLOSED']
 RunStatus = Literal['QUEUED', 'PREPARING', 'MOVING', 'AT_WAYPOINT', 'PERFORMING',
                     'WAIT_CONFIRM', 'PAUSED', 'COMPLETED', 'FAILED', 'CANCELED']
 # Read compatibility only: new direct reports must use RunStatus.
@@ -433,8 +436,9 @@ class RobotSummary(Contract):
     controller_connected: bool | None = None
     simulation: bool = False
     server_drive_allowed: bool = False
-    server_drive_blocked: list[Literal['SWITCH_OFF', 'NO_OWNER', 'NO_SERIAL', 'AGENT_OFFLINE']] | None = Field(
-        default=None, description='표시용 조종 불가 이유. 전체 보기 가능한 실기만 목록, 허용이면 빈 목록, 그 외 null. 허용 판단에는 쓰지 않는다.')
+    server_drive_blocked: list[Literal['SWITCH_OFF', 'NO_OWNER', 'NO_SERIAL', 'AGENT_OFFLINE', 'FIELD_GATE_CLOSED']] | None = Field(
+        default=None, description='표시용 조종 불가 이유. 전체 보기 가능한 실기만 목록, 허용이면 빈 목록, 그 외 null. 허용 판단에는 쓰지 않는다. '
+                                  'FIELD_GATE_CLOSED: 서버 쪽 이유가 없는데 에이전트 현장 승인 관문이 닫혀 앱 정지가 로봇에 가지 않는다(허용 값과 함께 올 수 있음).')
     robot_serial: str | None = None
     field_approval_expires_at: UTCDateTime | None = Field(default=None,
         description='폐기된 사람 현장 승인 호환 필드. 항상 null이며 자동 연결 관문은 server_drive_allowed를 쓴다.')
@@ -1042,6 +1046,7 @@ class AgentState(AgentInput):
     battery: AgentBattery
     latched: bool = Field(strict=True)
     safety_reason: SafetyReason | None = None
+    field_gate: FieldGate | None = None
     unlock_refused: UnlockRefused | None = None
     stop_gen: Sequence
     stop_ref: Sequence
@@ -1627,7 +1632,7 @@ class ScreenLeaseResult(Contract):
 
 class ScreenState(Contract):
     response_health: RobotResponseHealth | None = None
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused', 'robot_info', 'posture', 'posture_result', 'action_result', 'response_health', 'slam_pose', 'control'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'field_gate', 'phone_relay', 'unlock_refused', 'robot_info', 'posture', 'posture_result', 'action_result', 'response_health', 'slam_pose', 'control'))
     posture: PostureState | None = None
     posture_result: PostureResult | None = None
     action_result: ActionResult | None = None
@@ -1646,6 +1651,8 @@ class ScreenState(Contract):
     latency_ms: float | None
     latched: bool | None
     safety_reason: SafetyReason | None = None
+    field_gate: FieldGate | None = Field(default=None, description=(
+        'CLOSED면 앱 정지가 로봇에 가지 않는다. latched에 applied 0만으로 정지 출력을 뜻하지 않는다. 옛 에이전트는 null.'))
     unlock_refused: UnlockRefused | None = None
     stop_gen: Sequence | None
     applied: Vector3 | None
@@ -2936,7 +2943,7 @@ class PhoneRunUpdate(RunSnapshot):
 
 class PhoneState(AgentState):
     model_config = ConfigDict(json_schema_extra=optional_response_fields(
-        'run', 'controller_since', 'reported_run', 'robot_serial', 'sensor_age_ms', 'robot_info'))
+        'run', 'controller_since', 'reported_run', 'robot_serial', 'sensor_age_ms', 'robot_info', 'field_gate'))
     robot_serial: str | None = Field(default=None, pattern=r'^(0|[1-9][0-9]{0,9})-(0|[1-9][0-9]{0,9})$',
                                     exclude_if=lambda value: value is None)
     sensor_age_ms: int | None = Field(default=None, ge=0, strict=True,

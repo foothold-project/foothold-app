@@ -462,7 +462,7 @@ purge 이후 NULL 기록이 생겼거나 파일 대기열이 남으면
 ### 9.3 서버 → 화면
 | t | 본문 | 빈도 |
 |---|---|---|
-| `state` | 로봇 요약 객체(§3)의 바뀐 부분 + `speed`, `latency_ms`(지금 미측정 `null`), `stop_gen`, `latched`, `applied` | 구독 로봇마다 10 Hz |
+| `state` | 로봇 요약 객체(§3)의 바뀐 부분 + `speed`, `latency_ms`(지금 미측정 `null`), `stop_gen`, `latched`, `applied`, `field_gate`(`OPEN`\|`CLOSED`\|`null`, 에이전트 값 그대로. 옛 에이전트·오래된 상태는 `null`) | 구독 로봇마다 10 Hz |
 | `lease` | `{robot, holder, lease_id(조종권자 연결에만), since}` | 바뀔 때 |
 | `lease.requested` | `{robot, request_id, requester:{display_name, role}, expires_at}` | 조종권자에게 |
 | `lease.result` | `{robot, request_id, result: "ACCEPTED"|"DECLINED"|"TIMEOUT"|"CANCELED", error?}`. 정지 확인 실패([02 F-TO-04](02-FUNCTIONAL-SPEC.md#f-to-04-조종권-요청-sf-05sf-08--확정--제안-보완) 넘김 순서 4)는 `CANCELED` + `error:"STOP_CONFIRM_FAILED"` | 요청자·조종권자에게 |
@@ -493,7 +493,7 @@ purge 이후 NULL 기록이 생겼거나 파일 대기열이 남으면
 | t | 본문 | 빈도 |
 |---|---|---|
 | `hello` | `{proto:"fh-agent/1", agent_version, robot_model, firmware, devices:[…], map_versions:[sha256…], last_floor_id, latched, stop_gen, lease_id, run:{run_id, status, step, wait_reason?}|null}` | 연결 직후 1회(3 s 안). 서버는 이것으로 실행·조종권을 맞춘다([04 §3.2](04-ARCHITECTURE.md#32-연결-끊김-처리) 재연결) |
-| `state` | `{pose:{floor_id,x,y,yaw,confidence}, speed, battery:{soc,voltage?}, latched, stop_gen, stop_ref, applied:[vx,vy,wz], mode:"USER"|"RUN"|"FREE", devices_changed?}`. 측정 전 값(pose 각 칸·speed·soc)은 `null`. `stop_ref` 는 §10.5 | 10 Hz, 그리고 `lease`·`stop`·`unlock` 을 적용한 직후 |
+| `state` | `{pose:{floor_id,x,y,yaw,confidence}, speed, battery:{soc,voltage?}, latched, stop_gen, stop_ref, applied:[vx,vy,wz], mode:"USER"|"RUN"|"FREE", devices_changed?, field_gate?}`. `field_gate` 는 현장 승인 관문이 있는 실기 에이전트만 `OPEN`/`CLOSED`, 관문 없음·모름은 `null`. 측정 전 값(pose 각 칸·speed·soc)은 `null`. `stop_ref` 는 §10.5 | 10 Hz, 그리고 `lease`·`stop`·`unlock` 을 적용한 직후 |
 | `ping` | `{}` | 서버 `ping` 에는 `state` 또는 `ping` 으로 응답한다(10 Hz `state` 가 응답을 겸함) |
 | `event` | `{code, severity, robot_at|null, data}` (서버가 문장을 만든다) | 생길 때. 끊김 중 쌓은 것은 재연결 때 순서대로. 끊긴 동안의 재시도 사건은 하나로 묶는다(§10.3 규칙 11) |
 | `run.update` | `{run_id, status, step, progress, path_deviation_m?, fail_code?}` | 바뀔 때 |
@@ -558,6 +558,8 @@ P1-B의 `phone.revoke`/`phone.revoke.ack`는 현재 구현 프로토콜 `fh-agen
 4. `stop_ref` 가 상한 2^53-1 에 닿으면 그 값으로 확인된 조종권은 한 번 줄 수 있다. 그 뒤의 STOP 은 같은 상한값을 다시 실어 계속 보내되, 그 값으로 새 조종권은 주지 않는다(`lease.result` `CANCELED` + `error:"STOP_REF_EXHAUSTED"`). 다시 주려면 중재기를 새로 띄워야 한다.
 5. 서버와 에이전트는 이 계약을 함께 갱신한다. `stop_ref` 를 돌려주지 않는 옛 에이전트는 새 서버에서 정지 확인을 통과하지 못한다.
 - 여기서 확인하는 것은 메시지 사이의 인과(그 STOP 을 적용했다는 보고)다. 몸이 실제로 섰는지(속도 0·정지 거리)는 아니다.
+- `field_gate=CLOSED`이면 STOP이 로봇에 가지 않는다. `latched=true`에 `applied`가 비었거나 0이라는 것만으로 정지 출력을 뜻하지 않는다. 관문이 닫힌 에이전트는 STOP 을 받아도 로봇 출력(StopMove 포함)을 내지 않는다. 웹 문구: 「현장 승인이 닫혀 있어 앱 정지가 로봇에 가지 않았습니다. 리모컨으로 멈추세요」
+- 에이전트가 없을 때 누른 STOP 은 큐에 넣지 않는다. 에이전트가 다시 붙으면 서버가 연결 STOP (cause `agent_connected`, `stop_ref` +1) 을 보내고, 로봇은 잠긴 채 시작한다. 앞서 누른 STOP 이 나중에 전달되지는 않는다. 다만 이 연결 STOP 이 같은 결과 (잠김 · 출력 0) 를 낸다. 화면은 재연결 뒤 `latched` 와 `stop_ref` 로 이것을 안다. `applied` 가 비어 있는 것은 `field_gate=OPEN` 일 때만 멈춤 출력으로 읽는다.
 
 ---
 
