@@ -2,7 +2,7 @@
 // 칸 하나 = 그 로봇 한 대: 서버 위치가 있으면 시안 3D 현장을 그 로봇 자리 · 방향에 두고 뒤 1 m(또는 정면) 시점, 없으면 시안 타일 그대로 바닥 점 위의 로봇만.
 // 빛 · 바닥 점 · 핀 조명 · 그림자 · 시점 값은 시안 go2view.js 그대로. 걷기는 임무 · 조종 중일 때 시안 걷기 기록(go2_walk.json)을 튼다.
 import * as THREE from 'three';
-import { applyDown, applyRest, applyWalk, loadGo2, loadSite, loadWalk, type Body, type Walk } from './site';
+import { applyDown, applyRest, applyWalk, lightNow, loadGo2, loadSite, loadWalk, toneSite, type Body, type Walk } from './site';
 
 export type TileLook = {
   /** 현장 좌표(site.ts sitePose) · 없으면 현장 없이 */ pose: { x: number; z: number; rot: number } | null;
@@ -22,7 +22,7 @@ class Tiles {
   scene = new THREE.Scene(); cam = new THREE.PerspectiveCamera(30, 1, 0.05, 1200);
   world = new THREE.Group(); body: Body | null = null; walk: Walk | null = null; cyber: THREE.ShaderMaterial | null = null;
   grid!: THREE.Points; gm!: THREE.ShaderMaterial; shadow!: THREE.Mesh; site: THREE.Group | null = null;
-  t = 0.35; last = 0; raf = 0; failed = false;
+  t = 0.35; last = 0; raf = 0; failed = false; hemi!: THREE.HemisphereLight;
 
   add(c: HTMLCanvasElement, look: () => TileLook) {
     const v = { c, look }; this.views.add(v); this.start();
@@ -42,7 +42,7 @@ class Tiles {
   }
   private build() {
     const s = this.scene;
-    s.add(new THREE.HemisphereLight(0xdfe8f0, 0x0c0f14, 0.9));
+    this.hemi = new THREE.HemisphereLight(0xdfe8f0, 0x0c0f14, 0.9); s.add(this.hemi);
     const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(1.2, 2, 1.6); s.add(key);
     const rim = new THREE.DirectionalLight(0x00c389, 1.6); rim.position.set(-1.5, 1.2, -1.8); s.add(rim);
     const rim2 = new THREE.DirectionalLight(0x4c9bff, 0.8); rim2.position.set(1.6, 0.6, -1.4); s.add(rim2);
@@ -96,6 +96,8 @@ class Tiles {
     const dt = Math.min(0.05, (now - this.last) / 1000); this.last = now; this.t += dt;
     const r = this.r!, b = this.body;
     if (this.cyber) this.cyber.uniforms.t.value = this.t;
+    // 밝은 판: 현장 재질 · 땅 쪽 빛을 밝음 1 흰 점토 결로(타일 바탕은 u5.css .proto.light .cv)
+    const light = lightNow(); this.hemi.groundColor.setHex(light ? 0xc8cfcb : 0x0c0f14); if (this.site) toneSite(this.site, light);
     for (const v of this.views) {
       const w = v.c.clientWidth, h = v.c.clientHeight;
       if (!w || !h) continue;

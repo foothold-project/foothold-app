@@ -27,6 +27,25 @@ const MAT: Record<string, [number, number]> = {
   water: [0x0c161d, 0.3], tank: [0x252d36, 0.6], tankroof: [0x2a333d, 0.6],
 };
 const EDGE: Record<string, number> = { building: 0.55, tank: 0.35, tankroof: 0.35, wall: 0.25, equip: 0.22 };
+/** 밝은 판(DESIGN.md 밝음 1): 시안 흰 점토 정사영(shared/map_large_factory_top.jpg) 결 · 바탕 #F6F7F6 · 선 #DCE0DE · 흐린 글 #5E6662 */
+const MAT_L: Record<string, [number, number]> = {
+  road: [0xe3e7e4, 0.95], pave: [0xeef0ee, 0.95], dikefloor: [0xe8ebe9, 0.95], wall: [0xf2f4f2, 0.85],
+  steel: [0xd2d8d4, 0.6], pipe: [0xcbd2ce, 0.55], equip: [0xe4e8e5, 0.7], building: [0xfbfcfb, 0.85],
+  water: [0xd5e2e2, 0.3], tank: [0xf0f2f0, 0.6], tankroof: [0xf8f9f8, 0.6],
+};
+const EDGE_D = 0x6f8296, EDGE_L = 0x9aa39e;
+/** 지금 화면이 밝은 판인지(theme.tsx syncTheme 가 .fh.light 를 <html data-theme> 로 옮긴 값) */
+export const lightNow = () => typeof document !== 'undefined' && document.documentElement.dataset.theme === 'light';
+/** 현장 모형 재질을 판에 맞춘다. 바뀔 때만 다시 칠함 */
+export function toneSite(site: THREE.Object3D, light: boolean) {
+  if (site.userData.light === light) return;
+  site.userData.light = light;
+  site.traverse((o) => {
+    const kind = o.userData.kind as string | undefined;
+    if (kind) { const [col, rough] = (light ? MAT_L : MAT)[kind] || (light ? [0xeef0ee, 0.8] : [0x1f262e, 0.8]); const mt = (o as THREE.Mesh).material as THREE.MeshStandardMaterial; mt.color.setHex(col); mt.roughness = rough; }
+    if (o.userData.edge) ((o as THREE.LineSegments).material as THREE.LineBasicMaterial).color.setHex(light ? EDGE_L : EDGE_D);
+  });
+}
 
 const loader = new GLTFLoader();
 const once = new Map<string, Promise<THREE.Group | null>>();
@@ -51,9 +70,10 @@ export function loadSite(): Promise<THREE.Group | null> {
         return;
       }
       const [col, rough] = MAT[name] || [0x1f262e, 0.8];
-      m.material = new THREE.MeshStandardMaterial({ color: col, roughness: rough, metalness: 0.15 });
-      if (EDGE[name]) m.add(new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry, 32), new THREE.LineBasicMaterial({ color: 0x6f8296, transparent: true, opacity: EDGE[name] })));
+      m.material = new THREE.MeshStandardMaterial({ color: col, roughness: rough, metalness: 0.15 }); m.userData.kind = name;
+      if (EDGE[name]) { const e = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry, 32), new THREE.LineBasicMaterial({ color: EDGE_D, transparent: true, opacity: EDGE[name] })); e.userData.edge = true; m.add(e); }
     });
+    site.userData.light = false;
     return site;
   });
 }
