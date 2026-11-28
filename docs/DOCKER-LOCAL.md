@@ -61,6 +61,11 @@ lockfile에 맞춘다. 서버 소스를 고치면 `docker compose up --build ser
   `127.0.0.1:FH_DB_PORT` 에 띄우고(자료는 `FH_LOCAL_DATA`, 기본 `~/.local/share/foothold-local`)
   `docker/server.py` 로 초기화한 뒤 API 를 `127.0.0.1:FH_API_PORT` 에 띄운다. venv 에
   `apps/server/requirements-test.txt` 가 있어야 한다. DB 는 `--stop` 으로 멈춘다.
+- `--no-docker --sim mujoco`: simmgr 를 로컬 MuJoCo 백엔드(#594)로 함께 띄운다(기본은 끔).
+  슬롯은 seed 의 시뮬 로봇 하나, 월드는 `collapsed-house-v2`. 서비스 키 · 출입증 키 · 카탈로그는
+  `FH_LOCAL_DATA/sim` 에 600 으로 한 번 만들고, MuJoCo 자산은 `FH_SIM_SRC` 또는 확인한 `FH_SIM_ASSETS`.
+  simmgr 는 `FH_SIM_PORT`(기본 9440) 에서 돌고 `--stop` 이 기록한 pid 로만 끈다.
+  #594 가 없는 저장소에서는 시작 전에 멈춘다. **#594 가 dev 에 들어간 뒤 실측 예정(아직 미실측).**
 
 `.env.example` 의 기본은 `FH_SEED=0` 이다. 스크립트 없이 `docker compose up` 만 쓰면서 `FH_SEED=1` 로 바꾸면
 `FH_SEED_PASSWORD_LOCAL_OPERATOR` · `FH_SEED_PASSWORD_LOCAL_OPERATOR_2` 를 채워야 서버가 시작한다(비면 시작 거절).

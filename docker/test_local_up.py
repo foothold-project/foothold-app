@@ -182,3 +182,114 @@ def test_sim_assets_place_from_env_over_env_file(checkout, tmp_path, monkeypatch
 def test_no_docker_does_not_need_sim_assets(checkout, tmp_path, monkeypatch):
     monkeypatch.setenv('FH_SIM_ASSETS', '')
     local_up.prepare(checkout, tmp_path / 'accounts.env', docker=False, check=False)
+
+
+# --sim mujoco: simmgr with the local MuJoCo backend (#594). Code and wiring only here.
+import json
+import subprocess
+import sys
+from uuid import UUID
+
+
+def sim_checkout(checkout):
+    (checkout / 'apps/simmgr').mkdir(parents=True)
+    (checkout / 'apps/simmgr/mujoco_launcher.py').write_text('# stands in for #594\n')
+    return checkout
+
+
+def test_sim_off_by_default(checkout, tmp_path):
+    values, passwords = local_up.prepare(checkout, tmp_path / 'accounts.env', docker=False, check=False)
+    env = local_up.server_env(values, passwords, tmp_path / 'data')
+    assert not {'FH_SIM_MANAGER_URL', 'FH_SIM_AUTH_FILE', 'FH_PHONE_PASS_KEYS', 'FH_SIM_LOCAL_BACKEND'} & set(env)
+
+
+def test_sim_mujoco_needs_no_docker(monkeypatch):
+    with pytest.raises(SystemExit, match='--no-docker'):
+        local_up.main(['--sim', 'mujoco'])
+    with pytest.raises(SystemExit, match='--no-docker'):
+        local_up.main(['--docker', '--sim', 'mujoco'])
+
+
+def test_sim_mujoco_needs_backend_from_594(checkout, tmp_path):
+    values, _ = local_up.prepare(checkout, tmp_path / 'accounts.env', docker=False, check=False)
+    with pytest.raises(SystemExit, match='#594'):
+        local_up.sim_setup(checkout, values, tmp_path / 'data')
+
+
+def test_sim_files_private_stable_and_slot_is_seed_robot(checkout, tmp_path, monkeypatch):
+    sim_checkout(checkout)
+    values, passwords = local_up.prepare(checkout, tmp_path / 'accounts.env', docker=False, check=False)
+    data = tmp_path / 'data'
+    sim = local_up.sim_setup(checkout, values, data)
+    for key in ('FH_SIM_AUTH_FILE', 'FH_PHONE_PASS_KEYS', 'FH_SIM_CATALOG'):
+        assert stat.S_IMODE(Path(sim[key]).stat().st_mode) == 0o600, key
+    key = Path(sim['FH_SIM_AUTH_FILE']).read_text()
+    assert local_up.sim_setup(checkout, values, data) == sim
+    assert Path(sim['FH_SIM_AUTH_FILE']).read_text() == key  # not rotated on rerun
+    catalog = json.loads(Path(sim['FH_SIM_CATALOG']).read_text())
+    robot = str(seed.sim_robot_id(UUID(values['FH_ORG_ID'])))
+    assert [s['robot_id'] for s in catalog['slots']] == [robot]
+    assert catalog['slots'][0]['org_id'] == values['FH_ORG_ID']
+    assert [w['id'] for w in catalog['worlds']] == ['collapsed-house-v2']
+    assert set(json.loads(Path(sim['FH_PHONE_PASS_KEYS']).read_text())) == {robot}
+
+    manager = local_up.simmgr_env(checkout, values, sim)
+    assert manager['FH_SIM_LOCAL_BACKEND'] == 'mujoco'
+    assert manager['FH_SIM_SRC'] == values['FH_SIM_ASSETS']  # default: the checked asset folder
+    assert manager['FH_SIM_AGENT_WS_URL'] == f"ws://127.0.0.1:{values['FH_API_PORT']}/api/v1/agent/ws"
+    assert manager['FH_SIM_AUTH_FILE'] == sim['FH_SIM_AUTH_FILE']
+    assert values['FH_API_PORT'] in manager['FH_SIM_EXTRA_PORTS'].split(',')
+    # Database and account secrets never reach the simulator.
+    assert not {'FH_DATABASE_URL', *seed.secret_keys()} & set(manager)
+    assert not any(k.startswith(('ROS_', 'RMW_')) or k == 'FH_SIM_RUN' for k in manager)
+
+    env = local_up.server_env(values, passwords, data, sim)
+    assert env['FH_SIM_MANAGER_URL'] == f"http://127.0.0.1:{values['FH_SIM_PORT']}"
+    assert env['FH_SIM_AUTH_FILE'] == sim['FH_SIM_AUTH_FILE']
+    assert env['FH_PHONE_PASS_KEYS'] == sim['FH_PHONE_PASS_KEYS']
+    from apps.server.fh_server.simulation import Relay
+    monkeypatch.setenv('FH_SIM_EXTRA_PORTS', env['FH_SIM_EXTRA_PORTS'])
+    Relay(env['FH_SIM_MANAGER_URL'], env['FH_SIM_AUTH_FILE'])  # the server accepts this URL and key file
+
+
+def test_sim_source_from_env(checkout, tmp_path, monkeypatch):
+    sim_checkout(checkout)
+    source = tmp_path / 'mujoco-src'
+    source.mkdir()
+    monkeypatch.setenv('FH_SIM_SRC', str(source))
+    values, _ = local_up.prepare(checkout, tmp_path / 'accounts.env', docker=False, check=False)
+    sim = local_up.sim_setup(checkout, values, tmp_path / 'data')
+    assert local_up.simmgr_env(checkout, values, sim)['FH_SIM_SRC'] == str(source)
+    monkeypatch.setenv('FH_SIM_SRC', str(tmp_path / 'absent'))
+    values, _ = local_up.prepare(checkout, tmp_path / 'accounts.env', docker=False, check=False)
+    with pytest.raises(SystemExit, match='FH_SIM_SRC'):
+        local_up.sim_setup(checkout, values, tmp_path / 'data')
+
+
+def test_sim_port_busy_refused(checkout, tmp_path, monkeypatch):
+    with socket.socket() as busy:
+        busy.bind(('127.0.0.1', 0))
+        busy.listen()
+        monkeypatch.setenv('FH_SIM_PORT', str(busy.getsockname()[1]))
+        with pytest.raises(SystemExit, match='FH_SIM_PORT'):
+            local_up.prepare(checkout, tmp_path / 'accounts.env', docker=False, check=True, sim=True,
+                             db_running=True)
+
+
+def test_stop_ends_only_our_simmgr(tmp_path):
+    pidfile = tmp_path / 'simmgr.pid'
+    ours = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)', 'apps.simmgr'])
+    other = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+    try:
+        pidfile.write_text(str(ours.pid))
+        local_up.stop_simmgr(pidfile)
+        assert ours.wait(timeout=5) is not None and not pidfile.exists()
+        pidfile.write_text(str(other.pid))  # a reused pid that is not simmgr
+        local_up.stop_simmgr(pidfile)
+        assert other.poll() is None and not pidfile.exists()
+        local_up.stop_simmgr(pidfile)  # nothing recorded: no error
+    finally:
+        for proc in (ours, other):
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
