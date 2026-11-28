@@ -8,13 +8,14 @@ import '../proto/light.pv.css';
 import './settingsu9.css';
 import './settingsu9.app.css';
 import { api, expireAuth, type ApiFail } from '../api';
-import type { User as ApiUser } from '../../../contracts/ts';
+import type { BusyHour, OrgSettings, OrgSettingsPatch, User as ApiUser } from '../../../contracts/ts';
 import type { User } from '../fake';
 import type { Ctx } from '../screens';
 import { Account as AccountDetail, failText, PW_DONE, Settings, TAKEN, tempPassword } from './settings';
 import { setThemePref, useTheme, type ThemePref } from '../theme';
 import { setLang, useLang, type Lang } from '../lang';
 import { usePad } from '../gamepad';
+import { durText } from '../orgbusy';
 
 export type Page = 'account' | 'users' | 'network' | 'crowd' | 'robot' | 'safety' | 'alerts' | 'clip' | 'controls' | 'display' | 'demo' | 'system';
 
@@ -42,9 +43,9 @@ export function SettingsU9(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>
     {at === 'users' && admin && <Users me={c.user} cancel={c.cancel} />}
     {at === 'network' && <Network cancel={c.cancel} />}
     {at === 'alerts' && <Alerts cancel={c.cancel} />}
-    {at === 'display' && <Display admin={admin} />}
+    {at === 'display' && <Display admin={admin} cancel={c.cancel} />}
     {at === 'controls' && <Controls />}
-    {at === 'crowd' && <Crowd />}
+    {at === 'crowd' && <Crowd admin={admin} cancel={c.cancel} />}
     {LEGACY[at] && <>
       <div className="hd"><span className="ttl">{LEGACY[at][0]}</span><p>이 묶음은 시안 그림이 아직 없어 지금 앱 판으로 보입니다.</p></div>
       <div className="pane u9-legacy" style={{ left: '368px', top: '160px', width: '1528px', height: '896px' }} aria-label={LEGACY[at][0]}>
@@ -73,6 +74,7 @@ const CHANGE = ['USER_CREATED', 'USER_UPDATED', 'USER_ARCHIVED', 'PASSWORD_CHANG
 const NO_NET = '현장 네트워크를 저장하는 서버 기능이 아직 없어 추가할 수 없습니다.';
 const NO_SWITCH = '켜고 끄는 값을 저장하는 서버 기능이 아직 없어 시안 기본값(켬)으로 보입니다.';
 const NO_CROWD = '혼잡 시간을 저장하는 서버 기능이 아직 없어 추가할 수 없습니다.';
+const ONLY_ADMIN = '총괄만 바꿀 수 있습니다';
 const NO_TEMP = '임시 비밀번호를 다시 만드는 서버 기능이 아직 없습니다. 새 계정을 만들 때만 임시 비밀번호를 줍니다.';
 const two = (n: number) => String(n).padStart(2, '0');
 const md = (iso: string) => { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()}`; };
@@ -91,6 +93,13 @@ function useLoad<T>(get: () => Promise<T>, deps: DependencyList) {
     return () => { live = false; };
   }, deps);   // eslint-disable-line react-hooks/exhaustive-deps
   return st;
+}
+/** 조직 설정 한 벌(GET /org/settings) · save = 기존 PATCH 길(api.saveSettings) 로 그 칸만 보내고 받은 값으로 바꿈. 실패 = 서버 문장(err) */
+function useOrgSettings(cancel?: AbortSignal) {
+  const [v, setV] = useState<OrgSettings | null>(null), [err, setErr] = useState(''), [busy, setBusy] = useState(false);
+  useEffect(() => { let live = true; api.settings(cancel).then((x) => live && setV(x), (e: ApiFail) => live && setErr(e.message)); return () => { live = false; }; }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+  const save = (p: OrgSettingsPatch) => { setBusy(true); setErr(''); return api.saveSettings(p, cancel).then((x) => { setV(x); return true; }, (e: ApiFail) => { setErr(e.message); return false; }).finally(() => setBusy(false)); };
+  return { v, err, busy, save };
 }
 /** 시안 칸에 다 안 들어가는 목록은 쪽으로 넘긴다(스크롤 없음). 한 쪽이면 아무것도 그리지 않는다 */
 const Pager = ({ n, per, at, go }: { n: number; per: number; at: number; go: (i: number) => void }) => {
@@ -403,7 +412,9 @@ function Alerts({ cancel }: { cancel?: AbortSignal }) {
 /** 영어로 바뀌는 범위(사전 lang.en.ts). 서버 글까지 바뀌면(서버 locale) 이 줄을 뺀다 */
 export const LANG_SCOPE = '영어로 바뀌는 곳: 앱 글 전부. 서버가 보낸 글(이름 · 사건 · 알림)은 그대로입니다.';
 /** 표시(u9_6 총괄 · u9_9 운영자). 화면 밝기 = 머리 메뉴 밝기와 같은 값(theme.tsx). 언어 = 이 기기 값(lang.tsx), 데모 표시는 서버 값이 없어 잠금 */
-function Display({ admin }: { admin: boolean }) {
+function Display({ admin, cancel }: { admin: boolean; cancel?: AbortSignal }) {
+  const org = useOrgSettings(cancel), demo = org.v?.show_demo_label;   // 데모 표시 = 조직 설정 show_demo_label(총괄만 PATCH)
+  const flip = () => { if (admin && demo != null && !org.busy) org.save({ show_demo_label: !demo }); };
   const [pref] = useTheme();
   const pick = (t: ThemePref) => ({ role: 'radio', tabIndex: 0, 'aria-checked': pref === t, onClick: () => setThemePref(t), onKeyDown: (e: KeyboardEvent) => { if (e.key === 'Enter') setThemePref(t); } });
   const lang = useLang(), say = (l: Lang) => ({ role: 'radio', tabIndex: 0, 'aria-checked': lang === l, onClick: () => setLang(l), onKeyDown: (e: KeyboardEvent) => { if (e.key === 'Enter') setLang(l); } });
@@ -440,10 +451,12 @@ function Display({ admin }: { admin: boolean }) {
     <div className="row" style={{gap:"28px",alignItems:"center"}}>
       <div style={{width:"560px",fontSize:"15px",fontWeight:700}}>데모 로봇에 「데모」 표시
         <div className="mu2" style={{fontSize:"13.5px",fontWeight:600,marginTop:"8px",lineHeight:1.6}}>발표할 때는 끄세요. 끄면 표시만 사라지고 데모 로봇은 실제 로봇과 같은 모양으로 보입니다.</div>
-        {admin ? <div className="why" style={{marginTop:"10px"}} data-why>켜고 끄는 값을 저장하는 서버 기능이 아직 없습니다.</div> : <div className="why" style={{marginTop:"10px",color:"#f2b705"}}>총괄만 바꿀 수 있습니다</div>}</div>
+        {!admin ? <div className="why" style={{marginTop:"10px",color:"#f2b705"}}>{ONLY_ADMIN}</div> : org.err ? <div className="why" style={{marginTop:"10px"}} role="alert" data-why>{org.err}</div>
+          : demo == null && org.v && <div className="why" style={{marginTop:"10px"}} data-why>켜고 끄는 값을 저장하는 서버 기능이 아직 없습니다.</div>}</div>
       <div className="row" style={{gap:"14px",flex:1}}>
         <div style={{flex:1}}><div className="lab">켬</div><div style={{flex:1,height:"170px",borderRadius:"14px",position:"relative",overflow:"hidden",background:"url(/proto-assets/assets/real/pc_route.jpg?v=1128042956) 86% 66%/260%",boxShadow:"0 8px 20px rgba(0,0,0,.3)"}}><div className="g dk" style={{left:"10px",bottom:"10px",height:"36px",padding:"0 10px",borderRadius:"11px",display:"flex",alignItems:"center",gap:"8px",fontSize:"13px",fontWeight:800}}>K-07<span style={{height:"20px",padding:"0 7px",borderRadius:"6px",fontSize:"11px",fontWeight:800,background:"rgba(242,183,5,.9)",color:"#1d1406",display:"flex",alignItems:"center"}}>데모</span><span style={{fontSize:"11.5px",fontWeight:600,opacity:".75"}}>순찰 중</span></div></div></div>
-        <div style={{flex:1}}><div className="lab">끔</div><div style={{flex:1,height:"170px",borderRadius:"14px",position:"relative",overflow:"hidden",background:"url(/proto-assets/assets/real/pc_route.jpg?v=1128042956) 86% 66%/260%",boxShadow:"0 8px 20px rgba(0,0,0,.3)"}}><div className="g dk" style={{left:"10px",bottom:"10px",height:"36px",padding:"0 10px",borderRadius:"11px",display:"flex",alignItems:"center",gap:"8px",fontSize:"13px",fontWeight:800}}>K-07<span style={{fontSize:"11.5px",fontWeight:600,opacity:".75"}}>순찰 중</span></div></div></div></div><span className="sw on lock" role="switch" aria-checked="true" aria-disabled="true" aria-label="데모 로봇에 「데모」 표시" /></div></div>
+        <div style={{flex:1}}><div className="lab">끔</div><div style={{flex:1,height:"170px",borderRadius:"14px",position:"relative",overflow:"hidden",background:"url(/proto-assets/assets/real/pc_route.jpg?v=1128042956) 86% 66%/260%",boxShadow:"0 8px 20px rgba(0,0,0,.3)"}}><div className="g dk" style={{left:"10px",bottom:"10px",height:"36px",padding:"0 10px",borderRadius:"11px",display:"flex",alignItems:"center",gap:"8px",fontSize:"13px",fontWeight:800}}>K-07<span style={{fontSize:"11.5px",fontWeight:600,opacity:".75"}}>순찰 중</span></div></div></div></div><span className={`sw${demo !== false ? ' on' : ''}${!admin || demo == null ? ' lock' : ''}`} role="switch" tabIndex={admin && demo != null ? 0 : -1} aria-checked={demo !== false} aria-disabled={!admin || demo == null || undefined} aria-label="데모 로봇에 「데모」 표시"
+        onClick={flip} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } }} data-u9-demo /></div></div>
   </>;
 }
 
@@ -500,36 +513,53 @@ function Controls() {
   </>;
 }
 
-/** 현장 혼잡 시간(u9_8). 혼잡 시간 · 중복 점검 기준 · 바꾼 기록을 저장하는 서버 값이 없다. 시간 눈금 · 요일 칸만 그리고 막대는 그리지 않는다 */
-function Crowd() {
-  const [why, setWhy] = useState('');
+/** 현장 혼잡 시간(u9_8). 혼잡 시간 = 조직 설정 busy_hours(요일 막대 · 06:00 ~ 22:00 · 시간당 87.5 px), 중복 점검 기준 = dup_inspect_min(분 · 30 분씩).
+ *  총괄만 고침(PATCH 기존 길 · busy_hours 는 목록 전체). 옛 서버라 값이 없으면 지어내지 않고 「서버에 값 없음」. 바꾼 기록은 서버 값이 없다 */
+const DAYS: [BusyHour['day'], string][] = [['mon', '월'], ['tue', '화'], ['wed', '수'], ['thu', '목'], ['fri', '금'], ['sat', '토'], ['sun', '일']];
+const PX_H = 87.5, H0 = 6, H1 = 22;
+const hours = (hm: string) => { const [h, m] = hm.split(':').map(Number); return h + m / 60; };
+function Crowd({ admin, cancel }: { admin: boolean; cancel?: AbortSignal }) {
+  const org = useOrgSettings(cancel), list = org.v?.busy_hours, dup = org.v?.dup_inspect_min;
+  const [why, setWhy] = useState(''), [add, setAdd] = useState<BusyHour | null>(null), [addWhy, setAddWhy] = useState('');
+  const put = (next: BusyHour[]) => org.save({ busy_hours: next });
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!add || !list) return;
+    if (!/^\d\d:\d\d$/.test(add.start) || !/^\d\d:\d\d$/.test(add.end) || add.start >= add.end) return setAddWhy('끝은 시작보다 늦어야 합니다. 자정을 넘으면 두 줄로 나눠 넣으세요.');
+    if (!add.label.trim()) return setAddWhy('이름을 넣으세요(예: 출근 · 점심).');
+    if (await put([...list, { ...add, label: add.label.trim() }])) { setAdd(null); setAddWhy(''); }
+  };
+  const step = (d: number) => { if (dup != null) org.save({ dup_inspect_min: Math.min(1440, Math.max(30, dup + d)) }); };
+  const ed = (k: keyof BusyHour) => ({ name: k, value: add?.[k] ?? '', onChange: (e: { target: { value: string } }) => { setAdd({ ...add!, [k]: e.target.value }); setAddWhy(''); } });
   return <>
   <div className="hd"><span className="ttl">현장 혼잡 시간</span>
     <p>사람이 많은 시간입니다. 총괄이 정하며 바꾼 기록이 남습니다.</p></div>
   <div className="pane" style={{left:"368px",top:"160px",width:"1528px",height:"620px"}} aria-label="혼잡 시간">
-    <div className="ph"><span className="ttl">혼잡 시간</span><span style={{marginLeft:"auto",display:"flex",gap:"10px",alignItems:"center"}}><button type="button" className="btnp sb" aria-disabled="true" onClick={() => setWhy(NO_CROWD)}><svg className="ic" viewBox="0 0 24 24" style={{width:"16px",height:"16px"}}><path d="M5 12h14" /><path d="M12 5v14" /></svg>시간 추가</button></span></div>
-    <div style={{position:"relative",height:"22px",marginBottom:"8px"}}><span style={{position:"absolute",left:"48.0px",transform:"translateX(-50%)",fontSize:"12.5px",fontWeight:600,color:"#9aa19d"}}>06:00</span><span style={{position:"absolute",left:"223.0px",transform:"translateX(-50%)",fontSize:"12.5px",fontWeight:600,color:"#9aa19d"}}>08:00</span><span style={{position:"absolute",left:"398.0px",transform:"translateX(-50%)",fontSize:"12.5px",fontWeight:600,color:"#9aa19d"}}>10:00</span><span style={{position:"absolute",left:"573.0px",transform:"translateX(-50%)",fontSize:"12.5px",fontWeight:600,color:"#9aa19d"}}>12:00</span><span style={{position:"absolute",left:"748.0px",transform:"translateX(-50%)",fontSize:"12.5px",fontWeight:600,color:"#9aa19d"}}>14:00</span><span style={{position:"absolute",left:"923.0px",transform:"translateX(-50%)",fontSize:"12.5px",fontWeight:600,color:"#9aa19d"}}>16:00</span><span style={{position:"absolute",left:"1098.0px",transform:"translateX(-50%)",fontSize:"12.5px",fontWeight:600,color:"#9aa19d"}}>18:00</span><span style={{position:"absolute",left:"1273.0px",transform:"translateX(-50%)",fontSize:"12.5px",fontWeight:600,color:"#9aa19d"}}>20:00</span><span style={{position:"absolute",left:"1448.0px",transform:"translateX(-50%)",fontSize:"12.5px",fontWeight:600,color:"#9aa19d"}}>22:00</span></div>
-    <div className="row" style={{gap:"20px",marginBottom:"10px"}}><span style={{width:"28px",fontSize:"15px",fontWeight:800}}>월</span>
-      <div className="tl2" style={{width:"1400px"}} /></div>
-    <div className="row" style={{gap:"20px",marginBottom:"10px"}}><span style={{width:"28px",fontSize:"15px",fontWeight:800}}>화</span>
-      <div className="tl2" style={{width:"1400px"}} /></div>
-    <div className="row" style={{gap:"20px",marginBottom:"10px"}}><span style={{width:"28px",fontSize:"15px",fontWeight:800}}>수</span>
-      <div className="tl2" style={{width:"1400px"}} /></div>
-    <div className="row" style={{gap:"20px",marginBottom:"10px"}}><span style={{width:"28px",fontSize:"15px",fontWeight:800}}>목</span>
-      <div className="tl2" style={{width:"1400px"}} /></div>
-    <div className="row" style={{gap:"20px",marginBottom:"10px"}}><span style={{width:"28px",fontSize:"15px",fontWeight:800}}>금</span>
-      <div className="tl2" style={{width:"1400px"}} /></div>
-    <div className="row" style={{gap:"20px",marginBottom:"10px"}}><span style={{width:"28px",fontSize:"15px",fontWeight:800}}>토</span>
-      <div className="tl2" style={{width:"1400px"}} /></div>
-    <div className="row" style={{gap:"20px",marginBottom:"10px"}}><span style={{width:"28px",fontSize:"15px",fontWeight:800}}>일</span>
-      <div className="tl2" style={{width:"1400px"}} /></div>
-    <p className="mu2" style={{fontSize:"13px",fontWeight:600,marginTop:"10px"}} role={why ? 'alert' : undefined} data-why>{why || `혼잡 시간: ${NO}. 사람이 많은 시간을 저장하는 서버 기능이 아직 없어 막대를 그리지 않습니다.`}</p></div>
+    <div className="ph"><span className="ttl">혼잡 시간</span><span style={{marginLeft:"auto",display:"flex",gap:"10px",alignItems:"center"}}>{!admin && list && <span className="mu2" style={{fontSize:"13px",fontWeight:600}}>{ONLY_ADMIN}</span>}<button type="button" className="btnp sb" disabled={!!list && (!admin || org.busy)} aria-disabled={!list || undefined} data-u9-crowd-add-open
+      onClick={() => (list ? setAdd({ day: 'mon', start: '08:00', end: '09:00', label: '' }) : setWhy(NO_CROWD))}><svg className="ic" viewBox="0 0 24 24" style={{width:"16px",height:"16px"}}><path d="M5 12h14" /><path d="M12 5v14" /></svg>시간 추가</button></span></div>
+    <div style={{position:"relative",height:"22px",marginBottom:"8px"}}>{Array.from({ length: 9 }, (_, i) => <span key={i} style={{position:"absolute",left:`${48 + i * 175}.0px`,transform:"translateX(-50%)",fontSize:"12.5px",fontWeight:600,color:"#9aa19d"}}>{two(H0 + i * 2)}:00</span>)}</div>
+    {DAYS.map(([d, name]) => <div key={d} className="row" style={{gap:"20px",marginBottom:"10px"}}><span style={{width:"28px",fontSize:"15px",fontWeight:800}}>{name}</span>
+      <div className="tl2" style={{width:"1400px"}}>{(list ?? []).filter((x) => x.day === d).map((x) => {
+        const a = Math.max(H0, hours(x.start)), b = Math.min(H1, hours(x.end));
+        return b > a && <b key={`${x.start}-${x.end}-${x.label}`} style={{left:`${(a - H0) * PX_H}px`,width:`${(b - a) * PX_H}px`}} title={`${x.start} ~ ${x.end}`}>{x.label}
+          {admin && <button type="button" aria-label={`${x.label} 지우기`} disabled={org.busy} onClick={() => put(list!.filter((y) => y !== x))} style={{marginLeft:"auto",paddingLeft:"6px",color:"inherit",background:"none",border:0,fontWeight:800,cursor:"pointer"}}>×</button>}</b>;
+      })}</div></div>)}
+    {add && <form className="row" style={{gap:"10px",marginTop:"6px",fontSize:"13.5px",fontWeight:600}} onSubmit={submit} data-u9-crowd-add aria-label="혼잡 시간 추가">
+      <select className="inp" style={{height:"40px"}} aria-label="요일" {...ed('day')}>{DAYS.map(([d, n]) => <option key={d} value={d}>{n}</option>)}</select>
+      <input className="inp" style={{height:"40px"}} type="time" aria-label="시작" {...ed('start')} />
+      <input className="inp" style={{height:"40px"}} type="time" aria-label="끝" {...ed('end')} />
+      <input className="inp" style={{height:"40px",width:"200px"}} maxLength={32} placeholder="이름(예: 점심)" aria-label="이름" {...ed('label')} />
+      <button type="submit" className="btnp sb" disabled={org.busy}>넣기</button><button type="button" className="btns sb" onClick={() => { setAdd(null); setAddWhy(''); }}>취소</button>
+      {addWhy && <span role="alert" style={{color:"#ff4d4f"}}>{addWhy}</span>}</form>}
+    <p className="mu2" style={{fontSize:"13px",fontWeight:600,marginTop:"10px"}} role={why || org.err ? 'alert' : undefined} data-why>{why || org.err || (list ? '이 시간에는 임무를 만들 때 그 구역을 피하도록 알려 줍니다.' : org.v ? `혼잡 시간: ${NO}. 사람이 많은 시간을 저장하는 서버 기능이 아직 없어 막대를 그리지 않습니다.` : '')}</p></div>
   <div className="pane" style={{left:"368px",top:"804px",width:"880px",height:"252px"}}>
     <div className="ph"><span className="ttl">중복 점검 기준</span><span style={{marginLeft:"auto",display:"flex",gap:"10px",alignItems:"center"}} /></div>
     <div className="row" style={{gap:"24px"}}>
-      <div className="step" aria-disabled="true"><span>−</span><b style={{fontSize:"15px"}} data-u9-dup>{NO}</b><span>+</span></div>
+      <div className="step" aria-disabled={!admin || dup == null || undefined}>{dup == null ? <span>−</span> : <button type="button" aria-label="30 분 줄이기" disabled={!admin || dup <= 30 || org.busy} onClick={() => step(-30)} data-u9-dup-down>−</button>}
+        <b style={{fontSize:"15px"}} data-u9-dup>{dup != null ? durText(dup) : org.v || org.err ? NO : ''}</b>
+        {dup == null ? <span>+</span> : <button type="button" aria-label="30 분 늘리기" disabled={!admin || dup >= 1440 || org.busy} onClick={() => step(30)} data-u9-dup-up>+</button>}</div>
       <div style={{fontSize:"14.5px",fontWeight:700}}>같은 곳을 이 시간 안에 다시 점검하면 겹친다고 알려 줍니다
-        <div className="mu2" style={{fontSize:"13px",fontWeight:600,marginTop:"6px"}} data-why>기준 시간을 저장하는 서버 기능이 아직 없습니다(시안 기본 4 시간).</div></div></div></div>
+        <div className="mu2" style={{fontSize:"13px",fontWeight:600,marginTop:"6px"}} data-why>{dup != null ? (admin ? '30 분 ~ 24 시간 · 30 분씩 바꿉니다. 기본 4 시간.' : ONLY_ADMIN) : '기준 시간을 저장하는 서버 기능이 아직 없습니다(시안 기본 4 시간).'}</div></div></div></div>
   <div className="pane" style={{left:"1272px",top:"804px",width:"624px",height:"252px"}}>
     <div className="ph"><span className="ttl">바꾼 기록</span><span style={{marginLeft:"auto",display:"flex",gap:"10px",alignItems:"center"}} /></div>
     <Why>{NO}</Why></div>

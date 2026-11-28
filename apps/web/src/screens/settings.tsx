@@ -113,7 +113,9 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'> &
       {!c.only && <Later label="관절 온도" items={[['관절 온도 기준', '관절 온도 단계(주의 · 경고 · 위험) 기준은 서버 값이 아직 없습니다.']]} />}
     </>)}
     {/* 시안 기록 탭(u8_1 등) 「보관 기간은 설정 · 기록과 클립에서 바꿉니다」 · 보관 기간 서버 값이 아직 없어 일수를 쓰지 않는다(서버 요청) */}
-    {panel('clip', <Later label="기록과 클립" items={[['클립 보관 기간', '서버에 값 없음. 클립을 며칠 보관할지 서버가 값을 주면 여기서 바꿉니다.']]} />)}
+    {/* 클립 보관 기간 = 조직 설정 clip_retention_days(1 ~ 365 일). 지금은 값만 두고 지난 클립을 지우지는 않는다(서버). 옛 서버라 값이 없으면 「서버에 값 없음」 그대로 */}
+    {panel('clip', org.saved && org.saved.clip_retention_days == null ? <Later label="기록과 클립" items={[['클립 보관 기간', '서버에 값 없음. 클립을 며칠 보관할지 서버가 값을 주면 여기서 바꿉니다.']]} />
+      : card({ id: 'clip', label: '기록과 클립', note: '클립을 서버에 두는 날 수입니다. 지금은 값만 두고 지난 클립을 지우지는 않습니다.', fields: CLIP }))}
     {panel('ctl', <>
       {!c.only && <ControlsGuide />}
       <div className="st-modelbar">
@@ -161,6 +163,7 @@ const COMMON = [
   num('run_min_battery_pct', '실행 시작 최소 배터리', '%', 10, 90, 1),
   num('deviation_m', '경로 이탈 거리', 'm', 0.5, 5, 0.1),
 ];
+const CLIP = [num('clip_retention_days', '클립 보관 기간', '일', 1, 365, 1, { hint: '기본 30' })];
 const LEASE = [
   num('lease_request_timeout_s', '조종권 요청 응답 시간', '초', 5, 30, 1),
   num('link_loss_wait_s', '연결 끊김 대기 시간', '초', 0, 30, 1, { hint: '임무 중 서버 연결이 끊기고 이 시간이 지나면 로봇을 정지 잠금하고 임무를 멈춥니다. 3 초보다 짧게 둬도 3 초 뒤에 판단합니다.' }),   // 에이전트 session: 끊김 판단 LINK_TIMEOUT 3 초 뒤 · 임무 RUNNING 일 때만 잠금

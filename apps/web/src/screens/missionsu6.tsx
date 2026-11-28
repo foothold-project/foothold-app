@@ -9,7 +9,7 @@ import '../proto/dark.pv.css';
 import '../proto/light.pv.css';
 import './missionsu6.css';
 import './missionsu6.app.css';
-import type { Estimate, MapVersion, RobotAvailability, Scenario, ScheduleSlot } from '../../../contracts/ts';
+import type { BusyHour, Estimate, MapVersion, RobotAvailability, Scenario, ScheduleSlot } from '../../../contracts/ts';
 import { dateOf } from './u7/pick';
 import { api, type ApiFail } from '../api';
 import { robotStatus, type Robot } from '../fake';
@@ -25,6 +25,7 @@ import { Rehearse, Result } from './missionsu6run';
 import { Preflight } from './missionsu6pre';
 import { has3D, MissionMap3D, route3, RouteView, useRouteView, type Proj } from './missionsu6map3d';
 import { useTheme } from '../theme';
+import { DAY_KEYS, busyText, useOrgBusy } from '../orgbusy';
 
 /** 화면(시안 장): 목록 · 일정(u6_1 · u6_8 · u6_9) / 새 임무 고르기(u6_2) / 만들기(u6_3 · 4 · 5) / 모의 실행(u6_6) / 보고서(u6_7) */
 export type View = { at: 'main' } | { at: 'setup' } | { at: 'plan'; id: string; floor: string; robot: string; gait: string } | { at: 'rehearse' } | { at: 'result'; run: string; robot: string };
@@ -162,6 +163,7 @@ export function RouteStage({ x, route, rehearse, children, pick, pickAt, sel, st
 function Main({ c, m, plan: p, route, go, fix, fixOff, setFixOff, rehearseFix }: { c: Pick<Ctx, 'user' | 'robots' | 'cancel'>; m: List; plan: Plan; route: Route; go: (v: View) => void;
   fix: Fix; fixOff: boolean; setFixOff: (v: boolean) => void; rehearseFix: (scenario: string) => void }) {
   const x = m.cur, [pick, setPick] = useState<string | null>(null), [pre, setPre] = useState(false), [hide, setHide] = useState<{ route?: boolean; zone?: boolean }>({});
+  const org = useOrgBusy(c.cancel);
   const showFix = !fixOff && fix.items.length > 0, rob = c.robots.find((r) => r.id === p.rid), av = p.avail?.find((a) => a.robot_id === p.rid);
   // u6_8: 방금 넣은 칸, 또는 오늘 일정에서 누른 칸 → «실제 로봇 시작 전 점검»(u15_2)
   const made = pick ?? (p.msg?.ok ? p.made : null), slot = made ? p.slots?.find((y) => y.id === made) : undefined;
@@ -171,7 +173,7 @@ function Main({ c, m, plan: p, route, go, fix, fixOff, setFixOff, rehearseFix }:
     <div className="map" style={{ left: '388px', top: '88px', width: '1112px', height: '600px' }} aria-label="임무 지도">
       <div className="stage" style={{ inset: 0 }}><RouteStage x={x} route={route} hide={hide}>{rob && <RobotPill robot={rob} route={route} label={`${rob.name}${av ? ` ${stateText(av, c.robots)}` : ''}`} />}
         {showFix && c.robots.filter((r) => r.status === 'ERROR' && r.id !== rob?.id).map((r) => <RobotPill key={r.id} robot={r} route={route} bad label={`${r.name} 정지 · 오류`} />)}</RouteStage></div>
-      <Chips hide={hide} flip={(k) => setHide((h) => ({ ...h, [k]: !h[k] }))} />
+      <Chips hide={hide} flip={(k) => setHide((h) => ({ ...h, [k]: !h[k] }))} busy={org.busy} />
       {x && route.v && <div className="u6-tags">
         <span className="g pill" data-floor-tag>{floorName(route.place!.floor.name)}{route.more > 0 ? ` · 다른 층 지점 ${route.more}` : ''}</span>
         {route.hits > 0 && <span className="g pill" data-overlap><span style={{ color: '#e04a2f', gap: '6px' }} className="row"><Ic d={IC.warn} s={15} />접근 금지 구역과 겹침 {route.hits} 곳</span></span>}</div>}
@@ -188,13 +190,16 @@ function Main({ c, m, plan: p, route, go, fix, fixOff, setFixOff, rehearseFix }:
   </>;
 }
 
-/** 지도 위 칩(시안 경로 · 구역 · 혼잡 시간). 경로 · 구역은 눌러 켜고 끔(켬 = .g · 끔 = .g.dk, 시안 u6_1 과 같은 꼴). 혼잡 시간은 서버 값이 없어 잠근다 */
-function Chips({ hide, flip }: { hide: { route?: boolean; zone?: boolean }; flip: (k: 'route' | 'zone') => void }) {
+/** 지도 위 칩(시안 경로 · 구역 · 혼잡 시간). 경로 · 구역은 눌러 켜고 끔(켬 = .g · 끔 = .g.dk, 시안 u6_1 과 같은 꼴).
+ *  혼잡 시간 = 조직 설정 busy_hours 의 오늘 요일 것(보이기만 · 시각은 title). 서버가 값을 주지 않으면(옛 서버) 잠근다 */
+function Chips({ hide, flip, busy }: { hide: { route?: boolean; zone?: boolean }; flip: (k: 'route' | 'zone') => void; busy?: BusyHour[] }) {
+  const today = busy?.filter((b) => b.day === DAY_KEYS[new Date().getDay()]);
   const chip = (k: 'route' | 'zone', t: string) => <span className={`g${hide[k] ? ' dk' : ''}`} role="button" tabIndex={0} aria-pressed={!hide[k]} data-chip={k}
     onClick={() => flip(k)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(k); } }}>{t}</span>;
   return <div className="chips" aria-label="지도 보기">
     {chip('route', '경로')}{chip('zone', '구역')}
-    <span className="g dk" aria-disabled="true" title="혼잡 시간은 서버에 값이 없습니다" data-locked>혼잡 시간</span></div>;
+    {today ? <span className="g" title={today.map(busyText).join(' · ') || '오늘은 혼잡 시간이 없습니다'} data-busy>혼잡 시간 · {today.length ? `오늘 ${today.length} 번` : '오늘 없음'}</span>
+      : <span className="g dk" aria-disabled="true" title="혼잡 시간은 서버에 값이 없습니다" data-locked>혼잡 시간</span>}</div>;
 }
 
 /** 지도 아래 요약(길이 · 걷기 + 할 일 · 미리 확인) */
