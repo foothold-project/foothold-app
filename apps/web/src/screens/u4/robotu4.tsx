@@ -3,7 +3,7 @@
 // 값: 목록 = 서버 로봇 목록 · 머리 칩 = 실시간 state(연결 왕복 ms · 제어 모드 · 배터리 · 관절 최고 온도 · 조종하는 사람) · 3D = 실제 관절값 ·
 // 보기 = 지도(승인 지도 + 로봇 위치) · 카메라 · 라이다 · 깊이. 값이 없으면 시안 틀은 그대로 두고 그 칸 글을 비우거나 「없음」(시안 u4_8 배터리 칸과 같은 말).
 // 조종 · STOP 은 serverdrive.tsx useServerDrive 하나(이 파일은 자리만): 키는 시안 글대로 ↑ 앞으로 · ← → 돌기 · ↓ 막힘 · Space 정지.
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as PEv, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type PointerEvent as PEv, type ReactNode } from 'react';
 import type { MapVersion, RunSnapshot, ScreenAction } from '../../../../contracts/ts';
 import { api } from '../../api';
 import { rt, useLive, useRt } from '../../rt';
@@ -12,7 +12,7 @@ import { ADMIN_LATER, ownerName, type Robot } from '../../fake';
 import type { ApiFail } from '../../api';
 import { NO_SIGNAL, driveFeedHeld, driveFeedText, useDriveFeed } from '../../drivemedia';
 import { DriveView, canDrive, keepDrive, useServerDrive, type Tok } from '../../serverdrive';
-import { GAITS } from '../../gait';
+import { GAITS, NO_GAIT } from '../../gait';
 import { LidarMap } from '../../lidarmap';
 import { REPORT_STALE_MS, go2Pose, go2Temps, JOINTS, jointName } from '../../go2model';
 import { ACTION_NAMES, FACTORY_OFF, LOWLEVEL, actionResultText } from '../actiontrial';
@@ -50,14 +50,33 @@ const ACTS: [ScreenAction['action'], string, string, ReactNode][] = [
   ['Heart', '하트', 'R2+Y', <path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.5-7 10-7 10z" />],
   ['Greet', '인사', 'L1+A', <path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11M11 10V4.5a1.5 1.5 0 0 1 3 0V11M14 10.5V6a1.5 1.5 0 0 1 3 0v8a6 6 0 0 1-6 6h-1a5 5 0 0 1-4-2l-2.5-3.5a1.5 1.5 0 0 1 2.4-1.8L8 14" />],
 ];
+/** 데모 로봇(가용 RobotAvailability.demo = true)은 시뮬이어도 실기와 같은 꼴(개 그림 · 배터리 · 연결 ms · 걷기 · 위치 알약 · 실기 모형), 차이는 「데모」 칩 하나. 시뮬 꼴은 사용자 시뮬만 */
+const Demo = createContext<ReadonlySet<string>>(new Set());
+const useSimLook = () => { const d = useContext(Demo); return (x: Robot) => !!x.sim && !d.has(x.id); };
+/** 10 초마다 GET /robots/availability(지금 ~ 1 분 뒤)의 demo. 받지 못하면 지난 값 그대로(처음엔 빈 묶음 = 시뮬 꼴, 지어내지 않음) */
+function useDemo(cancel?: AbortSignal) {
+  const [got, setGot] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    let live = true;
+    const load = () => { const now = new Date(); api.availability(now.toISOString(), new Date(now.getTime() + 60_000).toISOString(), cancel)
+      .then((a) => { if (live) setGot(new Set(a.items.filter((x) => x.demo).map((x) => x.robot_id))); }, () => {}); };
+    load(); const h = setInterval(load, 10_000);
+    return () => { live = false; clearInterval(h); };
+  }, []);
+  return got;
+}
+const DEMO = <span className="tag" style={{ height: '24px', fontSize: '12px', marginLeft: '6px' }} data-demo>데모</span>;
+/** 남은 시간 = 서버 battery.minutes_left(정수 0 ~ 1440 · 실기는 null). 계약 타입이 base 에 오기 전이라 선택 칸으로 읽음. 없으면 null(지어내지 않음) */
+export const minutesLeft = (b: unknown) => { const m = (b as { minutes_left?: unknown } | null | undefined)?.minutes_left; return typeof m === 'number' && Number.isInteger(m) && m >= 0 && m <= 1440 ? m : null; };
+
 /** 시안 일어서기 「START 중 안 됨」 까닭 글 그대로 */
 const STANDUP_WHY = 'START 에서는 일어서기를 보낼 수 없습니다 · 앉은 뒤 「앉기」 를 다시 누르면 일어납니다';
 
-/** 목록 한 줄의 작은 글: 실제/시뮬 · 지금 하는 일 · 조종하는 사람 */
-export function railLine(x: Robot, me: string) {
+/** 목록 한 줄의 작은 글: 실제/데모/시뮬 · 지금 하는 일 · 조종하는 사람 */
+export function railLine(x: Robot, me: string, demo = false) {
   const live = rt.get(x.id), h = live.holder ?? x.holder ?? null, s = live.state;
-  const kind = x.sim ? '시뮬' : '실제';
-  if (!x.online && !x.sim && x.unknown !== 'summary') return `${kind} · 연결 끊김`;   // summary = 구독 안 하는 남의 로봇(목록 요약 값으로 적음)
+  const kind = demo ? '데모' : x.sim ? '시뮬' : '실제';
+  if (!x.online && (!x.sim || demo) && x.unknown !== 'summary') return `${kind} · 연결 끊김`;   // summary = 구독 안 하는 남의 로봇(목록 요약 값으로 적음)
   const who = h?.type === 'USER' ? (h.id === me ? '나' : h.name || '') : '';
   const doing = h?.type === 'USER' ? '조종 중' : x.status === 'RUNNING' ? (x.mission ? `${x.mission} 중` : '임무 중')
     : x.status === 'STOP_LATCHED' ? '정지 잠금' : x.status === 'ERROR' ? '오류' : '대기';
@@ -67,15 +86,16 @@ const bat = (x: Robot) => { const v = rt.get(x.id).state?.battery?.soc ?? x.batt
 
 function Rail({ c, sel, add }: { c: Ctx; sel: string; add: () => void }) {
   useRt();
+  const look = useSimLook(), demo = useContext(Demo);
   return <div className="pane rail"><div className="row" style={{ justifyContent: 'space-between', padding: '0 6px 12px' }}><span className="ttl">로봇</span>
     <span data-go="u4_6_add" className="btns addbtn" style={{ height: '34px', padding: '0 11px', fontSize: '12.5px' }} role="button" tabIndex={0} onClick={add} data-u4-add>
       <svg className="ic" viewBox="0 0 24 24" style={{ width: '14px', height: '14px' }}><path d="M5 12h14" /><path d="M12 5v14" /></svg>로봇 추가</span></div>
     <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-      {c.robots.map((x) => <div key={x.id} className={`rcard ${x.id === sel ? 'on' : ''}${x.sim ? ' rehearse' : ''}`} data-r={x.name} data-robot-row={x.id} role="button" tabIndex={0}
+      {c.robots.map((x) => <div key={x.id} className={`rcard ${x.id === sel ? 'on' : ''}${look(x) ? ' rehearse' : ''}`} data-r={x.name} data-robot-row={x.id} role="button" tabIndex={0}
         aria-current={x.id === sel || undefined} onClick={() => c.pick(x.id)}>
-        <span className="av">{x.sim ? CUBE : DOG}</span>
-        <div style={{ flex: '1' }}>{x.name}<small>{railLine(x, c.user.id)}</small></div>
-        <span className="mu2" style={{ fontSize: '13px', whiteSpace: 'nowrap' }}>{x.sim ? '시뮬' : bat(x)}</span></div>)}
+        <span className="av">{look(x) ? CUBE : DOG}</span>
+        <div style={{ flex: '1' }}>{x.name}{demo.has(x.id) && DEMO}<small>{railLine(x, c.user.id, demo.has(x.id))}</small></div>
+        <span className="mu2" style={{ fontSize: '13px', whiteSpace: 'nowrap' }}>{look(x) ? '시뮬' : bat(x)}</span></div>)}
     </div></div>;
 }
 
@@ -195,12 +215,12 @@ function Cam({ fs, big, can, b }: { fs: Feeds; big: boolean; can: boolean; b: Bo
 
 /** 가운데 3D: 시안 go2view 를 그대로 띄우고 실제 관절값 · 나간 명령으로 움직인다 */
 function Stage({ r, q, drive, hot }: { r: Robot; q: number[] | null; drive: Go2Api['drive']; hot: Record<string, string> }) {
-  const cv = useRef<HTMLCanvasElement>(null), g = useRef<Go2Api | null>(null);
+  const cv = useRef<HTMLCanvasElement>(null), g = useRef<Go2Api | null>(null), sim = useSimLook()(r);
   useEffect(() => {
     if (typeof WebGLRenderingContext === 'undefined' || !cv.current) return;
-    const a = mount(cv.current, { pin: true, orbit: true, glow: true, cyber: !!r.sim }); g.current = a;
+    const a = mount(cv.current, { pin: true, orbit: true, glow: true, cyber: sim }); g.current = a;
     return () => { a.dispose(); g.current = null; };
-  }, [r.id, r.sim]);
+  }, [r.id, sim]);
   useEffect(() => { if (g.current) { g.current.q = q; g.current.drive = drive; } });
   const key = JSON.stringify(hot);
   useEffect(() => { g.current?.setHot(hot); }, [key]);
@@ -233,7 +253,7 @@ type D = Pick<ReturnType<typeof useServerDrive>, 'l' | 's' | 'mine' | 'off' | 'w
 function Driven({ c, r }: { c: Ctx; r: Robot }) { return <Body c={c} r={r} d={useServerDrive(c, r)} can />; }
 function Viewed({ c, r }: { c: Ctx; r: Robot }) {
   const l = useLive(r.id), stopPress = useStopPress(() => rt.stop(r.id));
-  return <Body c={c} r={r} d={{ l, s: l.state, mine: false, off: true, why: '', ready: false, zero: () => {}, stick: () => {}, stopPress, unlockAsk: () => {}, unlockState: null, refused: '', notes: <></>, stopLine: null, take: () => {}, takeWhy: '', gait: { row: false, press: () => {}, cur: l.state?.gait?.gait ?? null, msg: '' } }} can={false} />;
+  return <Body c={c} r={r} d={{ l, s: l.state, mine: false, off: true, why: '', ready: false, zero: () => {}, stick: () => {}, stopPress, unlockAsk: () => {}, unlockState: null, refused: '', notes: <></>, stopLine: null, take: () => {}, takeWhy: '', gait: { row: false, press: () => {}, cur: l.state?.gait?.gait ?? null, avail: l.state?.gait?.available ?? null, msg: '' } }} can={false} />;
 }
 function Robot1({ c, r }: { c: Ctx; r: Robot }) {
   return keepDrive(c, r) ? <Driven c={c} r={r} /> : <Viewed c={c} r={r} />;
@@ -266,6 +286,7 @@ function Settings({ c, r }: { c: Ctx; r: Robot }) {
     run(() => api.saveRobot(r.id, { name: v }, c.cancel), '이름을 바꿨습니다.');
   };
   const why = (t: string) => setMsg({ text: t });
+  const look = useSimLook()(r);
   const not = admin && !r.sim && r.owner ? ADMIN_LATER : admin && !r.sim ? '담당 없는 실기는 아래에서 담당을 지정합니다.' : '내 담당 로봇만 설정을 바꿀 수 있습니다.';
   const press = (k: 'cut' | 'delete') => (own ? !busy && setAsk(k) : why(not));
   const owner = () => (own && !r.sim ? box.current?.querySelector<HTMLButtonElement>('[data-transfer] button[aria-expanded]')?.click() : why(own ? '시뮬 로봇은 담당을 넘기지 않습니다.' : not));
@@ -276,7 +297,7 @@ function Settings({ c, r }: { c: Ctx; r: Robot }) {
         value={name} disabled={busy} onChange={(e) => setName(e.target.value)} onBlur={rename} onKeyDown={(e) => { if (e.key === 'Enter') rename(); }} data-u4-name />
         : <div className="fld" style={{ fontWeight: 800 }}>{r.name}</div>}
       <span className="mu" style={{ fontWeight: 600 }}>기체번호</span>
-      <b className={r.serial ? undefined : 'mu2'}>{r.sim ? '시뮬' : r.serial ?? NONE}</b>
+      <b className={r.serial ? undefined : 'mu2'}>{look ? '시뮬' : r.serial ?? NONE}</b>
       <span className="mu" style={{ fontWeight: 600 }}>담당</span>
       <div className="fld" role="button" tabIndex={0} onClick={owner} data-u4-owner>{own ? '나' : ownerName(r)} · 담당자 바꾸기{CHEV}</div>
     </div>
@@ -344,7 +365,9 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   const link = rt.link(), ms = link.at === 'open' && link.latencyMs != null ? `${Math.round(link.latencyMs)} ms` : '';
   const online = s?.connection === 'ONLINE';
   const lowlevel = s?.control === 'LOWLEVEL', mode = GAITS.find((x) => x.g === d.gait.cur)?.name ?? NONE;   // 걷기 모드(로봇 보고 state.gait) · Shift+1~4 는 useServerDrive
-  const soc = s?.battery?.soc ?? (r.sim ? null : r.battery);
+  const noGait = !!d.gait.avail && !d.gait.avail.length;   // 쓸 수 있는 모드 빈 목록 = 바꾸기 꺼짐 · 까닭
+  const sim = useSimLook()(r), demo = useContext(Demo).has(r.id), left = minutesLeft(s?.battery);
+  const soc = s?.battery?.soc ?? (sim ? null : r.battery);
   const hotJ = temps && temps.hot >= 0 ? temps.joints[temps.hot] : null;
   const holder = l.holder ?? r.holder ?? null, who = holder?.type === 'USER' ? (holder.id === c.user.id ? '나' : holder.name || NONE) : NONE;
   const a = s?.applied ?? null, sp = s?.speed;
@@ -383,10 +406,10 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   const map = <MapView c={c} r={r} b={b} run={run} route={route} />;
   const small = view === 'map' ? <Cam fs={fs} big={false} can={can} b={b} /> : map;
   return <>
-    <div className="hdr" data-robot-head={r.id}><span className="ttl" style={{ fontSize: '26px', marginRight: '6px' }}>{r.name}</span>
-      <span className="g dk st" data-cell="link"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M12 20h.01" /><path d="M2 8.82a15 15 0 0 1 20 0" /><path d="M5 12.859a10 10 0 0 1 14 0" /><path d="M8.5 16.429a5 5 0 0 1 7 0" /></svg>{r.sim && online ? '시뮬' : online ? '연결' : r.online ? '연결 중' : '끊김'}<small>{r.sim && online ? '서버 계산' : ms}</small></span>
-      <span data-go="u4_7_mode" className="g dk st" data-cell="mode"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="m8 3 4 8 5-5 5 15H2L8 3z" /></svg>{mode}<small>Shift + 1 ~ 4</small></span>
-      <span className="g dk st" data-cell="battery"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M10 14v-4" /><path d="M22 14v-4" /><path d="M6 14v-4" /><rect x="2" y="6" width="16" height="12" rx="2" /></svg>{r.unknown === 'summary' ? '확인 안 됨' : soc == null ? NONE : `${Math.round(soc)} %`}<small>{r.sim ? '시뮬' : soc == null ? '배터리' : ''}</small></span>
+    <div className="hdr" data-robot-head={r.id}><span className="ttl" style={{ fontSize: '26px', marginRight: '6px' }}>{r.name}{demo && DEMO}</span>
+      <span className="g dk st" data-cell="link"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M12 20h.01" /><path d="M2 8.82a15 15 0 0 1 20 0" /><path d="M5 12.859a10 10 0 0 1 14 0" /><path d="M8.5 16.429a5 5 0 0 1 7 0" /></svg>{sim && online ? '시뮬' : online ? '연결' : r.online ? '연결 중' : '끊김'}<small>{sim && online ? '서버 계산' : ms}</small></span>
+      <span data-go="u4_7_mode" className="g dk st" data-cell="mode" aria-disabled={noGait || undefined} title={noGait ? NO_GAIT : undefined}><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="m8 3 4 8 5-5 5 15H2L8 3z" /></svg>{mode}<small {...(noGait ? { 'data-gait-none': '' } : {})}>{noGait ? '바꿀 수 있는 모드 없음' : 'Shift + 1 ~ 4'}</small></span>
+      <span className="g dk st" data-cell="battery"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M10 14v-4" /><path d="M22 14v-4" /><path d="M6 14v-4" /><rect x="2" y="6" width="16" height="12" rx="2" /></svg>{r.unknown === 'summary' ? '확인 안 됨' : soc == null ? NONE : `${Math.round(soc)} %`}<small>{sim ? '시뮬' : soc == null ? '배터리' : left != null ? `약 ${left} 분` : ''}</small></span>
       <span className={`g dk st${hotTag ? ' bad warncell' : ''}`} data-cell="temp"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z" /></svg>{hotJ == null ? NONE : `${Math.round(hotJ)} °C`}<small>{hotJ != null && hotJ >= 60 ? jointName(JOINTS[temps!.hot]) : '최고 관절 온도'}</small></span>
       <span className="g dk st" data-cell="holder"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>{who}<small>조종자</small></span>
       <div className="seg2" style={{ marginLeft: 'auto' }} role="tablist">
@@ -401,7 +424,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
       {hotTag && <span className="g dk tag warntag" style={{ left: '150px', top: '300px', color: '#ff4d4f' }} data-u4-hot>{hotTag}</span>}
       <div className="g bub" style={{ left: '58%', top: '70px' }} data-u4-notes>{d.notes}</div>
       {tab === 'check' ? <div className="foot" data-u4-legend><span className="g dk tag" style={{ position: 'static', color: '#00c389' }}>보통</span><span className="g dk tag" style={{ position: 'static', color: '#f2b705' }}>주의 50 °C</span><span className="g dk tag" style={{ position: 'static', color: '#ff4d4f' }}>경고 60 °C</span><span className="mu2" style={{ marginLeft: 'auto', fontSize: '12.5px' }}>관절 온도는 색으로 표시 · 마우스를 올리면 값이 보입니다</span></div>
-      : r.sim ? <div className="foot" data-u4-simfoot><span className="g dk tag" style={{ position: 'static', color: '#4c9bff' }} data-u4-simplace>{`시뮬 · ${place || '현장 모름'}`}</span>
+      : sim ? <div className="foot" data-u4-simfoot><span className="g dk tag" style={{ position: 'static', color: '#4c9bff' }} data-u4-simplace>{`시뮬 · ${place || '현장 모름'}`}</span>
         <span className="mu2" style={{ marginLeft: 'auto', fontSize: '12.5px' }}>시뮬 로봇</span></div>
       : <div className="foot"><span className="g dk tag" style={{ position: 'static', color: '#00c389', minWidth: '178px', justifyContent: 'center' }} data-u4-walk>{walk}</span>
         <span className="g dk tag" style={{ position: 'static', color: '#ffffff' }} data-u4-loc>{located ? '위치 추정 켜짐' : '위치 추정 없음'}</span>
@@ -463,11 +486,11 @@ function Empty({ add, none }: { add: () => void; none?: ReactNode }) {
 }
 /** 목록 = 시안 u4 처럼 실기 + 시뮬(시뮬 줄은 rehearse 파란 점선). 끝낸 시뮬 슬롯(담당 비움)은 뺀다. 고른 로봇이 목록에 없으면 첫 줄로(머리줄 STOP 대상 = 화면) */
 function Real({ c, add }: { c: Ctx; add: () => void }) {
-  const robots = c.robots.filter((x) => !x.sim || !!x.owner), robot = robots.find((x) => x.id === c.robot.id) ?? robots[0];
+  const robots = c.robots.filter((x) => !x.sim || !!x.owner), robot = robots.find((x) => x.id === c.robot.id) ?? robots[0], demo = useDemo(c.cancel);
   useEffect(() => { if (robot && robot.id !== c.robot.id) c.pick(robot.id); }, [robot?.id, c.robot.id]);
   if (!robot) return <Empty add={add} />;
   const rc = { ...c, robot, robots };
-  return <><Rail c={rc} sel={robot.id} add={add} /><Robot1 key={robot.id} c={rc} r={robot} /></>;
+  return <Demo.Provider value={demo}><Rail c={rc} sel={robot.id} add={add} /><Robot1 key={robot.id} c={rc} r={robot} /></Demo.Provider>;
 }
 
 const light = () => typeof document !== 'undefined' && document.documentElement.dataset.theme === 'light';

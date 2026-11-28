@@ -16,6 +16,8 @@ export const gaitKey = (e: KeyboardEvent): GaitName | undefined => (e.shiftKey &
 export const GAIT_KEYS = 'Shift+1~4 걷기 모드 (Classic · Sport · START · AME-2)';
 /** 보낸 뒤 이 시간 안에 로봇 결과가 없으면 «결과를 받지 못함» */
 export const GAIT_WAIT_MS = 20000;
+/** 로봇이 보낸 쓸 수 있는 모드가 빈 목록(시뮬 등) = 바꾸기 단추 꺼짐 · 까닭 */
+export const NO_GAIT = '이 로봇은 걷기 모드를 바꿀 수 없습니다 (로봇이 보낸 쓸 수 있는 모드 없음).';
 /** 거절 · 실패 코드(계약 GaitRejectCode, 열린 문자열) → 다음 할 일 한 줄 */
 const WHY: Record<string, string> = {
   GAIT_MOVING: '로봇이 움직이고 있습니다. 멈춘 뒤 바꿀 수 있습니다.',
@@ -41,6 +43,7 @@ export function useGait(id: string, moving: () => boolean) {
   const off = (g: GaitName) => !!avail && !avail.includes(g);
   /** 보내지 않을 까닭(없으면 '') */
   const block = (g: GaitName) => !mine ? '조종 시작 뒤 바꿀 수 있습니다.'
+    : avail && !avail.length ? NO_GAIT
     : link !== 'open' ? '서버 연결이 끊겨 바꿀 수 없습니다.'
     : s?.connection !== 'ONLINE' ? '로봇 연결이 끊겨 바꿀 수 없습니다.'
     : s.latched !== false ? WHY.GAIT_LATCHED
@@ -75,5 +78,5 @@ export function useGait(id: string, moving: () => boolean) {
     {offs.length > 0 && <span className="lbl" data-gait-off style={{ flexBasis: '100%' }}>{offs.join(' · ')}: 이 로봇에서 지금 쓸 수 없음</span>}
     {(ask || msg) && <span role="status" className="lbl" style={{ flexBasis: '100%' }} data-gait-msg>{ask ? `${NAME[ask.g]} 모드로 바꾸는 중…` : msg}</span>}
   </div>;
-  return { row, press, cur, msg: ask ? `${NAME[ask.g]} 모드로 바꾸는 중…` : msg };
+  return { row, press, cur, avail, msg: ask ? `${NAME[ask.g]} 모드로 바꾸는 중…` : msg };
 }

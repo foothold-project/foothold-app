@@ -282,6 +282,72 @@ describe('시뮬 로봇 = 시안 u4_8', () => {
   });
 });
 
+describe('데모 = 실기 꼴 · 서버 값(11-28)', () => {
+  const SIM = { id: 's9', name: 'K-02', owner: 'u-park', ownerName: '박OO', battery: 70, online: true, seenAt: '14:05:20', status: 'IDLE', sim: true } as Robot;
+  const flush = () => act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  const avail = (demo: boolean) => vi.spyOn(api, 'availability').mockResolvedValue({ items: [{ robot_id: 's9', robot_name: 'K-02', state: 'FREE', busy_until: null, busy_slot_id: null, busy_label: null,
+    battery_pct: 70, demo, sim: true, location_label: null }] });
+  const pickSim = () => click($$('.rail .rcard').find((x) => x.getAttribute('data-r') === 'K-02')!);
+  const again = () => { act(() => root?.unmount()); root = null; box.parentNode?.removeChild(box); };
+
+  it('가용 demo = true 인 시뮬 로봇은 시뮬 꼴(점선 · 시뮬 칩 · 파란 알약) 없이 실기와 같고 「데모」 칩만 더함 · demo 가 아니면 시뮬 꼴 그대로', async () => {
+    const a = avail(true);
+    mount('u-park', [...ON, SIM]); serve('r7', 's9'); await flush();
+    pickSim();
+    expect($$('.rail .rcard.rehearse').length).toBe(0);
+    expect(text($('.rail .rcard.on [data-demo]'))).toBe('데모');
+    expect(text($('.rail .rcard.on small'))).toMatch(/^데모 · /);
+    expect(text($('[data-robot-head] .ttl [data-demo]'))).toBe('데모');
+    expect(text($('[data-cell="link"]'))).toMatch(/^연결/);
+    expect(text($('[data-cell="battery"]'))).not.toMatch(/시뮬/);
+    expect($('[data-u4-simfoot]')).toBeNull(); expect($('[data-u4-walk]')).not.toBeNull();
+    a.mockRestore(); again();
+    const b = avail(false);
+    mount('u-park', [...ON, SIM]); serve('r7', 's9'); await flush();
+    pickSim();
+    expect($$('.rail .rcard.on.rehearse').length).toBe(1); expect($('[data-demo]')).toBeNull(); expect($('[data-u4-simfoot]')).not.toBeNull();
+    b.mockRestore();
+  });
+
+  it('배터리 작은 글 = battery.minutes_left 「약 N 분」, null · 범위 밖이면 비움(지어내지 않음)', () => {
+    mount('u-park'); serve('r7');
+    act(() => { push('r7', { battery: { soc: 66, minutes_left: 47 } } as unknown as Partial<ScreenState>); });
+    expect(text($('[data-cell="battery"] small'))).toBe('약 47 분');
+    act(() => { push('r7', { battery: { soc: 66, minutes_left: null } } as unknown as Partial<ScreenState>); });
+    expect(text($('[data-cell="battery"] small'))).toBe('');
+    act(() => { push('r7', { battery: { soc: 66, minutes_left: 2000 } } as unknown as Partial<ScreenState>); });
+    expect(text($('[data-cell="battery"] small'))).toBe('');
+  });
+
+  it('gait.available 이 빈 목록이면 모드 칸은 꺼지고 까닭 · Shift+3 도 보내지 않고 까닭', () => {
+    mount('u-park'); serve('r7');
+    act(() => { push('r7', { gait: { gait: 'start', available: [] } } as Partial<ScreenState>); });
+    const cell = $('[data-cell="mode"]')!;
+    expect(cell.getAttribute('aria-disabled')).toBe('true');
+    expect(text(cell.querySelector('small'))).toBe('바꿀 수 있는 모드 없음');
+    drive();
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit3', shiftKey: true, bubbles: true, cancelable: true })); });
+    expect(w.of('gait')).toHaveLength(0);
+    expect(box.textContent).toContain('이 로봇은 걷기 모드를 바꿀 수 없습니다');
+  });
+
+  it('시뮬도 서버 robot_info 가 오면 상세에 자세 · 넘어짐은 서버 fallen 그대로(각도로 판단하지 않음)', () => {
+    const info = (fallen: boolean) => ({ attitude: { roll: 0.9, pitch: 0 }, error_code: 0, fallen, fallen_source: 'imu_tilt_estimate' });
+    mount('u-park', [...ON, SIM]); serve('r7', 's9');
+    act(() => { push('s9', { robot_info: info(false) } as unknown as Partial<ScreenState>); });
+    pickSim();
+    click($('[data-seg="점검"]')!); click($('[data-u4-sub="detail"]')!);
+    expect(text($('[data-robot-info]'))).toContain('roll');
+    expect($('[data-robot-info]')!.textContent).not.toContain('넘어짐 의심');   // roll 0.9 rad 이어도 서버 fallen false
+    again();
+    mount('u-park', [...ON, SIM]); serve('r7', 's9');
+    act(() => { push('s9', { robot_info: info(true) } as unknown as Partial<ScreenState>); });
+    pickSim();
+    click($('[data-seg="점검"]')!); click($('[data-u4-sub="detail"]')!);
+    expect($('[data-robot-info]')!.textContent).toContain('넘어짐 의심');
+  });
+});
+
 describe('화면 맞춤 scale 아래 조이스틱', () => {
   /** 무대가 k 배로 줄었을 때: css 크기 150 px 손잡이 판이 화면에는 150k px 로 보인다 */
   function shrink(el: HTMLElement, k: number) {
