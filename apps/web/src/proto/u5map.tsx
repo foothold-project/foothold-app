@@ -45,10 +45,43 @@ export const shotMix = (a: SiteShot, b: SiteShot, t: number): SiteShot => { cons
   return { tgt: a.tgt.clone().lerp(b.tgt, e), el: a.el + (b.el - a.el) * e, az: a.az + (b.az - a.az) * e, d: a.d + (b.d - a.d) * e }; };
 /** 움직임 시간: 움직임 줄이기면 0(바로 끝) */
 export const flyTime = () => (calm() ? 0 : FLY_S);
+/** 「전체 보기」 시점(팀장 03:19): 공장 부지 둘레 상자(땅 위 네 모서리 · 높이 FULL_H)가 칸 폭 · 높이 · 시야각 안에 꽉(여백 FULL_PAD) ·
+ *  정북 · 아래로 SITE_EL · 바라볼 점 = 부지 가운데. 거리는 모서리 투영으로 반 가르기(가장 가까운 거리) */
+export const FULL_PAD = 0.94, FULL_H = 25;
+export function fullShot(aspect: number): SiteShot {
+  const W = SITE_PX_W / K, H = SITE_PX_H / K, x0 = -OX / K, z0 = -OY / K, el = (SITE_EL * Math.PI) / 180;
+  const tgt = new THREE.Vector3(x0 + W / 2, 0, z0 + H / 2), cam = new THREE.PerspectiveCamera(SITE_FOV, aspect, 1, 1e5), v = new THREE.Vector3();
+  const corners = [0, FULL_H].flatMap((y) => [[x0, z0], [x0 + W, z0], [x0, z0 + H], [x0 + W, z0 + H]].map(([x, z]) => new THREE.Vector3(x, y, z)));
+  const fits = (d: number) => {
+    cam.position.set(tgt.x, Math.sin(el) * d, tgt.z + Math.cos(el) * d); cam.lookAt(tgt); cam.updateMatrixWorld();
+    return corners.every((c) => { v.copy(c).project(cam); return v.z < 1 && Math.abs(v.x) <= FULL_PAD && Math.abs(v.y) <= FULL_PAD; });
+  };
+  let lo = 50, hi = 20000; for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (fits(m)) hi = m; else lo = m; }
+  return { tgt, el, az: 0, d: hi };
+}
+/** 안개는 지도 밖 땅만: 시작 = 바라볼 점까지 거리 + 부지 반 대각선(지도 어디도 안개 앞) · 끝 = 시작 + FOG_LEN. 지도 밝기는 거리와 상관없음 */
+export const SITE_R = Math.hypot(SITE_PX_W / K, SITE_PX_H / K) / 2, FOG_LEN = 1200;
+export const fogFor = (d: number) => ({ near: d + SITE_R, far: d + SITE_R + FOG_LEN });
+/** 지금 카메라 자리를 시점 값으로(바라볼 점 · 높이각 · 방위 · 거리) */
+export function shotOf(pos: THREE.Vector3, tgt: THREE.Vector3): SiteShot {
+  const o = pos.clone().sub(tgt), d = o.length();
+  return { tgt: tgt.clone(), el: Math.asin(Math.min(1, Math.max(-1, o.y / (d || 1)))), az: Math.atan2(o.x, o.z), d };
+}
+/** 한 시점에서 다른 시점으로 날기(작은 지도 날기와 같은 FLY_S · ease). 방위는 짧은 쪽으로. stop() = 사용자가 끌거나 휠 → 그 자리에서 멈춤(손을 넘김).
+ *  dur 0(움직임 줄이기) = 첫 step 에 끝 시점 */
+export function flight(a: SiteShot, b: SiteShot, dur = flyTime()) {
+  let az = b.az - a.az; az = Math.atan2(Math.sin(az), Math.cos(az));
+  const to = { ...b, az: a.az + az }; let t = dur <= 0 ? 1 : 0, live = true;
+  return {
+    get done() { return !live || t >= 1; },
+    step(dt: number): SiteShot | null { if (!live) return null; t = dur <= 0 ? 1 : Math.min(1, t + dt / dur); const s = shotMix(a, to, t); if (t >= 1) live = false; return s; },
+    stop() { live = false; },
+  };
+}
 const calm = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 /** from = 작은 지도 칸 자리(화면 px). 있으면 그 자리에서 큰 지도 자리로 자람(320 ms). focus = 작은 지도 더블클릭 때 고른 로봇: 첫 시점에서 그 로봇으로 다가감. 움직임 줄이기면 바로 */
-export function SiteView({ all, sel, open, from, focus, home }: { all: TileFacts[]; sel: string; open: (id: string) => void; from?: DOMRect | null; focus?: string; home?: () => void }) {
+export function SiteView({ all, sel, open, from, focus, home, homeTick = 0 }: { all: TileFacts[]; sel: string; open: (id: string) => void; from?: DOMRect | null; focus?: string; home?: () => void; homeTick?: number }) {
   const box = useRef<HTMLDivElement>(null), fromTop = useRef(!!from && !calm());
   useLayoutEffect(() => {
     const el = box.current; if (!el || !from || !fromTop.current || typeof el.animate !== 'function') return;
@@ -58,6 +91,8 @@ export function SiteView({ all, sel, open, from, focus, home }: { all: TileFacts
       { transformOrigin: '0 0', transform: 'none', borderRadius: '22px' }], { duration: 320, easing: 'cubic-bezier(.2,.8,.2,1)' });
   }, []);   // eslint-disable-line react-hooks/exhaustive-deps
   const cv = useRef<HTMLCanvasElement>(null), marks = useRef<HTMLDivElement>(null), now = useRef(all);
+  const goHome = useRef<(() => void) | null>(null);
+  useEffect(() => { if (homeTick) goHome.current?.(); }, [homeTick]);
   now.current = all;
   useEffect(() => {
     const canvas = cv.current!; let r: THREE.WebGLRenderer;
@@ -138,6 +173,11 @@ export function SiteView({ all, sel, open, from, focus, home }: { all: TileFacts
     ctl.target.copy(fly < 1 ? a0.tgt : end.tgt); ctl.enableDamping = true; ctl.dampingFactor = 0.08; ctl.screenSpacePanning = false;
     ctl.minDistance = 60; ctl.maxDistance = 1500; ctl.maxPolarAngle = 1.38; ctl.enabled = fly >= 1; if (fly >= 1) ctl.update();
     ctl.addEventListener('start', () => { touched = true; });
+    let trip: ReturnType<typeof flight> | null = null;
+    // 날아가는 중 사용자가 끌거나 휠을 굴리면 그 자리에서 멈추고 손을 넘김
+    const grab = () => { if (!trip || trip.done) return; trip.stop(); trip = null; touched = true; ctl.enabled = true; ctl.update(); };
+    canvas.addEventListener('pointerdown', grab, true); canvas.addEventListener('wheel', grab, { capture: true, passive: true });
+    goHome.current = () => { fly = 1; look = 0; touched = true; trip = flight(shotOf(cam.position, ctl.target), fullShot(w / h)); ctl.enabled = false; };
     const v = new THREE.Vector3(), clock = new THREE.Clock(); let raf = 0;
     r.autoClear = false;
     const frame = () => {
@@ -181,18 +221,22 @@ export function SiteView({ all, sel, open, from, focus, home }: { all: TileFacts
         look -= raw; const n = near();
         if (n) { look = 0; a0 = first(); framed = true; end = n; if (dur === 0) { aim(end); ctl.target.copy(end.tgt); ctl.update(); } else { fly = 0; ctl.enabled = false; } }
       }
-      if (fly < 1) {
+      if (trip) {
+        const sh = trip.step(raw); if (sh) { aim(sh); ctl.target.copy(sh.tgt); }
+        if (trip.done) { trip = null; ctl.enabled = true; ctl.update(); }
+      } else if (fly < 1) {
         if (pause > 0) pause -= raw; else fly = Math.min(1, fly + raw / dur);
         const s = shotMix(a0, end, fly); aim(s);
         if (fly >= 1) { ctl.target.copy(end.tgt); ctl.enabled = true; ctl.update(); }
       } else if (!touched && !framed && look <= 0 && end === a0 && pts().length >= 2) {   // 위치가 늦게 오면 손대기 전 한 번 첫 시점을 다시 잡음
         framed = true; a0 = end = first(); aim(a0); ctl.target.copy(a0.tgt); ctl.update();
       } else ctl.update();
+      { const fg = scene.fog as THREE.Fog, ff = fogFor(cam.position.distanceTo(ctl.target)); fg.near = ff.near; fg.far = ff.far; }
       r.clear(); r.render(scene, cam); r.clearDepth(); r.render(over, cam);
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
-    return () => { live = false; cancelAnimationFrame(raf); ctl.dispose(); r.dispose(); };
+    return () => { live = false; goHome.current = null; canvas.removeEventListener('pointerdown', grab, true); canvas.removeEventListener('wheel', grab, true); cancelAnimationFrame(raf); ctl.dispose(); r.dispose(); };
   }, []);
   const icon = (f: TileFacts): ReactNode => (f.sim ? ic(13, IC.box, '#4c9bff') : f.level === 'bad' || f.level === 'crit' ? ic(13, IC.warn, '#ff4d4f') : f.lostNow ? ic(13, IC.wifi, '#f2b705') : f.charging ? ic(13, IC.bolt, 'var(--u5-ok)') : null);   // 시안 K-04 충전 = 번개
   const sub = (f: TileFacts) => f.mission?.name ?? (f.lostNow ? '연결 끊김' : f.sim ? '시뮬 대기' : f.x.status ? STATUS_NAME[f.x.status] : '');

@@ -1529,7 +1529,7 @@ describe('관제 탭', () => {
       expect(sw().getAttribute('aria-checked')).toBe('true'); expect(tile('k1')).not.toBeNull();
     } finally { av.mockRestore(); get.mockRestore(); put.mockRestore(); localStorage.setItem('fh-control-demo', '1'); }
   });
-  it('전체 보기(팀장 02:21 · 옛 「첫 화면으로」): 지도 보기 안 단추 · 되돌리기 아이콘 · 누르면 첫 시점으로 새로 엶(다가가기 없음)', () => {
+  it('전체 보기(팀장 02:21 · 03:20): 지도 보기 안 단추 · 되돌리기 아이콘 · 누르면 같은 그림에서 전체 시점으로 날아감(컷 · 새로 그리기 없음)', () => {
     mount('u-kim', TWENTY); feed(TWENTY);
     expect($('[data-home]')).toBeNull();   // 타일 보기 · 머리 줄에는 없음
     act(() => { ($('.u5 .tb [data-v="지도 보기"]') as HTMLElement).click(); });
@@ -1539,7 +1539,7 @@ describe('관제 탭', () => {
     expect(big().hasAttribute('data-focus')).toBe(false); expect(big().hasAttribute('data-from-mini')).toBe(false);
     const cv = big().querySelector('canvas');
     act(() => { home().click(); });
-    expect(big().querySelector('canvas')).not.toBe(cv);   // 카메라를 새로(첫 시점) 잡도록 다시 그림
+    expect(big().querySelector('canvas')).toBe(cv);   // 컷 전환 없음: 같은 캔버스에서 카메라가 날아감(proto/u5map flight · mapfull 시험)
   });
   it('가용(GET /robots/availability) · 오늘 일정(GET /schedule): 구역 이름 = location_label · 데모 칩 · 충전 = state CHARGING 만 · 지금 걸친 BATTERY_SWAP 칸 = «배터리 교체» · MAINTENANCE = «점검 중» 칩 + busy_label 줄 · 실패면 수를 비움', async () => {
     const item = (id: string, o: object = {}) => ({ robot_id: id, robot_name: id, state: 'FREE', busy_until: null, busy_slot_id: null, busy_label: null, battery_pct: 70, demo: false, sim: false, location_label: null, ...o });

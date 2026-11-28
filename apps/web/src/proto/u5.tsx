@@ -521,7 +521,9 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
   const me = c.user.id, admin = c.user.role === 'ORG_ADMIN';
   // 작은 지도 → 지도 보기(팀장 11-28 17:23 · 시안 밖): 작은 지도 칸 자리에서 큰 지도 자리로 자라며 넘어가고, 3D 첫 시점은 위에서 본 틀에서 시안 시점으로 내려앉음
   const [from, setFrom] = useState<DOMRect | null>(null), [focus, setFocus] = useState(''), [home, setHome] = useState(0);
-  const toHome = () => { setFrom(null); setFocus(''); setHome((k) => k + 1); setView('map'); };   // 전체 보기 = 지도 보기 첫 시점(무리 가운데) · 지도 보기 안 단추(팀장 02:21)
+  // 전체 보기: 지도 보기 안이면 지금 카메라에서 전체 시점으로 날아감(컷 없음 · 팀장 03:20), 밖이면 지도 보기를 새로 엶
+  const [homeTick, setHomeTick] = useState(0);
+  const toHome = () => { if (view === 'map') { setHomeTick((k) => k + 1); return; } setFrom(null); setFocus(''); setHome((k) => k + 1); setView('map'); };   // 전체 보기 = 지도 보기 첫 시점(무리 가운데) · 지도 보기 안 단추(팀장 02:21)
   const [pick, setPick] = useState<Group[]>([]), flip = (g: Group) => setPick((p) => (p.includes(g) ? p.filter((x) => x !== g) : [...p, g]));
   const [view, setView] = useState<'tiles' | 'map'>('tiles'), [scope, setScope] = useState<'all' | 'mine'>(admin ? 'all' : 'mine'), [front, setFront] = useState(false), [demo, setDemoNow] = useState(demoShown);
   // 데모 표시 = 조직 설정 show_demo_label(서버 값이 앞섬 · 못 받으면 이 브라우저 기억). 총괄이 바꾸면 PATCH, 실패하면 되돌림
@@ -574,7 +576,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
     {none ? <div className="wall mu2" data-filter-empty style={{ placeItems: 'center', fontSize: '14px' }}>고른 상태의 로봇이 없습니다 · 머리 줄 칸을 다시 누르면 풀립니다</div>
       : view === 'tiles' ? <div className={wall.length > 8 ? 'wall many' : 'wall'} style={{ gridTemplateColumns: `repeat(${g.units ?? g.cols},1fr)`, gridTemplateRows: `repeat(${g.rows},1fr)` }} aria-label="로봇 타일" data-count={wall.length} data-all={all.length}>
       {wall.map((f, i) => <ZoomBox key={f.x.id} zoom={g.zoom} span={g.span?.[i]}><Tile f={f} sel={f.x.id === sel} front={front} open={() => open(f.x.id)} boards={boards} cells={cells} drop={drop} /></ZoomBox>)}</div>
-      : <SiteView key={home} all={shown} sel={sel} open={open} from={from} focus={focus} home={toHome} />}
+      : <SiteView key={home} all={shown} sel={sel} open={open} from={from} focus={focus} home={toHome} homeTick={homeTick} />}
     <div className="side">
       {view === 'tiles' ? <>
         <Mini all={shown} sel={sel} boards={boards} toMap={(r, id) => { setFrom(r); setFocus(id); setView('map'); }} />
