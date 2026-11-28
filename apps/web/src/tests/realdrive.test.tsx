@@ -541,4 +541,16 @@ describe('실기 직결 「다시 시작」 확인 창', () => {
     expect(ask()).toBeNull();
     expect([...unlocks(a), ...unlocks(b)]).toHaveLength(0);
   });
+  it('직결 창은 상태 알약 아래 (알약 위 8 + 높이 + 8) · 안전 카드보다 위', async () => {
+    const drive = (await import('../drive.css?raw')).default;
+    const real = (await import('../realdrive.css?raw')).default;
+    // 알약: top 8 · 높이 실기 30 / 시뮬 32 (min-height · 한 줄 고정)
+    expect(real).toMatch(/\[data-real-drive\] \.dv-top\{[^}]*min-height:30px/);
+    expect(drive).toMatch(/\.dv-top\{position:absolute;top:8px;[^}]*min-height:32px/);
+    expect(real).toMatch(/\[data-real-drive\] \.dv-ask\{top:46px\}/);
+    expect(drive).toMatch(/\[data-sim-drive\] \.dv-ask\{top:48px\}/);
+    // 카드 z 1 · 창 z 2
+    expect(real).toMatch(/\.rd-card\{position:absolute;[^}]*z-index:1;/);
+    expect(drive).toMatch(/\.dv-ask\{[^}]*z-index:2;/);
+  });
 });
