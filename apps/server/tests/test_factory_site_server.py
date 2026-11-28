@@ -212,7 +212,7 @@ def test_seed_attaches_the_factory_model_with_its_f1_floor(maps, seeded, factory
     assert version['model_floor_z'] == 0.0
 
 
-# app-design-lx 11/28 15:4x 구역 고침 (탱크 마당 1 동쪽 2408~3110 x 97~720 px · 공정 B 철골 계단 서쪽 760 px) 뒤
+# app-design-lx 11/28 15:47 구역 고침 (탱크 마당 1 동쪽 2408~3125 x 97~720 px · 공정 B 철골 계단 서쪽 755 px) 뒤
 # 시작 자리 (factory-spawns.json) 와 임무 점 (factory_missions.py 결과, 도로로 옮긴 점 포함) 의 위치 이름
 INSIDE = [
     ('탱크 마당 1 동쪽', 'K-02 시작 · 가스 1', 770.0, -150.8571),
@@ -222,15 +222,14 @@ INSIDE = [
     ('공정 B 철골 계단', 'K-05 밸브 3', 238.5714, -245.7143),
     ('출하장 옆', 'K-07 시작 (2500, 1500) px', 707.1429, -422.8571),
 ]
-# 도로로 옮긴 점이라 고친 구역 밖: 가스 4 (3120.75 px > 3110) · K-05 시작 · 밸브 1 (758.25 px < 760)
-OUTSIDE = [
+# 도로로 옮긴 점 둘: 가스 4 (3120.75 px) · K-05 시작 · 밸브 1 (758.25 px). app-design-lx 15:47 에 경계를 3125 · 755 px 로 넓힘
+INSIDE += [
     ('탱크 마당 1 동쪽', 'K-02 가스 4 (도로로 옮김)', 884.5, -194.2857),
     ('공정 B 철골 계단', 'K-05 시작 · 밸브 1 (도로로 옮김)', 209.5, -154.2857),
 ]
 
 
-@pytest.mark.parametrize('name, what, x, y', INSIDE + [pytest.param(*row, marks=pytest.mark.xfail(
-    strict=True, reason='고친 구역 경계 밖 (도로로 옮긴 점), app-design-lx 확인 대기')) for row in OUTSIDE])
+@pytest.mark.parametrize('name, what, x, y', INSIDE)
 def test_mission_points_take_their_zone_name(maps, seeded, factory_folder, name, what, x, y):
     http, admin, files = maps
     seed(http, seeded, factory_folder, files)
