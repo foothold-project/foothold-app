@@ -287,7 +287,7 @@ describe('조종 화면', () => {
     click($('[data-stop]'));
     tick(100);
     act(() => push('r7', { speed: 0.6 }));   // STOP 뒤 첫 state 가 아직 안 잠김
-    expect(band()).toContain('Go2-7 정지 요청됨 — 로봇이 아직 잠금을 알리지 않았습니다.');
+    expect(band()).toContain('▲ 명령이 닿지 않았습니다 · 0 초 지남');   // 폰 실기 조종 = 시안 u1_7 글(PC 는 «정지 요청됨 — 로봇이 아직 잠금을…» 그대로)
     act(() => push('r7', { latched: true, stop_gen: 2, applied: [0, 0, 0], speed: 0 }));
     expect(band()).toContain('Go2-7 정지 잠금 · 로봇이 잠금과 멈춤 출력을 알렸습니다.');
     unlock();
@@ -2786,6 +2786,43 @@ describe('폰 실기 조종 화면 정지 자리 (시안 u1)', () => {
     expect($('.dv-stage [data-scan-panel].u142-over')).toBeTruthy();
     inScreen();
     press('r7');
+  });
+
+  it('시안 u1_7: 정지 뒤 잠금 보고 전이면 가운데 띠 「명령이 닿지 않았습니다 · N 초 지남」 + 정지 「다시 누르기」, 잠기면 둘 다 돌아감', () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    ready();
+    w.auto = () => ({ ok: true });
+    click(stopBtn());
+    tick(100);
+    act(() => push('r7', { speed: 0.6 }));   // 정지 뒤 첫 state 가 아직 안 잠김
+    expect(band()).toContain('▲ 명령이 닿지 않았습니다 · 0 초 지남');
+    expect(band()).not.toContain('정지 요청됨');
+    expect(stopBtn().textContent).toBe('정지다시 누르기');
+    expect(stopBtn().dataset.again).toBe('');
+    tick(2000);
+    expect(band()).toContain('▲ 명령이 닿지 않았습니다 · 2 초 지남');
+    act(() => push('r7', { latched: true, stop_gen: 2, applied: [0, 0, 0], speed: 0 }));
+    expect(band()).not.toContain('명령이 닿지 않았습니다');
+    expect(stopBtn().textContent).toBe('정지');
+    expect(stopBtn().dataset.again).toBeUndefined();
+  });
+
+  it('PC 는 u1_7 글로 바꾸지 않음: «정지 요청됨 — 로봇이 아직 잠금을 알리지 않았습니다.» · 정지 단추 글 그대로', () => {
+    mount(false, 'u-lee', '#/fleet');
+    serve(LEE, 'r3', 'r1');
+    click(row('Go2-7'));
+    w.auto = () => ({ ok: true });
+    click($('[data-stop]'));
+    tick(100);
+    act(() => push('r7', { speed: 0.6, latched: false }));
+    expect(band()).toContain('Go2-7 정지 요청됨 — 로봇이 아직 잠금을 알리지 않았습니다.');
+    expect(band()).not.toContain('명령이 닿지 않았습니다');
+    expect($('[data-stop]').hasAttribute('data-again')).toBe(false);
+  });
+
+  it('css: 정지 결과 띠는 상태 칩(왼쪽 위 ~272)과 오른쪽 위 줄을 덮지 않게 가운데 · 글 폭만큼 (시안 u1_7 · 사진에서 칩을 가림)', () => {
+    expect(u1AppCss).toMatch(/\.fh\.phone:has\(\.fh-head\[data-u1\]\) \.fh-band\{left:50%;right:auto;transform:translateX\(-50%\);width:max-content;max-width:calc\(100% - 560px\)/);
   });
 
   it('서버 끊김 · 조종권 반납 중에도 그 자리(누름은 기존 길 그대로)', () => {

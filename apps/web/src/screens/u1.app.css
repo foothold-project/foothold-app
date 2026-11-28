@@ -11,9 +11,14 @@
 .fh-head[data-u1] .fh-stop{box-sizing:border-box;pointer-events:auto;position:absolute;right:calc(12px + env(safe-area-inset-right,0px));bottom:calc(12px + env(safe-area-inset-bottom,0px));width:92px;height:68px;min-width:0;margin:0;padding:0;border-radius:18px;border:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
  background:linear-gradient(180deg,#f2575a,#d62f33);color:#fff;font-weight:800;font-size:14px;box-shadow:0 10px 24px rgba(214,47,51,.42),inset 0 1px 0 rgba(255,255,255,.35)}
 .fh-head[data-u1] .fh-stop svg{width:20px;height:20px}
+/* 시안 u1_7: 정지를 보냈는데 잠금 보고가 없으면 흰 테 + 「다시 누르기」 */
+.fh-head[data-u1] .fh-stop[data-again]{box-shadow:0 0 0 3px #fff,0 10px 24px rgba(214,47,51,.42)}
+.fh-head[data-u1] .fh-stop[data-again] small{display:block;font-size:10px;font-weight:700;opacity:.9}
 /* 정지 결과 띠 · 정지 고르기 · 반납 안내: 머리줄이 없으므로 화면 위 가운데에 뜬다(시안 .ban 자리) */
 .fh.phone:has(.fh-head[data-u1]) :is(.fh-band,.fh-pick){position:absolute;left:120px;right:120px;top:12px;z-index:79;border-radius:14px;border:1px solid rgba(255,255,255,.25)}
 .fh.phone:has(.fh-head[data-u1]) .fh-band:empty{display:none}
+/* 정지 결과 띠: 왼쪽 위 상태 칩(오른끝 ~272)과 오른쪽 위 줄을 덮지 않게 가운데 · 글 폭만큼 (시안 u1_7 .ban) */
+.fh.phone:has(.fh-head[data-u1]) .fh-band{left:50%;right:auto;transform:translateX(-50%);width:max-content;max-width:calc(100% - 560px);min-width:200px}
 
 /* ── 조종 판 안 시안 겹(.proto.pv.u1d · drive.tsx). 시안 값은 u1d.css(기계 생성), 여기는 앱에 얹으며 더한 것 ── */
 /* 시안 u1 은 공통 ui.css 가 아니라 u1/ui.css 를 읽는다. 공통과 다른 값(색 변수 · 글꼴)만 이 화면에 */

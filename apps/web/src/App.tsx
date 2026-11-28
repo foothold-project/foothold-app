@@ -8,7 +8,7 @@ import type { User as ApiUser } from '../../contracts/ts';
 import { BrandLogo } from './BrandLogo';
 import { ROBOTS, ROLE_NAME, USERS, idleSim, lost, lostText, myRobots, robotsFor, type Robot, type User } from './fake';
 import { PC_BOTTOM, PC_TABS, PHONE_SCAN, labelOf, leaving, oldScenario, tabFromHash, tabsFor, type Tab, type TabId } from './menu';
-import { rt, undelivered, useRt, withLive, type Live } from './rt';
+import { now, rt, undelivered, useRt, withLive, type Live } from './rt';
 import { BODY, EmptyFleet, inApp, useDash, type Ctx } from './screens';
 import { RobotTab } from './screens/u4/robotu4';
 import { pcBoard } from './pcboard';
@@ -37,6 +37,16 @@ import { setStage } from './stage';
 import { Control5 } from './proto/u5';
 import { EmptyRobots, PcAsk } from './proto/u11';
 
+const NOT_LATCHED = '정지 요청됨 — 로봇이 아직 잠금을 알리지 않았습니다.';
+/** 서버가 받았고 그 뒤 state 도 왔는데 로봇이 아직 잠금을 알리지 않음(stopText 의 그 줄) = 시안 u1_7 「명령이 닿지 않았습니다」 */
+const stopWaiting = (r: Robot, l: Live) => !!l.stop && stopText(r, l).endsWith(NOT_LATCHED);
+/** 그 단계가 된 뒤 지난 초(1 초마다 다시 그림 · rt 단조 시계) */
+function Ago({ at }: { at: number }) {
+  const [, tick] = useState(0);
+  useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 1000); return () => clearInterval(t); }, []);
+  return <>{Math.max(0, Math.floor((now() - at) / 1000))}</>;
+}
+
 /** STOP 결과 한 줄 — 서버가 받았는지와 로봇이 알린 잠금을 나눠 쓴다. 확인 안 된 «정지됨»은 쓰지 않는다(F-COM-01) */
 function stopText(r: Robot, l: Live) {
   const s = l.stop, st = l.state;
@@ -51,7 +61,7 @@ function stopText(r: Robot, l: Live) {
   if (st.phone_relay && (st.connection !== 'ONLINE' || st.latched === null || st.applied === null))
     return `▲ ${r.name} 정지 요청됨 — 폰 경유 자료는 받았지만 직접 로봇 보고로 정지를 확인하지 못했습니다. 현장을 확인하세요.`;
   if (st.connection !== 'ONLINE') return `▲ ${r.name} 정지 요청 뒤 로봇 연결이 끊겼습니다. 지금 상태는 알 수 없습니다. 현장을 확인하세요.`;
-  if (!st.latched) return `■ ${r.name} 정지 요청됨 — 로봇이 아직 잠금을 알리지 않았습니다.`;
+  if (!st.latched) return `■ ${r.name} ${NOT_LATCHED}`;
   // applied 가 비었거나 없으면 출력 보고가 없는 것(현장 승인 관문이 닫힌 에이전트는 latched · applied [] 만 보냄). [].every 는 참이라 따로 거른다
   if (!st.applied?.length) return `▲ ${r.name} 정지 잠금 · 멈춤 출력은 확인되지 않았습니다 (현장 승인이 닫혀 있을 수 있음). 리모컨이나 현장에서 멈추세요.`;
   return st.applied.every((v) => v === 0) ? `■ ${r.name} 정지 잠금 · 로봇이 잠금과 멈춤 출력을 알렸습니다.` : `▲ ${r.name} 정지 잠금 · 출력이 아직 멈추지 않았습니다. 현장을 확인하세요.`;
@@ -157,10 +167,10 @@ const taken = (l: Live) => l.stop?.phase === 'sent' || l.stop?.phase === 'fallba
 const phoneOnly = (r: Robot) => !r.sim && !!r.serverDriveBlocked?.includes('SWITCH_OFF');
 
 /** place = 'screen': 폰 실기 조종 화면(시안 u1)의 화면 안 오른쪽 아래 정지(u1.app.css). 누름 · 대상 · 결과는 같고 자리 · 글만 다르다 */
-export function Stop({ phone, onStop, place }: { phone: boolean; onStop: () => void; place?: 'screen' }) {
-  return <button type="button" className="fh-stop" aria-label="비상 정지" data-stop data-place={place} style={{ minHeight: place ? 68 : phone ? 64 : 44, minWidth: phone ? 92 : 120 }} {...useStopPress(onStop)}>
+export function Stop({ phone, onStop, place, again }: { phone: boolean; onStop: () => void; place?: 'screen'; again?: boolean }) {
+  return <button type="button" className="fh-stop" aria-label="비상 정지" data-stop data-place={place} data-again={again ? '' : undefined} style={{ minHeight: place ? 68 : phone ? 64 : 44, minWidth: phone ? 92 : 120 }} {...useStopPress(onStop)}>
     <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" /><rect x="8" y="8" width="8" height="8" fill="#FFFFFF" /></svg>
-    <span className="fh-stop-t"><span>{place ? '정지' : 'STOP'}</span>{!phone && <small>정지 요청</small>}</span>
+    <span className="fh-stop-t"><span>{place ? '정지' : 'STOP'}</span>{!phone && <small>정지 요청</small>}{place && again && <small>다시 누르기</small>}</span>
   </button>;
 }
 
@@ -422,6 +432,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         if (relatch.includes(r.id) && now.online) return <span key={`stop-${r.id}`} data-stop-band data-stop-relatched={r.id}>■ {r.name} 다시 연결 · 잠긴 채 시작</span>;
         return ctlOff.includes(r.id) && s?.phase === 'sent' ? lost(now) || now.online ? <span key={`stop-${r.id}`} data-stop-band data-stop-lost={r.id}>▲ {lostSent(r)}</span>
           : <span key={`stop-${r.id}`} data-stop-band data-stop-unsure={r.id}>▲ {unsureStop(r)}.</span>
+          : u1 && stopWaiting(r, rt.get(r.id)) ? <span key={`stop-${r.id}`} data-stop-band data-stop-wait>▲ 명령이 닿지 않았습니다 · <Ago at={s!.at} /> 초 지남</span>   // 시안 u1_7
           : <span key={`stop-${r.id}`} data-stop-band>{stopText(r, rt.get(r.id))}</span>; }),
       // A3: 모두 정지에 센 내 시뮬의 결과(직결 · 정리 · 보낼 길 없음)
       simStop && !!simStopText(sim.get()) && <span key="sim-stop" data-stop-band data-sim-stop-band>{simStopText(sim.get())}</span>,
@@ -494,7 +505,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     <header className="fh-head" data-bare={simOpen || undefined} data-u1={u1 || undefined}>{simOpen ? (canStop || toSim) && <Stop phone onStop={stop} />
       : u1 ? <>{/* 시안 u1: 머리줄 없이 오른쪽 위 상태 줄(연결 · ⋯) · 오른쪽 아래 정지. 끝내기는 ⋯ 맨 위 */}
         <div className="u1-top">{dotEl}{moreEl}</div>
-        {(canStop || toSim) && <Stop phone place="screen" onStop={stop} />}</> : <>
+        {(canStop || toSim) && <Stop phone place="screen" onStop={stop} again={!!robot && stopWaiting(robot, rt.get(robot.id))} />}</> : <>
       {phone
         ? <>{open ? <button type="button" className="btn" disabled={!!rel} onClick={() => robot && endDrive(robot.id, go)}>끝내기</button>
           : tab === 'history' && <button type="button" className="btn" onClick={() => go('drive')}>로봇 연결</button>}<h1>{title}</h1></>
