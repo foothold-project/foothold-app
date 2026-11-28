@@ -2,13 +2,14 @@
 // 칸 하나 = 그 로봇 한 대: 서버 위치가 있으면 시안 3D 현장을 그 로봇 자리 · 방향에 두고 뒤 1 m(또는 정면) 시점, 없으면 시안 타일 그대로 바닥 점 위의 로봇만.
 // 빛 · 바닥 점 · 핀 조명 · 그림자 · 시점 값은 시안 go2view.js 그대로. 걷기는 임무 · 조종 중일 때 시안 걷기 기록(go2_walk.json)을 튼다.
 import * as THREE from 'three';
-import { ground } from '../screens/u4/go2view';
+import { STAND, ground } from '../screens/u4/go2view';
 import { applyDown, applyRest, applyWalk, lightNow, loadGo2, loadSite, loadWalk, toneSite, type Body, type Walk } from './site';
 
 export type TileLook = {
   /** 현장 좌표(site.ts sitePose) · 없으면 현장 없이 */ pose: { x: number; z: number; rot: number } | null;
   /** 정면(뒤집기 · 시뮬) */ front: boolean; /** 시뮬 = 파란 테두리 빛 */ cyber: boolean; walk: boolean; down: boolean;
   /** 부위 색(시안 hot: {FL_calf: 'hot'}) */ hot: Record<string, string>;
+  /** 서버 관절 12 개(go2model JOINTS 순서 · 새 값일 때만). 있으면 걷기 기록 대신 이것 */ q?: number[] | null;
   /** 시뮬 영상 칸이 있으면 이것을 먼저 그린다 */ video?: HTMLVideoElement | HTMLCanvasElement | null;
 };
 type Pose = { x: number; z: number; rot: number };
@@ -23,11 +24,29 @@ export function follow(cur: Held | null, to: Pose, dt: number): Held {
   return { x, z, rot: cur.rot + d * k, travel: cur.travel + Math.hypot(x - cur.x, z - cur.z) };
 }
 const HOT: Record<string, number> = { warn: 0xf2b705, hot: 0xff4d4f, ok: 0x00c389 }, SIM = 0x4c9bff;
-/** 시뮬(cyber) 칸 모습. 시안 u5_1 K-08 = 어두운 바탕 · 파란 점 바닥 · 파란 결 로봇, 현장 질감판 없음(밝은 땅 위 더하기 섞기는 하얗게 날아감).
- *  밝은 판: 흰 바탕에 더하기 섞기는 보이지 않아 보통 섞기 · 예행 색 #2F6FE0(u5.css 밝음 1 «예행», .chip.sim · .tile.sim 과 같은 값) */
+/** 시뮬(cyber) 로봇 재질. 시뮬 칸도 실기 · 데모와 같은 현장 · 따라가기 카메라(팀장 20:49) · 파란 결은 로봇 · 테두리 · 이름표로만.
+ *  밝은 판: 흰 땅 위에서 더하기 섞기는 보이지 않아 보통 섞기 · 예행 색 #2F6FE0(u5.css 밝음 1 «예행», .chip.sim · .tile.sim 과 같은 값) */
 export const simLook = (light: boolean) => (light ? { blend: THREE.NormalBlending, col: 0x2f6fe0 } : { blend: THREE.AdditiveBlending, col: SIM });
-/** 칸 뒤 현장(질감판)을 그릴지: 자리 · 현장이 있고 시뮬 칸이 아닐 때만 */
-export const showSite = (pose: unknown, site: unknown, cyber: boolean) => !!(pose && site) && !cyber;
+/** 발 끝(종아리 넷)의 가장 낮은 점을 y=0 에 놓는 높이. 몸 전체(7.5 만 꼭짓점) 대신 종아리(1.4 만)만 재어 칸마다 매 판 재도 가볍게 */
+export function feetUp(b: Body) {
+  b.root.position.y = 0; b.root.updateMatrixWorld(true);
+  const box = new THREE.Box3();
+  for (const L of ['FR', 'FL', 'RR', 'RL']) { const c = b.joints[`${L}_calf`]; if (c) box.expandByObject(c.o, true); }
+  return box.isEmpty() ? 0 : -box.min.y;
+}
+/** 칸 하나의 몸 자세 + 바닥 맞춤(팀장 20:51 «발이 바닥에 묻힌다»: 전에는 높이를 흔들림 값으로 덮어써 모형 높이가 사라졌다).
+ *  서버 관절 > 걷기 기록(실제로 움직일 때만) > 엎드림 > 선 자세. 흔들림은 위로만(발이 바닥 아래로 가지 않게) */
+export function poseBody(b: Body, look: Pick<TileLook, 'q' | 'walk' | 'down'>, walk: Walk | null, t: number, keep?: Map<string, number>) {
+  const at = (k: string, f: () => number) => { let y = keep?.get(k); if (y === undefined) { y = f(); keep?.set(k, y); } b.root.position.y = y; };
+  if (look.q && look.q.length === 12) {
+    ['FR', 'FL', 'RR', 'RL'].flatMap((l) => ['hip', 'thigh', 'calf'].map((p) => `${l}_${p}`)).forEach((n, i) => { const j = b.joints[n]; if (!j) return; j.o.rotation.copy(j.r0); j.o.rotation[n.endsWith('hip') ? 'z' : 'x'] += look.q![i] - STAND[i]; });
+    ground(b.root);   // 서버 자세는 엎드림 · 넘어짐일 수 있어 몸 전체 기준(로봇 탭 go2view 와 같음)
+  } else if (look.walk && walk) {
+    applyWalk(b, walk, t); b.root.position.y = feetUp(b) + 0.003 * (1 + Math.sin(t * 14));
+  } else if (look.down) { applyDown(b); at('down', () => { ground(b.root); return b.root.position.y; }); }
+  else { applyRest(b); at('rest', () => feetUp(b)); b.root.position.y += 0.0015 * (1 + Math.sin(t * 2)); }
+  b.root.updateMatrixWorld(true);
+}
 
 let one: Tiles | null = null;
 export const tiles = () => (one ??= new Tiles());
@@ -105,7 +124,7 @@ class Tiles {
         if (m.parent === n || o === n || !/_(hip|thigh|calf)$/.test(m.parent?.name || '')) { const mat = m.material as THREE.MeshStandardMaterial; mat.color.setHex(HOT[lvl] ?? 0xffffff); if (mat.emissive) { mat.emissive.setHex(HOT[lvl] ?? 0); mat.emissiveIntensity = 0.25; } } });
     }
   }
-  private drawn = 0;
+  private drawn = 0; private keep = new Map<string, number>();
   private frame(now: number) {
     if (now - this.drawn < 50) return;   // 칸이 많아도 초당 20 번까지
     this.drawn = now;
@@ -134,7 +153,7 @@ class Tiles {
       // 현장 = 그 로봇 지도 안 실제 자리 · 방향(서버 위치 · yaw 를 보간). 로봇은 늘 가운데 · 시점은 뒤쪽 위 그대로라 걷고 돌면 현장이 지나가고 돈다
       v.at = look.pose ? follow(v.at, look.pose, dt) : null;
       const p = v.at;
-      this.world.visible = showSite(p, this.site, look.cyber);
+      this.world.visible = !!(p && this.site);
       if (p) { this.world.rotation.set(0, -p.rot, 0); this.world.position.set(0, 0, 0); this.world.updateMatrix();
         const off = new THREE.Vector3(-p.x, 0, -p.z).applyAxisAngle(new THREE.Vector3(0, 1, 0), -p.rot); this.world.position.copy(off); }
       this.gm.uniforms.col.value.setHex(look.cyber ? SIM : 0x00c389).lerp(new THREE.Color(0xffffff), 0.4);
@@ -142,10 +161,7 @@ class Tiles {
       this.shadow.visible = !look.cyber;
       if (b) {
         this.paint(b, look);
-        if (look.walk && this.walk) { applyWalk(b, this.walk, this.t); b.root.position.y = 0.006 * Math.sin(this.t * 14); }
-        else if (look.down) {   // 시안 pose 'down': 접은 뒤 다시 바닥에 붙이고 흔들지 않음
-          applyDown(b); ground(b.root);   // 로봇 탭과 같은 바닥 맞춤(꼭짓점 기준 최저점 y = 0 · 엎드릴 때 뜨지 않게)
-        } else { applyRest(b); b.root.position.y = 0.003 * Math.sin(this.t * 2); }
+        poseBody(b, look, this.walk, this.t, this.keep);   // 엎드림은 로봇 탭과 같은 바닥 맞춤(go2view ground · 꼭짓점 기준 최저점 y = 0)
       }
       r.setClearColor(0x000000, 0); r.clear();
       r.render(this.scene, this.cam);
