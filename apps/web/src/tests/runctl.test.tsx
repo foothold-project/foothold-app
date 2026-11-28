@@ -98,11 +98,11 @@ describe('임무 실행 단추', () => {
     act(() => { w.recv(state('r1', { latched: false, run: run('PAUSED'), run_result: { request_id: m.id, op: 'pause', run_id: 'run-x', status: 'SUCCEEDED', code: 'OK' } })); });
     expect(said()).toBe('임무를 일시정지했습니다.');
   });
-  it('N1: 실기 로봇은 실행 단추 없이 까닭 한 줄(서버 #537 RUN_NOT_ALLOWED: 현장 승인 · 서버 조종 켬 전) · 실행 명령 0', () => {
+  it('N1 · N5: 실기 로봇은 실행 단추 없이 까닭 한 줄(실기 에이전트 RUN_UNSUPPORTED: 실행기 없음) · 실행 명령 0', () => {
     const w = mount({ own: true, r: run('MOVING'), robot: { ...R, sim: false } });
     expect(box.querySelector('[data-run-main]')).toBeNull();
     expect(btns()).toEqual([]);
-    expect($('[data-run-gate]')!.textContent).toBe('실기는 아직 화면에서 임무를 실행할 수 없습니다 · 현장 승인과 서버 조종이 켜진 뒤에 됩니다. 멈추려면 STOP.');   // 코드 이름 노출 없음(N4)
+    expect($('[data-run-gate]')!.textContent).toBe('실기는 아직 화면에서 임무를 실행할 수 없습니다 · 실기 실행 기능이 준비되지 않았습니다. 멈추려면 STOP.');   // 코드 이름 노출 없음(N4)
     expect(runMsgs(w)).toEqual([]);
   });
   it('일시정지 → «이어 가기» · run.control resume', () => {
