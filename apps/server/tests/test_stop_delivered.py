@@ -113,3 +113,33 @@ def test_switch_off_real_robot_stop_is_refused_not_silently_ok(switch_off, seede
             response = client.post(f'/api/v1/robots/{rid}/stop', headers=headers)
             assert response.status_code == 403
             assert response.json()['error']['code'] == 'PHONE_DIRECT_REQUIRED'
+
+
+@pytest.mark.parametrize('username', ['one', 'admin'])
+def test_codex_pr529_all_stop_with_phone_direct_lease_and_switch_off_is_not_ok(switch_off, seeded, username):
+    # Codex pr529 지적 1 재현: 서버 경유 조종 시험이 꺼진 실기 Go2 를 운영자 폰이 직결로 조종 중
+    # (에이전트 hello 에 직결 lease 가 살아 있음), 같은 로봇이 ONLINE 인 PC 관제에서 STOP (rt.stop = WS stop,
+    # 실패 시 HTTP). 서버가 에이전트로 stop 을 못 보내는 이 구성에서 화면이 ok 를 받으면 안 된다.
+    client = switch_off
+    headers = app_token(client, username)
+    rid = seeded['robots']['mine']
+    rt = client.app.state.realtime
+    from uuid import uuid4
+    with client.websocket_connect('/api/v1/agent/ws', headers={'authorization': 'Bearer fake-test-' + str(rid)}) as ag:
+        ag.send_json({**hello(), 'lease_id': str(uuid4()), 'latched': False})
+        with screen(client, headers) as ws:
+            # 같은 로봇이 화면에 ONLINE 으로 보이는 상태: 에이전트가 붙어 있고 서버 시험 스위치는 꺼짐
+            import time
+            for _ in range(100):
+                if str(rid) in rt.agents:
+                    break
+                time.sleep(.02)
+            assert rt.agents[str(rid)].server_drive is False and not rt.agents[str(rid)].simulation
+            result = reply(ws, send(ws, 'stop', rid))
+            assert result['ok'] is False and 'delivered' not in result, result
+            # 운영자는 PHONE_DIRECT_REQUIRED. 총괄은 이 base 에서 ADMIN_NO_REAL_CONTROL, #544 뒤에도 relay_authorize 의
+            # PHONE_DIRECT_REQUIRED 가 남는다 (#544 diff 확인).
+            assert result['error']['code'] in ('PHONE_DIRECT_REQUIRED', 'ADMIN_NO_REAL_CONTROL')
+            response = client.post(f'/api/v1/robots/{rid}/stop', headers=headers)
+            assert response.status_code == 403
+            assert response.json()['error']['code'] == result['error']['code']
