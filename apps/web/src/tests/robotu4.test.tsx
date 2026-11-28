@@ -264,3 +264,20 @@ describe('로봇 탭 보기 칸 · 지도 경로 · 시뮬 시점(서버 값만)
     expect(text($('[data-u4-job] span'))).toBe('할 일 2 / 4 · 이동 중');
   });
 });
+
+describe('시뮬 로봇 = 시안 u4_8', () => {
+  it('머리 칩: 연결 칸 「시뮬 · 서버 계산」, 배터리 작은 글 「시뮬」 · 아래 알약은 파란 「시뮬 · 현장」 + 「시뮬 로봇」, 걷기 · 위치 추정 알약 없음', () => {
+    const SIM = { id: 's9', name: 'K-02', owner: 'u-park', ownerName: '박OO', battery: null, online: true, seenAt: '14:05:20', status: 'IDLE', sim: true } as Robot;
+    mount('u-park', [...ON, SIM]); serve('r7', 's9');
+    click($$('.rail .rcard').find((x) => x.getAttribute('data-r') === 'K-02')!);
+    expect($$('.rail .rcard.on.rehearse').length).toBe(1);
+    expect(text($('[data-cell="link"]'))).toBe('시뮬서버 계산');
+    expect(text($('[data-cell="battery"]'))).toMatch(/시뮬$/);
+    expect(text($('[data-u4-simplace]'))).toBe('시뮬 · 현장 모름');
+    expect(text($('[data-u4-simfoot] .mu2'))).toBe('시뮬 로봇');
+    expect($('[data-u4-walk]')).toBeNull(); expect($('[data-u4-loc]')).toBeNull();
+    click($$('.rail .rcard').find((x) => x.getAttribute('data-r') === 'Go2-7')!);
+    expect(text($('[data-cell="link"]'))).toMatch(/^연결/);
+    expect($('[data-u4-walk]')).not.toBeNull();
+  });
+});

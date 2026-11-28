@@ -87,9 +87,18 @@
 .u4 .joybig .stick.on{border-color:rgba(0,195,137,.7)}
 .u4 [data-go]{cursor:pointer}
 /* 앱에 놓기(시안 body 자리): 화면 왼쪽 위 0,0 에 1920x1080 그대로 · 앱 머리줄(z 10) 아래 */
-.proto.u4{position:fixed;left:0;top:0;z-index:5}
+.proto.u4{position:fixed;left:0;top:0;z-index:5;clip-path:inset(64px 0 0 0)}   /* 위 64 px 는 앱 머리줄(PcBar · 시안 .bar)이 보이고 눌리게: 이 화면은 그 아래만 칠한다 */
 .u4 .bub:empty{display:none}
 /* 시뮬 시점 표지(시안 rehearse 파란 점선 규칙): 실제 카메라 영상이 아님을 늘 칸 안에 적는다 */
 .u4 .simtag{z-index:1;padding:3px 9px;font-size:11px;pointer-events:none}
 .u4 .views .small .simtag{right:8px;bottom:7px}
 .u4 .mapv[data-u4-big] .simtag{left:50%;bottom:16px;transform:translateX(-50%)}
+/* 점검 창 「순서 점검 · 상세」 고르기 · 상세 줄(옛 관제 상세 서랍 값을 시안 점검 줄 모양으로) */
+.u4 .chksub{margin-left:14px}
+.u4 .chksub span{height:30px;padding:0 12px;font-size:12.5px}
+.u4 .chk [data-u4-detail] div.r{height:44px;font-size:14px}
+.u4 .chk [data-u4-detail] div.r small{display:flex;align-items:center;gap:6px}
+.u4 .chk [data-u4-detail] .dl{font-size:12.5px;font-weight:600;color:var(--mu2)}
+.u4 .chk [data-u4-detail] .dl:not(:first-child){margin-left:10px}
+.u4 .chk [data-u4-detail] .fh-msg{margin:8px 18px}
+.u4 .chk .u4-events{padding:8px 18px;font-size:13px}

@@ -24,6 +24,7 @@ import { robotFail } from '../settings';
 import { Guide, RealView, prepSteps } from '../fleet';
 import { Empty as EmptyCard } from '../../empty';
 import { mount, type Go2Api } from './go2view';
+import { Detail } from './detail';
 import { FACTORY_PNG, attach, factoryFrame, site, siteKey } from './simcam';
 import { nextIdx, remaining, ro, runOf, useRoute, type Route, type Run } from './route';
 import { STATUS as RUN_STATUS } from '../missionrun';
@@ -134,9 +135,12 @@ function MapView({ c, r, b, run, route }: { c: Ctx; r: Robot; b: Board; run: Run
     </svg></div></div>;
 }
 /** 지도 이름(시안 「큰 공장 1 층 · 지도 2026-11-25」): 건물 층 · 지도 판 만든 날 */
-function MapName({ c, b }: { c: Ctx; b: Board }) {
-  const t = useTree(c.cancel), p = floorsOf(t.tree).find((x) => x.floor.id === b.loc?.floor_id), day = b.v?.created_at.slice(0, 10);
-  const text = [p ? `${p.building.name} ${p.floor.name}` : '', day ? `지도 ${day}` : ''].filter(Boolean).join(' · ');
+function usePlace(c: Ctx, b: Board) {
+  const t = useTree(c.cancel), p = floorsOf(t.tree).find((x) => x.floor.id === b.loc?.floor_id);
+  return p ? `${p.building.name} ${p.floor.name}` : '';
+}
+function MapName({ place, b }: { place: string; b: Board }) {
+  const day = b.v?.created_at.slice(0, 10), text = [place, day ? `지도 ${day}` : ''].filter(Boolean).join(' · ');
   return <span className="g dk mapname" data-u4-mapname>{text || '지도 없음'}</span>;
 }
 /** 임무 칸(시안 「공정 순찰 A」 · 「할 일 2 / 4 · 게이지 읽기로 가는 중 · 남은 약 330 m」 · 막대). 남은 거리는 지점까지 곧은 줄을 더한 값이라 「직선」 */
@@ -302,12 +306,15 @@ function Check({ c, r, guide }: { c: Ctx; r: Robot; guide: () => void }) {
   const { pill, steps, net } = prepSteps(c, r), list = checks(r, net), bad = list.filter((x) => x.state === 'blocked').length, unknown = list.filter((x) => x.state === 'none').length;
   const t = new Date(), at = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
   const tone = { ok: 'var(--pr3)', blocked: '#ff4d4f', none: 'var(--mu2)' } as const;
+  const [sub, setSub] = useState<'list' | 'detail'>('list');
   const row = (k: string, state: keyof typeof tone, name: ReactNode, small: ReactNode, attrs: Record<string, unknown> = {}) => <div className="r" key={k} {...attrs}>
     <span style={{ color: tone[state] }}><svg className="ic" viewBox="0 0 24 24" style={{ width: '20px', height: '20px' }}>{CHECK_IC[state]}</svg></span>{name}<small>{small}</small></div>;
   return <div className="pane2 chk" style={{ position: 'absolute', inset: '0', padding: '22px 8px 8px' }} aria-label="점검" data-u4-tab="check">
     <div className="row" style={{ justifyContent: 'space-between', padding: '0 18px 12px' }}><span className="ttl">순서 점검</span>
-      <span className="mu2" style={{ fontSize: '13px' }} data-u4-check-head>{mineOrAdmin ? `${at} · ${bad ? `${bad} 곳 막힘` : unknown ? `${unknown} 곳 확인 전` : '모두 통과'}` : ''}</span></div>
-    {!mineOrAdmin ? <p className="mu" style={{ padding: '0 18px' }} data-u4-check-none>내 담당 로봇만 점검할 수 있습니다 · 이 로봇은 요약만 보입니다.</p> : <>
+      <div className="seg2 chksub" role="tablist" aria-label="점검 보기">{([['list', '순서 점검'], ['detail', '상세']] as const).map(([k, t]) =>
+        <span key={k} className={sub === k ? 'on' : ''} role="tab" tabIndex={0} aria-selected={sub === k} data-u4-sub={k} onClick={() => setSub(k)}>{t}</span>)}</div>
+      <span className="mu2" style={{ fontSize: '13px', marginLeft: 'auto' }} data-u4-check-head>{mineOrAdmin ? `${at} · ${bad ? `${bad} 곳 막힘` : unknown ? `${unknown} 곳 확인 전` : '모두 통과'}` : ''}</span></div>
+    {sub === 'detail' ? <Detail c={c} r={r} /> : !mineOrAdmin ? <p className="mu" style={{ padding: '0 18px' }} data-u4-check-none>내 담당 로봇만 점검할 수 있습니다 · 이 로봇은 요약만 보입니다.</p> : <>
       <div data-readycheck-list>{list.map((x) => row(x.key, x.state, CHECK_NAME[x.key] ?? x.name, x.why, { 'data-check': x.key, 'data-state': x.state }))}</div>
       <section aria-label="조종 준비" data-u4-prep data-pill={pill.tone}>
         {steps.map((x) => row(`s${x.n}`, x.done ? 'ok' : x.cur ? 'blocked' : 'none', <>조종 준비 {x.n} · {x.title}</>,
@@ -370,14 +377,14 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
     rt.action(r.id, name, {}, false, (why, id) => { if (why) say(`거부 · ${why}`); else { setPending(id ?? null); say('서버 접수 · 로봇의 결과를 기다리고 있습니다.'); } });
   };
   const offAct = (name: ScreenAction['action']) => name === 'StandUp' ? lowlevel : lowlevel ? !LOWLEVEL.has(name) : FACTORY_OFF.has(name);
-  const b = useBoard(c, r), run = runOf(r, s?.run), route = useRoute(r.id, run?.name ?? null, c.cancel), job = jobLine(run, route, b);
+  const b = useBoard(c, r), place = usePlace(c, b), run = runOf(r, s?.run), route = useRoute(r.id, run?.name ?? null, c.cancel), job = jobLine(run, route, b);
   const map = <MapView c={c} r={r} b={b} run={run} route={route} />;
   const small = view === 'map' ? <Cam fs={fs} big={false} can={can} b={b} /> : map;
   return <>
     <div className="hdr" data-robot-head={r.id}><span className="ttl" style={{ fontSize: '26px', marginRight: '6px' }}>{r.name}</span>
-      <span className="g dk st" data-cell="link"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M12 20h.01" /><path d="M2 8.82a15 15 0 0 1 20 0" /><path d="M5 12.859a10 10 0 0 1 14 0" /><path d="M8.5 16.429a5 5 0 0 1 7 0" /></svg>{online ? '연결' : r.online ? '연결 중' : '끊김'}<small>{ms}</small></span>
+      <span className="g dk st" data-cell="link"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M12 20h.01" /><path d="M2 8.82a15 15 0 0 1 20 0" /><path d="M5 12.859a10 10 0 0 1 14 0" /><path d="M8.5 16.429a5 5 0 0 1 7 0" /></svg>{r.sim && online ? '시뮬' : online ? '연결' : r.online ? '연결 중' : '끊김'}<small>{r.sim && online ? '서버 계산' : ms}</small></span>
       <span data-go="u4_7_mode" className="g dk st" data-cell="mode"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="m8 3 4 8 5-5 5 15H2L8 3z" /></svg>{mode}<small>Shift + 1 ~ 4</small></span>
-      <span className="g dk st" data-cell="battery"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M10 14v-4" /><path d="M22 14v-4" /><path d="M6 14v-4" /><rect x="2" y="6" width="16" height="12" rx="2" /></svg>{soc == null ? NONE : `${Math.round(soc)} %`}<small>{soc == null ? '배터리' : ''}</small></span>
+      <span className="g dk st" data-cell="battery"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M10 14v-4" /><path d="M22 14v-4" /><path d="M6 14v-4" /><rect x="2" y="6" width="16" height="12" rx="2" /></svg>{r.unknown === 'summary' ? '확인 안 됨' : soc == null ? NONE : `${Math.round(soc)} %`}<small>{r.sim ? '시뮬' : soc == null ? '배터리' : ''}</small></span>
       <span className={`g dk st${hotTag ? ' bad warncell' : ''}`} data-cell="temp"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z" /></svg>{hotJ == null ? NONE : `${Math.round(hotJ)} °C`}<small>{hotJ != null && hotJ >= 60 ? jointName(JOINTS[temps!.hot]) : '최고 관절 온도'}</small></span>
       <span className="g dk st" data-cell="holder"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>{who}<small>조종자</small></span>
       <div className="seg2" style={{ marginLeft: 'auto' }} role="tablist">
@@ -392,6 +399,8 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
       {hotTag && <span className="g dk tag warntag" style={{ left: '150px', top: '300px', color: '#ff4d4f' }} data-u4-hot>{hotTag}</span>}
       <div className="g bub" style={{ left: '58%', top: '70px' }} data-u4-notes>{d.notes}</div>
       {tab === 'check' ? <div className="foot" data-u4-legend><span className="g dk tag" style={{ position: 'static', color: '#00c389' }}>보통</span><span className="g dk tag" style={{ position: 'static', color: '#f2b705' }}>주의 50 °C</span><span className="g dk tag" style={{ position: 'static', color: '#ff4d4f' }}>경고 60 °C</span><span className="mu2" style={{ marginLeft: 'auto', fontSize: '12.5px' }}>관절 온도는 색으로 표시 · 마우스를 올리면 값이 보입니다</span></div>
+      : r.sim ? <div className="foot" data-u4-simfoot><span className="g dk tag" style={{ position: 'static', color: '#4c9bff' }} data-u4-simplace>{`시뮬 · ${place || '현장 모름'}`}</span>
+        <span className="mu2" style={{ marginLeft: 'auto', fontSize: '12.5px' }}>시뮬 로봇</span></div>
       : <div className="foot"><span className="g dk tag" style={{ position: 'static', color: '#00c389', minWidth: '178px', justifyContent: 'center' }} data-u4-walk>{walk}</span>
         <span className="g dk tag" style={{ position: 'static', color: '#ffffff' }} data-u4-loc>{located ? '위치 추정 켜짐' : '위치 추정 없음'}</span>
         <span className="mu2" style={{ marginLeft: 'auto', fontSize: '12.5px' }}>실제 관절값으로 제자리에서 움직임 · 바닥 점이 뒤로 흐르면 앞으로 걷는 중</span></div>}</div>
@@ -401,7 +410,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
       <div className="g dk vsel">{VIEWS.map(([k, t]) => <span key={k} className={view === k ? 'on' : undefined} data-view={k} role="button" tabIndex={0} aria-pressed={view === k} onClick={() => setView(k)}>{t}</span>)}</div>
       <div className="small" data-swap="1" data-cam-inset role="button" tabIndex={0} onClick={() => setView(view === 'map' ? 'rgb' : 'map')}>{small}<span className="cl">{view === 'map' ? '앞 카메라' : '지도'}</span></div>
       <div className="g dk job" data-u4-job><b>{job.name}</b><span>{job.line}</span><i><em style={{ width: `${job.pct}%` }} /></i></div>
-      <MapName c={c} b={b} />
+      <MapName place={place} b={b} />
       {latched ? <div className="vslot" data-u4-restart>
         {lying ? <div className="vgo big" role="button" tabIndex={0} onClick={d.unlockAsk} data-u4-unlock><svg className="ic" viewBox="0 0 24 24" style={{ width: '24px', height: '24px' }}><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></svg>다시 시작<small>일어섭니다</small></div>
           : <><div className="vgo" role="button" tabIndex={0} onClick={d.unlockAsk} data-u4-unlock><svg className="ic" viewBox="0 0 24 24" style={{ width: '20px', height: '20px' }}><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></svg>다시 시작</div>
