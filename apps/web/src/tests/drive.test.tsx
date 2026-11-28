@@ -1937,7 +1937,7 @@ describe('폰 조종 앱 틀', () => {
       if (link === '연결 끊김') { w.auto = null; tick(3000); } else act(() => w.drop(4403));
     }
     const dot = $('header .fh-dot');
-    expect(dot.querySelector('i')!.getAttribute('aria-hidden')).toBe('true');
+    expect(dot.querySelector('i, svg')!.getAttribute('aria-hidden')).toBe('true');
     expect(dot.querySelector('.fh-dot-t')!.textContent).toBe(link);   // 화면 읽기는 그대로 «연결 끊김»
     expect(dot.title).toBe(link);
     stopReachable();
@@ -3067,5 +3067,36 @@ describe('시안 u1_3 정지됨 (21:48 결정 3 · Damping 은 따로)', () => {
     ready();
     act(() => push('r7', { latched: null }));
     expect($('.u1-chip .u1-st')!.textContent).toBe('정지 잠금');
+  });
+});
+
+describe('시안 u1_8 서버 끊김 (21:48 결정 4)', () => {
+  const down = () => { mount(true, 'u-kim', '#/drive/r7'); serve(KIM, 'r3', 'r7', 'r1'); ready(); act(() => w.drop(1006)); tick(100); };
+  it('상태 칩 「리모컨만」 · 띠는 「서버 연결 안 됨 · 다시 연결」 하나 · 연결 점 자리 구름 빗금 · App 띠 연결 줄 없음 · 정지는 그대로 빨강', () => {
+    down();
+    expect($('.u1-chip .u1-st')!.textContent).toBe('리모컨만');
+    const bans = [...box.querySelectorAll('.u1-says .ban')];
+    expect(bans.map((b) => b.textContent)).toEqual(['서버 연결 안 됨 다시 연결']);   // 시안 「서버 연결 안 됨 [점검]」 꼴
+    expect($('.u1-says')!.textContent).not.toMatch(/조종권자 확인 안 됨|로봇 상태를 확인하는 중/);
+    expect($('[data-band] [data-link-band]')).toBeNull();
+    expect($('.u1-top [data-cloud-off]')).toBeTruthy();
+    const s = $<HTMLButtonElement>('[data-stop]')!;
+    expect(s.disabled).toBe(false);
+    expect(s.dataset.place).toBe('screen');
+  });
+
+  it('「다시 연결」(시안 「점검」 · 망 점검 화면이 없어 시안 밖 · 새로 그림) = 실시간 다시 열기', () => {
+    down();
+    const b = $<HTMLButtonElement>('.u1-says [data-off-proto="reconnect"]')!;
+    expect(b.textContent).toBe('다시 연결');
+    const n = FakeWS.all.length;
+    click(b);
+    expect(FakeWS.all.length).toBe(n + 1);
+  });
+
+  it('연결이 열려 있으면 그대로(리모컨만 · 구름 빗금 없음)', () => {
+    mount(true, 'u-kim', '#/drive/r7'); serve(KIM, 'r3', 'r7', 'r1'); ready();
+    expect($('.u1-chip .u1-st')!.textContent).toBe('조종 중');
+    expect($('.u1-top [data-cloud-off]')).toBeNull();
   });
 });
