@@ -40,8 +40,6 @@ export const REAR_DIST = 1.0, FRONT_DIST = 1.25;
  *  지평선이 화면 위쪽에 들어오게 올려 앞쪽 배관 · 건물이 보이게) */
 export const BODY_AIM = 0.17, SITE_AIM = 0.35;
 export const aimY = (l: Pick<TileLook, 'pose' | 'front'>) => (l.pose && !l.front ? SITE_AIM : BODY_AIM);
-/** 로봇 발밑 그림자(원 반지름 m · 앞뒤 늘림 · 진하기). 로봇 탭 무대도 같은 값 */
-export const SHADOW = { r: 0.22, sy: 1.5, opacity: 0.35 };
 /** 그릴 층: 현장(임무 중 · 자리 있음 · glb 받음)이면 현장만, 아니면 점 바닥만(현장 바닥 위로 점이 비치지 않게 · 팀장 21:45).
  *  시뮬(cyber)도 임무 중이면 그 로봇이 선 판의 시뮬레이션 공간(현장)을 뒤 1 m 로 · 로봇만 파란 결(팀장 01:04). 점 바닥은 임무 없을 때만 */
 export const layers = (pose: boolean, site: boolean) => { const w = pose && site; return { world: w, dots: !w }; };
@@ -87,7 +85,7 @@ class Tiles {
   scene = new THREE.Scene(); cam = new THREE.PerspectiveCamera(30, 1, 0.05, 1200);
   world = new THREE.Group(); body: Body | null = null; walk: Walk | null = null; cyber: THREE.ShaderMaterial | null = null;
   pads: Record<'charge' | 'check', THREE.Group> | null = null;
-  grid!: THREE.Points; gm!: THREE.ShaderMaterial; shadow!: THREE.Mesh; site: THREE.Group | null = null;
+  grid!: THREE.Points; gm!: THREE.ShaderMaterial; site: THREE.Group | null = null;
   t = 0.35; last = 0; raf = 0; failed = false; hemi!: THREE.HemisphereLight; rims: [THREE.DirectionalLight, number, number][] = [];
 
   add(c: HTMLCanvasElement, look: () => TileLook) {
@@ -130,8 +128,6 @@ class Tiles {
       vertexShader: 'varying vec2 u; void main(){ u=position.xy/0.6; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);} ',
       fragmentShader: 'varying vec2 u; void main(){ float d=clamp(length(u),0.0,1.0); float a=(1.0-d)*(1.0-d); gl_FragColor=vec4(0.85,0.9,1.0,0.13*a);} ' }));
     pool.rotation.x = -Math.PI / 2; pool.position.y = 0.0005; pool.renderOrder = -1; s.add(pool);
-    this.shadow = new THREE.Mesh(new THREE.CircleGeometry(SHADOW.r, 48), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: SHADOW.opacity }));
-    this.shadow.rotation.x = -Math.PI / 2; this.shadow.position.y = 0.001; this.shadow.scale.set(1, SHADOW.sy, 1); s.add(this.shadow);
     s.add(this.world);
     this.cyber = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
       uniforms: { col: { value: new THREE.Color(SIM) }, t: { value: 0 } },
@@ -200,7 +196,6 @@ class Tiles {
       } else v.ray = undefined;
       this.gm.uniforms.col.value.setHex(look.cyber ? SIM : 0x00c389).lerp(new THREE.Color(0xffffff), 0.4);
       this.gm.uniforms.off.value = p ? -p.travel : look.walk ? -this.t * 0.45 : 0;   // 자리가 있으면 실제로 간 거리만큼, 없으면 시안 걷기 흐름
-      this.shadow.visible = !look.cyber;
       if (b) {
         this.paint(b, look);
         poseBody(b, look, this.walk, this.t, this.keep);   // 엎드림은 로봇 탭과 같은 바닥 맞춤(go2view ground · 꼭짓점 기준 최저점 y = 0)
