@@ -260,6 +260,8 @@ describe('관제 탭', () => {
     for (const tx of ['#0E7F63', '#1F2421', '#2F6FE0', '#B8361F', '#5E6662']) expect(cr(tx, '#FFFFFF'), tx).toBeGreaterThanOrEqual(4.5);
     for (const f of ['#0E7F63', '#1F2421']) expect(cr('#FFFFFF', f), f).toBeGreaterThanOrEqual(4.5);
     expect(u5Css).toContain('.proto.light .u5[data-lb="a"] .stb{background:color-mix(in srgb,var(--acc) 12%,#FFFFFF)');
+    expect(u5Css).toMatch(/\.proto\.light \.u5\{[^}]*--u5-sim:#2F6FE0;--u5-sim-vivid:#4C9BFF/); expect(u5Css).toContain('.proto.light .u5 .tile.sim{border-color:var(--u5-sim-vivid)}');   // 글 파랑 그대로 · 비글자만 맑은 파랑
+    expect(u5Css).toContain('.proto.light .u5 .cnt[data-sum="주의"],.proto.light .u5 .cnt[data-sum="주의"] b{color:#1F2421!important}');   // 주의 칩 글 = 글자 색(노랑 2.3 → 15.76)
     expect(u5Css).toContain('.proto.light .u5 .tile.lv-warn{border-width:2.5px}'); expect(u5Css).toContain('.u5 .tile.lv-warn{border:1.5px solid #f2b705');   // 어둠 그대로
   });
   it('타일 8 칸 고르기(wallPick · 팀장 23:53): 위험 · 경고 → 실기(Go2 X) → 점검 · 충전 · 시뮬 · 끊김/주의 한 대씩 → 임무 중 → 나머지, 차례는 줄 차례 그대로', () => {

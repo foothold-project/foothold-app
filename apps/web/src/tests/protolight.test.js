@@ -71,7 +71,11 @@ describe('관제 u5 밝은 판(u5.css 의 .proto.light .u5 규칙)', () => {
   it('밝은 규칙의 #색은 밝음 1 표 값(온도 주의 채움 #D9A21F 포함), 어둠 색(#ff4d4f · #f2b705 · #00c389 · 흰 78 %)은 없음', () => {
     expect(light.length).toBeGreaterThan(20);
     const ok = new Set([...Object.values(LIGHT), '#D9A21F']);
-    for (const m of light) for (const h of m[2].match(/#[0-9A-Fa-f]{6}\b/g) ?? []) expect(ok.has(h.toUpperCase()), `${m[1]} ${h}`).toBe(true);
+    // 예외 하나(리드 03:48): 밝은 판 비글자 파랑 --u5-sim-vivid = #4C9BFF(브랜드 dark-sim). 변수 정의 한 곳에서만 허용하고, 글 색(color:)에는 이 변수를 쓰지 않음
+    const strip = (b) => b.replace('--u5-sim-vivid:#4C9BFF', '');
+    for (const m of light) for (const h of strip(m[2]).match(/#[0-9A-Fa-f]{6}\b/g) ?? []) expect(ok.has(h.toUpperCase()), `${m[1]} ${h}`).toBe(true);
+    expect(light.filter((m) => m[2].includes('--u5-sim-vivid:#4C9BFF')).map((m) => m[1].trim())).toEqual(['.proto.light .u5']);
+    for (const m of light) expect(/(^|;)\s*color:\s*var\(--u5-sim-vivid\)/.test(m[2]), m[1]).toBe(false);
     const body = light.map((m) => m[2]).join(';').toLowerCase();
     for (const dark of ['#ff4d4f', '#f2b705', '#00c389', '232,235,240']) expect(body, dark).not.toContain(dark);
   });
