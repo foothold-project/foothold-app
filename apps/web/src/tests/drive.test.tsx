@@ -2385,6 +2385,54 @@ describe('폰 실기 조종 = 서버 명령표', () => {
   });
 });
 
+// 임무 부품을 u1 조종 화면에(시안 u1_1 · u1_15 자리 · app-lead 11-28 22:58): 보이기만. 임무(state.run · 끝나지 않음)이고 내 조종이 아닐 때 바탕 지도 · 왼쪽 아래 카드 · 칩 글
+describe('폰 u1 임무 화면(보이기만)', () => {
+  const RUN = { run_id: 'run-2', status: 'MOVING' as const, step: 1, progress: { done: 1, total: 4 }, wait_reason: null, fail_code: null };
+  const at = (min: number) => new Date(Date.now() + min * 60000).toISOString();
+  const SLOT = { id: 's2', robot_id: 'r7', scenario_id: 'sc-a', scenario_version: 3, gait: null, start: at(-10), end: at(20), kind: 'CONFIRMED', assignment_id: null, memo: '', created_by: 'u', created_at: at(-60), run_state: 'STARTED', run_id: 'run-2', run_code: null, confirmed_by: null };
+  const wp = (name: string, x: number, y: number) => ({ floor_id: 'f1', map_version_id: 'mv-x', x, y, mission_id: 'm', mission_version: 1, name });
+  const SC = { id: 'sc-a', name: '공정 순찰 A', version: 3, map_version_ids: ['mv-x'], waypoints: [wp('입구', 1, 1), wp('게이지 읽기', 2, 1), wp('밸브', 2, 3), wp('복귀', 1, 3)] };
+  const MV = { id: 'mv-x', width: 200, height: 100, resolution: 0.1, origin: [0, 0, 0] };
+  const apis = (mv: object | null = MV) => {
+    vi.spyOn(api, 'schedule').mockImplementation(() => Promise.resolve({ slots: [SLOT] }) as never);
+    vi.spyOn(api, 'plan').mockImplementation(() => Promise.resolve(SC) as never);
+    vi.spyOn(api, 'version').mockImplementation(() => (mv ? Promise.resolve(mv) : Promise.reject(new Error('x'))) as never);
+  };
+  const open = async (run: object | null, mv: object | null = MV) => {
+    apis(mv);
+    mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7');
+    if (run) { recv(lease('r7', { id: null, name: '', type: 'RUN' })); act(() => push('r7', { run } as never)); }
+    await act(async () => {});
+    await act(async () => {});
+  };
+
+  it('임무가 있을 때: 바탕 지도 · 카드 「오늘 1 / 1 공정 순찰 A」 · 칩 「순찰 중」 · 작은 지도 칸 없음', async () => {
+    await open(RUN);
+    expect($('.u1d')!.hasAttribute('data-mission')).toBe(true);
+    expect($('.u1d svg.u1-mmap')).not.toBeNull();
+    expect($('.u1d .u1-mission .mn')!.textContent).toBe('오늘 1 / 1');
+    expect($('.u1d .u1-mission b')!.textContent).toBe('공정 순찰 A');
+    expect($('.u1-chip .u1-st')!.textContent).toBe('순찰 중');
+    expect($('.u1d .dv-mini')).toBeNull();
+    expect(u1AppCss).toMatch(/\.u1d\[data-mission\] \.act\{display:none\}/);   // 시안 u1_1 에는 동작 줄이 없다
+  });
+
+  it('임무가 없을 때: 시안 빈 상태 그대로(지도 · 카드 없음 · 작은 지도 칸 · 일정 받지 않음)', async () => {
+    await open(null);
+    expect($('.u1d')!.hasAttribute('data-mission')).toBe(false);
+    expect($('.u1d svg.u1-mmap')).toBeNull();
+    expect($('.u1d .u1-mission')).toBeNull();
+    expect($('.u1d .dv-mini')).not.toBeNull();
+    expect(api.schedule).not.toHaveBeenCalled();
+  });
+
+  it('판을 못 받을 때: 지도 없음 · 카드는 그대로', async () => {
+    await open(RUN, null);
+    expect($('.u1d svg.u1-mmap')).toBeNull();
+    expect($('.u1d .u1-mission b')!.textContent).toBe('공정 순찰 A');
+  });
+});
+
 // 폰 데모 로봇(목록 sim · demo true · app-lead 11-28 22:40 · reviewer 코드 전 판정 22:47): 데모 = 실기 → 서버 경유 u1 조종 화면.
 // 내 시뮬 슬롯(demo false)과 모름(undefined)은 지금처럼 simdrive 직결 길. 속도는 웹 상한(OrgSettings sim_* · 서버는 시뮬 cmd 상한을 검사하지 않는다)
 describe('폰 데모 로봇 = 서버 경유 u1 조종 화면', () => {

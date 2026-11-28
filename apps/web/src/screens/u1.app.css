@@ -112,7 +112,8 @@
 .u1d .u1-mission .mb{gap:4px;margin-top:9px}
 .u1d .u1-mission .mb i{flex:1;height:5px;border-radius:3px;background:rgba(255,255,255,.28)}
 .u1d .u1-mission .mb i.on{background:var(--pr)}
-.u1d .u1-mission .ml{margin-top:7px;font-size:12px;font-weight:700}
+.u1d .u1-mission .mf{justify-content:space-between;margin-top:7px}
+.u1d .u1-mission .ml{font-size:12px;font-weight:700}
 .u1d .u1-mission .ml.pz{color:#d9a21f}
 .proto.light.u1d .u1-mission{color:var(--ink)}.proto.light.u1d .u1-mission .mn,.proto.light.u1d .u1-mission .me{color:var(--mu);opacity:1}
 .proto.light.u1d .u1-mission .mb i{background:#d5dae0}.proto.light.u1d .u1-mission .mb i.on{background:var(--pr)}
@@ -123,3 +124,10 @@
 .u1d .u1-mmap .wp{fill:#fff;stroke:#18a07e;stroke-width:2;vector-effect:non-scaling-stroke}.u1d .u1-mmap .wp.on{fill:#18a07e}
 .u1d .u1-mmap .me{fill:#fff;stroke:#18a07e;stroke-width:4;vector-effect:non-scaling-stroke}
 .u1d .u1-mmap .lbl{font-size:12px;font-weight:700;fill:currentColor;paint-order:stroke;stroke:rgba(0,0,0,.35);stroke-width:3px}.u1d .u1-mmap .lbl .no{fill:#18a07e}
+/* 임무 화면(u1mission · 보이기만): 시안 u1_1 에는 동작 줄이 없다 · 바탕 지도는 영상 위 · 카드 넘기기 점(시안 .row 점 값) */
+.u1d[data-mission] .act{display:none}
+.u1d .u1-mmap{background:var(--bg)}
+.u1d .u1-mission .dots{gap:3px}
+.u1d .u1-mission .dots button{width:4px;height:4px;border-radius:50%;background:#c5cad2;padding:0;border:0;min-width:0;position:relative}
+.u1d .u1-mission .dots button::after{content:"";position:absolute;inset:-10px -4px}
+.u1d .u1-mission .dots button.on{width:10px;border-radius:2px;background:#fff}.proto.light.u1d .u1-mission .dots button.on{background:var(--ink)}

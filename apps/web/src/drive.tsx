@@ -16,6 +16,7 @@ import { useTheme } from './theme';
 import { simTune, useSim, useTuneSettings } from './phone';
 import { COMBO_BLOCK, command, isSettings, permitted, REAL_WAIT, SIDE_BLOCK, TABLE, unknownCombo, type Tok } from './serverdrive';
 import type { OrgSettings } from '../../contracts/ts';
+import { MissionCards, MissionMap, missionChip, missionOn, useMission } from './screens/u1mission';
 import { ACTS, RESTART_ASK, RESTART_TEXT, actOff, actWhy, shape, stickTok, useRestartAsk } from './robotact';
 import { actionResultText } from './screens/actiontrial';
 import { api } from './api';
@@ -357,7 +358,10 @@ function Screen(c: Ctx) {
   useEffect(() => { setLong(false); if (!unknown) return; const id = window.setTimeout(() => setLong(true), 10000); return () => clearTimeout(id); }, [unknown]);
   const ban = (cls: string, x: ReactNode, p: Record<string, string | boolean> = {}) => <p className={`ban ${cls}`} role="status" {...p}>{x}</p>;
   // 정지 잠금 중(시안 u1_3): 조이스틱 · 동작 줄은 숨긴다(visibility · u1.app.css). 지우지 않는 까닭: 누른 손가락 · 세대(RV-425)는 부품이 붙어 있어야 그대로 판정
-  const u1 = <div className={`proto pv u1d${light ? ' light' : ''}`} data-u1d data-stop-held={stopHeld ? '' : undefined}>
+  // 임무 화면(시안 u1_1 · u1_15 · 보이기만): 끝나지 않은 실행이 있고 내 조종이 아닐 때 바탕 층 지도 · 왼쪽 아래 카드 · 칩 글. 칩 글만 바꾸고 lock(조종 판정)은 그대로
+  const mrun = !mine && missionOn(l.state?.run) ? l.state!.run! : null, mis = useMission(r.id, mrun?.run_id ?? ''), chipNow = mrun ? missionChip(mrun) : lock;
+  const u1 = <div className={`proto pv u1d${light ? ' light' : ''}`} data-u1d data-stop-held={stopHeld ? '' : undefined} data-mission={mrun ? '' : undefined}>
+    {mrun && <MissionMap m={mis} run={mrun} pose={l.state?.location ?? r.location} />}
     {!light && <div className="vig" />}
     <div className="tl">
       <button type="button" className="g dk row u1-chip" aria-expanded={chip} aria-controls="u1-pane" onClick={() => setChip(!chip)} style={{ left: '12px', top: '12px', height: '44px', padding: '0 12px 0 7px', gap: '9px' }}>
@@ -365,7 +369,7 @@ function Screen(c: Ctx) {
           {mine && <span className="op"><Ic s={10}><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></Ic></span>}</span>
         <span className="chipnum">{r.name}</span>{r.sim && !r.demo && <span className="tag">시뮬</span>}
         {r.battery != null && <span className="bat" style={{ marginLeft: 0, '--soc': `${Math.max(0, Math.min(100, r.battery))}%` } as CSSProperties}><i />{pct(r.battery)}</span>}
-        <span className={`u1-st ${lock.tone}`}>{lock.text}</span>
+        <span className={`u1-st ${chipNow.tone}`}>{chipNow.text}</span>
         <Ic s={15}>{chip ? <path d="m6 15 6-6 6 6" /> : <path d="m6 9 6 6 6-6" />}</Ic>
       </button>
     </div>
@@ -380,7 +384,7 @@ function Screen(c: Ctx) {
         <button key={x.id} type="button" aria-expanded={sheet === x.id} onClick={() => { setChip(false); pick(sheet === x.id ? null : x.id); }}>{x.label}</button>)}</div>
     </div>
     {/* 작은 지도(시안 .mm 자리 · 꼴). 누르면 큰 보기를 지도 ↔ 영상으로. 반납 중에는 숨김(보기 단추로 같은 일) */}
-    {!l.releasing && <button type="button" className="g dk mm dv-mini" style={{ left: '12px', top: '64px', width: '140px', height: '96px', borderRadius: '16px', overflow: 'hidden', padding: 0 }}
+    {!l.releasing && !mrun && <button type="button" className="g dk mm dv-mini" style={{ left: '12px', top: '64px', width: '140px', height: '96px', borderRadius: '16px', overflow: 'hidden', padding: 0 }}
       aria-label={view === 'map' ? '영상 크게' : '지도 크게'} onClick={() => setView(view === 'map' ? 'rgb' : 'map')}>
       {view === 'map' ? <Video small /> : <MapView />}</button>}
     {/* 오른쪽 줄(시안 .col): 첫 줄(연결 · ⋯)은 머리줄 겹 .u1-top, 아래로 걷기 모드(START 자리) · 보기 · 조종 */}
@@ -423,6 +427,7 @@ function Screen(c: Ctx) {
       <Stick cls="stick" label="회전" shown={[0, kin.t]} on={ready} epoch={0} gen={gen} press={nowRef.current} set={(x) => { input.current.st[1] = stickTok('R', -x, 0); input.current.an.t = x; stickSay(); }} grip={(o) => { input.current.sg[1] = o; }} lift={send} /></>}
     {/* 설정 확인 알약: 시안 밖 · 새로 그림. 설정을 몰라 입력이 0 이 되는 순간만 동작 줄 위 가운데(10 초 넘으면 위 띠로) */}
     {unknown && zero && !long && <p className="u1-pill" role="status" data-real-wait-pill data-off-proto="settings-pill">{REAL_WAIT_PILL}</p>}
+    {mrun && <MissionCards robot={r.id} m={mis} run={mrun} />}
     {/* 아래 동작 줄(시안 u1_2 .act 일곱): 지금 못 누르는 것(순정 확인 전 · 저수준 중 · START 중 일어서기)은 흐리게(.na), 눌러도 보내지 않고 까닭 */}
     <div className="act" aria-label="동작">{ACTS.map(([name, t, em, ic]) => {
       const off = actOff(name, lowlevel), running = l.state?.action_result?.status === 'RUNNING' ? l.state.action_result.action : null;   // 지금 하는 동작 = 로봇 보고(시안 .act .run 초록 테)
