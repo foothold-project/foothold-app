@@ -67,11 +67,13 @@ function serve() {
     if (path === '/scenarios') return ok({ items: ALL, next_cursor: null });
     if (path === '/missions') return ok({ items: [M1], next_cursor: null });
     const m = path.match(/^\/scenarios\/(s\d)$/);
+    if (m && method === 'PUT') { const x = ALL.find((s) => s.id === m[1])!; return ok({ ...x, ...body, version: x.version + 1 }); }
     if (m) { const x = ALL.find((s) => s.id === m[1]); return x ? ok(x) : new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: '없음', detail: {} } }), { status: 404 }); }
     if (method === 'POST' && path === '/scenarios/preview') return ok({ reachable: true, points: [], segments: [], floor_ids: ['f1'], map_version_ids: ['v1'], required_devices: [], est_distance_m: 3, distance_note: '' });
     if (path === '/actions') return ok([]);
-    if (path === '/assignments') return ok({ items: [{ id: 'as1', robot_id: 'r2', scenario_id: 's1', scenario_version: 1, status: 'ACTIVE' }, { id: 'as2', robot_id: 'r1', scenario_id: 's1', scenario_version: 1, status: 'REMOVED' },
-      { id: 'as3', robot_id: 'r1', scenario_id: 's2', scenario_version: 1, status: 'ACTIVE' }], next_cursor: null });
+    if (path === '/assignments') { const rid = new URLSearchParams(qs).get('robot_id');   // 서버처럼 robot_id 로 거른다
+      return ok({ items: [{ id: 'as1', robot_id: 'r2', scenario_id: 's1', scenario_version: 1, status: 'ACTIVE' }, { id: 'as2', robot_id: 'r1', scenario_id: 's1', scenario_version: 1, status: 'REMOVED' },
+      { id: 'as3', robot_id: 'r1', scenario_id: 's2', scenario_version: 1, status: 'ACTIVE' }].filter((x) => !rid || x.robot_id === rid), next_cursor: null }); }
     return new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: '없음', detail: {} } }), { status: 404 });
   });
 }
@@ -115,53 +117,60 @@ describe('임무 탭(W2)', () => {
     expect(oldScenario('#/map')).toBeNull();
   });
 
-  it('로봇에 배정(W1 runctl 후속): 이미 배정된 로봇은 고르기에서 빠짐 · POST /assignments(멱등 key) · 답 전엔 성공 없음 · 답 뒤 성공 한 줄 + 그 로봇 실행 칸', async () => {
+  // 시안 u15_2: 배정 · 실행은 오늘 일정 칸을 눌러 «실제 로봇 시작 전 점검» 창에서. 로봇은 그 칸의 로봇(sl2 = 시뮬 r2 · s2 배정 없음, sl1 = 실기 r1 · s2 ACTIVE)
+  const preflight = async (slotId: string) => { await click($(`[data-slot="${slotId}"]`)); await click($('[data-preflight]')); expect($('[data-preflight-box]')).toBeTruthy(); };
+  it('로봇에 배정(u15_2 점검 창): 이미 배정된 로봇은 배정 단추 없음 · POST /assignments(멱등 key) · 답 전엔 넘어가지 않음 · 답 뒤 다음 관문(조종권 잡기)', async () => {
     let done!: () => void;
     assignReply = (b) => new Promise((ok) => { done = () => ok(new Response(JSON.stringify({ id: 'as9', robot_id: b.robot_id, scenario_id: b.scenario_id, scenario_version: b.scenario_version, status: 'ACTIVE' }), { status: 201, headers: { 'Content-Type': 'application/json' } })); });
     await mount('#/missions');
-    await click($('[data-open-run]'));   // 시안 u6 오른쪽 칸: 일정에 추가 ↔ 배정 · 실행
-    const sel = $<HTMLSelectElement>('[data-assign] select')!;
-    expect([...sel.options].map((o) => o.value)).toEqual(['r1', 'r3']);   // r2 는 s1 에 이미 ACTIVE
-    act(() => { sel.value = 'r1'; sel.dispatchEvent(new Event('change', { bubbles: true })); });
-    await click($('[data-assign] button'));
+    await preflight('sl1');   // r1 은 s2 에 이미 ACTIVE(as3) → 배정 단추 없음, 실기라 실행 못 함 까닭
+    expect($('[data-preflight-act]')).toBeNull();
+    expect($('[data-preflight-why]')!.textContent).toContain('실기는 아직 화면에서 임무를 실행할 수 없습니다');
+    expect($<HTMLButtonElement>('[data-preflight-go]')!.disabled).toBe(true);
+    await click($('[data-preflight-cancel]'));
+    await preflight('sl2');   // r2(시뮬) · s2 배정 없음
+    expect($('[data-preflight-act]')!.textContent).toContain('이 로봇에 배정');
+    await click($('[data-preflight-act]'));
     const post = calls.filter((c) => c.method === 'POST' && c.path === '/assignments');
     expect(post).toHaveLength(1);
-    expect(post[0].body).toEqual({ scenario_id: 's1', scenario_version: 1, robot_id: 'r1' });
+    expect(post[0].body).toEqual({ scenario_id: 's2', scenario_version: 1, robot_id: 'r2' });
     expect(post[0].key).toMatch(/^[0-9a-f-]{36}$/);
-    expect($('[data-assign-msg]')?.textContent ?? '').not.toContain('배정했습니다');
-    expect($$('[data-run-list] [data-run-ctl]').map((e) => e.dataset.runCtl)).toEqual(['r2']);
+    expect($('[data-preflight-why]')!.textContent).toContain('배정이 없습니다');   // 답 전엔 그대로
     await act(async () => { done(); }); await flush();
-    expect($('[data-assign-msg]')!.textContent).toBe('K-01 에 배정했습니다.');
-    expect($$('[data-run-list] [data-run-ctl]').map((e) => e.dataset.runCtl)).toEqual(['r2', 'r1']);
+    expect($('[data-preflight-act]')!.textContent).toContain('조종권 잡기');   // 배정 뒤 다음 관문
+    expect($<HTMLButtonElement>('[data-preflight-go]')!.disabled).toBe(true);
   });
-  it('로봇에 배정: 서버 거절(409 ASSIGNMENT_EXISTS)은 문구 한 줄 · 실행 칸은 생기지 않음 · 답 못 받으면 다시 보낼 때 같은 key', async () => {
+  it('로봇에 배정: 서버 거절(409 ASSIGNMENT_EXISTS)은 문구 한 줄 · 다음 관문으로 넘어가지 않음 · 답 못 받으면 다시 보낼 때 같은 key', async () => {
     let n = 0;
     assignReply = async () => (++n === 1 ? Promise.reject(new TypeError('network')) : new Response(JSON.stringify({ error: { code: 'ASSIGNMENT_EXISTS', message: '이미 배정되었거나 결재를 기다리는 시나리오 판입니다.', detail: {} } }), { status: 409, headers: { 'Content-Type': 'application/json' } }));
     await mount('#/missions');
-    await click($('[data-open-run]'));
-    await click($('[data-assign] button'));
-    await click($('[data-assign] button'));
+    await preflight('sl2');
+    await click($('[data-preflight-act]'));
+    await click($('[data-preflight-act]'));
     const post = calls.filter((c) => c.method === 'POST' && c.path === '/assignments');
     expect(post).toHaveLength(2);
     expect(post[1].key).toBe(post[0].key);   // 같은 시도의 다시 보내기
-    expect($('[data-assign-msg]')!.textContent).toContain('이미 배정되었거나 결재를 기다리는 시나리오 판입니다.');
-    expect($$('[data-run-list] [data-run-ctl]').map((e) => e.dataset.runCtl)).toEqual(['r2']);
+    expect($('[data-preflight-why]')!.textContent).toContain('이미 배정되었거나 결재를 기다리는 시나리오 판입니다.');
+    expect($('[data-preflight-act]')!.textContent).toContain('이 로봇에 배정');
   });
-  it('로봇에 배정: 담당 로봇이 없는 운영 관리자는 회색 단추 대신 까닭 한 줄 · 보내지 않음', async () => {
+  it('로봇에 배정: 담당 로봇이 아닌 운영 관리자는 배정 단추 대신 까닭 한 줄 · 보내지 않음', async () => {
     await mount('#/missions', 'u-park');
-    await click($('[data-open-run]'));
-    expect($('[data-assign] button')).toBeNull();
-    expect($('[data-assign]')!.textContent).toContain('배정은 담당 로봇에만 할 수 있습니다');
+    await preflight('sl2');
+    expect($('[data-preflight-act]')).toBeNull();
+    expect($('[data-preflight-why]')!.textContent).toContain('배정은 담당 로봇에만 할 수 있습니다');
     expect(calls.some((c) => c.method === 'POST' && c.path === '/assignments')).toBe(false);
   });
-  it('지금 실행(W1 runctl): 고른 임무가 ACTIVE 로 배정된 로봇만 실행 칸 · 조종권 없으면 «조종권 잡기»로 이음 · 다른 임무를 고르면 그 임무의 로봇', async () => {
+  it('지금 실행(u15_2): 점검 줄 넷(연결 · 조종권 · 로봇 상태 · 시작 자리) · 조종권 없으면 «조종권 잡기»로 이음 · 취소 = 창 닫힘(u6_8)', async () => {
+    fresh(); srv.slots = [...srv.slots, slot('sl9', 'r2', 'CONFIRMED', 11, 0, 11, 30, 's1')];   // r2 · s1 ACTIVE(as1)
     await mount('#/missions');
-    await click($('[data-open-run]'));
-    const ids = () => $$('[data-run-list] [data-run-ctl]').map((e) => e.dataset.runCtl);
-    expect(ids()).toEqual(['r2']);   // s1: r2 ACTIVE · r1 REMOVED 는 빠짐
-    expect($('[data-run-ctl="r2"]')!.textContent).toContain('조종권 잡기');
-    await click($('[data-mission="s2"]'));
-    expect(ids()).toEqual(['r1']);
+    await preflight('sl9');
+    expect($$('[data-ck]').map((e) => e.dataset.ck)).toEqual(['link', 'lease', 'state', 'start']);
+    expect($('[data-ck="lease"]')!.dataset.ok).toBe('false');
+    expect($('[data-preflight-act]')!.textContent).toContain('조종권 잡기');
+    expect($<HTMLButtonElement>('[data-preflight-go]')!.disabled).toBe(true);
+    await click($('[data-preflight-cancel]'));
+    expect($('[data-preflight-box]')).toBeNull();
+    expect($('[data-slot="sl9"]')!.className).toContain('u6-made');   // 누른 칸 그대로(u6_8)
   });
   it('탭 열림: 세 칸(목록 · 지도 · 일정 칸) + 오늘 일정, 첫 임무를 펼쳐 할 일 번호와 끝 동작', async () => {
     await mount('#/missions');
@@ -289,7 +298,7 @@ describe('임무 탭(W2)', () => {
     expect($('[data-slot="new1"]')!.className).toContain('u6-made');
     expect($('[data-schedule-add]')).toBeNull();
     await click($('[data-preflight]'));
-    expect($('[data-assign]')).toBeTruthy();
+    expect($('[data-preflight-box]')!.textContent).toContain('K-01 실제 로봇으로 시작');   // u15_2 점검 창
   });
 
   it('모의 실행: 시뮬 로봇이 없으면 회색 + 까닭(title) · 보내지 않음', async () => {
@@ -418,6 +427,37 @@ describe('임무 탭(W2)', () => {
     expect($<HTMLInputElement>('[data-name]')!.value).toBe('');
   });
 
+  it('시안 u6_3 편집기: 할 일 순서 줄(이동 · 할 일 · 끝) · 고른 줄 자세히(머무는 시간 · 순서 · 지우기) · 접근 금지 구역을 지나면 저장 막음 · 고친 뒤 PUT 본문', async () => {
+    await mount('#/missions');
+    await click($('[data-edit-mission]')); await flush();
+    expect($$('[data-plan] [data-row]').map((e) => e.dataset.row)).toEqual(['move', 'task', 'move', 'task', 'end']);
+    expect($('[data-row="task"][data-row-i="1"]')!.textContent).toContain('게이지 읽기');
+    expect($('[data-row="task"][data-row-i="1"]')!.textContent).toContain('게이지');
+    await click($('[data-row="task"][data-row-i="0"]'));
+    expect($('[data-step-detail="0"]')!.textContent).toContain('사진 찍기');   // 남길 것 = 임무 단계
+    await act(async () => { const i = $<HTMLInputElement>('[data-step-wait]')!; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(i, '45'); i.dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 450)); }); await flush();
+    // 펌프(0,0) -> 게이지(3.5,0) 는 x 2~3 m 접근 금지 칸을 지난다 -> 저장 막음 · 까닭 한 줄
+    expect($<HTMLButtonElement>('[data-save]')!.disabled).toBe(true);
+    expect($('[data-block]')!.textContent).toContain('접근 금지 구역');
+    await click($('[data-row="task"][data-row-i="1"]')); await click($('[data-step-drop]'));
+    await act(async () => { await new Promise((r) => setTimeout(r, 450)); }); await flush();
+    expect($$('[data-plan] [data-row]').map((e) => e.dataset.row)).toEqual(['move', 'task', 'end']);
+    expect($('[data-block]')).toBeNull();
+    await click($('[data-save]')); await flush();
+    const put = last(calls.filter((c) => c.method === 'PUT' && c.path === '/scenarios/s1'))!;
+    expect((put.body!.waypoints as { wait_s?: number; x: number }[]).map((w) => [w.x, w.wait_s])).toEqual([[0, 45]]);
+  });
+  it('시안 u6_4 노드 · u6_5 지도: 같은 초안 · 노드 고르기 = 지도 보기에서 «○○ 고르는 중»', async () => {
+    await mount('#/missions');
+    await click($('[data-edit-mission]')); await flush();
+    await click($('[data-look="node"]'));
+    expect($$('[data-node]').map((e) => e.dataset.node)).toEqual(['start', '1', '2', 'end']);
+    await click($('[data-node-job="m1"]'));
+    expect($('[data-look="map"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect($('[data-pending]')!.textContent).toContain('게이지 읽기 고르는 중');
+    expect($('[data-map-steps]')!.textContent).toContain('펌프');
+  });
   it('편집 중 탭 떠날 때 확인창 그대로: 저장 안 한 지도 편집이 있으면 임무 탭 · 옛 주소로 가기 전에 묻는다', async () => {
     await mount('#/map');
     const ask = vi.fn();

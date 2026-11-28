@@ -1,6 +1,6 @@
 /* 시안 u6 를 앱으로 옮기며 더한 것(시안 값 아님): span 단추를 button · input 으로 바꾼 데서 생기는 브라우저 기본 모양 지우기,
-   사진 자리에 실제 지도, 쪽 넘김 · 까닭 한 줄 · 시안 그림이 없는 배정 · 실행 칸 */
-.u6 button:where(:not(.u6-fh *)){font:inherit;color:inherit;background:none;border:0;cursor:pointer;letter-spacing:inherit;text-align:inherit}
+   사진 자리에 실제 지도, 쪽 넘김 · 까닭 한 줄 */
+.u6 button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;letter-spacing:inherit;text-align:inherit}
 .u6 button:disabled,.u6 [aria-disabled="true"]{cursor:default;opacity:.45}
 .u6 button:focus-visible{outline:2px solid #00c389;outline-offset:2px}
 .u6 ol{list-style:none}
@@ -40,19 +40,6 @@
 .u6 .u6-mapcard{display:block;width:100%;padding:0}
 .u6 .u6-mapimg{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#dfe2e0}
 .u6 .u6-select{height:30px;border-radius:9px;background:rgba(255,255,255,.06);border:1px solid var(--line);color:inherit;font:inherit;padding:0 8px}
-/* 시안 그림이 없는 배정 · 실행 칸: 지금 앱 판(missiontab.css .mr)을 시안 칸 안에. 시안 공통의 여백 지우기를 이 칸 안에서 앱 값으로 되돌린다 */
-.u6 .u6-legacy{margin-top:12px;display:flex;flex-direction:column;gap:10px;font-size:13.5px}
-.u6 .u6-legacy .mt-run,.u6 .u6-legacy .mr{display:flex;flex-direction:column;gap:8px}
-.u6 .u6-legacy .mr{padding:12px;border-radius:14px;border:1px solid var(--line);background:rgba(255,255,255,.03)}
-.u6 .u6-legacy .mr-row,.u6 .u6-legacy .mr-gate,.u6 .u6-legacy .mr-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.u6 .u6-legacy .btn{height:36px;padding:0 12px;border-radius:10px;border:1px solid rgba(255,255,255,.22);font-weight:700;font-size:13px}
-.u6 .u6-legacy .btn.pri{background:#00c389;border-color:#00c389;color:#06231a}
-.u6 .u6-legacy select{height:36px;border-radius:10px;background:rgba(255,255,255,.06);border:1px solid var(--line);color:inherit;font:inherit;padding:0 8px;flex:1}
-.u6 .u6-legacy .lbl{font-size:12.5px;font-weight:600;color:var(--mu2)}
-.u6 .u6-legacy .fh-msg{color:#ff4d4f;font-weight:600}
-.u6 .u6-legacy .fh-msg.ok{color:#00c389}
-.u6 .u6-legacy .lv-note{color:var(--mu2)}
-.u6 .u6-runs{max-height:480px;overflow:hidden}
 /* 밝은 판(시안은 어둠 판만): 화면 <style> 의 어둠 전용 흰 글자 · 흰 테두리를 DESIGN.md 밝음 1 값으로. 공통 유리 · 단추 · 판은 light.pv.css */
 .proto.light.u6 .mcard{background:#F6F7F6;border-color:#DCE0DE;box-shadow:none}
 .proto.light.u6 .step,.proto.light.u6 .mrow{color:#1F2421}
@@ -67,25 +54,16 @@
 .proto.light.u6 .mseg button.on{background:#FFFFFF;color:#1F2421;box-shadow:0 1px 2px rgba(0,0,0,.08)}
 .proto.light.u6 .stat .lab,.proto.light.u6 .stat small{color:rgba(255,255,255,.75)}
 .proto.light.u6 .u6-hour{border-left-color:#E4E7E5!important;color:#5E6662!important}
-.proto.light.u6 .u6-legacy .btn{border-color:#DCE0DE}
 .u6 .u6-close{position:absolute;right:24px;top:76px;z-index:7}
 .u6 .band{z-index:6}
 /* 앱 머리줄(PcBar) .proto 안에 놓일 때: 바깥 .proto 가 화면 틀, 이 칸은 그 위를 덮는다(시안 좌표 그대로 · 머리줄 64 아래부터 칸) */
 .proto .proto.u6{position:absolute;inset:0;width:auto;height:auto;background:transparent}
 .proto .proto.u6{pointer-events:none}
 .proto .proto.u6>*{pointer-events:auto}
-/* 만들기(u6_3/4/5) 가운데 편집 칸: 지금 짜기 편집기(missions.css .mx)를 시안 칸 크기에 맞춰 넣는다 */
-.u6 .u6-editor{display:flex;flex-direction:column;overflow:hidden}
-.u6 .u6-editbar{display:flex;gap:8px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line)}
-.u6 .u6-editbar .btns{height:34px;padding:0 12px;border-radius:10px;font-size:13px}
-.u6 .u6-editbody{position:relative;flex:1;min-height:0;overflow:hidden}
-.u6 .u6-editbody>*{height:100%}
 .u6 .seg2 button{height:36px;padding:0 18px;border-radius:10px;display:flex;align-items:center;gap:6px;font-size:14px;font-weight:700;color:var(--mu2)}
 .u6 .seg2 button.on{background:#ffffff;color:#000000}
 .proto.light.u6 .seg2 button.on{background:#1F2421;color:#FFFFFF}
-.u6 .u6-editbody.fh{min-height:0;height:auto;background:transparent;font-size:14px;letter-spacing:normal}
-.u6 .u6-editbar .btn{height:34px}
-/* .proto 는 --ink 를 시안 글자색(#1f2421)으로 덮어 .fh(--text: var(--ink)) 글자가 어둠 판에서 검게 된다. 편집기 칸만 공식 토큰 ink 값으로(brand/tokens 값 그대로 옮김) */
-.u6 .u6-fh{--ink:#e9e7e1;--ink-2:#adb5c1;color:var(--text)}
-.proto.light.u6 .u6-fh{--ink:#161c26;--ink-2:#4a5566}
-.u6 .u6-fh [hidden]{display:none!important}
+.u6 .u6-kbd{display:inline-flex;min-width:26px;height:26px;padding:0 6px;border-radius:7px;align-items:center;justify-content:center;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.25);font:700 12px Inter Tight,Noto Sans KR,Noto Sans CJK KR}
+
+/* 예상이 없을 때는 값 자리(—)를 비워 아래 까닭 한 줄과 겹치지 않게 */
+.u6 .u6-est.none b{visibility:hidden}
