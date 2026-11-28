@@ -25,6 +25,9 @@
 .u6 .mt-guess,.u6 [data-guess]{margin-left:4px;font-size:11px;font-weight:700;color:#f2b705}
 /* 사진 자리(.stage)에 서버 승인 지도 */
 .u6 .map{background:#dfe2e0}
+/* 3D 점토 지도 칸 어둠 판 바탕 = 브랜드 어둠 토큰 --paper(#12161d · 어둠 칸 · 바탕 셋 #12161d · #181d26 · #191e27 중 hero_dark 바탕 #0b0f14 에 가장 가까움).
+   지도 탭 미리 보기(Map3D --bg = var(--paper))와 같은 값 */
+.proto:not(.light).u6 .map:has([data-map3d-mission]){background:var(--paper)}
 .u6 .map>.stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
 .u6 .u6-stage{display:block;width:100%;height:100%}
 .u6 .map .u6-why{color:#5e6662;padding:24px}

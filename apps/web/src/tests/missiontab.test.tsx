@@ -654,6 +654,11 @@ describe('임무 탭(W2)', () => {
       expect(color('proto light u6', sub, '.u6-bandsub')).toBe('rgb(94, 102, 98)');
     } finally { st.remove(); box.remove(); }
   });
+  it('3D 점토 지도 칸 바탕: 어둠 판에서 3D 칸일 때만 브랜드 어둠 토큰 --paper(#12161d · hero 바탕 #0b0f14 에 가장 가까움 · 지도 탭 미리 보기 --bg 와 같음) · 2D 칸 · 밝은 판은 그대로', () => {
+    const rules = u6AppCss.replace(/\s+/g, ' ');
+    expect(rules).toContain('.proto:not(.light).u6 .map:has([data-map3d-mission]){background:var(--paper)}');
+    expect(rules).toContain('.u6 .map{background:#dfe2e0}');
+  });
   it('밝은 판 대비: 배속 고른 칸 · 지도 위 자리 글은 밝은 판에서 어두운 글 (기존 밝은 판 값)', () => {
     const rules = u6AppCss.replace(/\s+/g, ' ');
     expect(rules).toMatch(/\.proto\.light\.u6 \.mseg span\.on\{[^}]*color:#1F2421/);
