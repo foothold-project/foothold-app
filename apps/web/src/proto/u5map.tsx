@@ -47,16 +47,16 @@ export const shotMix = (a: SiteShot, b: SiteShot, t: number): SiteShot => { cons
   return { tgt: a.tgt.clone().lerp(b.tgt, e), el: a.el + (b.el - a.el) * e, az: a.az + (b.az - a.az) * e, d: a.d + (b.d - a.d) * e }; };
 /** 움직임 시간: 움직임 줄이기면 0(바로 끝) */
 export const flyTime = () => (calm() ? 0 : FLY_S);
-/** 「전체 보기」 시점(팀장 03:19 · 03:42 «꽉»): 정북 · 아래로 FULL_EL(첫 시점보다 조금 더 내려다봐 위 하늘을 줄임).
+/** 「전체 보기」 시점(팀장 03:19 · 03:42 «꽉»): 정북 · 아래로 첫 시점과 같은 각(SITE_EL · 팀장 좋은 예도 이 각).
  *  가까운 변(앞 모서리 둘)이 칸 폭을 FULL_OVER 만큼 넘치게(양옆 몇 % 잘림 허용) 하는 가장 가까운 거리 · 먼 변(높이 FULL_H)은 FULL_TOP 아래 · 앞 변은 FULL_BOT 위. 거리 · 바라볼 점은 반 가르기 */
-export const FULL_TOP = 0.93, FULL_OVER = 1.12, FULL_BOT = -0.97, FULL_H = 25, FULL_EL = 54, FULL_UP = 0.06;
+export const FULL_TOP = 0.93, FULL_OVER = 1.12, FULL_BOT = -0.97, FULL_H = 25, FULL_EL = SITE_EL, FULL_UP = 0.2;
 export function fullShot(aspect: number, elDeg = FULL_EL, over = FULL_OVER): SiteShot {
   const W = SITE_PX_W / K, H = SITE_PX_H / K, x0 = -OX / K, z0 = -OY / K, el = (elDeg * Math.PI) / 180;
   const cam = new THREE.PerspectiveCamera(SITE_FOV, aspect, 1, 1e5), v = new THREE.Vector3(), tgt = new THREE.Vector3();
   const far = [new THREE.Vector3(x0, FULL_H, z0), new THREE.Vector3(x0 + W, FULL_H, z0)], near = [new THREE.Vector3(x0, 0, z0 + H), new THREE.Vector3(x0 + W, 0, z0 + H)];
   const put = (d: number, tz: number) => { tgt.set(x0 + W / 2, 0, tz); cam.position.set(tgt.x, Math.sin(el) * d, tz + Math.cos(el) * d); cam.lookAt(tgt); cam.updateMatrixWorld(); };
   const y = (p: THREE.Vector3) => v.copy(p).project(cam).y, x = (p: THREE.Vector3) => v.copy(p).project(cam).x;
-  // 거리 d 에서 부지 위아래(먼 변 위 · 앞 변)의 가운데가 화면 가운데보다 FULL_UP 위(하늘을 줄이려)에 오는 바라볼 점(앞뒤) 자리
+  // 거리 d 에서 부지 위아래(먼 변 위 · 앞 변)의 가운데가 화면 가운데보다 FULL_UP 위(위 하늘을 줄이고 아래 땅을 더 보임)에 오는 바라볼 점(앞뒤) 자리
   const aimAt = (d: number) => { let lo = z0 - H, hi = z0 + 2 * H; for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; put(d, m); if ((y(far[0]) + y(near[0])) / 2 > FULL_UP) hi = m; else lo = m; } return (lo + hi) / 2; };
   const ok = (d: number) => { put(d, aimAt(d)); return Math.abs(x(near[0])) <= over && Math.abs(x(near[1])) <= over && y(near[0]) >= FULL_BOT && y(far[0]) <= FULL_TOP; };
   let lo = 50, hi = 20000; for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (ok(m)) hi = m; else lo = m; }
