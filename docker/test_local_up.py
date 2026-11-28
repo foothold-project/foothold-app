@@ -38,6 +38,7 @@ def assets(folder):
         (folder / name).write_bytes(data)
         lines.append(f'{hashlib.sha256(data).hexdigest()}  ./{name}')
     (folder / 'SHA256SUMS').write_text('\n'.join(lines) + '\n')
+    (folder / 'README.md').write_text('synthetic bundle notes\n')  # the bundle's README is not listed
     return folder
 
 
@@ -139,16 +140,24 @@ def test_generated_value_used_only_for_blank_env_keys(checkout, tmp_path):
     assert seed.read_secrets(tmp_path / 'accounts.env') == passwords
 
 
-def test_sim_assets_missing_or_blank_stops_with_guidance(checkout, tmp_path, monkeypatch):
-    for value in ('', str(tmp_path / 'absent')):
-        monkeypatch.setenv('FH_SIM_ASSETS', value)
-        with pytest.raises(SystemExit, match='FH_SIM_ASSETS') as error:
-            local_up.prepare(checkout, tmp_path / 'accounts.env', docker=True, check=False)
-        assert 'SHA256SUMS' in str(error.value) and 'http' not in str(error.value)
+def test_sim_assets_absent_folder_stops_with_guidance(checkout, tmp_path, monkeypatch):
+    monkeypatch.setenv('FH_SIM_ASSETS', str(tmp_path / 'absent'))
+    with pytest.raises(SystemExit, match='FH_SIM_ASSETS') as error:
+        local_up.prepare(checkout, tmp_path / 'accounts.env', docker=True, check=False)
+    assert 'SHA256SUMS' in str(error.value) and 'http' not in str(error.value)
     assert not (tmp_path / 'accounts.env').exists()
 
 
-@pytest.mark.parametrize('damage', ['changed', 'removed', 'no_sums', 'escape'])
+def test_blank_sim_assets_starts_without_sim(checkout, tmp_path, monkeypatch, capsys):
+    """Assets are optional: blank FH_SIM_ASSETS starts db · server · web, only /sim/ is missing."""
+    monkeypatch.setenv('FH_SIM_ASSETS', '')
+    values, passwords = local_up.prepare(checkout, tmp_path / 'accounts.env', docker=True, check=False)
+    assert 'FH_SIM_ASSETS' in capsys.readouterr().out
+    command, env = local_up.compose(checkout, passwords, values)
+    assert 'FH_SIM_ASSETS' not in env  # compose then mounts its empty read-only volume
+
+
+@pytest.mark.parametrize('damage', ['changed', 'removed', 'no_sums', 'escape', 'empty_sums', 'linked', 'unlisted'])
 def test_sim_assets_hash_mismatch_stops(checkout, tmp_path, monkeypatch, damage):
     folder = assets(tmp_path / 'other-assets')
     if damage == 'changed':
@@ -157,12 +166,23 @@ def test_sim_assets_hash_mismatch_stops(checkout, tmp_path, monkeypatch, damage)
         (folder / 'ort/ort.wasm.min.mjs').unlink()
     elif damage == 'no_sums':
         (folder / 'SHA256SUMS').unlink()
+    elif damage == 'empty_sums':
+        (folder / 'SHA256SUMS').write_text('\n')
+    elif damage == 'linked':
+        # A listed copy replaced by a link to another listed file: same digest, still inside.
+        data = (folder / 'policy_v2.onnx').read_bytes()
+        (folder / 'copy.onnx').symlink_to('policy_v2.onnx')
+        with (folder / 'SHA256SUMS').open('a') as sums:
+            sums.write(hashlib.sha256(data).hexdigest() + '  ./copy.onnx\n')
+    elif damage == 'unlisted':
+        (folder / 'ort/extra.mjs').write_bytes(b'not in SHA256SUMS')
     else:
         (tmp_path / 'outside').write_bytes(b'x')
         with (folder / 'SHA256SUMS').open('a') as sums:
             sums.write(hashlib.sha256(b'x').hexdigest() + '  ../outside\n')
     monkeypatch.setenv('FH_SIM_ASSETS', str(folder))
-    with pytest.raises(SystemExit, match='시뮬 자산'):
+    # An empty list must be refused as empty, not only because every file is then unlisted.
+    with pytest.raises(SystemExit, match='SHA256SUMS 가 비어' if damage == 'empty_sums' else '시뮬 자산'):
         local_up.prepare(checkout, tmp_path / 'accounts.env', docker=True, check=False)
 
 

@@ -45,7 +45,9 @@ def test_sim_assets_mounted_read_only_from_env():
     web = compose[compose.index('\n  web:'):compose.index('\nvolumes:')]
     mounts = [m for m in re.findall(r"^\s+- (.+)$", web, re.M) if 'FH_SIM_ASSETS' in m]
     assert len(mounts) == 1
-    assert re.fullmatch(r"'?\$\{FH_SIM_ASSETS:\?[^}]+\}:/workspace/sim-assets:ro'?", mounts[0]), mounts
+    # Blank: the empty named volume (assets are optional; only /sim/ is missing).
+    assert re.fullmatch(r"'?\$\{FH_SIM_ASSETS:-no_sim_assets\}:/workspace/sim-assets:ro'?", mounts[0]), mounts
+    assert re.search(r'^  no_sim_assets:$', compose[compose.index('\nvolumes:'):], re.M)
     assert re.search(r'^\s+FH_SIM_ASSETS: /workspace/sim-assets$', web, re.M)
     # The production asset place is not touched by the local stack.
     assert '/var/lib/foothold/sim-policy' not in compose

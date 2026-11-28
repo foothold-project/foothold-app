@@ -36,18 +36,26 @@ lockfile에 맞춘다. 서버 소스를 고치면 `docker compose up --build ser
 
 ## 다른 PC 에서 처음 띄우기 (Docker)
 
+자산은 필수가 아니다(운영 결정 2026-11-28). **자산이 없으면 시뮬만 빠진다**: db · server · web 은 그대로 뜨고
+`/sim/` 은 안내 화면이다. 넣으려면 아래 2 · 3 단계를 하고 `python3 tools/local_up.py --docker` 를 다시 한다.
+
 1. 저장소를 clone 하고 루트로 간다.
 2. 시뮬 자산 묶음 `foothold-sim-assets`(정책 ONNX · ORT · MuJoCo · `README.md` · `SHA256SUMS`)를 팀에서 받아
    저장소 **밖** 폴더에 둔다. 공개 저장소에는 없다. `sha256sum -c SHA256SUMS` 로 확인할 수 있다.
+   컨테이너의 `node` 사용자(uid 1000)가 읽으므로 파일은 644 · 폴더는 755 로 두거나 uid 1000 소유로 둔다.
+   못 읽는 파일이 있으면 `/sim/` 안내 화면과 web 로그에 그렇게 적힌다.
 3. `.env` 또는 셸에 `FH_SIM_ASSETS=<그 폴더>` 를 적는다(셸 값이 이긴다).
-4. `python3 tools/local_up.py --docker`. 자산 폴더가 없거나 `SHA256SUMS` 와 한 파일이라도 다르면
-   받는 법을 한 줄로 알리고 멈춘다. 맞으면 `.env` · 계정 파일을 만들고 `docker compose up --build` 를 한다.
+4. `python3 tools/local_up.py --docker`. `FH_SIM_ASSETS` 가 비면 알리고 시뮬 없이 띄운다.
+   적은 폴더가 없거나, `SHA256SUMS` 가 비었거나, 한 파일이라도 다르거나, 링크 또는 목록에 없는 파일
+   (`README.md` · `SHA256SUMS` 만 예외)이 있으면 받는 법을 알리고 멈춘다(폴더 전체가 컨테이너에 붙기 때문).
+   맞으면 `.env` · 계정 파일을 만들고 `docker compose up --build` 를 한다.
 
-자산 폴더는 웹 컨테이너의 `/workspace/sim-assets` 에 **읽기 전용**으로 붙는다(`FH_SIM_ASSETS` 가 비면 Compose 가 시작을 거절).
+자산 폴더는 웹 컨테이너의 `/workspace/sim-assets` 에 **읽기 전용**으로 붙는다(`FH_SIM_ASSETS` 가 비면 빈 볼륨 `no_sim_assets` 가 읽기 전용으로 붙는다).
 운영 서버는 지금처럼 `/var/lib/foothold/sim-policy` 를 쓰며 이 구성과 무관하다.
 웹 컨테이너는 시작할 때(`docker/web-start.sh`) `npm ci` 뒤 `deploy/prepare_sim.py mobile/sim /workspace/sim-assets /tmp/fh-sim`
 을 `node` 사용자로 한 번 돌리고(root 로 돌리면 사용자 소유 자산을 거절한다), `FH_SIM_DIR=/tmp/fh-sim/sim` 으로 Vite 를 띄운다.
-Vite 의 `localSim` 이 그 폴더를 `/sim/` 으로 내준다. 준비가 실패해도(rc 0 아님) 웹은 뜨고 `/sim/` 은 만드는 법 안내 화면이다.
+Vite 의 `localSim` 이 그 폴더를 `/sim/` 으로 내준다. 자산 자리가 비었으면 준비를 건너뛴다. `node` 가 못 읽는 자산이 있거나
+준비가 실패하면(rc 0 아님) 반쯤 만든 폴더를 지우고 까닭을 적은 안내 화면을 `/sim/` 에 두며, 웹은 그대로 뜬다.
 
 ## 입구 스크립트와 Docker 없이 띄우기
 

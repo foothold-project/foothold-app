@@ -71,8 +71,13 @@ ASSETS_HELP = ('시뮬 자산이 없습니다: 팀의 foothold-sim-assets 묶음
                '이 PC 에 두고 .env 또는 셸의 FH_SIM_ASSETS 에 그 폴더를 적으세요')
 
 
+# Bundle files that SHA256SUMS does not list; nothing reads them.
+UNLISTED = {'SHA256SUMS', 'README.md'}
+
+
 def check_assets(place):
-    """Every SHA256SUMS line must name a regular file inside the folder with that digest."""
+    """Every SHA256SUMS line must name a regular file inside the folder with that digest,
+    and every file in the folder (except UNLISTED) must be listed: the whole folder is mounted."""
     if not place:
         raise SystemExit(ASSETS_HELP + ' (FH_SIM_ASSETS 가 비어 있음)')
     root = Path(place).expanduser().resolve()
@@ -82,9 +87,15 @@ def check_assets(place):
     lines = [line.split(None, 1) for line in sums.read_text().splitlines() if line.strip()]
     if not lines:
         raise SystemExit('시뮬 자산의 SHA256SUMS 가 비어 있습니다')
+    # No links anywhere (so a listed name cannot point at another file), and nothing unlisted.
+    listed = {os.path.normpath(name.strip().lstrip('*')) for _, name in lines}
+    for path in root.rglob('*'):
+        name = path.relative_to(root).as_posix()
+        if path.is_symlink() or (not path.is_dir() and name not in listed | UNLISTED):
+            raise SystemExit(f'시뮬 자산에 링크나 SHA256SUMS 에 없는 파일이 있습니다: {name} · 묶음을 다시 받으세요')
     for digest, name in lines:
         path = root / name.strip().lstrip('*')
-        if (not path.resolve().is_relative_to(root) or path.is_symlink() or not path.is_file()
+        if (not path.resolve().is_relative_to(root) or not path.is_file()
                 or hashlib.sha256(path.read_bytes()).hexdigest() != digest.lower()):
             raise SystemExit(f'시뮬 자산이 SHA256SUMS 와 다릅니다: {name.strip()} · 묶음을 다시 받으세요')
     return str(root)
@@ -106,8 +117,10 @@ def prepare(repository, secrets_file, *, docker, check=True, db_running=False, s
     for key in keys:
         if not values.get(key, '').isdigit():
             raise SystemExit(f'.env 의 {key} 를 숫자로 채우세요')
-    if docker:
-        values['FH_SIM_ASSETS'] = check_assets(values.get('FH_SIM_ASSETS', ''))
+    if docker and values.get('FH_SIM_ASSETS'):
+        values['FH_SIM_ASSETS'] = check_assets(values['FH_SIM_ASSETS'])
+    elif docker:
+        print(ASSETS_HELP + ' · 지금은 시뮬 없이 띄웁니다 (/sim/ 은 안내 화면)')
     busy = [f'{key}={values[key]}' for key in keys if check and not port_free(values[key])]
     if busy:
         raise SystemExit('이미 쓰는 포트: ' + ', '.join(busy) + ' · .env 에서 빈 포트로 바꾸세요'
@@ -122,7 +135,11 @@ def compose(repository, passwords, values):
     """Compose reads only .env; resolved passwords travel in the shell environment,
     which Compose ranks above .env, so blank .env fields are filled and filled ones kept."""
     command = ['docker', 'compose', '--env-file', str(Path(repository) / '.env'), 'up', '--build']
-    return command, {**os.environ, **passwords, 'FH_SIM_ASSETS': values['FH_SIM_ASSETS']}
+    env = {**os.environ, **passwords}
+    env.pop('FH_SIM_ASSETS', None)
+    if values.get('FH_SIM_ASSETS'):
+        env['FH_SIM_ASSETS'] = values['FH_SIM_ASSETS']
+    return command, env
 
 
 def private_file(path, text):
