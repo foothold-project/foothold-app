@@ -1,7 +1,7 @@
 // 팀장 03:19 · 03:20 관제 「지도 보기」 전체 보기: 공장 전체가 칸을 꽉 · 멀어져도 지도는 안개에 덮이지 않음 · 컷 없이 날아감(끌면 멈춤 · 움직임 줄이기면 바로)
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
-import { FLY_S, FULL_PAD, SITE_FOV, SITE_R, flight, fogFor, fullShot, nearShot, shotOf, type SiteShot } from '../proto/u5map';
+import { FLY_S, FULL_BOT, FULL_OVER, FULL_TOP, LIFT_MAX, SITE_FOV, SITE_R, flight, fogFor, fullShot, nearShot, shotOf, type SiteShot } from '../proto/u5map';
 import { K, OX, OY, SITE_PX_H, SITE_PX_W } from '../proto/site';
 
 const AR = 1306 / 798;
@@ -9,12 +9,14 @@ const camOf = (s: SiteShot) => { const c = new THREE.PerspectiveCamera(SITE_FOV,
   c.position.set(t.x + Math.sin(s.az) * Math.cos(s.el) * s.d, Math.sin(s.el) * s.d, t.z + Math.cos(s.az) * Math.cos(s.el) * s.d); c.lookAt(t); c.updateMatrixWorld(); return c; };
 
 describe('지도 보기 전체 보기', () => {
-  it('부지 네 모서리가 칸 안에 들고, 가로나 세로 한쪽은 여백 FULL_PAD 까지 꽉', () => {
+  it('꽉 채움(03:42): 앞 변은 칸 폭을 조금 넘침(FULL_OVER) · 먼 변은 FULL_TOP 아래 · 위 하늘은 칸 높이 10 % 안', () => {
     const c = camOf(fullShot(AR)), W = SITE_PX_W / K, H = SITE_PX_H / K, x0 = -OX / K, z0 = -OY / K;
-    const ps = [[x0, z0], [x0 + W, z0], [x0, z0 + H], [x0 + W, z0 + H]].map(([x, z]) => new THREE.Vector3(x, 0, z).project(c));
-    for (const p of ps) { expect(Math.abs(p.x)).toBeLessThanOrEqual(FULL_PAD + 1e-6); expect(Math.abs(p.y)).toBeLessThanOrEqual(FULL_PAD + 1e-6); }
-    const span = Math.max(Math.max(...ps.map((p) => p.x)) - Math.min(...ps.map((p) => p.x)), Math.max(...ps.map((p) => p.y)) - Math.min(...ps.map((p) => p.y)));
-    expect(span).toBeGreaterThan(2 * FULL_PAD * 0.9);
+    const p = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z).project(c);
+    const far = p(x0, 25, z0), nl = p(x0, 0, z0 + H), nr = p(x0 + W, 0, z0 + H);
+    expect(far.y).toBeLessThanOrEqual(FULL_TOP + 1e-3); expect((1 - far.y) / 2).toBeLessThan(0.1);
+    expect(nl.x).toBeLessThan(-1); expect(Math.abs(nl.x)).toBeLessThanOrEqual(FULL_OVER + 1e-3); expect(nl.y).toBeGreaterThanOrEqual(FULL_BOT - 1e-3);
+    expect(nr.x).toBeCloseTo(-nl.x, 3);
+    expect(LIFT_MAX).toBeLessThanOrEqual(60);
   });
   it('안개는 부지 밖에서만 시작(거리 + 부지 반 대각선) · 전체 보기 거리에서도 지도 위는 안개 0', () => {
     const d = fullShot(AR).d, f = fogFor(d);

@@ -14,6 +14,8 @@ const ST_COL = { walk: 0x00c389, link: 0xf2b705, rest: 0x4c9bff, bad: 0xff4d4f, 
 /** 지도 보기 로봇 모형 배율(시안 data-site scale 20 → 12 · 팀장 02:03 «모형이 큼» · 점 · 줄기와 어울리게). 고리 · 빛 웅덩이도 이 배율 */
 export const MAP_GO2_S = 12;
 const S = MAP_GO2_S, STEM = 16;
+/** 이름표를 겹침 피하려 위로 밀 수 있는 최대(px). 넘으면 겹침을 받아들임 */
+export const LIFT_MAX = 44;
 // 시뮬 로봇은 시안 K-08 처럼 늘 파란 꼴(상자 아이콘 · 점선 이름표 · 파란 고리). 시뮬 경고는 타일 · 오른쪽 줄에 남음
 const tone = (f: TileFacts): keyof typeof ST_COL => (f.sim ? 'rest' : f.level === 'bad' || f.level === 'crit' ? 'bad' : f.lostNow ? 'link' : f.walk ? 'walk' : 'idle');
 const poseOf = (f: TileFacts) => sitePose((f.x.unknown === 'summary' ? null : rt.get(f.x.id).state?.location) ?? (f.x.unknown === 'summary' ? null : f.x.location));
@@ -45,19 +47,20 @@ export const shotMix = (a: SiteShot, b: SiteShot, t: number): SiteShot => { cons
   return { tgt: a.tgt.clone().lerp(b.tgt, e), el: a.el + (b.el - a.el) * e, az: a.az + (b.az - a.az) * e, d: a.d + (b.d - a.d) * e }; };
 /** 움직임 시간: 움직임 줄이기면 0(바로 끝) */
 export const flyTime = () => (calm() ? 0 : FLY_S);
-/** 「전체 보기」 시점(팀장 03:19): 공장 부지 둘레 상자(땅 위 네 모서리 · 높이 FULL_H)가 칸 폭 · 높이 · 시야각 안에 꽉(여백 FULL_PAD) ·
- *  정북 · 아래로 SITE_EL · 바라볼 점 = 부지 가운데. 거리는 모서리 투영으로 반 가르기(가장 가까운 거리) */
-export const FULL_PAD = 0.94, FULL_H = 25;
-export function fullShot(aspect: number): SiteShot {
-  const W = SITE_PX_W / K, H = SITE_PX_H / K, x0 = -OX / K, z0 = -OY / K, el = (SITE_EL * Math.PI) / 180;
-  const tgt = new THREE.Vector3(x0 + W / 2, 0, z0 + H / 2), cam = new THREE.PerspectiveCamera(SITE_FOV, aspect, 1, 1e5), v = new THREE.Vector3();
-  const corners = [0, FULL_H].flatMap((y) => [[x0, z0], [x0 + W, z0], [x0, z0 + H], [x0 + W, z0 + H]].map(([x, z]) => new THREE.Vector3(x, y, z)));
-  const fits = (d: number) => {
-    cam.position.set(tgt.x, Math.sin(el) * d, tgt.z + Math.cos(el) * d); cam.lookAt(tgt); cam.updateMatrixWorld();
-    return corners.every((c) => { v.copy(c).project(cam); return v.z < 1 && Math.abs(v.x) <= FULL_PAD && Math.abs(v.y) <= FULL_PAD; });
-  };
-  let lo = 50, hi = 20000; for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (fits(m)) hi = m; else lo = m; }
-  return { tgt, el, az: 0, d: hi };
+/** 「전체 보기」 시점(팀장 03:19 · 03:42 «꽉»): 정북 · 아래로 FULL_EL(첫 시점보다 조금 더 내려다봐 위 하늘을 줄임).
+ *  가까운 변(앞 모서리 둘)이 칸 폭을 FULL_OVER 만큼 넘치게(양옆 몇 % 잘림 허용) 하는 가장 가까운 거리 · 먼 변(높이 FULL_H)은 FULL_TOP 아래 · 앞 변은 FULL_BOT 위. 거리 · 바라볼 점은 반 가르기 */
+export const FULL_TOP = 0.93, FULL_OVER = 1.12, FULL_BOT = -0.97, FULL_H = 25, FULL_EL = 54, FULL_UP = 0.06;
+export function fullShot(aspect: number, elDeg = FULL_EL, over = FULL_OVER): SiteShot {
+  const W = SITE_PX_W / K, H = SITE_PX_H / K, x0 = -OX / K, z0 = -OY / K, el = (elDeg * Math.PI) / 180;
+  const cam = new THREE.PerspectiveCamera(SITE_FOV, aspect, 1, 1e5), v = new THREE.Vector3(), tgt = new THREE.Vector3();
+  const far = [new THREE.Vector3(x0, FULL_H, z0), new THREE.Vector3(x0 + W, FULL_H, z0)], near = [new THREE.Vector3(x0, 0, z0 + H), new THREE.Vector3(x0 + W, 0, z0 + H)];
+  const put = (d: number, tz: number) => { tgt.set(x0 + W / 2, 0, tz); cam.position.set(tgt.x, Math.sin(el) * d, tz + Math.cos(el) * d); cam.lookAt(tgt); cam.updateMatrixWorld(); };
+  const y = (p: THREE.Vector3) => v.copy(p).project(cam).y, x = (p: THREE.Vector3) => v.copy(p).project(cam).x;
+  // 거리 d 에서 부지 위아래(먼 변 위 · 앞 변)의 가운데가 화면 가운데보다 FULL_UP 위(하늘을 줄이려)에 오는 바라볼 점(앞뒤) 자리
+  const aimAt = (d: number) => { let lo = z0 - H, hi = z0 + 2 * H; for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; put(d, m); if ((y(far[0]) + y(near[0])) / 2 > FULL_UP) hi = m; else lo = m; } return (lo + hi) / 2; };
+  const ok = (d: number) => { put(d, aimAt(d)); return Math.abs(x(near[0])) <= over && Math.abs(x(near[1])) <= over && y(near[0]) >= FULL_BOT && y(far[0]) <= FULL_TOP; };
+  let lo = 50, hi = 20000; for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (ok(m)) hi = m; else lo = m; }
+  const tz = aimAt(hi); return { tgt: new THREE.Vector3(x0 + W / 2, 0, tz), el, az: 0, d: hi };
 }
 /** 안개는 지도 밖 땅만: 시작 = 바라볼 점까지 거리 + 부지 반 대각선(지도 어디도 안개 앞) · 끝 = 시작 + FOG_LEN. 지도 밝기는 거리와 상관없음 */
 export const SITE_R = Math.hypot(SITE_PX_W / K, SITE_PX_H / K) / 2, FOG_LEN = 1200;
@@ -214,6 +217,7 @@ export function SiteView({ all, sel, open, from, focus, home, homeTick = 0 }: { 
           const top = L.y - STEM - lift - L.bh, bot = L.y - STEM - lift;
           const hit = placed.find((p) => L.x - L.hw < p.r + 4 && L.x + L.hw > p.l - 4 && top < p.b + 4 && bot > p.t - 4);
           if (!hit) break; lift = L.y - STEM - (hit.t - 4);
+          if (lift > LIFT_MAX) { lift = LIFT_MAX; break; }   // 멀리 당겨 무리가 좁으면 겹침 피하기가 이름표를 높이 밀어 긴 줄이 달림(03:42) → 줄 길이 상한
         }
         placed.push({ l: L.x - L.hw, r: L.x + L.hw, t: L.y - STEM - lift - L.bh, b: L.y - STEM - lift });
         const st = L.el.querySelector('i'); if (st) (st as HTMLElement).style.height = `${STEM + lift}px`;
