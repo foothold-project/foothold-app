@@ -58,9 +58,10 @@ export function useRestartAsk(now: () => RestartNow) {
   };
 }
 
-/** 직결 조종 화면(simdrive · realdrive)의 「다시 시작」 확인 창 · 꼴은 그 화면의 .dv-ask(drive.css), 글은 u4_10 그대로 */
-export function RestartAskBox({ name, cancel, go }: { name: string; cancel: () => void; go: () => void }) {
-  return <div className="dv-ask" role="dialog" aria-labelledby="restart-ask-t" data-restart-ask>
+/** 직결 조종 화면(simdrive · realdrive · PC 시뮬 탭 · 임무 실행 칸)의 「다시 시작」 확인 창 · 꼴은 .dv-ask(drive.css), 글은 u4_10 그대로.
+ *  inline = 화면 위에 띄우지 않고 그 자리 줄에(PC 시뮬 탭 · 임무 실행 칸처럼 조종 판이 없는 곳) */
+export function RestartAskBox({ name, cancel, go, inline }: { name: string; cancel: () => void; go: () => void; inline?: boolean }) {
+  return <div className="dv-ask" role="dialog" aria-labelledby="restart-ask-t" data-restart-ask style={inline ? { position: 'static', transform: 'none', width: 'auto' } : undefined}>
     <b id="restart-ask-t">{RESTART_ASK(name)}</b><p>{RESTART_TEXT}</p>
     <div className="fh-row"><button type="button" className="btn" onClick={cancel}>취소</button>
       <button type="button" className="btn pri" data-restart-go onClick={go}>일어서기</button></div>
