@@ -77,6 +77,7 @@ export const POLICY_MODES = registerPolicyModes({
   go2: go2ReplayMode,
 });
 export const POLICY_ADAPTERS = Object.freeze(Object.fromEntries(Object.values(POLICY_MODES).map((mode) => [mode.id, mode])));
+// Node core default (sim.js, simmgr); the screen uses DEFAULT_PICK_POLICY_ID below.
 export const DEFAULT_POLICY_ID = POLICY_MODES.nvidia.id;
 const aliases = Object.freeze({ 'foothold-v2': 'nvidia-demo' });
 export function getPolicyMode(id = DEFAULT_POLICY_ID) {
@@ -84,4 +85,13 @@ export function getPolicyMode(id = DEFAULT_POLICY_ID) {
   const mode = Object.values(POLICY_MODES).find((mode) => mode.id === canonical);
   if (!mode) throw new Error(`알 수 없는 정책 모드: ${id}`);
   return mode;
+}
+// Screen choice (operating decision 2026-11-28): START (m15500) · AME-2. nvidia-demo stays
+// registered for old records and the Node core but is never picked; old links open START.
+export const PICK_POLICY_IDS = Object.freeze([POLICY_MODES.start.id, POLICY_MODES.ame2.id]);
+export const DEFAULT_PICK_POLICY_ID = POLICY_MODES.start.id;
+export function pickPolicyId(requested) {
+  if (requested == null) return DEFAULT_PICK_POLICY_ID;
+  const mode = getPolicyMode(requested);
+  return mode === POLICY_MODES.nvidia ? DEFAULT_PICK_POLICY_ID : mode.id;
 }

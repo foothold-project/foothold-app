@@ -17,9 +17,10 @@ AME2_SHA = {
     "ame2_actor.json": "92ddf3db0b36582b72d9e136e2749a2edf21dbc4156875ecf603c36dc3711fe7",
 }
 # docs/AME2-PROVENANCE.md and docs/POLICY-PROVENANCE.md, FP32 ONNX exports.
+# start = m15500 (canon 3), the same pins as the robot runner (apps/agent).
 ONNX_SHA = {
-    "start-m13000_map_on.onnx": "4799677acdc9fbc22da28fd56fefa3181f24b38b198e3bea02270c1c1cd11d93",
-    "start-m13000_map_off.onnx": "8317548f51a046afb537c212eec47a12b2888b6ea049fa84361d83aa8c30849f",
+    "start-m15500_map_on.onnx": "df91c2d772c7d054e33c74fca479e79550cfd228d7682402f7eef4a0865e279f",
+    "start-m15500_map_off.onnx": "be6c8b103d3b39503447ee71076ec199e5ed0688c3540ccfe449a96d6e2a9a41",
     "ame2-demo.onnx": "830595df1e78072c0606b5193d1ba787720ff6777edc7cabe496b8c1a9d25de6",
     "policy_v2.onnx": "c9f3c5c00c6b3b3a41daf96b5de46f18673af23718ffbf8ecd84c77969bf27e2",
 }
@@ -30,6 +31,9 @@ ORT_SHA = {
     "ort-wasm-simd-threaded.wasm": "4b884c203b0fa48d057be3332c65513ff85aa3c5bddd6946acc0fab7ecda001d",
 }
 MUJOCO_VERSION = "3.17.0"
+# Checked-in policies (assets/sim-policy, operating decision 2026-11-28), used for an
+# ONNX_SHA name the bundle does not have. The runtime and policy_v2 stay in the bundle.
+REPO_POLICY = Path(__file__).resolve().parents[1] / "assets/sim-policy"
 
 
 class SimulatorUnavailable(ValueError):
@@ -73,6 +77,16 @@ def validate_tree(root, private=False):
             regular(path)
 
 
+def repo_sums(folder):
+    """SHA256SUMS of the checked-in policies; a missing list means no checked-in policy."""
+    try:
+        lines = regular(folder / "SHA256SUMS").read_text().splitlines()
+    except FileNotFoundError:
+        return {}
+    return {name.strip().lstrip("*").removeprefix("./"): digest.lower()
+            for digest, name in (line.split(None, 1) for line in lines if line.strip())}
+
+
 def package(source, private, dist):
     target = dist / "sim"
     # Never retain an unverified simulator produced by npm or an older build.
@@ -82,6 +96,7 @@ def package(source, private, dist):
         shutil.rmtree(target)
     validate_tree(source)
     validate_tree(private, private=True)
+    validate_tree(REPO_POLICY)
     try:
         return copy_simulator(source, private, target)
     except (SimulatorUnavailable, FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError):
@@ -129,17 +144,23 @@ def copy_simulator(source, private, target):
         destination.chmod(0o644)
     # Optional exports must never remove the existing f32 simulator on absence
     # or bad SHA. Use an explicit allowlist; crop/test models are not published.
+    sums = repo_sums(REPO_POLICY)
     for name, digest in ONNX_SHA.items():
         destination = target / name
         destination.unlink(missing_ok=True)
         try:
+            # The bundle comes first; its copy is never replaced when it is wrong.
             origin = private / name
+            if not origin.exists() and not origin.is_symlink():
+                origin = REPO_POLICY / name
+                if sums.get(name) != digest:
+                    raise SimulatorUnavailable("Checked-in policy is not listed with its provenance SHA-256")
             verify(origin, digest)
             shutil.copyfile(origin, destination)
             destination.chmod(0o644)
         except (FileNotFoundError, SimulatorUnavailable):
             destination.unlink(missing_ok=True)
-            detail = "start mode unavailable (no f32 fallback)" if name.startswith("start-m13000_") else "retaining f32 fallback"
+            detail = "start mode unavailable (no f32 fallback)" if name.startswith("start-m15500_") else "retaining f32 fallback"
             print(f"WARNING: {name} absent or SHA-256 differs from provenance; {detail}.", file=sys.stderr)
     ort = target / "ort"
     if ort.exists():

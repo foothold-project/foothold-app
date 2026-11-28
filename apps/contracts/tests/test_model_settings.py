@@ -47,3 +47,16 @@ def test_real_cap_defaults_bounds_sparse_patch_and_model_isolation(field, maximu
                 model(**{field: value})
     with pytest.raises(ValidationError):
         OrgSettingsPatch(model_overrides={'nvidia-demo': {field: 0}})
+
+
+def test_retired_nvidia_demo_is_read_but_not_newly_chosen():
+    """Operating decision 2026-11-28: nvidia-demo (policy_v2) is no longer picked.
+    Stored overrides stay readable; a patch may only clear them."""
+    stored = OrgSettings(model_overrides={'nvidia-demo': {'sim_key_vx': .4}})
+    assert stored.model_overrides == {'nvidia-demo': {'sim_key_vx': .4}}
+    assert OrgSettingsPatch(model_overrides={'nvidia-demo': {'sim_key_vx': None}}).model_dump(
+        exclude_unset=True) == {'model_overrides': {'nvidia-demo': {'sim_key_vx': None}}}
+    with pytest.raises(ValidationError, match='nvidia-demo'):
+        OrgSettingsPatch(model_overrides={'nvidia-demo': {'sim_key_vx': .4}})
+    for model in ('ame2-demo', 'start-demo'):
+        OrgSettingsPatch(model_overrides={model: {'sim_key_vx': .4}})

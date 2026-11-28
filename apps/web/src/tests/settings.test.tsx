@@ -448,11 +448,13 @@ describe('모델별 시뮬 값(11-04 model_overrides)', () => {
     const src = Object.values(import.meta.glob('../../../../mobile/sim/{policy-adapters,ame2-adapter,start-demo-adapter}.js', { query: '?raw', eager: true, import: 'default' })).join();
     for (const [id] of SIM_MODELS) expect(src).toContain(`id: '${id}'`);
     expect(SIM_MODELS.map(([id]) => id)).not.toContain('go2-demo');
+    // 운영 결정 2026-11-28: 시안의 START (m15500) · AME-2 만. nvidia-demo (policy_v2) 는 고르지 않는다
+    expect(SIM_MODELS.map(([id]) => id)).toEqual(['start-demo', 'ame2-demo']);
   });
   it('조작 묶음: 공통 + 세 모델, 처음엔 공통 화면 그대로 / 안전 묶음: «공통»만 + «모델별 값 없음»', async () => {
     serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG } }));
     await open();
-    expect(chips().map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([['공통', 'true'], ['nvidia', 'false'], ['AME-2', 'false'], ['start', 'false']]);
+    expect(chips().map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([['공통', 'true'], ['START', 'false'], ['AME-2', 'false']]);
     expect($('[data-model]')).toBeNull();
     expect(panel('안전').textContent).toContain('실기에서 도는 모델이 하나뿐이라 모델별 값 없음');
     expect([...panel('안전').querySelectorAll('[aria-label="실기 값을 고칠 모델"] button')].map((b) => b.textContent)).toEqual(['공통']);
@@ -477,25 +479,25 @@ describe('모델별 시뮬 값(11-04 model_overrides)', () => {
     expect(($('input[name="sim_max_vx"]', panel('조작')) as HTMLInputElement).value).toBe('0.5');
   });
   it('덮어쓰기: 그 모델의 바뀐 칸만 PATCH(공통 칸 없음), 다른 모델로 갔다 와도 쓰던 칸 유지', async () => {
-    const next = { ...ORG, model_overrides: { 'nvidia-demo': { sim_key_vx: 0.45 } } };
+    const next = { ...ORG, model_overrides: { 'ame2-demo': { sim_key_vx: 0.45 } } };
     serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG }, [PATCH]: { status: 200, body: next } }));
     await open();
-    await chip('nvidia');
-    setVal(field('nvidia-demo', 'sim_key_vx'), '0.45');
-    expect(tag('nvidia-demo', 'sim_key_vx')).toBe('이 모델 값 · 저장 전');
-    await chip('start');
+    await chip('AME-2');
+    setVal(field('ame2-demo', 'sim_key_vx'), '0.45');
+    expect(tag('ame2-demo', 'sim_key_vx')).toBe('이 모델 값 · 저장 전');
+    await chip('START');
     expect(field('start-demo', 'sim_key_vx').value).toBe('0.4');
-    await chip('nvidia');
-    expect(field('nvidia-demo', 'sim_key_vx').value).toBe('0.45');
-    await submit(form('nvidia-demo', '조종 입력·임무 실행기'));
-    expect(sent('PATCH', '/org/settings').map((c) => c.body)).toEqual([{ model_overrides: { 'nvidia-demo': { sim_key_vx: 0.45 } } }]);
-    expect(tag('nvidia-demo', 'sim_key_vx')).toBe('이 모델 값');
+    await chip('AME-2');
+    expect(field('ame2-demo', 'sim_key_vx').value).toBe('0.45');
+    await submit(form('ame2-demo', '조종 입력·임무 실행기'));
+    expect(sent('PATCH', '/org/settings').map((c) => c.body)).toEqual([{ model_overrides: { 'ame2-demo': { sim_key_vx: 0.45 } } }]);
+    expect(tag('ame2-demo', 'sim_key_vx')).toBe('이 모델 값');
     expect(tag('start-demo', 'sim_key_vx')).toBe('공통 값 사용(0.4 m/s)');
   });
   it('공통 값과 같은 값을 쳐 넣으면 공통 값 사용 그대로, 보내지 않음', async () => {
     serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG } }));
     await open();
-    await chip('start');
+    await chip('START');
     setVal(field('start-demo', 'sim_key_vx'), '0.4');
     expect(tag('start-demo', 'sim_key_vx')).toBe('공통 값 사용(0.4 m/s)');
     await submit(form('start-demo', '조종 입력·임무 실행기'));
@@ -519,7 +521,7 @@ describe('모델별 시뮬 값(11-04 model_overrides)', () => {
   it('저장 안 한 새 값 되돌리기: 초안만 지우고 null 을 보내지 않음', async () => {
     serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG } }));
     await open();
-    await chip('start');
+    await chip('START');
     setVal(field('start-demo', 'sim_key_vx'), '0.45');
     await click(btn('공통으로 되돌리기', scope('start-demo')));
     expect(field('start-demo', 'sim_key_vx').value).toBe('0.4');
@@ -531,7 +533,7 @@ describe('모델별 시뮬 값(11-04 model_overrides)', () => {
     let rep = err(422, 'VALIDATION', `start-demo: ${MSG}`);
     serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG }, [PATCH]: () => rep }));
     await open();
-    await chip('start');
+    await chip('START');
     const key = field('start-demo', 'sim_key_vx');
     setVal(key, '0.9');
     await submit(form('start-demo', '조종 입력·임무 실행기'));
@@ -559,18 +561,18 @@ describe('모델별 시뮬 값(11-04 model_overrides)', () => {
     expect(document.getElementById(max.getAttribute('aria-describedby')!)!.textContent).toBe('AME-2 모델 값과 맞지 않아 저장하지 못했습니다. 시뮬 키보드 전진 속도는 최대 전진 속도 이하여야 합니다.');
     rep = err(422, 'VALIDATION', 'start-demo: 시뮬 에이전트 상한을 넘습니다.');
     await submit($('form', cap)!);
-    expect($('[role="alert"].fh-msg:not([id])', cap)!.textContent).toBe('start 모델 값과 맞지 않아 저장하지 못했습니다. 시뮬 에이전트 상한을 넘습니다.');
+    expect($('[role="alert"].fh-msg:not([id])', cap)!.textContent).toBe('START 모델 값과 맞지 않아 저장하지 못했습니다. 시뮬 에이전트 상한을 넘습니다.');
   });
   it('공통 값을 저장하면 모델 화면의 «공통 값 사용(값)» 도 바뀜', async () => {
     serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG }, [PATCH]: { status: 200, body: { ...ORG, lidar_view_m: 20 } } }));
     await open();
-    await chip('nvidia');
+    await chip('AME-2');
     await chip('공통');
     const c = $('[aria-label="표시"]', panel('조작'))!;
     setVal($<HTMLInputElement>('input[name="lidar_view_m"]', c)!, '20');
     await submit($('form', c)!);
-    expect(tag('nvidia-demo', 'lidar_view_m')).toBe('공통 값 사용(20 m)');
-    expect(field('nvidia-demo', 'lidar_view_m').value).toBe('20');
+    expect(tag('ame2-demo', 'lidar_view_m')).toBe('공통 값 사용(20 m)');
+    expect(field('ame2-demo', 'lidar_view_m').value).toBe('20');
   });
   it('운영 관리자: 모델 값을 볼 수 있지만 고치지 못함(되돌리기 없음·저장 비활성)', async () => {
     serve(signedIn(LEE, { 'GET /org/settings': { status: 200, body: withAme } }));

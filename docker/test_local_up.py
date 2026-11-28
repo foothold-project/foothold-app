@@ -186,6 +186,21 @@ def test_sim_assets_hash_mismatch_stops(checkout, tmp_path, monkeypatch, damage)
         local_up.prepare(checkout, tmp_path / 'accounts.env', docker=True, check=False)
 
 
+@pytest.mark.parametrize('place', ['sim-assets', './sim-assets', '~/sim-assets'])
+def test_relative_sim_assets_refused(checkout, tmp_path, monkeypatch, place):
+    """Compose reads a bare relative name as a named volume (rc 1); ask for an absolute path."""
+    monkeypatch.setenv('HOME', str(tmp_path / 'home'))
+    monkeypatch.chdir(tmp_path)  # tmp_path/sim-assets is a valid bundle, so only the form is wrong
+    monkeypatch.setenv('FH_SIM_ASSETS', place)
+    if place.startswith('~'):
+        assets(tmp_path / 'home/sim-assets')
+        values, _ = local_up.prepare(checkout, tmp_path / 'accounts.env', docker=True, check=False)
+        assert values['FH_SIM_ASSETS'] == str(tmp_path / 'home/sim-assets')  # ~ expands to an absolute path
+        return
+    with pytest.raises(SystemExit, match='절대 경로'):
+        local_up.prepare(checkout, tmp_path / 'accounts.env', docker=True, check=False)
+
+
 def test_sim_assets_place_from_env_over_env_file(checkout, tmp_path, monkeypatch):
     good = assets(tmp_path / 'chosen')
     fill_env(checkout, FH_SIM_ASSETS=str(tmp_path / 'absent'))

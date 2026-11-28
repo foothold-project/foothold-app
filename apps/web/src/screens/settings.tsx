@@ -41,7 +41,8 @@ const Later = ({ items, label }: { label: string; items: [string, string][] }) =
 
 /** 시뮬 탭에서 고를 모델: 등록부(mobile/sim/policy-modes.js) 정식 id·이름. go2-demo 는 명령·물리 없는 보기 전용이라 고칠 값이 없어 뺀다.
  *  등록부에 실기로 도는 모델이 없어 실기 탭은 «공통»만 보인다 */
-export const SIM_MODELS = [['nvidia-demo', 'nvidia'], ['ame2-demo', 'AME-2'], ['start-demo', 'start']] as const;
+// 시안의 START (m15500) · AME-2 만 (운영 결정 2026-11-28). nvidia-demo 는 고르지 않는다
+export const SIM_MODELS = [['start-demo', 'START'], ['ame2-demo', 'AME-2']] as const;
 
 /** 로봇이 0대여도 열리는 탭이라 Ctx 전체가 아니라 필요한 것만 받는다. 고른 탭은 화면 상태(주소 #해시 아님).
  *  묶음은 늘 그려 두고 hidden 으로만 숨긴다. 탭을 바꿔도 쓰던 칸·한 번만 보이는 임시 비밀번호가 사라지지 않게 */

@@ -391,6 +391,9 @@ Chrome WASM main/Worker 각각 `1.51991844e-6`이다(허용차 `1e-4`).
 `ame2-demo.onnx`와 기존 `ort/` 검증 파일 셋을 준비해야 한다. 서버 기본 입력 루트는
 `/var/lib/foothold/sim-policy/`이며 원격 복사는 이번 작업에서 하지 않는다.
 `deploy/prepare_sim.py`는 새 ONNX 부재·SHA 불일치 시 경고하고 기존 시뮬 패키징을 계속한다.
+운영 결정 2026-11-28 로 `ame2-demo.onnx` 는 저장소 `assets/sim-policy/` 에도 둔다 (foothold-lab
+`ame2-demo-app` 과 SHA 같음). 자산 묶음에 없을 때만 그 사본을 쓰며, 배포 묶음에는 들어가지 않으므로
+서버는 위 입력 루트를 그대로 쓴다 ([출처 기록](POLICY-PROVENANCE.md) 의 정책 자리).
 
 추가 Node 물리 비교는 6지도 각 300틱(6초), 명시적 지연 0/4의 12쌍을 기록했다.
 기본 지연 0인 factory-inspection에서 f32↔새 ONNX 위치 최대 차 `1.25133012 m`,
