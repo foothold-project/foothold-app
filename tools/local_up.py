@@ -12,6 +12,7 @@ Passwords are generated once into a 600 file outside the repository
 --no-docker needs apps/server/requirements-test.txt (pgserver) in the server venv.
 """
 import argparse
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -59,6 +60,29 @@ def port_free(port):
     return True
 
 
+ASSETS_HELP = ('시뮬 자산이 없습니다: 팀의 foothold-sim-assets 묶음(README · SHA256SUMS 포함)을 받아 '
+               '이 PC 에 두고 .env 또는 셸의 FH_SIM_ASSETS 에 그 폴더를 적으세요')
+
+
+def check_assets(place):
+    """Every SHA256SUMS line must name a regular file inside the folder with that digest."""
+    if not place:
+        raise SystemExit(ASSETS_HELP + ' (FH_SIM_ASSETS 가 비어 있음)')
+    root = Path(place).expanduser().resolve()
+    sums = root / 'SHA256SUMS'
+    if not root.is_dir() or not sums.is_file():
+        raise SystemExit(ASSETS_HELP + f' (FH_SIM_ASSETS={place} 에 SHA256SUMS 없음)')
+    lines = [line.split(None, 1) for line in sums.read_text().splitlines() if line.strip()]
+    if not lines:
+        raise SystemExit('시뮬 자산의 SHA256SUMS 가 비어 있습니다')
+    for digest, name in lines:
+        path = root / name.strip().lstrip('*')
+        if (not path.resolve().is_relative_to(root) or path.is_symlink() or not path.is_file()
+                or hashlib.sha256(path.read_bytes()).hexdigest() != digest.lower()):
+            raise SystemExit(f'시뮬 자산이 SHA256SUMS 와 다릅니다: {name.strip()} · 묶음을 다시 받으세요')
+    return str(root)
+
+
 def prepare(repository, secrets_file, *, docker, check=True, db_running=False):
     env_file = Path(repository) / '.env'
     if not env_file.exists():
@@ -73,6 +97,8 @@ def prepare(repository, secrets_file, *, docker, check=True, db_running=False):
     for key in keys:
         if not values.get(key, '').isdigit():
             raise SystemExit(f'.env 의 {key} 를 숫자로 채우세요')
+    if docker:
+        values['FH_SIM_ASSETS'] = check_assets(values.get('FH_SIM_ASSETS', ''))
     busy = [f'{key}={values[key]}' for key in keys if check and not port_free(values[key])]
     if busy:
         raise SystemExit('이미 쓰는 포트: ' + ', '.join(busy) + ' · .env 에서 빈 포트로 바꾸세요'
@@ -83,11 +109,11 @@ def prepare(repository, secrets_file, *, docker, check=True, db_running=False):
     return values, passwords
 
 
-def compose(repository, passwords):
+def compose(repository, passwords, values):
     """Compose reads only .env; resolved passwords travel in the shell environment,
     which Compose ranks above .env, so blank .env fields are filled and filled ones kept."""
     command = ['docker', 'compose', '--env-file', str(Path(repository) / '.env'), 'up', '--build']
-    return command, {**os.environ, **passwords}
+    return command, {**os.environ, **passwords, 'FH_SIM_ASSETS': values['FH_SIM_ASSETS']}
 
 
 def server_env(values, passwords, data):
@@ -161,7 +187,7 @@ def main():
     if args.docker:
         os.chdir(REPOSITORY)
         sys.stdout.flush()
-        command, env = compose(REPOSITORY, passwords)
+        command, env = compose(REPOSITORY, passwords, values)
         os.execvpe('docker', command, env)
     print('다음: python3 tools/local_up.py --docker  (또는 --no-docker)')
 

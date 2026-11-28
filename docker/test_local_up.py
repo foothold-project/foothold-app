@@ -2,6 +2,7 @@
 import importlib.util
 from pathlib import Path
 import shutil
+import hashlib
 import socket
 import stat
 
@@ -24,7 +25,20 @@ def checkout(tmp_path, monkeypatch):
     shutil.copyfile(REPOSITORY / '.env.example', root / '.env.example')
     for key in (*seed.secret_keys(), 'FH_API_PORT', 'FH_WEB_PORT', 'FH_DB_PORT'):
         monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv('FH_SIM_ASSETS', str(assets(tmp_path / 'sim-assets')))
     return root
+
+
+def assets(folder):
+    """A synthetic asset folder in the same shape: files plus SHA256SUMS."""
+    (folder / 'ort').mkdir(parents=True)
+    files = {'policy_v2.onnx': b'synthetic-policy', 'ort/ort.wasm.min.mjs': b'synthetic-ort'}
+    lines = []
+    for name, data in files.items():
+        (folder / name).write_bytes(data)
+        lines.append(f'{hashlib.sha256(data).hexdigest()}  ./{name}')
+    (folder / 'SHA256SUMS').write_text('\n'.join(lines) + '\n')
+    return folder
 
 
 def free_port():
@@ -111,7 +125,7 @@ def test_env_passwords_win_on_every_path(checkout, tmp_path):
     assert passwords['FH_BOOTSTRAP_PASSWORD'] and passwords['FH_BOOTSTRAP_PASSWORD'] not in filled.values()
     assert not set(filled) & set(seed.read_secrets(secrets_file))
     # (2) --docker: Compose reads only .env; the shell environment carries the same resolved values
-    command, env = local_up.compose(checkout, passwords)
+    command, env = local_up.compose(checkout, passwords, values)
     assert command.count('--env-file') == 1 and str(secrets_file) not in command
     assert {key: env[key] for key in passwords} == passwords
     # (3) --no-docker: the server sees the .env values
@@ -123,3 +137,48 @@ def test_generated_value_used_only_for_blank_env_keys(checkout, tmp_path):
     fill_env(checkout)
     _, passwords = local_up.prepare(checkout, tmp_path / 'accounts.env', docker=True, check=False)
     assert seed.read_secrets(tmp_path / 'accounts.env') == passwords
+
+
+def test_sim_assets_missing_or_blank_stops_with_guidance(checkout, tmp_path, monkeypatch):
+    for value in ('', str(tmp_path / 'absent')):
+        monkeypatch.setenv('FH_SIM_ASSETS', value)
+        with pytest.raises(SystemExit, match='FH_SIM_ASSETS') as error:
+            local_up.prepare(checkout, tmp_path / 'accounts.env', docker=True, check=False)
+        assert 'SHA256SUMS' in str(error.value) and 'http' not in str(error.value)
+    assert not (tmp_path / 'accounts.env').exists()
+
+
+@pytest.mark.parametrize('damage', ['changed', 'removed', 'no_sums', 'escape'])
+def test_sim_assets_hash_mismatch_stops(checkout, tmp_path, monkeypatch, damage):
+    folder = assets(tmp_path / 'other-assets')
+    if damage == 'changed':
+        (folder / 'policy_v2.onnx').write_bytes(b'tampered')
+    elif damage == 'removed':
+        (folder / 'ort/ort.wasm.min.mjs').unlink()
+    elif damage == 'no_sums':
+        (folder / 'SHA256SUMS').unlink()
+    else:
+        (tmp_path / 'outside').write_bytes(b'x')
+        with (folder / 'SHA256SUMS').open('a') as sums:
+            sums.write(hashlib.sha256(b'x').hexdigest() + '  ../outside\n')
+    monkeypatch.setenv('FH_SIM_ASSETS', str(folder))
+    with pytest.raises(SystemExit, match='시뮬 자산'):
+        local_up.prepare(checkout, tmp_path / 'accounts.env', docker=True, check=False)
+
+
+def test_sim_assets_place_from_env_over_env_file(checkout, tmp_path, monkeypatch):
+    good = assets(tmp_path / 'chosen')
+    fill_env(checkout, FH_SIM_ASSETS=str(tmp_path / 'absent'))
+    with pytest.raises(SystemExit, match='FH_SIM_ASSETS'):
+        monkeypatch.delenv('FH_SIM_ASSETS')
+        local_up.prepare(checkout, tmp_path / 'accounts.env', docker=True, check=False)
+    monkeypatch.setenv('FH_SIM_ASSETS', str(good))
+    values, passwords = local_up.prepare(checkout, tmp_path / 'accounts.env', docker=True, check=False)
+    assert values['FH_SIM_ASSETS'] == str(good)
+    command, env = local_up.compose(checkout, passwords, values)
+    assert env['FH_SIM_ASSETS'] == str(good)
+
+
+def test_no_docker_does_not_need_sim_assets(checkout, tmp_path, monkeypatch):
+    monkeypatch.setenv('FH_SIM_ASSETS', '')
+    local_up.prepare(checkout, tmp_path / 'accounts.env', docker=False, check=False)

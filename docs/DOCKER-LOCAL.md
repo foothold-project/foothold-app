@@ -34,6 +34,19 @@ lockfile에 맞춘다. 서버 소스를 고치면 `docker compose up --build ser
 시뮬 프로세스를 실행하지 않아도 필요하다. `worlds.json`이 참조하는 YAML·PNG·메타데이터·시나리오를
 빠뜨리지 않도록 `worlds` 디렉터리를 복사하고 `.dockerignore`에서도 허용한다.
 
+## 다른 PC 에서 처음 띄우기 (Docker)
+
+1. 저장소를 clone 하고 루트로 간다.
+2. 시뮬 자산 묶음 `foothold-sim-assets`(정책 ONNX · ORT · MuJoCo · `README.md` · `SHA256SUMS`)를 팀에서 받아
+   저장소 **밖** 폴더에 둔다. 공개 저장소에는 없다. `sha256sum -c SHA256SUMS` 로 확인할 수 있다.
+3. `.env` 또는 셸에 `FH_SIM_ASSETS=<그 폴더>` 를 적는다(셸 값이 이긴다).
+4. `python3 tools/local_up.py --docker`. 자산 폴더가 없거나 `SHA256SUMS` 와 한 파일이라도 다르면
+   받는 법을 한 줄로 알리고 멈춘다. 맞으면 `.env` · 계정 파일을 만들고 `docker compose up --build` 를 한다.
+
+자산 폴더는 웹 컨테이너의 `/workspace/sim-assets` 에 **읽기 전용**으로 붙는다(`FH_SIM_ASSETS` 가 비면 Compose 가 시작을 거절).
+운영 서버는 지금처럼 `/var/lib/foothold/sim-policy` 를 쓰며 이 구성과 무관하다.
+웹 개발 서버가 `/sim/` 에서 이 자산을 내주는 연결은 웹 쪽 작업이라 아직 없다.
+
 ## 입구 스크립트와 Docker 없이 띄우기
 
 `python3 tools/local_up.py` 는 `.env` 가 없으면 `.env.example` 로 만들고, 쓰는 포트가 비었는지 보고,
