@@ -185,8 +185,9 @@ def sim_setup(repository, values, data):
     robots = [str(seed.sim_robot_id(UUID(org)))] + [str(extra_sim_robot_id(UUID(org), n))
                                                     for n in range(2, int(count) + 1)]
     secret = lambda size: base64.urlsafe_b64encode(os.urandom(size)).rstrip(b'=').decode()
-    catalog = {'worlds': [{'id': world, 'name': '무너진 집 (MuJoCo)' if world == 'collapsed-house-v2' else world + ' (MuJoCo)',
-                           'world_file': '/nonexistent/mujoco', 'map_file': '/nonexistent/mujoco'}],
+    catalog = {'worlds': [{'id': item, 'name': '무너진 집 (MuJoCo)' if item == 'collapsed-house-v2' else item + ' (MuJoCo)',
+                           'world_file': '/nonexistent/mujoco', 'map_file': '/nonexistent/mujoco'}
+                          for item in world.split(',')],  # connected worlds: one key per spawn floor
                'slots': [{'robot_id': robot, 'org_id': org, 'key_path': '/nonexistent/key',
                           'replay_path': '/nonexistent/replay', 'port': 9449 - i} for i, robot in enumerate(robots)]}
     catalog_file = folder / 'catalog.json'

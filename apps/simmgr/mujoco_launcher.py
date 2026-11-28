@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import json
 import subprocess
 import tempfile
 
@@ -30,8 +31,16 @@ MAP_ID = re.compile(r'[a-z0-9-]{1,64}')
 # Server world ids use '_' (plant_a); the MuJoCo map list (mobile/sim/maps.json) uses '-' (plant-a).
 
 
+def mujoco_maps():
+    try:
+        return {item['id'] for item in json.loads((ROOT / 'mobile/sim/maps.json').read_text())}
+    except (OSError, ValueError, KeyError, TypeError):
+        return set()  # no list: refuse every world rather than start an unknown map
+
+
 def mujoco_map(world_id):
-    return world_id.replace('_', '-')
+    # plant_a/l1: the spawn floor is not a separate MuJoCo map.
+    return world_id.partition('/')[0].replace('_', '-')
 
 
 class MujocoLauncher:
@@ -61,7 +70,7 @@ class MujocoLauncher:
 
     async def start_world(self, world):
         # The world id is the MuJoCo map id (mobile/sim/maps.json); the child checks the list itself.
-        if not MAP_ID.fullmatch(mujoco_map(world.id)):
+        if not MAP_ID.fullmatch(mujoco_map(world.id)) or mujoco_map(world.id) not in mujoco_maps():
             raise WorldValidationError('MuJoCo map id required', 'SIM_WORLD_INVALID')
         self.world = world
 

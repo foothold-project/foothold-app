@@ -365,3 +365,12 @@ def test_simmgr_gets_user_bus_for_startup_preflight(checkout, tmp_path, monkeypa
     manager = local_up.simmgr_env(checkout, values, local_up.sim_setup(checkout, values, tmp_path / 'data'))
     assert manager['XDG_RUNTIME_DIR'] == '/run/user/4242'
     assert manager['DBUS_SESSION_BUS_ADDRESS'] == 'unix:path=/run/user/4242/bus'
+
+
+def test_sim_world_list_for_connected_floors(checkout, tmp_path, monkeypatch):
+    """plant_a starts as world + spawn floor; the simmgr catalog keys are plant_a/l1 .. l3."""
+    sim_checkout(checkout)
+    monkeypatch.setenv('FH_SIM_WORLD', 'plant_a/l1,plant_a/l2,plant_a/l3')
+    values, _ = local_up.prepare(checkout, tmp_path / 'accounts.env', docker=False, check=False)
+    catalog = json.loads(Path(local_up.sim_setup(checkout, values, tmp_path / 'data')['FH_SIM_CATALOG']).read_text())
+    assert [w['id'] for w in catalog['worlds']] == ['plant_a/l1', 'plant_a/l2', 'plant_a/l3']

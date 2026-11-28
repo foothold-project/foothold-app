@@ -189,12 +189,13 @@ def test_ready_file_from_another_pid_is_not_readiness(tmp_path):
 def test_unknown_mujoco_map_is_rejected_before_any_process(tmp_path):
     async def run():
         cfg, launch = launcher(tmp_path, 'ready')
-        cfg = replace(cfg, worlds={'warehouse/f1': World('warehouse/f1', Path('/p/a'), Path('/p/b'))})
+        # warehouse/f1 now maps to the MuJoCo 'warehouse' map; an id not in mobile/sim/maps.json is refused.
+        cfg = replace(cfg, worlds={'nowhere/f1': World('nowhere/f1', Path('/p/a'), Path('/p/b'))})
         launch.settings = cfg
         manager = Manager(cfg, launch)
         slot = next(iter(cfg.slots.values()))
         with pytest.raises(SimError) as error:
-            await manager.add('warehouse/f1', slot.robot_id, str(uuid4()), slot.org_id, 'x' * 32, 1)
+            await manager.add('nowhere/f1', slot.robot_id, str(uuid4()), slot.org_id, 'x' * 32, 1)
         assert error.value.code == 'SIM_WORLD_INVALID' and launch.children == {}
     asyncio.run(run())
 
@@ -218,3 +219,11 @@ def test_settings_choose_mujoco_backend_and_reject_with_native(tmp_path, monkeyp
         replace(cfg, local_backend='gazebo')
     with pytest.raises(ValueError):
         replace(cfg, local_backend='mujoco', real=True, runtime_seconds=300, source='s', ros_setup='r')
+
+
+def test_mujoco_map_name_drops_spawn_floor_and_uses_dashes():
+    """Server catalog keys for connected worlds carry the spawn floor (plant_a/l1); mobile/sim maps.json uses plant-a."""
+    from apps.simmgr.mujoco_launcher import mujoco_map
+    assert mujoco_map('plant_a/l1') == 'plant-a'
+    assert mujoco_map('plant_a') == 'plant-a'
+    assert mujoco_map('collapsed-house-v2') == 'collapsed-house-v2'
