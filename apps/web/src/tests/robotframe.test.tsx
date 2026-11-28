@@ -123,7 +123,7 @@ describe('운영 관리자: 같은 틀', () => {
     expect(rail().textContent).toContain('담당 로봇이 없습니다');
     expect(rail().querySelector('[aria-label="다른 로봇"]')!.textContent).toContain('Go2-7');
   });
-  it('허용된 내 실기는 바로 조종 화면 — 왼쪽 목록은 남는다', () => {
+  it('허용된 내 실기는 바로 조종 화면 · 왼쪽 목록은 남는다', () => {
     mount(LEE, [{ ...ROBOTS[0], serverDrive: true }, ROBOTS[2]]);
     expect(frame().querySelector('[data-pc-drive]')).not.toBeNull();
     expect(rail().querySelectorAll('[data-robot-row]')).toHaveLength(2);

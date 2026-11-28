@@ -74,7 +74,7 @@ export function Stage({ r }: { r: Robot }) {
 type V = 'map' | 'rgb' | 'lidar' | 'depth';
 const VSEL: [V, string][] = [['map', '지도'], ['rgb', '카메라'], ['lidar', '라이다'], ['depth', '깊이']];
 /** .views: 지도 · 카메라 · 라이다 · 깊이(보기 고르기) + 작은 카메라 창 + 임무 카드 + 오른쪽 아래 «조종 화면 열기».
- *  영상은 조종 화면(서버 경유)에서만 받는다 — 여기는 없는 까닭 한 줄 */
+ *  영상은 조종 화면(서버 경유)에서만 받는다. 여기는 없는 까닭 한 줄 */
 export function Views({ r, map, why, drive }: { r: Robot; map: ReactNode; why: string; drive?: ReactNode }) {
   const [v, setV] = useState<V>('map');
   return <section className="views" aria-label="로봇 보기">

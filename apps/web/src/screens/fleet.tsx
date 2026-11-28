@@ -329,8 +329,8 @@ export function realDash(d: Dashboard | null, all: Robot[]): Dashboard | null {
 }
 
 /** u4 틀 한 벌(11/28 · 시안 u4_1 · u4_4 · u4_5): 왼쪽 .rail · 머리 .hdr · 가운데 .stage3d · 오른쪽 .right.
- *  driving = 조종이 허용된 로봇의 «조종» — 가운데 · 오른쪽 자리에 기존 세 칸 조종 화면(PcDrive) 그대로(조종 · STOP 경로 시험을 지킴, u4 조종 칸 이식은 다음 단위).
- *  r 이 없으면(총괄이 고른 시뮬 — 머리줄 STOP 대상 유지) 가운데에 «로봇을 고르세요» 한 줄 */
+ *  driving = 조종이 허용된 로봇의 «조종»: 가운데 · 오른쪽 자리에 기존 세 칸 조종 화면(PcDrive) 그대로(조종 · STOP 경로 시험을 지킴, u4 조종 칸 이식은 다음 단위).
+ *  r 이 없으면(총괄이 고른 시뮬, 머리줄 STOP 대상 유지) 가운데에 «로봇을 고르세요» 한 줄 */
 function Frame({ c, r, tab, setTab, rail, settings, driving, views, check }: { c: Ctx; r: Robot | null; tab: Tab; setTab: (t: Tab) => void; rail: ReactNode;
   settings?: () => void; driving: ReactNode; views: ReactNode; check: ReactNode }) {
   return <div className="u4" data-robot-frame data-tab={tab}>
@@ -342,7 +342,7 @@ function Frame({ c, r, tab, setTab, rail, settings, driving, views, check }: { c
         {driving ? <div className="right" style={{ gridColumn: 'stage / right' }} data-robot-side>{driving}</div>
           : <><Stage key={r.id} r={r} />
             <div className="right" data-robot-side>{tab === 'drive' ? <>{views}
-              {/* 점검 칸(상태 한 줄 · 조종 준비 · 상세)은 «조종»에서도 접어 둔다 — 고른 로봇의 상세 · 관리 단추를 잃지 않게 */}
+              {/* 점검 칸(상태 한 줄 · 조종 준비 · 상세)은 «조종»에서도 접어 둔다. 고른 로봇의 상세 · 관리 단추를 잃지 않게 */}
               <More>{check}</More></>
               : <div className="u4-pane chk" aria-label="순서 점검">{check}</div>}</div></>}
       </>}
@@ -357,7 +357,7 @@ function More({ children }: { children: ReactNode }) {
 }
 
 /** 운영 관리자(PC): 왼쪽 = 내 실기 + «다른 로봇»(남의 로봇은 요약만) · 조종 = 보기(지도 · 영상 까닭) · 조종 줄 · 조종 칸, 허용된 내 실기는 바로 조종 화면(«← 목록»으로 보기) ·
- *  점검 = 상태 한 줄 · 로봇 상태 · 조종 준비 · 상세 · 실기 보기 · 로봇 설정(이름 · 담당 넘기기 · 연결 끊기 · 지우기 — pairing.tsx 그대로) · 연결 방법은 화면 위 창 */
+ *  점검 = 상태 한 줄 · 로봇 상태 · 조종 준비 · 상세 · 실기 보기 · 로봇 설정(이름 · 담당 넘기기 · 연결 끊기 · 지우기 · pairing.tsx 그대로) · 연결 방법은 화면 위 창 */
 function Operator(c: Ctx) {
   useRt();
   const me = c.user.id, mine = c.robots.filter((x) => x.owner === me), others = c.robots.filter((x) => x.owner !== me), r = c.robot, own = r.owner === me;
@@ -396,7 +396,7 @@ type Filter = { owner: string; state: '' | 'attn' | 'online' | 'off' };
 const RANK: Record<Tone, number> = { bad: 0, warn: 1, ok: 2, off: 3 };
 const needs = (x: Robot) => { const t = robotStatus(x).tone; return t === 'bad' || t === 'warn' || !!x.attention?.length; };
 
-/** 총괄(PC): 왼쪽 = 요약 수 · 담당 · 상태 거르기 · 경보(주의 먼저) · 로봇 목록. 조종 = 보기(전 로봇 위치 지도 · 층 고르기) · 서버가 허용한 실기는 «조종 화면»(운영 관리자와 같은 세 칸 조종 — #547),
+/** 총괄(PC): 왼쪽 = 요약 수 · 담당 · 상태 거르기 · 경보(주의 먼저) · 로봇 목록. 조종 = 보기(전 로봇 위치 지도 · 층 고르기) · 서버가 허용한 실기는 «조종 화면»(운영 관리자와 같은 세 칸 조종 · #547),
  *  점검 = 상세(담당 지정 · 내 로봇 관리) · 실기 보기. 아래 = 로봇 타일(u5_4) · 운영 관리자 표. 총괄이 고른 시뮬(머리줄 STOP 대상)은 그대로 두고 가운데는 «고르세요» */
 function Admin({ d, ...c }: Ctx & { d: Dashboard | null }) {
   useRt();

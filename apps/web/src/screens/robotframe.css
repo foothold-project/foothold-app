@@ -1,5 +1,5 @@
 /* 로봇 탭 u4 틀(11/28). 값은 시안 proto/shared/ui.css · pc.css · screens/u4_1_robot.html 그대로(1920 기준 px).
-   시안의 절대 배치(.rail 250 · .hdr · .stage3d 760 · .right)를 격자로 옮겼다 — 1920 에서 같은 칸, 좁으면 줄인다. 밝은 판은 같은 칸에 밝은 값만 */
+   시안의 절대 배치(.rail 250 · .hdr · .stage3d 760 · .right)를 격자로 옮겼다. 1920 에서 같은 칸, 좁으면 줄인다. 밝은 판은 같은 칸에 밝은 값만 */
 .u4{--u4-line:rgba(255,255,255,.08);--u4-mu2:#9aa19d;--u4-pr:#18a07e;--u4-pr3:#00c389;--u4-ink:#ffffff;--u4-red:#e04a2f;--u4-warn:#f2b705;
   --u4-pane:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.03));--u4-glass:linear-gradient(180deg,rgba(28,32,40,.52),rgba(18,20,26,.38));
   --u4-glass-line:rgba(255,255,255,.22);--u4-stage:radial-gradient(520px 420px at 50% 42%,#111312,#000000 75%);--u4-views:#0e1116;
