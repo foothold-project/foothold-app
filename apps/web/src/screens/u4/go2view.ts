@@ -75,12 +75,19 @@ function cyberMat() {
 
 export type Go2Opt = { pin?: boolean; orbit?: boolean; glow?: boolean; cyber?: boolean; hot?: Record<string, string>; pose?: 'down'; yaw?: number; dist?: number; floor?: number; src?: string };
 export type Go2Api = { q: number[] | null; /** 서버 posture LYING (q 없을 때만 씀) */ down: boolean; /** 관절값 없이 서버 speed ≥ WALK_MIN_SPEED (q · down 이 이김) */ walk: boolean;
-  /** 멈춘 로봇 바닥 표시(충전 · 점검 · 없음) */ pad: PadKind | null; drive: { v: number; turn: number; side: number } | null; setHot: (m: Record<string, string>) => void; dispose: () => void; fallback?: boolean };
+  /** 멈춘 로봇 바닥 표시(충전 · 점검 · 없음) */ pad: PadKind | null; drive: { v: number; turn: number; side: number } | null; setHot: (m: Record<string, string>) => void;
+  /** 캔버스 안 자리(px · 캔버스 왼쪽 위 기준)에 닿는 관절 이름(FR_calf 꼴) · 없으면 null (시안 u4_4 마우스 온도) */ pick: (x: number, y: number) => string | null; dispose: () => void; fallback?: boolean };
+
+/** 맞은 물체에서 위로 올라가며 처음 만나는 관절 이름(FR_hip · FR_thigh · FR_calf) · 몸통이면 null */
+export function jointOf(o: THREE.Object3D | null): string | null {
+  for (let n = o; n; n = n.parent) if (/^(FL|FR|RL|RR)_(hip|thigh|calf)$/.test(n.name)) return n.name;
+  return null;
+}
 
 export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
   const w = canvas.clientWidth || 760, h = canvas.clientHeight || 900;
   let r: THREE.WebGLRenderer;
-  const api: Go2Api = { q: null, down: false, walk: false, pad: null, drive: null, setHot, dispose: () => {} };
+  const api: Go2Api = { q: null, down: false, walk: false, pad: null, drive: null, setHot, pick: () => null, dispose: () => {} };
   try { r = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true }); }
   catch { api.fallback = true; return api; }   // WebGL 이 없는 PC: 캔버스만 빈 채로 (시안의 정면 그림은 자산이라 넣지 않음)
   r.setPixelRatio(Math.min(2, devicePixelRatio)); r.setSize(w, h, false);
@@ -207,6 +214,12 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
     raf = requestAnimationFrame(frame);
   }
   frame();
+  const ray = new THREE.Raycaster();
+  api.pick = (x, y) => {
+    const W = canvas.clientWidth, H = canvas.clientHeight; if (!root || !W || !H) return null;
+    ray.setFromCamera(new THREE.Vector2((x / W) * 2 - 1, -(y / H) * 2 + 1), cam);
+    return jointOf(ray.intersectObject(root, true)[0]?.object ?? null);
+  };
   const fit = () => { const W = canvas.clientWidth, H = canvas.clientHeight; if (!W || !H) return; r.setSize(W, H, false); cam.aspect = W / H; cam.updateProjectionMatrix(); };
   const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit); ro?.observe(canvas);
   api.dispose = () => {

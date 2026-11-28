@@ -2,7 +2,7 @@
 // 로봇 탭 큰 무대 걷기 꼴(검토 L2): 걷기 기록을 놓은 뒤 종아리 가장 낮은 점이 바닥 y=0 (엎드림 높이에서 바뀌어도 발이 묻히거나 뜨지 않음)
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { GRID_SPAN, UNIT, flow, padMesh, walkPose } from '../screens/u4/go2view';
+import { GRID_SPAN, UNIT, flow, jointOf, padMesh, walkPose } from '../screens/u4/go2view';
 
 /** 다리 넷(hip → thigh → calf · 종아리 끝 상자)만 있는 작은 모형. 몸 아래 0.3 m 에 발 */
 function body() {
@@ -75,5 +75,18 @@ describe('padMesh (충전 · 점검 바닥 표시)', () => {
     expect(m.map(col)).toEqual([0xa9b8c6, 0xa9b8c6]); expect(m.map(op)).toEqual([0.75, 0.22]);
     const p = m[0].geometry.getAttribute('position'); expect(p.getX(1)).toBeCloseTo(0.38, 6); expect(p.getZ(2)).toBeCloseTo(0.5, 6);
     expect(lines(padMesh('maint', true)).map(col)).toEqual([0x5e6662, 0x5e6662]);
+  });
+});
+
+describe('마우스 관절 집기 (시안 u4_4)', () => {
+  it('맞은 물체에서 위로 올라가 처음 만나는 관절 이름 · 몸통이면 null', () => {
+    const base = new THREE.Group(); base.name = 'base';
+    const hip = new THREE.Group(); hip.name = 'FR_hip'; const calf = new THREE.Group(); calf.name = 'FR_calf';
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1)); const trunk = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+    base.add(hip, trunk); hip.add(calf); calf.add(foot);
+    expect(jointOf(foot)).toBe('FR_calf');
+    expect(jointOf(hip)).toBe('FR_hip');
+    expect(jointOf(trunk)).toBeNull();
+    expect(jointOf(null)).toBeNull();
   });
 });
