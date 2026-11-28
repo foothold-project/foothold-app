@@ -219,6 +219,22 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
     expect(w.of('action').filter((m) => m.action === 'Damp')).toHaveLength(1);
   });
 
+  it('Damping: 한 번 누른 뒤 단추가 사라졌다가(정지 풀림) 3 초 안에 다시 나타나면 첫 누름은 안내만 (검토 00:41)', () => {
+    mount('u-park'); serve('r7'); drive();
+    click($('.views .vstop')!);
+    tick(4000);
+    click($('[data-u4-damp]')!);
+    expect(w.of('action').filter((m) => m.action === 'Damp')).toHaveLength(0);
+    act(() => { push('r7', { latched: false }); });
+    expect($('[data-u4-damp]')).toBeNull();
+    act(() => { push('r7', { latched: true }); });
+    tick(500);
+    click($('[data-u4-damp]')!);
+    expect(w.of('action').filter((m) => m.action === 'Damp')).toHaveLength(0);
+    click($('[data-u4-damp]')!);
+    expect(w.of('action').filter((m) => m.action === 'Damp')).toHaveLength(1);
+  });
+
   it('동작 단추: 조종 전이면 까닭만 · 조종 중이면 서버로 그 동작 하나 · START 중 일어서기는 시안 까닭', () => {
     mount('u-park'); serve('r7');
     click($('[data-u4-act="Sit"]')!);
