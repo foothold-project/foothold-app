@@ -23,6 +23,11 @@ import frameCss from '../frame.css?raw';
 beforeEach(() => { pcBoard.on = true; });
 afterEach(() => { pcBoard.on = false; });
 import u1AppCss from '../screens/u1.app.css?raw';
+import u1dCss from '../screens/u1d.css?raw';
+import u135Css from '../screens/u135.css?raw';
+import u135AppCss from '../screens/u135.app.css?raw';
+import u142Css from '../screens/u142.css?raw';
+import u142AppCss from '../screens/u142.app.css?raw';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -126,7 +131,7 @@ describe('조종 화면', () => {
     expect($('.dv-mini [data-map-none]')!.textContent).toBe('지도 없음');
     click(btn('지도'));
     expect($('.dv-stage > [data-map-none]')!.textContent).toBe('지도·라이다 자료 없음 · 기능 준비 중');
-    expect($('.dv-stage circle')).toBeNull();
+    expect([...box.querySelectorAll('.dv-stage circle')].filter((x) => !x.closest('svg.ic'))).toHaveLength(0);   // 단추 그림(svg.ic) 말고는 원(라이다 점) 없음
     click(btn('RGB'));
     click(btn('조종 시작'));
     expect(w.of('lease.take')).toMatchObject([{ robot: 'r7', proto: 'fh-rt/1' }]);
@@ -360,7 +365,7 @@ describe('조종 화면', () => {
     tick(300);
     expect(cmds().length).toBeGreaterThan(n);
     expect(cmds().slice(n).every((m) => String(m.axes) === '0,0,0')).toBe(true);
-    expect($('.lv-chip').textContent).toContain('정지 확인 중');
+    expect($('.u1d .u1-chip .u1-st').textContent).toContain('정지 확인 중');
     recv(lease('r7', null));                               // 서버: 옛 조종권 회수 → 정지 확인 → 새 조종권자
     expect(text()).toContain('조종권 넘기는 중');
     recv(lease('r7', KIM));
@@ -426,7 +431,7 @@ describe('조종 화면', () => {
     recv(lease('r7', KIM, 'L-kim'));
     recv({ t: 'lease.result', robot: 'r7', request_id: 'q1', result: 'ACCEPTED' });
     expect(text()).toContain('조종권을 받았습니다. 잠금 해제 후 조종하세요.');
-    expect($('.lv-chip').textContent).toContain('정지 잠금');
+    expect($('.u1d .u1-chip .u1-st').textContent).toContain('정지 잠금');
     click(btn('잠금 해제'));
     expect(w.of('unlock')).toMatchObject([{ lease_id: 'L-kim', stop_gen: 2 }]);
   });
@@ -439,7 +444,7 @@ describe('조종 화면', () => {
     click(btn('조종 시작'));
     recv(lease('r7', null));
     recv({ t: 'lease.result', robot: 'r7', request_id: 'q1', result: 'CANCELED', error: 'STOP_CONFIRM_FAILED' });
-    expect($('.lv-chip').textContent).toContain('정지 확인 실패');
+    expect($('.u1d .u1-chip .u1-st').textContent).toContain('정지 확인 실패');
     expect(text()).toContain(FAIL_TEXT);
     expect(btn('조종 시작').disabled).toBe(false);
   });
@@ -490,7 +495,7 @@ describe('조종 화면', () => {
     expect(parseInt($('[data-stop]').style.minHeight)).toBeGreaterThanOrEqual(64);
     ready();
     const fwd = $('[aria-label="전후 조이스틱"]'), turn = $('[aria-label="회전 조이스틱"]');
-    expect([fwd.className, turn.className]).toEqual(['dv-stick v', 'dv-stick h']);
+    expect([fwd.className, turn.className]).toEqual(['dv-stick v stick', 'dv-stick h stick']);   // 시안 u1 .stick 꼴
     for (const el of [fwd, turn]) el.getBoundingClientRect = () => ({ top: 0, left: 0, width: 120, height: 120 }) as DOMRect;
     act(() => { fwd.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 60, clientY: 20 })); });
     act(() => { turn.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 0, clientY: 60 })); });
@@ -998,7 +1003,7 @@ describe('PR #12 검토 1차', () => {
     mount(true, 'u-park', '#/drive/r7');
     serve(PARK, 'r7');
     ready();
-    const shown = () => $('[aria-label="조종"] h2')?.textContent;
+    const shown = () => $('[aria-label="조종"] .u1-chip .chipnum')?.textContent;
     expect(shown()).toBe('Go2-7');
     act(() => root!.render(<App user={USERS.find((u) => u.id === 'u-park')} robots={[{ ...ROBOTS[2], owner: 'u-park' }, ...ROBOTS.slice(0, 2)]} />));
     expect(shown()).toBe('Go2-7');
@@ -1841,7 +1846,8 @@ describe('폰 조종 앱 틀', () => {
     const stage = $('.dv-stage');
     expect(stage.querySelector('.dv-stick.v')!.getAttribute('aria-label')).toBe('전후 조이스틱');
     expect(stage.querySelector('.dv-stick.h')!.getAttribute('aria-label')).toBe('회전 조이스틱');
-    expect(stage.querySelector('.dv-hud')).not.toBeNull();
+    expect(stage.querySelector('.proto.u1d')).not.toBeNull();   // 폰 실기 조종 화면 상태 판 = 시안 u1 겹(옛 .dv-hud 대신)
+    expect(stage.querySelector('.dv-stick.v')!.closest('.u1d')).not.toBeNull();
     expect(stage.querySelector('.dv-sheets')!.querySelectorAll('button')).toHaveLength(4);
     const rule = (css: string, sel: string) => css.match(new RegExp(`(?:^|[}\\n])${sel.replace(/[.()]/g, '\\$&')}\\{([^}]*)\\}`))?.[1] ?? '';
     expect(rule(driveCss, '.dv-stage')).toMatch(/position:relative;.*overflow:hidden/);
@@ -2698,10 +2704,18 @@ describe('폰 실기 조종 화면 정지 자리 (시안 u1)', () => {
   const press = (robot: string) => { const n = w.of('stop').length; click(stopBtn()); expect(w.of('stop').slice(n).map((m) => m.robot)).toEqual([robot]); };
 
   it('css: 머리줄 겹은 화면 전체 · 손가락은 제 칸만 · z 는 조종 판 안 모든 층(작은 지도 펼침 60 · 창 · 스캔 겹)보다 위, 정지는 오른쪽 아래 92 × 68', () => {
-    const z = Number(u1AppCss.match(/\.fh\.phone \.fh-head\[data-u1\]\{[^}]*z-index:(\d+)/)![1]);
-    expect(z).toBeGreaterThan(60);
+    const headRule = /\.fh\.phone \.fh-head\[data-u1\]\{[^}]*\}/;
+    const z = Number(u1AppCss.match(headRule)![0].match(/z-index:(\d+)/)![1]);
+    expect(z).toBeGreaterThanOrEqual(80);
+    // 조종 판 안에 깔리는 모든 겹(조종 판 · 시안 u1 겹 · 정지 결과 띠 · 고르기 79 · 조종권 요청 창 u13_5 · 스캔 겹 u14_2 · 작은 지도 펼침 60)의 z 보다 위
+    const zs = [driveCss, u1AppCss.replace(headRule, ''), u1dCss, u135Css, u135AppCss, u142Css, u142AppCss].flatMap((c) => [...c.matchAll(/z-index:(\d+)/g)].map((m) => Number(m[1])));
+    expect(zs.length).toBeGreaterThan(10);
+    expect(zs).toContain(79);
+    expect(z).toBeGreaterThan(Math.max(...zs));
     expect(u1AppCss).toMatch(/\.fh\.phone \.fh-head\[data-u1\]\{[^}]*position:absolute;inset:0;[^}]*pointer-events:none/);
-    expect(u1AppCss).toMatch(/\.fh-head\[data-u1\] \.fh-stop\{[^}]*pointer-events:auto;[^}]*right:12px;bottom:12px;width:92px;height:68px/);
+    // 정지 칸: 오른쪽 아래 92 × 68 · 오른쪽 위 줄처럼 safe-area 만큼 안쪽(가로 노치 · 홈 막대)
+    expect(u1AppCss).toMatch(/\.fh-head\[data-u1\] \.fh-stop\{[^}]*pointer-events:auto;[^}]*right:calc\(12px \+ env\(safe-area-inset-right,0px\)\);bottom:calc\(12px \+ env\(safe-area-inset-bottom,0px\)\);width:92px;height:68px/);
+    expect(u1AppCss).toMatch(/\.fh-head\[data-u1\] \.u1-top\{[^}]*right:calc\(12px \+ env\(safe-area-inset-right,0px\)\)/);
   });
 
   it('조종 전 · 조종 중 · 시트 · 시나리오 시작 확인 · 조종권 요청 창: 정지는 화면 안 그 자리 · 누르면 이 로봇 정지', () => {
@@ -2747,6 +2761,48 @@ describe('폰 실기 조종 화면 정지 자리 (시안 u1)', () => {
     inScreen();
     act(() => w.drop(1006));
     inScreen();
+  });
+
+  it('반납 중 누름 = 실시간 stop(이 로봇) · 끊김(1006) 뒤 누름 = 대체 경로 HTTP POST(이 로봇), 실시간 stop 은 안 나감 (지금 동작 고정)', async () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    ready();
+    w.auto = (m) => (m.t === 'lease.release' ? undefined : { ok: true });
+    click(btn('끝내기'));
+    expect($('[data-ending]')).toBeTruthy();
+    inScreen();
+    press('r7');
+    const f = vi.fn(async (_u: string, _i?: RequestInit) => new Response(null, { status: 202 }));
+    vi.stubGlobal('fetch', f);
+    act(() => w.drop(1006));
+    inScreen();
+    const n = w.of('stop').length;
+    click(stopBtn());
+    await act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); });
+    expect(w.of('stop').length).toBe(n);
+    expect(f).toHaveBeenCalledWith('/api/v1/robots/r7/stop', expect.objectContaining({ method: 'POST' }));
+    expect(f.mock.calls.filter(([u]) => /\/stop$/.test(String(u)))).toHaveLength(1);
+  });
+
+  it('조종 판 「조종 끝내기」 는 반납 확인 중 눌리지 않음(⋯ 끝내기와 같은 규칙) · 정지는 그대로', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    ready();
+    w.auto = (m) => (m.t === 'lease.release' ? undefined : { ok: true });
+    expect(btn('조종 끝내기').disabled).toBe(false);
+    click(btn('조종 끝내기'));
+    expect(w.of('lease.release')).toHaveLength(1);
+    expect($('[data-ending]')).toBeTruthy();
+    // 반납을 보내면 이 화면 조종권은 놓은 것으로 그린다: 조종 판 「조종 끝내기」 는 없고(있어도 disabled), 「조종 시작」 은 반납 확인 전엔 막힘
+    const end = btn('조종 끝내기');
+    if (end) expect(end.disabled).toBe(true);
+    expect(btn('조종 시작').disabled).toBe(true);
+    expect($(`#why-r7`).textContent).toBe('반납 확인 중');
+    click(btn('조종 시작'));
+    expect(w.of('lease.release')).toHaveLength(1);
+    expect(btn('끝내기').disabled).toBe(true);
+    inScreen();
+    press('r7');
   });
 
   it('조종 화면 밖(로봇 연결 · 기록)은 머리줄 STOP 그대로', () => {

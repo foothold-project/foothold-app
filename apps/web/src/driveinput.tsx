@@ -6,7 +6,8 @@ import type { Device } from '../../contracts/ts';
 
 export const DRIVE_INPUT_KEY = 'go2-drive-input';
 
-export function DriveInputNote({ devices }: { devices?: readonly Device[] | null }) {
+/** cls = 덧붙일 꼴(폰 실기 조종 화면 시안 u1 위 띠 .ban) */
+export function DriveInputNote({ devices, cls }: { devices?: readonly Device[] | null; cls?: string }) {
   const text = devices?.find((d) => d.key === DRIVE_INPUT_KEY)?.label?.trim();
-  return text ? <p className="dv-note" role="status" data-drive-input>{text}</p> : null;
+  return text ? <p className={`dv-note${cls ? ` ${cls}` : ''}`} role="status" data-drive-input>{text}</p> : null;
 }
