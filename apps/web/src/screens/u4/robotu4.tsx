@@ -10,8 +10,8 @@ import { rt, useLive, useRt } from '../../rt';
 import { useStopPress } from '../../App';
 import { ADMIN_LATER, idleSim, ownerName, robotStatus, type Robot } from '../../fake';
 import { fleetKind, fleetOrder, type Urgent } from '../../fleetorder';
-import { facts, hotJoint as hotOf, tempLevel, useAvail } from '../../proto/u5';
-import { isLost, needs } from '../control';
+import { facts, hotJoint as hotOf, lying as tileLying, tempLevel, useAvail } from '../../proto/u5';
+import { actOf, isLost, needs } from '../control';
 import type { ApiFail } from '../../api';
 import { NO_SIGNAL, driveFeedHeld, driveFeedText, useDriveFeed } from '../../drivemedia';
 import { DriveView, canDrive, keepDrive, useServerDrive, type Tok } from '../../serverdrive';
@@ -466,13 +466,15 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   const holder = l.holder ?? r.holder ?? null, who = holder?.type === 'USER' ? (holder.id === c.user.id ? '나' : holder.name || NONE) : NONE;
   const a = s?.applied ?? null, sp = s?.speed;
   const moving = online && sp != null && sp >= WALK_MIN_SPEED;   // 관제 타일과 같은 문턱(proto/u5 WALK_MIN_SPEED)
-  const walk = !online || sp == null ? '걷기 보고 없음' : !moving ? (s?.posture?.state === 'LYING' ? '엎드림' : '서 있음')
-    : `걷는 중 · ${sp.toFixed(1)} m/s ${a && a[0] < 0 ? '뒤로' : a && Math.abs(a[1] ?? 0) > Math.abs(a[0] ?? 0) ? '옆으로' : '앞으로'}`;
   const located = online && s?.location?.x != null;
   // 바닥 점 흐름 = 서버 state.applied [0] vx(앞 m/s) · [1] vy(왼 m/s) · [2] wz(왼쪽 돎 rad/s) · 연결(ONLINE)일 때만(측정 속도 칸은 아직 계약에 없음 · 조정 23:56)
   const drive = a && online ? { v: a[0] ?? 0, side: a[1] ?? 0, turn: a[2] ?? 0 } : null;
   // 바닥 표시: 관제 타일과 같은 판정(proto/u5 useAvail · GET /robots/availability state CHARGING / MAINTENANCE). 충전이면 관절값이 없을 때 엎드림
   const av = useAvail(c.cancel)?.get(r.id), pad: PadKind | null = av?.charging ? 'charge' : av?.job?.kind === 'maint' ? 'maint' : null;
+  // 관절값이 없을 때 엎드림으로 그릴지 = 관제 타일과 같은 함수(proto/u5 lying: 충전 > 자세 보고 > 상태). 모형 · 아래 두 글이 이 하나를 따른다
+  const down = tileLying({ x: r, act: actOf(r, false), charging: !!av?.charging });
+  const walk = moving ? `걷는 중 · ${sp.toFixed(1)} m/s ${a && a[0] < 0 ? '뒤로' : a && Math.abs(a[1] ?? 0) > Math.abs(a[0] ?? 0) ? '옆으로' : '앞으로'}`
+    : down ? (pad === 'charge' ? '충전 중 · 엎드림' : '엎드림') : !online || sp == null ? '걷기 보고 없음' : '서 있음';
   // 3D 관절 색: 조종 = 60 °C 넘은 가장 뜨거운 관절만(u4_2), 점검 = 관절마다 주의 50 · 경고 60(u4_4 범례)
   const hot: Record<string, string> = tab === 'check' ? Object.fromEntries((temps?.joints ?? []).flatMap((v, i) => (v != null && v >= 50 ? [[JOINTS[i].replace(/_joint$/, ''), v >= 60 ? 'hot' : 'warn']] : [])))
     : temps && temps.hot >= 0 && hotJ != null && hotJ >= 60 ? { [JOINTS[temps.hot].replace(/_joint$/, '')]: 'hot' } : {};
@@ -530,7 +532,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
     {/* 시안 u11_4: 리모컨 우선이면 모드 칸 아래 「걷는 중 · 멈춘 뒤 바꾸기」(걷는 동안만) · 조종 단추 위 「리모컨 조종 중」 */}
     {line?.at === 'remote' && moving && <div className="whyb" style={{ left: '495px', top: '140px' }} data-u4-whyb="mode">{INFO}걷는 중 · 멈춘 뒤 바꾸기</div>}
     {line?.at === 'remote' && <div className="whyb" style={{ right: '60px', top: '846px' }} data-u4-whyb="drive">{INFO}리모컨 조종 중</div>}
-    <div className="stage3d" data-stale={pose ? undefined : ''} data-line={line?.at} data-u4-legs={legMode(pose?.q ?? null, (online && lying) || pad === 'charge', moving)} data-u4-pad={pad ?? ''} data-u4-sim={sim ? '' : undefined}><Stage r={r} q={pose?.q ?? null} down={(online && lying) || pad === 'charge'} walk={moving} pad={pad} drive={drive} hot={hot} temps={tab === 'check' ? temps?.joints ?? null : null} />
+    <div className="stage3d" data-stale={pose ? undefined : ''} data-line={line?.at} data-u4-legs={legMode(pose?.q ?? null, down, moving)} data-u4-pad={pad ?? ''} data-u4-sim={sim ? '' : undefined}><Stage r={r} q={pose?.q ?? null} down={down} walk={moving} pad={pad} drive={drive} hot={hot} temps={tab === 'check' ? temps?.joints ?? null : null} />
       <span className="g dk tag hint"><svg className="ic" viewBox="0 0 24 24" style={{ width: '14px', height: '14px' }}><path d="M16.466 7.5C15.643 4.237 13.952 2 12 2 9.239 2 7 6.477 7 12s2.239 10 5 10c.342 0 .677-.069 1-.2" /><path d="m15.194 13.707 3.814 1.86-1.86 3.814" /><path d="M19 15.57c-1.804.885-4.274 1.43-7 1.43-5.523 0-10-2.239-10-5s4.477-5 10-5c4.838 0 8.873 1.718 9.8 4" /></svg>끌어서 돌려 보기</span>
       {offTag ? <div className="g dk tag" style={{ left: '24px', top: line ? '92px' : '24px', color: '#ff4d4f', fontSize: '14px', fontWeight: '800' }} role="status" data-u4-offline>{offTag}</div>
         : stopTag ? <div className="g dk tag" style={{ left: '24px', top: line ? '92px' : '24px', color: lying && !d.unlockState ? '#f2b705' : '#ff4d4f', fontSize: '14px', fontWeight: '800' }} role="status" data-u4-stopped>{stopTag}</div>
@@ -542,7 +544,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
         <span className="mu2" style={{ marginLeft: 'auto', fontSize: '12.5px' }}>시뮬 로봇</span></div>
       : <div className="foot"><span className="g dk tag" style={{ position: 'static', color: '#00c389', minWidth: '178px', justifyContent: 'center' }} data-u4-walk>{walk}</span>
         <span className="g dk tag" style={{ position: 'static', color: '#ffffff' }} data-u4-loc>{located ? '위치 추정 켜짐' : '위치 추정 없음'}</span>
-        <span className="mu2 jnote" data-u4-jointnote={pose ? 'q' : online && lying ? 'posture' : moving ? 'walk' : 'none'}>{pose ? '실제 관절값으로 제자리에서 움직임 · 바닥 점이 뒤로 흐르면 앞으로 걷는 중' : online && lying ? '관절값이 없어 자세 값(엎드림)으로 그림' : moving ? '관절값이 없어 걷는 속도로 걷기 꼴을 그림' : '관절값을 받지 않아 서 있는 모양 그대로'}</span></div>}</div>
+        <span className="mu2 jnote" data-u4-jointnote={pose ? 'q' : down ? 'posture' : moving ? 'walk' : 'none'}>{pose ? '실제 관절값으로 제자리에서 움직임 · 바닥 점이 뒤로 흐르면 앞으로 걷는 중' : down ? (pad === 'charge' ? '관절값이 없어 충전 자세(엎드림)로 그림' : '관절값이 없어 자세 값(엎드림)으로 그림') : moving ? '관절값이 없어 걷는 속도로 걷기 꼴을 그림' : '관절값을 받지 않아 서 있는 모양 그대로'}</span></div>}</div>
     {tab === 'check' ? <div className="right" data-u4-can={can || undefined}><Check c={c} r={r} guide={() => setGuide(true)} /></div>
       : <div className="right" data-u4-can={can || undefined} {...(zoom ? { 'data-u4-zoom': '' } : {})}><div className="views" ref={viewsEl} aria-label="로봇 보기" onDoubleClick={zoomDbl} title={zoom ? undefined : '더블클릭하면 크게 봅니다'}>
       {zoom && <div className="g dk zback" role="button" tabIndex={0} data-u4-zback onClick={() => flip(false)} onKeyDown={(e) => { if (e.key === 'Enter') flip(false); }}><svg className="ic" viewBox="0 0 24 24" style={{ width: '18px', height: '18px' }}><path d="m15 18-6-6 6-6" /></svg>돌아가기<small>Esc</small></div>}
