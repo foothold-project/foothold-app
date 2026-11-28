@@ -2,7 +2,6 @@
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { pcBoard } from '../pcboard';
 import type { OrgSettings, RobotSummary, User } from '../../../contracts/ts';
 import { api } from '../api';
 import { ROBOTS as MEM_ROBOTS, USERS as MEM_USERS } from '../fake';
@@ -10,9 +9,6 @@ import { rt } from '../rt';
 import { LIST_MS, Root } from '../session';
 import { FakeWS, lease, state } from './fakeWs';
 import { fleetNames, fleetRow } from './fleetRow';
-// 옛 PC 관제 부품(관제 요약 · 상세 서랍 · 연결 상태 · 조종 준비) 시험: PC 로봇 탭은 시안 u4 라 부품을 앱 맥락 안에 직접 그린다 → W1 u5
-beforeEach(() => { pcBoard.on = true; });
-afterEach(() => { pcBoard.on = false; });
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -59,11 +55,11 @@ beforeEach(() => { calls = []; });
 afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.unstubAllGlobals(); });
 
 const $ = <T extends Element = HTMLElement>(s: string) => box.querySelector<T>(s);
-/** 설정 «알림» 묶음의 조직 기준값 저장 단추(U9-04 뒤 첫 묶음은 계정이라 «저장» 이 여럿) */
+/** 설정 탭(시안 u9)에서 묶음 열기. 조직 기준값은 «로봇» 묶음(지금 판 칸)에 있다 */
+const settingsPage = async (id: string) => { act(() => $<HTMLElement>(`#nav-${id}`)!.click()); await flush(); };
+/** 설정 «로봇» 묶음의 조직 기준값 저장 단추(그 묶음에는 «저장» 이 여럿) */
 const orgSave = () => [...document.querySelectorAll('[aria-label="조직 기준값"] button')].find((b) => b.textContent === '저장') as HTMLButtonElement | undefined;
 const btn = (t: string) => [...box.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
-/** PC 시안 머리줄: 로그아웃 · 화면 밝기는 나 칸을 눌러 여는 차림 안 */
-const openWho = () => { if (!box.querySelector('.ap-menu') && box.querySelector('.bar .who')) act(() => box.querySelector<HTMLElement>('.bar .who')!.click()); };
 const type = (el: HTMLInputElement, v: string) => act(() => {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v);
   el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -122,10 +118,10 @@ describe('로그인·세션', () => {
     await open();
     await login('kim', 'pw');
     expect(calls.find((c) => c.path === '/auth/login')!.body).toMatchObject({ username: 'kim', password: 'pw', client: 'web' });
-    expect($('.bar .who')!.getAttribute('aria-label')).toBe('김총괄(총괄)');
+    expect($('.fh-me')!.textContent).toBe('김총괄(총괄)');
     expect(calls.find((c) => c.path.startsWith('/robots'))!.path).toContain('scope=all');
     expect($('[aria-label="로봇 목록"]')!.textContent).toContain('Go2-A');
-    openWho(); act(() => btn('로그아웃')!.click());
+    act(() => btn('로그아웃')!.click());
     await flush();
     expect(calls[calls.length - 1]).toMatchObject({ method: 'POST', path: '/auth/logout', headers: { 'X-FH-CSRF': 'csrf-L' } });
     expect($('main[aria-label="로그인"]')).not.toBeNull();
@@ -135,7 +131,8 @@ describe('로그인·세션', () => {
     await open('#/settings');
     expect(calls.map((c) => c.path).slice(0, 3)).toEqual(['/auth/session', '/me', '/robots?scope=all&limit=100']);
     expect($('main[aria-label="로그인"]')).toBeNull();
-    expect($('.bar .who')!.getAttribute('aria-label')).toBe('김총괄(총괄)');
+    expect($('.fh-me')!.textContent).toBe('김총괄(총괄)');
+    await settingsPage('robot');
     type($<HTMLInputElement>('input[name="battery_low_pct"]')!, '25');
     act(() => orgSave()!.click());
     await flush();
@@ -144,6 +141,7 @@ describe('로그인·세션', () => {
   it('쓰는 중 401 → 로그인 화면 + «다시 로그인» 안내', async () => {
     serve(signedIn(KIM, [], { 'GET /org/settings': NO_LOGIN }));
     await open('#/settings');
+    await settingsPage('robot');   // 조직 기준값을 읽는 묶음
     expect($('main[aria-label="로그인"]')).not.toBeNull();
     expect($('[role="alert"]')!.textContent).toBe('로그인이 끝났습니다. 다시 로그인하세요.');
     expect([MEM_USERS.length, MEM_ROBOTS.length]).toEqual([0, 0]);   // 401 뒤 메모리에도 이전 자료 0
@@ -159,7 +157,7 @@ describe('로그인·세션', () => {
     }));
     await open();
     expect($('[aria-label="로봇 목록"]')!.textContent).toContain('Go2-K');
-    openWho(); act(() => btn('로그아웃')!.click());
+    act(() => btn('로그아웃')!.click());
     await flush();
     expect($('main[aria-label="로그인"]')).not.toBeNull();
     expect([MEM_USERS.length, MEM_ROBOTS.length]).toEqual([0, 0]);
@@ -171,7 +169,7 @@ describe('로그인·세션', () => {
     watch.observe(box, { childList: true, subtree: true, characterData: true });
     await login('lee', 'pw');
     watch.disconnect();
-    expect($('.bar .who')!.getAttribute('aria-label')).toBe('이운영(운영 관리자)');
+    expect($('.fh-me')!.textContent).toBe('이운영(운영 관리자)');
     expect(fleetNames(box)).toEqual(['Go2-L']);
     expect(seen.length).toBeGreaterThan(0);
     expect(seen.filter((t) => /김총괄|Go2-K/.test(t))).toEqual([]);
@@ -235,15 +233,15 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
       expect(n).toBeGreaterThanOrEqual(3);   // 처음·주기 갱신·회수 뒤(그 밖의 다시 받기도 같은 범위)
       expect(new Set(scopes())).toEqual(new Set(['mine']));
 
-      openWho(); act(() => btn('로그아웃')!.click()); await flush();
+      act(() => btn('로그아웃')!.click()); await flush();
       await login('kim', 'pw');
-      expect($('.bar .who')!.getAttribute('aria-label')).toBe('김총괄(총괄)');
+      expect($('.fh-me')!.textContent).toBe('김총괄(총괄)');
       expect(names()).toEqual(['Go2-B', 'Go2-A']);
       act(() => { vi.advanceTimersByTime(LIST_MS * 2); }); await flush();   // 총괄은 주기 갱신 없음
       const m = scopes().length;
       expect(new Set(scopes().slice(n))).toEqual(new Set(['all']));   // 상세 404 뒤 다시 받기도 같은 범위
 
-      openWho(); act(() => btn('로그아웃')!.click()); await flush();
+      act(() => btn('로그아웃')!.click()); await flush();
       await login('lee', 'pw');
       expect(names()).toEqual(['Go2-A']);
       expect(new Set(scopes().slice(m))).toEqual(new Set(['mine']));
@@ -256,7 +254,7 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
     expect([...$('header details')!.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['지도 스캔', '기록', '로그아웃']);   // 지도 스캔 = 담당 실기 Go2-A(scanentry.test.tsx)
     click(btn('기록')!);
     expect(location.hash).toBe('#/history');
-    expect($('header, .bar .rt')!.lastElementChild).toBe($('[data-stop]'));   // STOP 은 여전히 맨 오른쪽
+    expect($('header')!.lastElementChild).toBe($('[data-stop]'));   // STOP 은 여전히 맨 오른쪽
     const more = $('header details')!;
     expect([...more.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['로그아웃']);
     click(more.querySelector('button')!);
@@ -321,7 +319,7 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
       act(() => { vi.advanceTimersByTime(LIST_MS); });
       await flush();
       expect(hold).not.toBeNull();
-      openWho(); act(() => btn('로그아웃')!.click());
+      act(() => btn('로그아웃')!.click());
       await flush();
       expect(signal?.aborted).toBe(true);
       await login('park', 'pw');
@@ -330,7 +328,7 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
       await flush();
       expect(fleetNames(box)).toEqual(['Go2-박운영']);
       expect(MEM_ROBOTS.map((r) => r.name)).toEqual(['Go2-박운영']);
-      expect($('.bar .who')!.getAttribute('aria-label')).toBe('박운영(운영 관리자)');
+      expect($('.fh-me')!.textContent).toBe('박운영(운영 관리자)');
     } finally { vi.useRealTimers(); }
   });
   it('[N5] 목록 갱신으로 내 담당이 된 로봇은 같은 소켓으로 다시 구독 → 상태를 받으면 조종 가능', async () => {
@@ -383,6 +381,7 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
     expect($('[data-stop]')).not.toBeNull();
     act(() => { location.hash = '#/settings'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
     await flush();
+    await settingsPage('robot');
     expect($('[aria-label="조직 기준값"]')).not.toBeNull();
   });
 });
@@ -411,7 +410,7 @@ describe('조종 화면에서 세션이 끝남(로그아웃·401·4401)', () => 
     addEventListener('error', onErr);
     await open('#/drive/r-k', true);
     const w = hold();
-    if (how === 'logout') { openWho(); act(() => btn('로그아웃')!.click()); }
+    if (how === 'logout') act(() => btn('로그아웃')!.click());
     else if (how === '4401') act(() => w.drop(4401));
     else { routes['GET /me'] = NO_LOGIN; await act(async () => { await api.me().catch(() => {}); }); }
     await flush();
@@ -431,7 +430,7 @@ describe('조종 화면에서 세션이 끝남(로그아웃·401·4401)', () => 
     const w = hold();
     act(() => btn('기록')!.click());
     expect(w.of('hidden')).toHaveLength(1);                 // 조종 화면을 떠나며 반납
-    openWho(); act(() => btn('로그아웃')!.click());
+    act(() => btn('로그아웃')!.click());
     await flush();
     expect($('main[aria-label="로그인"]')).not.toBeNull();
     expect([MEM_USERS.length, MEM_ROBOTS.length, rt.get('r-k').lease]).toEqual([0, 0, null]);
@@ -445,6 +444,7 @@ describe('조직 기준값', () => {
   it('운영 관리자: 값은 보이지만 저장 비활성 + 이유, PATCH 0', async () => {
     serve(signedIn(LEE, [robot('r-a', 'Go2-A', 'o1', '이운영')]));
     await open('#/settings');
+    await settingsPage('robot');
     expect($<HTMLInputElement>('input[name="battery_low_pct"]')!.value).toBe('20');
     expect($<HTMLInputElement>('input[name="battery_low_pct"]')!.readOnly).toBe(true);
     const save = orgSave()!;
@@ -455,6 +455,7 @@ describe('조직 기준값', () => {
   it('총괄: 바뀐 칸만 PATCH, 범위 밖이면 서버 문구 + 어느 칸의 허용 범위', async () => {
     serve(signedIn(KIM, [], { 'PATCH /org/settings': err(400, 'VALIDATION', '입력 형식을 확인하세요.') }));
     await open('#/settings');
+    await settingsPage('robot');
     type($<HTMLInputElement>('input[name="battery_low_pct"]')!, '70');
     act(() => orgSave()!.click());
     await flush();

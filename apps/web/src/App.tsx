@@ -24,6 +24,7 @@ import { kept } from './screens/mapedit';
 import { Maps } from './screens/maps';
 import { MissionTab, keptMission } from './screens/missiontab';
 import { Settings } from './screens/settings';
+import { SettingsU9 } from './screens/settingsu9';
 import { EmptyControl, useControlPick } from './screens/control';
 import { SimTab } from './screens/sim';
 import { Terrain } from './screens/terrain';
@@ -399,7 +400,8 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     ].filter(Boolean)}</div>;
   const mainEl = <main className="fh-main" aria-label={title}><Guard key={tab}>{simOpen ? sv.real ? <RealDrive /> : <SimDrive shrink={setSmall} />
         : phone && scan && tab === 'drive' && !open ? <ScanPanel key={user.id} user={user} robots={pool} close={() => setScan(false)} cancel={cancel} />   // ⋯ 지도 스캔(u14_2)
-        : tab === 'settings' ? <Settings key={user.id} user={user} setMe={setMe} refresh={refresh} cancel={cancel} />   // 로봇 목록이 바뀌어도 다시 그리지 않음(한 번만 보이는 토큰 칸 유지)
+        : tab === 'settings' ? phone ? <Settings key={user.id} user={user} setMe={setMe} refresh={refresh} cancel={cancel} />
+          : <SettingsU9 key={user.id} user={user} setMe={setMe} refresh={refresh} cancel={cancel} logout={logout} />   // PC = 시안 u9   // 로봇 목록이 바뀌어도 다시 그리지 않음(한 번만 보이는 토큰 칸 유지)
         : tab === 'terrain' ? <Terrain />   // 로봇과 무관 — 로봇 0대여도, 로봇을 바꿔도 다시 그리지 않음
         : ctx ? <Body key={`${tab}-${tab === 'control' || tab === 'fleet' || tab === 'approval' || tab === 'trash' ? '' : tab === 'map' || tab === 'missions' ? mapN : ctx.robot.id}-${user.id}`} {...ctx} />   // 관제·지도·결재는 로봇을 골라도 다시 그리지 않음(층·지도 그림·고른 결재 유지 — 상세 서랍은 자기 key)
         : tab === 'drive' ? <Connect user={user} robots={pool} go={go} refresh={refresh} cancel={cancel} />   // 로봇 0대여도 시뮬 로봇 띄우기 자리

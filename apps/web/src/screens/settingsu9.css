@@ -1,0 +1,75 @@
+/* 시안 u9 화면 <style> (u9_1 ~ u9_9 같음) 을 .u9 로 감싼 것(기계 생성). 값은 그대로. 손으로 고치지 않는다 */
+
+.u9 .sw{width:46px;height:28px;border-radius:14px;position:relative;flex:none;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.14);box-shadow:inset 0 1px 2px rgba(0,0,0,.35)}
+.u9 .sw::after{content:"";position:absolute;top:2px;left:2px;width:22px;height:22px;border-radius:50%;background:linear-gradient(180deg,#fff,#dfe3e8);box-shadow:0 2px 5px rgba(0,0,0,.35)}
+.u9 .sw.on{background:linear-gradient(180deg,#00c389,#00c389);border-color:rgba(0,195,137,.5)}
+.u9 .sw.on::after{left:20px}
+.u9 .sw.lock{opacity:.4}
+.u9 .inp{height:48px;border-radius:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);display:flex;align-items:center;padding:0 14px;font-size:15px;font-weight:600;box-shadow:inset 0 1px 2px rgba(0,0,0,.25)}
+.u9 .inp.foc{border-color:rgba(0,195,137,.7);box-shadow:0 0 0 3px rgba(0,195,137,.18)}
+.u9 .inp.bad{border-color:rgba(255,77,79,.8);box-shadow:0 0 0 3px rgba(255,77,79,.16)}
+.u9 .lab{font-size:13px;font-weight:700;color:var(--mu2);margin-bottom:8px}
+.u9 .only{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:7px;font-size:11.5px;font-weight:700;color:#f2b705;background:rgba(242,183,5,.12);border:1px solid rgba(242,183,5,.32)}
+.u9 .okb{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 9px;border-radius:8px;font-size:12px;font-weight:700;color:var(--pr3);background:rgba(0,195,137,.12);border:1px solid rgba(0,195,137,.35)}
+.u9 .why{font-size:12px;font-weight:600;color:var(--mu2);margin-top:4px}
+.u9 .line1{display:flex;align-items:center;gap:12px;height:56px;padding:0 10px 0 18px;border-radius:16px;font-size:15px;font-weight:700}
+.u9 .line1.err{background:linear-gradient(180deg,rgba(255,77,79,.22),rgba(255,77,79,.14));border:1px solid rgba(255,77,79,.5);box-shadow:0 10px 26px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.12)}
+.u9 .line1.amb{background:linear-gradient(180deg,rgba(242,183,5,.22),rgba(242,183,5,.13));border:1px solid rgba(242,183,5,.5);box-shadow:0 10px 26px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.12)}
+.u9 .line1.ok{background:linear-gradient(180deg,rgba(0,195,137,.22),rgba(0,195,137,.12));border:1px solid rgba(0,195,137,.5);box-shadow:0 10px 26px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.12)}
+.u9 .line1 small{font-size:13px;font-weight:600;color:rgba(232,235,240,.75)}
+.u9 .scrim{position:absolute;inset:64px 0 0 0;background:rgba(8,10,14,.55);backdrop-filter:blur(4px);z-index:5}
+.u9 .modal{left:50%;top:50%;transform:translate(-50%,-50%);padding:30px;border-radius:24px;z-index:6}
+.u9 .modal .ttl{color:#1f2421}
+.u9 .modal .lab{color:#5e6662}
+.u9 .modal .inp{background:rgba(255,255,255,.8);border:1px solid rgba(0,0,0,.08);color:#1f2421;box-shadow:inset 0 1px 2px rgba(0,0,0,.06)}
+.u9 .modal .inp.foc{border-color:#00c389;box-shadow:0 0 0 3px rgba(0,195,137,.2)}
+.u9 .modal .inp.bad{border-color:#ff4d4f;box-shadow:0 0 0 3px rgba(255,77,79,.14)}
+.u9 .mbtn{height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;gap:7px;font-weight:800;font-size:15px}
+.u9 .mbtn.sec{background:rgba(255,255,255,.75);border:1px solid rgba(0,0,0,.08);color:#1f2421}
+.u9 .dots{letter-spacing:.18em;font-size:18px}
+
+.u9 .nav{left:24px;top:88px;width:320px;bottom:24px;padding:22px 12px}
+.u9 .nav h5{font-size:12.5px;font-weight:700;color:var(--mu2);padding:16px 12px 6px}
+.u9 .nav h5:first-of-type{padding-top:4px}
+.u9 .ni{display:flex;align-items:center;gap:12px;height:44px;padding:0 12px;border-radius:12px;font-size:14.5px;font-weight:700;color:#c9ced6}
+.u9 .ni .ic{color:var(--mu2)}
+.u9 .ni.on{background:rgba(0,195,137,.12);color:var(--pr3);box-shadow:inset 0 0 0 1px rgba(0,195,137,.35)}
+.u9 .ni.on .ic{color:var(--pr3)}
+.u9 .ni .only{margin-left:auto}
+.u9 .hd{position:absolute;left:368px;top:88px;right:24px;height:56px;display:flex;align-items:center;gap:16px}
+.u9 .hd .ttl{font-size:26px}
+.u9 .hd p{font-size:14.5px;color:var(--mu2);font-weight:600}
+.u9 .pane{padding:26px 28px}
+.u9 .ph{display:flex;align-items:center;gap:10px;margin-bottom:18px}
+.u9 .ph .ttl{font-size:19px}
+.u9 .rw{display:flex;align-items:center;gap:14px;min-height:64px;border-top:1px solid var(--line);font-size:15px;font-weight:700}
+.u9 .rw small{display:block;font-size:13px;font-weight:600;color:var(--mu2);margin-top:3px}
+.u9 .rw .r{margin-left:auto;display:flex;align-items:center;gap:10px}
+.u9 .sb{height:38px;padding:0 14px;font-size:13.5px}
+.u9 .av2{width:38px;height:38px;border-radius:12px;background:#2a3340;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;flex:none}
+.u9 .tbl{width:100%;border-collapse:collapse;font-size:14.5px}
+.u9 .tbl th{font-size:12.5px;font-weight:700;color:var(--mu2);text-align:left;padding:0 10px 10px}
+.u9 .tbl td{border-top:1px solid var(--line);height:60px;padding:0 10px;font-weight:700}
+.u9 .tbl.pt td{height:50px}
+.u9 .tbl td.m{color:var(--mu2);font-weight:600;font-size:13.5px}
+.u9 .rp{display:inline-flex;height:26px;padding:0 10px;border-radius:8px;align-items:center;font-size:12.5px;font-weight:700;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12)}
+.u9 .rp.lead{color:var(--pr3);background:rgba(0,195,137,.12);border-color:rgba(0,195,137,.35)}
+.u9 .yes{color:var(--pr3)}.u9 .no{color:#4a5260}
+.u9 .pv{flex:1;border-radius:16px;padding:12px;border:1px solid var(--line);background:rgba(255,255,255,.03)}
+.u9 .pv.on{border-color:rgba(0,195,137,.6);box-shadow:0 0 0 3px rgba(0,195,137,.16)}
+.u9 .pvs{height:330px;border-radius:12px;position:relative;overflow:hidden;background:url(/proto-assets/assets/real/pc_route.jpg?v=1128042956) 52% 40%/cover;box-shadow:0 8px 22px rgba(0,0,0,.35)}
+.u9 .pvs .tb{position:absolute;left:0;right:0;top:0;height:22px;display:flex;align-items:center;gap:6px;padding:0 10px}
+.u9 .pvs .tb i{display:block;height:6px;border-radius:3px}
+.u9 .pvs .cd{position:absolute;left:12px;top:36px;width:92px;bottom:12px;border-radius:8px}
+.u9 .pvs .st2{position:absolute;right:12px;bottom:12px;width:44px;height:30px;border-radius:8px;background:linear-gradient(180deg,#ff4d4f,#e04a2f)}
+.u9 .radio{width:20px;height:20px;border-radius:50%;border:2px solid #4a5260;flex:none}
+.u9 .radio.on{border:6px solid #00c389}
+.u9 .kb kbd{display:inline-flex;min-width:38px;height:38px;padding:0 10px;border-radius:10px;align-items:center;justify-content:center;
+ background:linear-gradient(180deg,rgba(255,255,255,.14),rgba(255,255,255,.06));border:1px solid rgba(255,255,255,.2);box-shadow:0 3px 0 rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.2);font:800 14px Inter Tight,Noto Sans KR,Noto Sans CJK KR;color:#ffffff}
+.u9 .kb .rw{min-height:80px}
+.u9 .kb .rw .keys{display:flex;gap:6px;width:300px}
+.u9 .tl2{position:relative;height:52px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid var(--line)}
+.u9 .tl2 b{position:absolute;top:6px;bottom:6px;border-radius:7px;background:linear-gradient(180deg,rgba(242,183,5,.55),rgba(242,183,5,.35));border:1px solid rgba(242,183,5,.7);font-size:12px;font-weight:700;color:#fff;display:flex;align-items:center;padding:0 8px;white-space:nowrap;overflow:hidden}
+.u9 .step{display:flex;align-items:center;gap:0;border-radius:14px;border:1px solid rgba(255,255,255,.14);overflow:hidden}
+.u9 .step span{width:52px;height:52px;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;background:rgba(255,255,255,.05)}
+.u9 .step b{width:140px;text-align:center;font-size:22px;font-weight:800}
