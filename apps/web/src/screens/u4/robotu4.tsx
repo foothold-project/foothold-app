@@ -8,7 +8,7 @@ import type { GaitName, MapVersion, RunSnapshot, ScreenAction } from '../../../.
 import { api } from '../../api';
 import { rt, useLive, useRt } from '../../rt';
 import { useStopPress } from '../../App';
-import { ADMIN_LATER, ownerName, robotStatus, type Robot } from '../../fake';
+import { ADMIN_LATER, idleSim, ownerName, robotStatus, type Robot } from '../../fake';
 import { fleetKind, fleetOrder, type Urgent } from '../../fleetorder';
 import { facts, hotJoint as hotOf, tempLevel } from '../../proto/u5';
 import { isLost, needs } from '../control';
@@ -589,9 +589,10 @@ function Empty({ add, none }: { add: () => void; none?: ReactNode }) {
     <div className="right"><div className="views" aria-label="로봇 보기" /></div>
   </>;
 }
-/** 목록 = 시안 u4 처럼 실기 + 시뮬(시뮬 줄은 rehearse 파란 점선). 끝낸 시뮬 슬롯(담당 비움)은 뺀다. 고른 로봇이 목록에 없으면 첫 줄로(머리줄 STOP 대상 = 화면) */
+/** 목록 = 시안 u4 처럼 실기 + 시뮬(시뮬 줄은 rehearse 파란 점선). 끝낸 시뮬 슬롯(fake idleSim: 담당 없음 · 데모 아님 · 임무 없음)만 뺀다.
+ *  임무 판정 state 는 App 고르기와 같게(요약만 받는 로봇은 목록 current_run). 고른 로봇이 목록에 없으면 첫 줄로(머리줄 STOP 대상 = 화면) */
 function Real({ c, add }: { c: Ctx; add: () => void }) {
-  const robots = c.robots.filter((x) => !x.sim || !!x.owner), robot = robots.find((x) => x.id === c.robot.id) ?? robots[0], demo = useDemo(c.cancel);
+  const robots = c.robots.filter((x) => !idleSim(x, x.unknown === 'summary' ? null : rt.get(x.id).state)), robot = robots.find((x) => x.id === c.robot.id) ?? robots[0], demo = useDemo(c.cancel);
   useEffect(() => { if (robot && robot.id !== c.robot.id) c.pick(robot.id); }, [robot?.id, c.robot.id]);
   if (!robot) return <Empty add={add} />;
   const rc = { ...c, robot, robots };
