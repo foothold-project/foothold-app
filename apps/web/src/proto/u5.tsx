@@ -296,7 +296,7 @@ function Recent({ list, pick, open, seen }: { list: TileFacts[]; pick: (id: stri
     {/* 칸에 다 들어가지 않는 줄은 반쯤 잘려 보이지 않게 옆 칸으로 넘겨 숨김(시안: 온전한 줄만) · 모두는 기록 탭 */}
     <div className="alist">{list.map((f) => { const red = f.level === 'bad' || f.level === 'crit', at = alertAt(f, seen), joint = f.byTemp && !!f.hot;   // 관절 제목은 단계가 온도에서 왔을 때만(정지 잠금 등 다른 경고에 관절 이름을 붙이지 않음)
       const head = joint ? `관절 ${LEVEL_TEXT[tempLevel(f.hot!.t)!]}` : f.lostNow ? '연결 끊김' : f.why;
-      const sub = joint ? f.why : f.lostNow ? `${f.place ? `${f.place.replace(' (마지막 위치)', '')} · ` : ''}다시 연결 중` : f.mission?.name ?? stText(f.x);
+      const sub = joint ? f.why : f.lostNow ? `${f.place ? `${f.place.replace(' (마지막 위치)', '')} · ` : ''}다시 연결 중` : f.mission?.name ?? (f.why.startsWith(stText(f.x)) ? at?.title ?? '' : stText(f.x));   // 제목이 이미 상태 글이면(정지 잠금) 덧말은 시각 · «이어진 상태» 만(팀장 21:45)
       return <div className="al" key={f.x.id} data-alert={f.x.id} role="button" tabIndex={0} onClick={() => pick(f.x.id)} onDoubleClick={() => open(f.x.id)}><span style={{ color: red ? 'var(--u5-red)' : 'var(--u5-amb)' }}>{I(18, joint ? IC.temp : f.lostNow ? IC.wifi : IC.warn)}</span><div>{f.x.name} {head}<small>{sub}</small></div>{at && <time data-alert-at title={at.title}>{at.t}</time>}</div>; })}</div>
   </div>;
 }

@@ -192,6 +192,22 @@ describe('관제 탭', () => {
     const S = (o: object) => toRobot({ id: 'x', name: 'X', model: 'Go2', owner: null, connection: 'ONLINE', status: 'STOP_LATCHED', battery: null, location: null, lease: null, current_run: null, devices: [], attention: [], simulation: false, server_drive_allowed: true, ...o } as never);
     expect([S({ latch_reason: 'BOOT' }).latchReason, S({ latch_reason: null }).latchReason, S({}).latchReason]).toEqual(['BOOT', null, null]);
   });
+  // 팀장 21:45: 제목과 덧말이 둘 다 «정지 잠금» 으로 겹치면 덧말은 잠금 시작 시각 또는 «이어진 상태» 만 · reviewer L1: 잠금(bad) + 온도 주의(warn) = bad
+  it('최근 경고 덧말: 임무 없는 잠금 로봇은 상태 글을 되풀이하지 않고 시각만, 잠금 + 온도 주의 = 테두리 빨강', () => {
+    const R: Robot[] = [
+      { ...TWENTY[3], id: 'a1', name: 'A-1', status: 'STOP_LATCHED', mission: undefined, statusSince: { status: 'STOP_LATCHED', at: '2026-11-28T20:53:54' } },
+      { ...TWENTY[3], id: 'a2', name: 'A-2', status: 'STOP_LATCHED', mission: undefined },
+      { ...TWENTY[3], id: 'a3', name: 'A-3', status: 'STOP_LATCHED', mission: '공정 순찰 A 2/4' },
+    ];
+    mount('u-kim', R); feed(R, { a2: temp([40, 41, 42, 43, 52, 44, 45, 46, 47, 48, 49, null]) });
+    const sub = (id: string) => $(`[aria-label="최근 경고"] [data-alert="${id}"] small`).textContent;
+    expect(sub('a1')).toBe('잠금 시작 20:53');
+    expect(sub('a2')).toBe('이어진 상태');
+    expect(sub('a3')).toBe('공정 순찰 A');   // 임무가 있으면 임무 이름 그대로
+    expect(tile('a2').dataset.tone).toBe('bad');
+    expect(tile('a2').querySelector('[data-warn-flag]')!.textContent).toBe('경고 · 정지 잠금 · 까닭 미상');
+    expect(tile('a2').querySelector('[data-fact="temp"]')!.className).toBe('s w');
+  });
   it('정지 잠금 + 문턱 넘은 온도(61 °C): 머리표는 잠금(위험 70 °C 전까지), 온도 칩만 경고색 · 관절 이름, 잠금 없으면 전처럼 온도가 머리표', () => {
     mount('u-kim', TWENTY); feed(TWENTY, { g3: { status: 'STOP_LATCHED', ...temp([40, 41, 42, 43, 61, 44, 45, 46, 47, 48, 49, null]) }, g5: temp([40, 41, 42, 43, 52, 44, 45, 46, 47, 48, 49, null]) });
     expect(tile('g3').querySelector('[data-warn-flag]')!.textContent).toBe('경고 · 정지 잠금 · 까닭 미상');
