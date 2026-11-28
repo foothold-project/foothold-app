@@ -3730,7 +3730,7 @@ class SimRobot(Contract):
     command_topic: str
     launcher: Literal['fake', 'native-single', 'mujoco-local']
     expires_at: UTCDateTime | None = None
-    remaining_s: int | None = Field(default=None, ge=0, le=3600,
+    remaining_s: int | None = Field(default=None, ge=0, le=86400,
                                   description='Manager monotonic runtime remaining at this response, in seconds.')
 
 
