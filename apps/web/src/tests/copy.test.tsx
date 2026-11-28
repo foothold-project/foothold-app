@@ -135,3 +135,15 @@ describe('화면 글에 줄표 없음(t19)', () => {
     expect(dashes(src)).toEqual([]);
   });
 });
+
+// t19 둘째 (11-28 조정): 지도 보기 안내 · 시나리오 경로 거리 설명의 문장 줄표만. 같은 파일의 다른 줄은 열린 PR 과 겹치지 않게 뒤로
+describe('지도 보기 안내 · 경로 거리 설명에 줄표 없음(t19)', () => {
+  it('maps.tsx 「보기만」 안내', () => {
+    expect(code(SRC['../screens/maps.tsx'])).toContain("'보기만. «편집»을 누르면 도구가 나옵니다'");
+    expect(code(SRC['../screens/maps.tsx'])).not.toMatch(/보기만 [—–]/);
+  });
+  it('missions.tsx 예상 거리 설명', () => {
+    expect(code(SRC['../screens/missions.tsx'])).toContain('m <span className="lbl">· 지점 사이 직선과');
+    expect(code(SRC['../screens/missions.tsx'])).not.toMatch(/[—–] 지점 사이 직선과/);
+  });
+});
