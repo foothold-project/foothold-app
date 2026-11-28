@@ -518,4 +518,27 @@ describe('실기 직결 「다시 시작」 확인 창', () => {
     expect(ask()).toBeNull();
     expect(unlocks(a)).toHaveLength(0);
   });
+  it('[H1 · L1] 창을 연 채 연결 닫힘 → 창 닫힘 → 같은 lease · 같은 stop_gen 으로 다시 붙음: 창이 저절로 뜨지 않고 unlock 0', async () => {
+    const a = await connected();
+    await held(a);
+    await click(btn('다시 시작'));
+    expect(ask()).not.toBeNull();
+    act(() => a.drop(1006)); await flush();
+    expect(ask()).toBeNull();
+    await click(btn('다시 연결'));
+    act(() => { window.dispatchEvent(new CustomEvent('fh-go2-link', { detail: { seq: link()!.seq, port: 40123, nonce: '0123456789abcdef0123456789abcdef' } })); });
+    await flush();
+    const b = FakeWS.all.filter((w) => w.url.startsWith('ws://127.0.0.1:40123/') && !w.url.includes('media')).pop()!;
+    expect(b).not.toBe(a);
+    b.auto = a.auto;
+    act(() => b.open()); await flush();
+    act(() => b.recv(welcome())); await flush();
+    act(() => b.recv(st(ST))); await flush();
+    if (btn('조종')) { await click(btn('조종')); act(() => b.recv(st(ST))); await flush(); }   // 새 연결은 조종권부터(자동 재개 없음) — 같은 lease 를 다시 받음
+    expect(sim.get().link?.lease).toBe(LEASE);
+    expect(sim.get().link?.st?.stop_gen).toBe(1);
+    expect(btn('다시 시작')).toBeTruthy();
+    expect(ask()).toBeNull();
+    expect([...unlocks(a), ...unlocks(b)]).toHaveLength(0);
+  });
 });
