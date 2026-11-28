@@ -496,7 +496,10 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   // 시안 u4_7: Shift+N 도 칩과 같은 확인 창을 그 모드를 고른 채 연다(창 없이 보내지 않음). 못 여는 때(조종권 없음 · 그 모드를 못 씀)는 원래 길(press)이 까닭을 알림
   if (d.gaitAsk) d.gaitAsk.current = (g) => (mine && !noGait && (!d.gait.avail || d.gait.avail.includes(g)) ? openMode(g) : d.gait.press(g));
   const [arm, setArm] = useState(-Infinity);   // 처음 = 아직 안 누름(0 이면 페이지 연 뒤 3 초 안 첫 누름이 바로 Damp · 폰 drive 와 같게)
-  useEffect(() => { setArm(-Infinity); }, [latched, tab]);   // 단추가 사라지면(정지 풀림 · 다른 칸) 한 번 누른 것도 버림 — 다시 나타난 뒤 첫 누름은 안내만(검토 00:41)
+  // Damping 단추가 보이는 조건 하나(정지 잠금 = 내 조종 · 연결 · latched, 그리고 엎드리지 않음). 이 값이 바뀌거나 칸을 바꾸면 한 번 누른 것을 버림 —
+  // 다시 나타난 뒤 첫 누름은 안내만(검토 00:41 · 00:47: 정지 풀림 · 엎드림 · 조종권 잃음 · 끊김 모두 이 한 조건으로)
+  const dampShown = latched && !lying;
+  useEffect(() => { setArm(-Infinity); }, [dampShown, tab]);
   const damp = () => {
     if (rt.now() - arm > 3000) { setArm(rt.now()); return say('한 번 더 누르면 엎드려 힘을 뺍니다'); }
     setArm(-Infinity); d.zero(); rt.action(r.id, 'Damp', {}, true, (why, id) => { if (why) say(`거부 · ${why}`); else setPending(id ?? null); });
@@ -558,7 +561,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
       <div className="g dk job" data-u4-job><b>{job.name}</b><span>{job.line}</span><i><em style={{ width: `${job.pct}%` }} /></i></div>
       <MapName place={place} b={b} />
       {latched ? <div className="vslot" data-u4-restart>
-        {lying ? <button type="button" className="vgo big" onClick={restart.open} data-u4-unlock><svg className="ic" viewBox="0 0 24 24" style={{ width: '24px', height: '24px' }}><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></svg>다시 시작<small>일어섭니다</small></button>
+        {!dampShown ? <button type="button" className="vgo big" onClick={restart.open} data-u4-unlock><svg className="ic" viewBox="0 0 24 24" style={{ width: '24px', height: '24px' }}><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></svg>다시 시작<small>일어섭니다</small></button>
           : <><button type="button" className="vgo" onClick={restart.open} data-u4-unlock><svg className="ic" viewBox="0 0 24 24" style={{ width: '20px', height: '20px' }}><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></svg>다시 시작</button>
             <button type="button" data-go="u4_10_restart" className="stop damp" onClick={damp} data-u4-damp><svg className="ic" viewBox="0 0 24 24" style={{ width: '22px', height: '22px' }}><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z" /><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" /></svg>Damping<small>엎드려 힘 빼기</small></button></>}
       </div>
