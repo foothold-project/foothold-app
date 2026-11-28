@@ -17,8 +17,13 @@ export const centerOf = (o: [number, number, number], s: number, [i, j, k]: [num
 const DOT_PX = 1.5;
 /** 높이 단계별 색(three 선형 RGB) — 라이다 3D 와 같은 표(heightcolor.ts) */
 const LIN = HEX.map((h) => new THREE.Color(h).toArray() as [number, number, number]);
-/** 어두운 고정 바탕·격자 선 = frame.css .fh 어두운 테마 --bg·--line 값 */
-const DARK = { bg: '#0B0E11', line: '#26313A' };
+/** 바탕 · 격자 · 바닥 = 화면 토큰(--bg · --line · --muted, 밝음 · 어두움을 따라감). 높이 색표는 두 바탕 모두 읽히게 고른 값(heightcolor.ts).
+ *  토큰이 three 가 못 읽는 값이면 three 기본(흰색) 대신 앞 색을 그대로 둔다 */
+function tokenColor(el: Element, name: string, into: THREE.Color) {
+  const v = getComputedStyle(el).getPropertyValue(name).trim();
+  if (/^(#[0-9a-f]{3,8}|rgba?\()/i.test(v)) into.setStyle(v);
+  return into;
+}
 
 type Rig = { renderer: THREE.WebGLRenderer; scene: THREE.Scene; cam: THREE.PerspectiveCamera; orbit: OrbitControls; geo: THREE.BufferGeometry; count: number; mat: THREE.PointsMaterial; drawn: number; top: number; draw: () => void; view: (top: boolean) => void };
 
@@ -40,11 +45,16 @@ export default function Voxel3D({ v, pages, n }: Props) {
     el.prepend(canvas);
     const scene = new THREE.Scene(), cam = new THREE.PerspectiveCamera(45, 1, 0.05, 500);
     cam.up.set(0, 0, 1);
-    scene.background = new THREE.Color(DARK.bg);   // 점이 밝은 색이라 바탕은 테마와 상관없이 어두운 고정색(Unitree 저장 지도 보기처럼)
-    const line = new THREE.Color(DARK.line), grid = new THREE.GridHelper(Math.ceil(Math.max(W, H)) + 4, Math.ceil(Math.max(W, H)) + 4, line, line);   // 1 m 칸
-    grid.rotation.x = Math.PI / 2; grid.position.set(cx, cy, o[2] - 0.002); scene.add(grid);
-    // 회색 반투명 바닥면(지도 범위 + 둘레 1 m) — 점이 떠 보이지 않게
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(W + 2, H + 2), new THREE.MeshBasicMaterial({ color: 0x8a8f98, transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide }));
+    const bg = new THREE.Color(), line = new THREE.Color(), dim = new THREE.Color();
+    const tone = () => { tokenColor(el, '--bg', bg); tokenColor(el, '--line', line); tokenColor(el, '--muted', dim); };
+    tone();
+    scene.background = bg;
+    const cells = Math.ceil(Math.max(W, H)) + 4;
+    let grid = new THREE.GridHelper(cells, cells, line, line);   // 1 m 칸
+    const place = (g: THREE.GridHelper) => { g.rotation.x = Math.PI / 2; g.position.set(cx, cy, o[2] - 0.002); scene.add(g); };
+    place(grid);
+    // 반투명 바닥면(지도 범위 + 둘레 1 m, --muted) · 점이 떠 보이지 않게
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(W + 2, H + 2), new THREE.MeshBasicMaterial({ color: dim, transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide }));
     floor.position.set(cx, cy, o[2] - 0.001); scene.add(floor);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(total * 3), 3));
@@ -67,8 +77,15 @@ export default function Voxel3D({ v, pages, n }: Props) {
     const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit);
     ro?.observe(el);
     view(false); fit();
+    // 화면 밝기를 바꾸면 토큰 색을 다시 읽어 칠한다(terrain3d 와 같은 신호 = <html data-theme>)
+    const mo = new MutationObserver(() => {
+      tone(); floor.material.color.copy(dim);
+      scene.remove(grid); grid.dispose(); grid = new THREE.GridHelper(cells, cells, line, line); place(grid);
+      draw();
+    });
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     return () => {
-      ro?.disconnect(); orbit.dispose();
+      mo.disconnect(); ro?.disconnect(); orbit.dispose();
       geo.dispose(); mat.dispose(); floor.geometry.dispose(); floor.material.dispose(); grid.dispose(); renderer.dispose(); canvas.remove();
       rig.current = null;
     };
