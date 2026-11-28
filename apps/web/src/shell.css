@@ -104,3 +104,69 @@ html .fh[data-layout="pc"] .fh-main { padding: 20px 24px 24px; }
 
 /* 종 = 시안 머리줄 그대로 테두리 없는 아이콘(누름 자리 44 는 유지) */
 [data-slot="bell"] .fh-more > summary { border: 0; background: none; min-width: 44px; }
+
+/* ── 시안 로그인(u10_1 · u10_2 · u10_3 · u10_4) ─────────────────
+   카드 = 시안 .g.dk · .card(480 폭 · 둥글기 28 · 안 여백 40/40/34), 입력 = .inp(52 높이 · 둥글기 12), 오류 줄 = .line1.err, 창 = .modal(560 폭).
+   바탕: 시안은 공장 조감 사진(map_large_factory_iso.jpg) 위 왼쪽 어둠 그러데이션. 사진은 저장소에 넣지 않아(사진 커밋 금지) 같은 그러데이션 + 옅은 격자로 둔다. */
+html .fh.lg { position: relative; min-height: 100vh; overflow: hidden; background: #0c0f14; }
+html .fh.lg .lg-bg { position: absolute; inset: 0; background:
+  linear-gradient(90deg, rgba(12,15,20,.94) 0%, rgba(12,15,20,.82) 34%, rgba(12,15,20,.25) 62%, rgba(12,15,20,.05) 100%),
+  repeating-linear-gradient(0deg, rgba(255,255,255,.035) 0 1px, transparent 1px 48px),
+  repeating-linear-gradient(90deg, rgba(255,255,255,.035) 0 1px, transparent 1px 48px),
+  radial-gradient(900px 600px at 72% 46%, #2a3a36, #121820 70%); }
+html .fh.lg .fh-login { position: relative; z-index: 2; justify-content: flex-start; padding: 48px 16px 48px clamp(16px, 9.4vw, 180px); }
+html .fh.lg .lg-card { width: 100%; max-width: 480px; box-sizing: border-box; padding: 40px 40px 34px; border-radius: 28px; display: flex; flex-direction: column; gap: 0; color: #fff;
+  background: linear-gradient(180deg, rgba(28,32,40,.52), rgba(18,20,26,.38)); border: 1px solid rgba(255,255,255,.22);
+  box-shadow: 0 10px 28px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.28); backdrop-filter: blur(22px) saturate(1.8); -webkit-backdrop-filter: blur(22px) saturate(1.8); }
+html .fh.lg .lg-logo { font-weight: 900; letter-spacing: .08em; font-size: 18px; }
+html .fh.lg .lg-card h2 { margin: 26px 0 0; font-size: 28px; font-weight: 800; letter-spacing: -.02em; }
+html .fh.lg .lg-sub { margin: 6px 0 0; font-size: 14.5px; font-weight: 600; color: #9aa19d; }
+html .fh.lg .lg-slot { min-height: 48px; margin-top: 18px; }
+html .fh.lg .lg-line { margin: 0; display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 18px; border-radius: 16px; font-size: 14px; font-weight: 700; box-sizing: border-box; }
+html .fh.lg .lg-err { background: linear-gradient(180deg, rgba(255,77,79,.22), rgba(255,77,79,.14)); border: 1px solid rgba(255,77,79,.5); box-shadow: 0 10px 26px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.12); color: #fff; }
+html .fh.lg .lg-ok { background: linear-gradient(180deg, rgba(0,195,137,.22), rgba(0,195,137,.12)); border: 1px solid rgba(0,195,137,.5); box-shadow: 0 10px 26px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.12); color: #fff; }
+html .fh.lg .lg-fields { display: flex; flex-direction: column; gap: 16px; margin-top: 24px; }
+html .fh.lg .lg-fields label { display: block; }
+html .fh.lg .lg-lab { display: block; font-size: 13px; font-weight: 700; color: #9aa19d; margin-bottom: 8px; }
+html .fh.lg .lg-inp { width: 100%; box-sizing: border-box; height: 52px; border-radius: 12px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); padding: 0 14px;
+  font: inherit; font-size: 15.5px; font-weight: 600; color: #fff; box-shadow: inset 0 1px 2px rgba(0,0,0,.25); outline: none; display: flex; align-items: center; }
+html .fh.lg .lg-inp:focus, html .fh.lg .lg-pw:focus-within { border-color: rgba(0,195,137,.7); box-shadow: 0 0 0 3px rgba(0,195,137,.18); }
+html .fh.lg .lg-pw.bad { border-color: rgba(255,77,79,.8); box-shadow: 0 0 0 3px rgba(255,77,79,.16); }
+html .fh.lg .lg-pw input { flex: 1; min-width: 0; height: 100%; background: none; border: 0; outline: none; color: inherit; font: inherit; padding: 0; }
+html .fh.lg .lg-eye, html .fh.lg .lg-x { background: none; border: 0; padding: 0; margin-left: 8px; color: #9aa19d; cursor: pointer; display: inline-flex; min-width: 44px; min-height: 44px; align-items: center; justify-content: center; margin-right: -12px; }
+html .fh.lg .lg-ic { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+html .fh.lg .lg-go { height: 56px; font-size: 16px; margin-top: 26px; border: 0; border-radius: 14px; width: 100%; font: inherit; font-weight: 800; font-size: 16px; cursor: pointer;
+  background: linear-gradient(180deg, var(--sh-pr3), var(--sh-pr3)); color: var(--sh-on-pr); box-shadow: var(--sh-btnp-shadow); }
+html .fh.lg .lg-go:disabled { opacity: .6; cursor: default; }
+html .fh.lg .lg-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 22px; flex-wrap: wrap; font-size: 13px; font-weight: 600; color: #9aa19d; }
+html .fh.lg .lg-link { background: none; border: 0; padding: 0; min-height: 44px; font: inherit; font-size: 14px; font-weight: 700; color: #00c389; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+html .fh.lg .lg-note { margin-top: 10px; font-size: 12px; font-weight: 600; color: #7d8581; }
+/* 비밀번호 바꾸기 창 = 시안 .scrim · .g.modal(밝은 유리 카드) */
+html .fh.lg .lg-scrim { position: fixed; inset: 0; z-index: 5; background: rgba(8,10,14,.55); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; padding: 16px; }
+html .fh.lg .lg-modal { width: 100%; max-width: 560px; box-sizing: border-box; padding: 30px; border-radius: 24px; color: #1f2421;
+  background: linear-gradient(180deg, rgba(255,255,255,.72), rgba(255,255,255,.48)); border: 1px solid rgba(255,255,255,.85);
+  box-shadow: 0 8px 24px rgba(20,30,50,.14), inset 0 1px 0 rgba(255,255,255,.95); backdrop-filter: blur(22px) saturate(1.8); -webkit-backdrop-filter: blur(22px) saturate(1.8); }
+html .fh.lg .lg-mhead { display: flex; align-items: center; justify-content: space-between; }
+html .fh.lg .lg-ttl { font-size: 20px; font-weight: 800; }
+html .fh.lg .lg-modal .lg-x { color: #1f2421; }
+html .fh.lg .lg-modal .lg-fields { gap: 14px; margin-top: 20px; }
+html .fh.lg .lg-modal .lg-lab { color: #5e6662; }
+html .fh.lg .lg-modal .lg-inp { background: rgba(255,255,255,.8); border: 1px solid rgba(0,0,0,.08); color: #1f2421; box-shadow: inset 0 1px 2px rgba(0,0,0,.06); }
+html .fh.lg .lg-modal .lg-inp:focus { border-color: #00c389; box-shadow: 0 0 0 3px rgba(0,195,137,.2); }
+html .fh.lg .lg-help { font-size: 13px; color: #5e6662; font-weight: 600; margin: 14px 0 0; line-height: 1.6; }
+html .fh.lg .lg-modal .lg-err { margin-top: 14px; color: #7a1012; }
+html .fh.lg .lg-mbtns { display: flex; gap: 10px; margin-top: 20px; }
+html .fh.lg .lg-mbtn { flex: 1; height: 52px; border-radius: 14px; font: inherit; font-weight: 800; font-size: 15px; cursor: pointer; border: 1px solid rgba(0,0,0,.08); background: rgba(255,255,255,.75); color: #1f2421; }
+html .fh.lg .lg-mbtn.btnp { border: 0; background: linear-gradient(180deg, #00c389, #00c389); color: #1f2421; box-shadow: 0 10px 24px rgba(0,195,137,.35), inset 0 1px 0 rgba(255,255,255,.4); }
+@media (max-width: 600px) { html .fh.lg .fh-login { justify-content: center; padding: 24px 16px; } html .fh.lg .lg-card { padding: 28px 22px 24px; } }
+/* 밝은 판: 바탕 · 카드만 공식 토큰 쪽으로(구조 같음) */
+html .fh.lg.light { background: var(--paper); }
+html .fh.lg.light .lg-bg { background: linear-gradient(90deg, color-mix(in srgb, var(--paper) 96%, transparent) 0%, color-mix(in srgb, var(--paper) 80%, transparent) 40%, transparent 75%),
+  repeating-linear-gradient(0deg, rgba(22,28,38,.05) 0 1px, transparent 1px 48px), repeating-linear-gradient(90deg, rgba(22,28,38,.05) 0 1px, transparent 1px 48px), var(--paper-2); }
+html .fh.lg.light .lg-card { color: var(--ink); background: color-mix(in srgb, var(--card) 86%, transparent); border-color: var(--rule); box-shadow: 0 8px 24px rgba(20,30,50,.10); }
+html .fh.lg.light .lg-sub, html .fh.lg.light .lg-lab, html .fh.lg.light .lg-foot, html .fh.lg.light .lg-eye { color: var(--ink-2); }
+html .fh.lg.light .lg-note { color: var(--ink-2); }
+html .fh.lg.light .lg-inp { background: var(--card); border-color: var(--rule); color: var(--ink); box-shadow: inset 0 1px 2px rgba(0,0,0,.05); }
+html .fh.lg.light .lg-link { color: var(--brand); }
+html .fh.lg.light .lg-err { color: var(--ink); background: rgba(255,77,79,.10); }
+html .fh.lg.light .lg-ok { color: var(--ink); background: rgba(0,195,137,.10); }
