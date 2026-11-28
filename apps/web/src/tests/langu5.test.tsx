@@ -20,7 +20,9 @@ describe('관제 글 사전', () => {
     for (const [k, v] of Object.entries(want)) expect(en(k), k).toBe(v);
   });
   it('머리 칩 일곱 · 작은 지도 · 오른쪽 칸', () => {
-    expect(['임무 중', '충전', '점검', '연결 중', '시뮬', '경고', '주의'].map((k) => en(k))).toEqual(['On mission', 'Charging', 'Maintenance', 'Connecting', 'Sim', 'Warning', 'Caution']);
+    expect(['임무 중', '충전', '점검', '연결 중', '시뮬', '경고', '주의'].map((k) => en(k))).toEqual(['On mission', 'Charging', 'Inspection', 'Reconnecting', 'Sim', 'Warning', 'Caution']);
+    // 칩(무리) · 배지(지금 상태) 뿌리 같게: 점검 → Inspection · Inspecting, 연결 중 · 다시 연결 중 → Reconnecting
+    expect([en('점검 중'), en('다시 연결 중'), en('임무 중'), en('충전 중'), en('시뮬 중')]).toEqual(['Inspecting', 'Reconnecting', 'On mission', 'Charging', 'Sim']);
     expect(en('작은 지도 · 두 번 누르면 지도 보기')).toBe('Mini map · double-click for map');
     expect(en('선택한 로봇 강조')).toBe('Selected robot highlighted');
     expect(en('진행 중인 임무가 없습니다')).toBe('No mission running');
