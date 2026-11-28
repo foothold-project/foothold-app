@@ -17,7 +17,7 @@ def test_simulation_projection_boundaries(vx, vy, wz):
     requested = (vx, vy, wz)
     axes, clipped = project_velocity(*requested, simulation=True)
     result, reason = simulation_velocity(*axes)
-    expected = requested if requested == Z or (-.3 <= vx <= 1.5 and -.3 <= vy <= .3 and -.5 <= wz <= .5) else Z
+    expected = requested if requested == Z or (-1.5 <= vx <= 1.5 and -.5 <= vy <= .5 and -1.2 <= wz <= 1.2) else Z
     assert result == expected
     assert axes == requested  # no hidden clipping or quantization before Core
     assert clipped is (expected != requested)
