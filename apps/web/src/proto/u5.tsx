@@ -95,7 +95,8 @@ export function useAvail(cancel?: AbortSignal) {
 }
 
 /** 시안 «대기 중 · 임무 중» 상태 글(그 밖은 기존 상태 글 robotStatus) */
-const stText = (x: Robot) => (x.online && !x.unknown && x.status === 'IDLE' ? '대기 중' : robotStatus(x).text);
+const idleNow = (x: Robot) => x.online && !x.unknown && x.status === 'IDLE';
+const stText = (x: Robot) => (idleNow(x) ? '대기 중' : robotStatus(x).text);
 
 /** 걷는 다리를 틀 실제 속도 문턱(m/s · WS state 최상위 speed). 0.05 = rt 가 state 를 0.1 m/s 자리까지만 견주므로(rt.ts speed toFixed(1)) 그 반,
  *  가장 느린 시뮬 이동(sim_min_vx 기본 0.2)보다 한참 아래. 조종권을 쥔 채 0 축 명령(속도 0)이면 선 자세(팀장 20:51) */
@@ -243,7 +244,7 @@ function Cv({ f, front, hotMap, boards }: { f: TileFacts; front: boolean; hotMap
   return <div style={{ height: '222px' }} className={showFront ? 'cv st' : 'cv'} data-face={showFront ? 'front' : 'live'}>
     <canvas ref={ref} className={showFront ? 'front' : 'rear'} data-go2={go2}></canvas>
     {f.lostNow ? <div className="lk">{I(24, IC.wifi, 'var(--u5-amb)')}다시 연결 중<small>마지막 화면 {f.lostAt}</small></div>   /* 끊김은 시점과 상관없이 먼저(임무 전 정면이어도) */
-      : f.sim && showFront ? <span className="g dk ov" style={{ left: '8px', bottom: '8px' }}>{I(14, IC.temp)}{stText(f.x)} · 정면 보기</span>
+      : (f.sim || (idleNow(f.x) && !f.onRun && !f.charging && !f.job && !(f.hot && tempLevel(f.hot.t)))) && showFront ? <span className="g dk ov" style={{ left: '8px', bottom: '8px' }}>{I(14, IC.temp)}{stText(f.x)} · 정면 보기</span>
       : showFront ? <TempOv f={f} />
       : f.x.sim ? <span className="g dk ov" style={{ left: '8px', top: '8px' }}>{I(14, IC.cam)}뒤 1 m</span>
       : <RealCam id={f.x.id} />}
@@ -275,8 +276,9 @@ function Tile({ f, sel, front, open, boards }: { f: TileFacts; sel: boolean; fro
     {f.flag && <span className="flag warntag" style={{ background: red ? 'var(--u5-red)' : 'var(--u5-amb)' }} data-warn-flag>{I(13, IC.warn)}{f.flag}</span>}
     <Cv f={f} front={front} hotMap={hotMap} boards={boards} />
     <div className="inf"><div className="nm"><b style={red ? { color: 'var(--u5-red)' } : undefined}>{f.x.name}</b>{f.sim && <span className="chip sim">시뮬</span>}{f.demo && <span className="chip" data-demo>데모</span>}<span className="md">{f.mode && I(15, IC.mode)}{f.mode}</span></div>
-      <div className="ln">{(() => { const txt = f.mission?.name || (f.charging ? '충전 중' : f.job ? f.job.text : f.sim ? '임무 전 · 시뮬 등록' : '');
-        return <>{I(16, f.mission ? IC.flag : f.charging ? IC.bolt : f.job ? (f.job.kind === 'maint' ? IC.wrench : IC.bat) : f.sim ? IC.home : IC.flag, undefined, !txt)}<span>{txt}</span></>; })()}{f.mission && f.mission.total > 0 && <em>할 일 {f.mission.done} / {f.mission.total}</em>}</div>
+      <div className="ln">{(() => { // 임무 없는 타일도 늘 상태 줄(팀장 01:08 · 시안 K-08): 데모 · 실기 대기 = «임무 전 · 대기», 시뮬 대기 = «임무 전 · 시뮬 등록»
+        const txt = f.mission?.name || (f.charging ? '충전 중' : f.job ? f.job.text : f.sim ? '임무 전 · 시뮬 등록' : idleNow(f.x) ? '임무 전 · 대기' : '');
+        return <>{I(16, f.mission ? IC.flag : f.charging ? IC.bolt : f.job ? (f.job.kind === 'maint' ? IC.wrench : IC.bat) : f.sim || txt ? IC.home : IC.flag, undefined, !txt)}<span>{txt}</span></>; })()}{f.mission && f.mission.total > 0 && <em>할 일 {f.mission.done} / {f.mission.total}</em>}</div>
       {f.mission && f.mission.total > 0 && <div className="pg"><i style={{ width: `${Math.round((f.mission.done / f.mission.total) * 100)}%` }}></i></div>}
       <div className="ln">{I(16, IC.pin)}<span>{f.place}</span></div>
       <div className="sts"><div className="s" data-fact="battery">{I(16, f.sim ? IC.box : f.charging ? IC.bolt : IC.bat)}{f.bat[0]}<small>{f.bat[1]}</small></div><div className={`s${f.temp[2]}`} data-fact="temp">{I(16, IC.temp, undefined, !f.temp[0])}{f.temp[0]}<small>{f.temp[1]}</small></div><div className={`s${f.link[2]}`} data-fact="link">{I(16, IC.wifi)}{f.link[0]}<small>{f.link[1]}</small></div><div className="s" data-fact="who">{I(16, IC.user)}{f.who[0]}<small>{f.who[1]}</small></div></div></div>

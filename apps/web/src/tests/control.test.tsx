@@ -181,7 +181,7 @@ describe('관제 탭', () => {
     expect(tiles().some((t) => t.textContent!.includes('—'))).toBe(false);
     expect(tile('g3').querySelectorAll('.ln')[1].textContent).toBe('');   // 위치 없음
     expect(tiles().some((t) => t.textContent!.includes('미확인'))).toBe(false);
-    expect(tile('g3').querySelector('.ln span')!.textContent).toBe('');   // 임무 없음
+    expect(tile('g3').querySelector('.ln span')!.textContent).toBe('임무 전 · 대기');   // 임무 없음 = 서버 대기 상태 그대로(팀장 01:08)
     expect(tile('g5').querySelector('.ln em')!.textContent).toBe('할 일 1 / 4');
   });
 
@@ -366,7 +366,7 @@ describe('관제 탭', () => {
     expect(face('g7')).toBe('live');   // 일시정지도 아직 그 임무 안
     expect(face('g2')).toBe('live'); expect(tile('g2').querySelector('.cv .ov')!.textContent).toBe('뒤 1 m');
     for (const id of ['g3', 'g4', 'g6']) { expect(face(id)).toBe('front'); expect(cam(id)).toMatchObject({ yaw: 0, dist: 1.25 }); }
-    expect(tile('g3').querySelector('.cv .ov')!.textContent).toBe('최고 관절 온도');
+    expect(tile('g3').querySelector('.cv .ov')!.textContent).toBe('대기 중 · 정면 보기');   // 대기 = 시안 K-08 꼬리표(팀장 01:08)
     expect(tile('g3').querySelector('[data-cam]')).toBeNull();   // 임무 전 실기는 카메라 칸 대신 모형 정면
     act(() => { FakeWS.last.recv(state('g2', { status: 'IDLE', run: null })); });
     expect(face('g2')).toBe('front'); expect(tile('g2').querySelector('.cv .ov')!.textContent).toBe('대기 중 · 정면 보기');
@@ -1357,12 +1357,19 @@ describe('관제 탭', () => {
   });
   it('글이 없는 줄 · 칸은 아이콘을 보이지 않게(줄 높이는 지킴) · 걸음 이름이 없으면 아이콘 없음', () => {
     mount('u-kim', TWENTY); feed(TWENTY);
-    const ln = tile('g3').querySelector('.ln')!;
+    const ln = tile('g15').querySelector('.ln')!;   // 정지 잠금 · 꺼짐 = 임무 줄 글 없음(머리표가 상태)
     expect(ln.querySelector('span')!.textContent).toBe('');
     expect((ln.querySelector('svg') as SVGElement).style.visibility).toBe('hidden');
     expect((tile('g3').querySelector('[data-fact="temp"] svg') as SVGElement).style.visibility).toBe('hidden');
     expect((tile('g5').querySelector('.ln svg') as SVGElement).style.visibility).toBe('');
     expect(tile('g3').querySelector('.nm .md svg')).toBeNull();
+  });
+  it('임무 없는 데모 · 실기 대기 타일 = 상태 줄 «임무 전 · 대기» · 바닥 꼬리표 «대기 중 · 정면 보기», 충전 · 점검은 그 글(팀장 01:08)', () => {
+    const L: Robot[] = EIGHT.map((r) => (r.id === 'k4' ? { ...r, online: true, status: 'IDLE' as const, mission: undefined } : r));
+    mount('u-kim', L); feed(L);
+    expect(tile('k4').querySelector('.ln span')!.textContent).toBe('임무 전 · 대기');
+    expect(tile('k4').querySelector('.cv .ov')!.textContent).toBe('대기 중 · 정면 보기');
+    expect(tile('k2').querySelector('.ln span')!.textContent).toBe('공정 순찰 A');
   });
   it('시뮬 임무 전 = 시안 고정 글 «임무 전 · 시뮬 등록» · 배터리 칸 «시뮬 · 배터리 해당 없음»', () => {
     mount('u-kim', EIGHT); feed(EIGHT);
