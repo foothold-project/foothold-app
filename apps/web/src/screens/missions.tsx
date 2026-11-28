@@ -175,11 +175,13 @@ export function ScenList({ run, l, mine, setMine, floor, approved, open, hover, 
 }
 
 /** ④ 시나리오 열림(시뮬 탭 안). places·treeAgain = 장소 나무, floor = 고른 층(그 층 지도로 연다), side = 창 맨 위 제목(«시나리오 N»), close = «‹ 목록», slot = 위 단추 줄 오른쪽 자리 */
-export function ScenarioEdit({ id, n, user, robots, cancel, places, treeAgain, floor, slot, side, close, done, top }: { id: string; n: number; user: User; robots: Robot[]; cancel?: AbortSignal; places: Place[]; treeAgain: () => void;
-  floor: string; slot: HTMLElement | null; side: ReactNode; close: () => void; done: (x: AnyPlan | null, m: Msg) => void; top?: ReactNode }) {
+export function ScenarioEdit({ id, n, user, robots, cancel, places, treeAgain, floor, slot, side, close, done, top, look }: { id: string; n: number; user: User; robots: Robot[]; cancel?: AbortSignal; places: Place[]; treeAgain: () => void;
+  floor: string; slot: HTMLElement | null; side: ReactNode; close: () => void; done: (x: AnyPlan | null, m: Msg) => void; top?: ReactNode; look?: Look }) {
   useEffect(() => { keptPlan.kind = 'scenarios'; keptPlan.sel = id; }, [id]);
-  return <Edit key={`scenarios-${id}-${id ? '' : n}`} kind="scenarios" sim id={id} user={user} robots={robots} cancel={cancel} places={places} treeAgain={treeAgain} slot={slot} pick={side} top={top} floor={floor} close={close} done={done} />;
+  return <Edit key={`scenarios-${id}-${id ? '' : n}`} kind="scenarios" sim id={id} user={user} robots={robots} cancel={cancel} places={places} treeAgain={treeAgain} slot={slot} pick={side} top={top} floor={floor} close={close} done={done} look={look} />;
 }
+/** 바깥(시안 u6 만들기 머리줄 목록 · 노드 · 지도)이 정하는 보기. 지도 = 오른쪽 창을 접고 지도만 */
+export type Look = 'node' | 'list' | 'map';
 
 /** 임무 관리(시나리오 목록의 «임무 관리…» — 옛 임무 탭 목록): 단추 줄 «‹ 지도로»·«임무 이름 ▾»(목록·＋새·보관 보기) + 편집 */
 export function MissionAdmin(c: Pick<Ctx, 'user' | 'cancel' | 'robots'> & { back: () => void }) {
@@ -222,8 +224,8 @@ const day = (at: string) => new Date(at).toLocaleString('ko-KR', { dateStyle: 'm
 
 /** 편집 칸 하나. id '' = 새로 만들기. 최신 판을 받아 편집하고, 판 목록에서 옛 판을 고르면 읽기 전용으로 보인다.
  *  done(x, m) = 저장(x)·보관(null) 뒤 목록 다시 받기 + 안내 */
-function Edit({ kind, sim, id, user, robots, cancel, places, treeAgain, done, slot, pick, top, floor, close }: { kind: Plan; sim?: boolean; id: string; user: User; robots: Robot[]; cancel?: AbortSignal; places: Place[]; treeAgain: () => void; done: (x: AnyPlan | null, m: Msg) => void;
-  slot?: HTMLElement | null; pick?: ReactNode; top?: ReactNode; floor?: string; close?: () => void }) {
+function Edit({ kind, sim, id, user, robots, cancel, places, treeAgain, done, slot, pick, top, floor, close, look }: { kind: Plan; sim?: boolean; id: string; user: User; robots: Robot[]; cancel?: AbortSignal; places: Place[]; treeAgain: () => void; done: (x: AnyPlan | null, m: Msg) => void;
+  slot?: HTMLElement | null; pick?: ReactNode; top?: ReactNode; floor?: string; close?: () => void; look?: Look }) {
   const key = `${kind}:${id}`, [kd] = useState(() => keptPlan.drafts[key] ?? null);
   const [latest, setLatest] = useState<AnyPlan | null>(null), [base, setBase] = useState<AnyPlan | null>(kd?.base ?? null), [body, setBody] = useState<AnyWrite | null>(kd?.body ?? (id ? null : empty(kind)));
   const [view, setView] = useState<AnyPlan | null>(null), [err, setErr] = useState<{ text: string; adopt: Adopt } | null>(null), [msg, setMsg] = useState<Msg>(kd ? { text: '저장하지 않은 편집을 이어서 씁니다.', ok: true } : null);
@@ -396,7 +398,7 @@ function Edit({ kind, sim, id, user, robots, cancel, places, treeAgain, done, sl
   return <div className="mx-body" aria-label={`${what} 편집 칸`}>{bar}{h2}
     <ScenarioForm key={view ? `v${view.number}` : 'draft'} value={shown as ScenarioWrite} set={ro ? undefined : (b) => put(b)} lock={lock} bad={view ? [] : bad} places={places} treeAgain={treeAgain}
       cancel={cancel} setBlock={setBlock} recheck={recheck} srv={view ? null : srv} saved={(view ?? (id ? latest : null)) as Scenario | null} robots={robots} user={user}
-      picker={pick} moreSlot={moreSlot} over={notices} nameField={nameField} sim={sim ? { dirty, applied: (x) => saved(x, '최신 지도를 반영했습니다.') } : undefined} floor={floor} close={close} more={more}
+      picker={pick} moreSlot={moreSlot} over={notices} nameField={nameField} sim={sim ? { dirty, applied: (x) => saved(x, '최신 지도를 반영했습니다.') } : undefined} floor={floor} close={close} more={more} look={look}
       verField={latest && <label className="fh-field"><span>저장 기록(옛 기록은 읽기 전용)</span>{verSel}</label>}
       blockNote={!ro && block && !lock ? <p id="plan-block" className="fh-why" data-block>{block}</p> : null} />
   </div>;
@@ -666,7 +668,7 @@ const elName = (e: string) => (e === 'finish.target' ? '끝 지점' : /^waypoint
 /** 시나리오 편집(02 F-MS-02·03, 03 §5.3): ① 지도(승인 판이 있는 층) ② 지점(지도 눌러 추가·끌어 옮기기·고른 지점 오른쪽 위 X 로 지우기, 오른쪽 단계 창에서 순서·임무·지우기, 이름 붙은 지도 지점은 waypoint_ref) ③ 확인(서버 미리보기).
  *  set 없음 = 읽기 전용(옛 판·보관) — 미리보기 대신 저장된 거리·장치, 지도는 지점이 가리키는 판. setBlock = 저장을 막는 이유(갈 수 없는 지점·확인 전),
  *  recheck = 저장이 STALE·422 로 막혀 다시 미리보기, srv = 저장 422 에 서버가 실어 보낸 미리보기(그 본문의 결과) */
-function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlock, recheck, srv, saved, robots, user, picker, moreSlot, over, nameField, blockNote, floor, close, more, verField, sim }: { sim?: { dirty: boolean; applied?: (x: Scenario) => void }; value: ScenarioWrite; set?: (v: ScenarioWrite) => void; lock: boolean; bad: Bad[]; places: Place[]; treeAgain: () => void;
+function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlock, recheck, srv, saved, robots, user, picker, moreSlot, over, nameField, blockNote, floor, close, more, verField, sim, look: outLook }: { look?: Look; sim?: { dirty: boolean; applied?: (x: Scenario) => void }; value: ScenarioWrite; set?: (v: ScenarioWrite) => void; lock: boolean; bad: Bad[]; places: Place[]; treeAgain: () => void;
   cancel?: AbortSignal; setBlock: (s: string | null) => void; recheck: number; srv: { key: string; r: ScenarioPreview } | null; saved: Scenario | null; robots: Robot[]; user: User;
   picker?: ReactNode; moreSlot: HTMLElement | null; over: ReactNode; nameField: ReactNode; blockNote: ReactNode; floor?: string; close?: () => void; more?: ReactNode; verField?: ReactNode }) {
   const pts = value.waypoints, finish = value.finish ?? { mode: 'STAY', target: null }, target = finish.target ?? null;
@@ -871,7 +873,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   const fence = lock && !!set, one = typeof sel === 'number' ? sel : null;
   const grab = useRef<number | null>(null);
   // SCEN-NODE-PREVIEW·SCEN-LIFECYCLE-EDITOR 11-09: 오른쪽 창 [노드 | 목록] — 기본 노드(지도와 반반, «운영 흐름» 5단계·임무 = 이 시나리오). 목록 = 기존 편집(저장·배정 그대로, 노드 보기 중에도 숨기기만)
-  const [paneLook, setPaneLook] = useState<'node' | 'list'>('node');
+  const [paneLook0, setPaneLook] = useState<'node' | 'list'>('node'), paneLook = outLook === 'node' || outLook === 'list' ? outLook : outLook === 'map' ? 'list' : paneLook0;
   // R8 REVIEW-316 P1: 크게 보기(PC 넓은 창·노드)는 창 머리 한 줄([노드|목록] 옆)에 «시뮬에서 실행» — 그 밖은 창 안 맨 위 그대로(판정·막힘 같음)
   const big = useBig(), simTop = big && paneLook === 'node';
   // 시뮬 탭의 실기만 시나리오(실기 장소·3D 지도 짝 없음)는 노드 판정도 실기 — 시뮬에서 못 돌리니 웹 시뮬 판정은 뜻이 없다
@@ -1000,8 +1002,8 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
       </Float>
     </div>
     {/* 오른쪽 창 [단계 N | 배정 N]: 단계 목록(손잡이로 끌어 순서) ↔ 고른 단계의 임무·대기 + «더 보기», 아래 끝나면·경로 */}
-    <Pane open={open} setOpen={(o) => { pane.open = o; setOpen(o); }} bar={`단계 ${pts.length}`} label="단계 창" pick={picker} name={[value.name || (saved ? WHAT.scenarios : `새 ${WHAT.scenarios}`), place?.floor.name].filter(Boolean).join(' · ')}
-      wide={paneLook === 'node'} head={<>{close && <button type="button" className="btn" data-back onClick={close}>‹ 목록</button>}{lookSeg}{simTop && simRun}<span className="fh-grow" />{more}</>}>
+    <Pane open={outLook === 'map' ? false : open} setOpen={(o) => { pane.open = o; setOpen(o); }} bar={`단계 ${pts.length}`} label="단계 창" pick={picker} name={[value.name || (saved ? WHAT.scenarios : `새 ${WHAT.scenarios}`), place?.floor.name].filter(Boolean).join(' · ')}
+      wide={paneLook === 'node'} head={<>{close && <button type="button" className="btn" data-back onClick={close}>‹ 목록</button>}{!outLook && lookSeg}{simTop && simRun}<span className="fh-grow" />{more}</>}>
       {/* 노드 보기 — 본문(지점·임무 이름)이 바뀌면 처음 배치로 다시(미리보기라 노드 편집은 남기지 않음) */}
       {!simTop && simRun}
       {paneLook === 'node' && <ScenNodes where={web ? 'websim' : 'real'} items={nodeItems} end={FINISH[finish.mode ?? 'STAY']} on={one} pick={go} form={pointForm}
