@@ -6,7 +6,10 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { ASSET, K, OX, OY, SITE_GLB } from '../../proto/site';
+import { ASSET, K, OX, OY, SITE_GLB, loadGo2, ringLine, sitePose } from '../../proto/site';
+import { useRt } from '../../rt';
+import type { Robot } from '../../fake';
+import { whereOf } from '../map3d';
 
 /** 시안 3D 그림의 위에서 본 그림(작은 지도) */
 export const FACTORY_TOP = `${ASSET}/shared/map_large_factory_top.jpg`;
@@ -56,10 +59,22 @@ export function dress(site: THREE.Object3D) {
   return site;
 }
 
-type Rig = { draw: () => void; home: () => void; eye: () => void; nogo: (on: boolean) => void; dispose: () => void };
+type Rig = { draw: () => void; home: () => void; eye: () => void; nogo: (on: boolean) => void; marks: THREE.Group; dispose: () => void };
+
+/** 로봇 표시 배율(시안 site3d.js S · 900 m 현장에서 0.62 m 로봇이 보이게) */
+const S = 10;
+export type Bot = { id: string; name: string; x: number; y: number; yaw: number | null };
+/** 이 층에 있는 로봇(서버 위치 · 실시간 값 우선). 층(floor_id)이나 이 판(map_version_id) 위치만 · 좌표 없으면 빠짐 */
+export function botsOn(robots: Robot[], floor: string, vid: string): Bot[] {
+  return robots.flatMap((r) => { const l = whereOf(r);
+    return l && (l.floor_id === floor || l.map_version_id === vid) && Number.isFinite(l.x) && Number.isFinite(l.y) ? [{ id: r.id, name: r.name, x: l.x as number, y: l.y as number, yaw: l.yaw ?? null }] : []; });
+}
 
 /** preview = 미리 보기(시안 u7_1 · 단지 전체 · 돌리기만) · 아니면 층 화면 3D(시안 u7_4 · K-01 둘레 · 작은 지도 · 안내 줄 · 로봇 눈높이) */
-export function DemoSite3D({ preview, nogo = true }: { preview?: boolean; nogo?: boolean }) {
+export function DemoSite3D({ preview, nogo = true, robots = [], floor = '', vid = '' }: { preview?: boolean; nogo?: boolean; robots?: Robot[]; floor?: string; vid?: string }) {
+  useRt();
+  const bots = preview ? [] : botsOn(robots, floor, vid);
+  const [tags, setTags] = useState<{ id: string; name: string; x: number; y: number }[]>([]);   // 로봇 이름표 화면 자리(px)
   const host = useRef<HTMLDivElement>(null), rig = useRef<Rig | null>(null);
   const [at, setAt] = useState<'wait' | 'ok' | 'bad' | 'nogl'>('wait'), [n, setN] = useState(0);
   const [box, setBox] = useState<[number, number, number, number] | null>(null);   // 작은 지도 속 보이는 땅(0~1 · 왼 · 위 · 폭 · 높이)
@@ -75,7 +90,7 @@ export function DemoSite3D({ preview, nogo = true }: { preview?: boolean; nogo?:
       const el = host.current!, canvas = gl.domElement;
       gl.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
       gl.outputColorSpace = THREE.SRGBColorSpace;
-      gl.shadowMap.enabled = true; gl.shadowMap.type = THREE.PCFSoftShadowMap;
+      gl.shadowMap.enabled = true; gl.shadowMap.type = THREE.PCFShadowMap;
       el.prepend(canvas);
       const scene = new THREE.Scene(), cam = new THREE.PerspectiveCamera(30, 1, 0.3, 8000);
       scene.background = new THREE.Color(SKY);
@@ -102,7 +117,12 @@ export function DemoSite3D({ preview, nogo = true }: { preview?: boolean; nogo?:
         const l = px(Math.min(...xs)), r = px(Math.max(...xs)), t = py(Math.min(...zs)), b = py(Math.max(...zs));
         setBox([l, t, r - l, b - t]);
       };
-      const draw = () => { gl.render(scene, cam); if (!preview) seen(); };
+      const marks = new THREE.Group(); scene.add(marks);
+      const v3 = new THREE.Vector3();
+      /** 로봇 이름표: 모형 머리 위를 화면 px 로(시안 u7_3 K-01 이름표 꼴) */
+      const label = () => { cam.updateMatrixWorld(); setTags(marks.children.flatMap((o) => { v3.set(o.position.x, (o.userData.top as number) + 2, o.position.z).project(cam);
+        return v3.z < 1 && Math.abs(v3.x) <= 1 && Math.abs(v3.y) <= 1 ? [{ id: o.userData.bot as string, name: o.userData.name as string, x: ((v3.x + 1) / 2) * el.clientWidth, y: ((1 - v3.y) / 2) * el.clientHeight }] : []; })); };
+      const draw = () => { gl.render(scene, cam); if (!preview) { seen(); label(); } };
       const put = (v: View) => { const w = el.clientWidth || 1, h = el.clientHeight || 1, c = camOf(v, w / h); cam.fov = c.fov; cam.position.set(...c.pos); orbit.target.set(...c.at); cam.updateProjectionMatrix(); orbit.update(); draw(); };
       const home = () => put(preview ? 'iso' : 'k01');
       const eye = () => {   // 로봇 눈높이: 지금 보는 곳(대상) 앞 6 m · 높이 0.45 m(Go2 앞 카메라 높이 쯤)에서 대상 쪽으로
@@ -114,12 +134,13 @@ export function DemoSite3D({ preview, nogo = true }: { preview?: boolean; nogo?:
       const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit);
       ro?.observe(el);
       done = {
-        draw, home, eye,
+        draw, home, eye, marks,
         nogo: (on) => { site.traverse((o) => { if (o.userData.nogo) o.visible = on; }); draw(); },
         dispose: () => {
           ro?.disconnect(); orbit.dispose();
           site.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) (m.material as THREE.Material).dispose(); });   // 형상은 원본과 같이 씀
           ground.geometry.dispose(); (ground.material as THREE.Material).dispose();
+          marks.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh || (o as THREE.Line).isLine) (Array.isArray(m.material) ? m.material : [m.material]).forEach((x) => x?.dispose()); });
           gl.dispose(); gl.forceContextLoss(); canvas.remove();
         },
       };
@@ -129,12 +150,41 @@ export function DemoSite3D({ preview, nogo = true }: { preview?: boolean; nogo?:
     return () => { live = false; done?.dispose(); rig.current = null; };
   }, [n, preview]);
   useEffect(() => { if (at === 'ok') rig.current?.nogo(nogo); }, [at, nogo]);
+  // 로봇 = Go2 모형(시안 site3d.js 와 같은 배율) + 바닥 고리, 자리는 로봇 탭 · 관제와 같은 sitePose. 위치가 바뀔 때만 다시
+  const key = bots.map((b) => `${b.id}:${b.name}:${b.x.toFixed(2)},${b.y.toFixed(2)},${(b.yaw ?? 0).toFixed(2)}`).join('|');
+  useEffect(() => {
+    const r = rig.current; if (!r || at !== 'ok') return;
+    let live = true;
+    (async () => {
+      const want = new Set(bots.map((b) => b.id));
+      for (const o of [...r.marks.children]) if (!want.has(o.userData.bot)) {
+        r.marks.remove(o);
+        o.traverse((m) => { const x = (m as THREE.Mesh).material; if (x) (Array.isArray(x) ? x : [x]).forEach((y) => y.dispose()); });
+      }
+      for (const b of bots) {
+        let o = r.marks.children.find((c) => c.userData.bot === b.id);
+        if (!o) {
+          const body = await loadGo2(S);
+          if (!live || rig.current !== r) return;
+          o = new THREE.Group(); o.userData = { bot: b.id, top: body?.top ?? 0.4 * S };
+          if (body) { body.root.traverse((m) => { m.castShadow = true; }); o.add(body.root); }
+          o.add(ringLine(new THREE.Vector3(0, 0.3, 0), 0.6 * S, 0x00c389, 0.95));
+          r.marks.add(o);
+        }
+        const p = sitePose({ x: b.x, y: b.y, yaw: b.yaw } as Parameters<typeof sitePose>[0])!;
+        o.position.set(p.x, 0, p.z); o.rotation.y = p.rot; o.userData.name = b.name;
+      }
+      r.draw();
+    })();
+    return () => { live = false; };
+  }, [at, key]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   return <div className={`vx mp-3d${preview ? ' pre' : ''}`} data-site3d={preview ? 'preview' : 'view'}>
     <div ref={host} className="vx-3d" role={preview ? 'img' : 'application'} aria-label={preview ? '3D 미리 보기' : '3D 보기 · 끌어서 회전, 오른쪽 버튼 끌어 이동, 휠로 확대'} tabIndex={preview ? undefined : 0} />
     {!preview && at === 'ok' && <>
       <div className="mp-hint3" role="group" aria-label="3D 다루기"><span>끌어서 회전</span><span>오른쪽 버튼 끌어 이동</span><span>휠로 확대</span>
         <button type="button" data-eye onClick={() => rig.current?.eye()}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" /><circle cx="12" cy="12" r="2.8" /></svg>로봇 눈높이</button></div>
+      {tags.map((t) => <span key={t.id} className="mp-bot3" data-bot3={t.id} style={{ left: t.x, top: t.y }}>{t.name}</span>)}
       <div className="mp-mini3" aria-label="작은 지도 · 보이는 곳"><img src={FACTORY_TOP} alt="" />
         {box && <i data-seen style={{ left: `${box[0] * 100}%`, top: `${box[1] * 100}%`, width: `${box[2] * 100}%`, height: `${box[3] * 100}%` }} />}</div></>}
     <div className="vx-over">

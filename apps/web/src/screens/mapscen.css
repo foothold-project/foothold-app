@@ -327,10 +327,12 @@ li[data-bad] .mx-num{background:var(--bad)}
 .mp-3d{position:absolute;inset:0}
 .mp-3d>.vx-3d{background:var(--mp-3d)}
 .mp-3d>.vx-3d::after{content:'';position:absolute;inset:0;pointer-events:none;background:var(--mp-3dshade)}
-.mp-hint3{position:absolute;left:50%;width:max-content;bottom:20px;transform:translateX(-50%);z-index:3;height:44px;padding:0 18px;border-radius:14px;display:flex;align-items:center;gap:18px;font-size:13px;font-weight:600;white-space:nowrap;color:var(--mp-vink);background:var(--mp-vbg);border:1px solid var(--mp-vline);backdrop-filter:blur(6px)}
-.mp-hint3 button{all:unset;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
-.mp-hint3 button:focus-visible{outline:2px solid var(--accent);outline-offset:4px;border-radius:4px}
-.mp-hint3 svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8}
+.mp-3d>.mp-hint3{position:absolute;left:50%;width:max-content;bottom:20px;transform:translateX(-50%);z-index:3;height:44px;padding:0 18px;border-radius:14px;display:flex;align-items:center;gap:18px;font-size:13px;font-weight:600;white-space:nowrap;color:var(--mp-vink);background:var(--mp-vbg);border:1px solid var(--mp-vline);backdrop-filter:blur(6px)}
+.mp-3d>.mp-hint3 button{all:unset;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.mp-3d>.mp-hint3 button:focus-visible{outline:2px solid var(--accent);outline-offset:4px;border-radius:4px}
+.mp-3d>.mp-hint3 svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8}
 .mp-mini3{position:absolute;right:20px;top:20px;z-index:3;width:210px;height:132px;border-radius:14px;overflow:hidden;border:1px solid var(--mp-vline);background:var(--mp-vbg)}
 .mp-mini3 img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .mp-mini3 i{position:absolute;border:2px solid var(--accent);border-radius:4px;box-shadow:0 0 0 999px var(--mp-3ddim)}
+.mp-pv>.mp-tag{padding:0 14px}   /* .proto * 초기화(padding 0)보다 앞서게 */
+.mp-3d>.mp-bot3{position:absolute;z-index:2;transform:translate(-50%,-100%);height:28px;padding:0 10px;border-radius:9px;display:inline-flex;align-items:center;font-size:14px;font-weight:800;white-space:nowrap;pointer-events:none;color:var(--mp-vink);background:var(--mp-vbg);border:1px solid var(--mp-vline)}   /* 3D 로봇 이름표(시안 u7_3 K-01) */
