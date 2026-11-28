@@ -216,7 +216,8 @@ def test_group_world_floors_and_catalog_links_are_tenant_scoped(maps, seeded, wo
     app.state.engine.dispose()
 
 
-def test_simulation_place_rejects_assignment_to_real_and_sim_robots(maps, seeded, world_folder):
+def test_simulation_place_assigns_only_to_sim_robots(maps, seeded, world_folder):
+    """local demo-day 11/28 (app-lx (가)): SIM place scenario -> sim robot is ACTIVE at once, no approval; real robot still refused."""
     http, admin, files = maps
     http.headers.update(admin)
     sync(http, seeded, world_folder, files)
@@ -224,15 +225,19 @@ def test_simulation_place_rejects_assignment_to_real_and_sim_robots(maps, seeded
     body = dict(scenario_id=scenario['id'], scenario_version=1, robot_id=str(seeded['robots']['mine']), memo='시험')
     engine = create_engine(seeded['urls']['migrate'])
     try:
-        for simulation in (False, True):
-            with engine.begin() as conn:
-                conn.execute(text('UPDATE robots SET simulation=:sim WHERE id=:id'),
-                             {'sim': simulation, 'id': seeded['robots']['mine']})
-            for headers in (admin, auth(http, 'one')):
-                denied = http.post(P + '/assignments', headers=headers, json=body)
-                assert denied.status_code == 409, denied.text
-                assert denied.json()['error']['code'] == 'SIM_SCENARIO_NO_ASSIGN'
+        with engine.begin() as conn:
+            conn.execute(text('UPDATE robots SET simulation=false WHERE id=:id'), {'id': seeded['robots']['mine']})
+        for headers in (admin, auth(http, 'one')):
+            denied = http.post(P + '/assignments', headers=headers, json=body)
+            assert denied.status_code == 409, denied.text
+            assert denied.json()['error']['code'] == 'SIM_SCENARIO_NO_ASSIGN'
         assert http.get(P + '/assignments').json()['items'] == []
+        with engine.begin() as conn:
+            conn.execute(text('UPDATE robots SET simulation=true WHERE id=:id'), {'id': seeded['robots']['mine']})
+        allowed = http.post(P + '/assignments', headers=auth(http, 'one'), json=body)
+        assert allowed.status_code == 201, allowed.text
+        assert allowed.json()['status'] == 'ACTIVE' and allowed.json().get('approval_id') is None
+        assert [a['id'] for a in http.get(P + '/assignments').json()['items']] == [allowed.json()['id']]
         assert http.get(P + '/approvals').json()['items'] == []
     finally:
         engine.dispose()

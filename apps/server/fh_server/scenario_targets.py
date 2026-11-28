@@ -13,7 +13,11 @@ def site_purposes(db, org_id, floor_ids):
             Site.org_id == org_id, Floor.id.in_(floor_ids)).distinct()))
 
 
-def require_assignable(db, version, fail):
+def require_assignable(db, version, fail, robot=None):
+    # Local demo-day 11/28 (app-lx · app-design-lx (가)): a SIM place scenario may be assigned to a
+    # simulation robot only, ACTIVE with no approval. The approval path (no robot) stays refused.
+    if robot is not None and robot.simulation:
+        return
     if 'SIM' in site_purposes(db, version.org_id, version.floor_ids):
         fail(409, SIM_SCENARIO_NO_ASSIGN, '시뮬 시나리오는 시뮬 탭에서 바로 실행합니다')
 
