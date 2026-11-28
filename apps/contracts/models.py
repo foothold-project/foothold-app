@@ -38,7 +38,7 @@ RunStatus = Literal['QUEUED', 'PREPARING', 'MOVING', 'AT_WAYPOINT', 'PERFORMING'
                     'WAIT_CONFIRM', 'PAUSED', 'COMPLETED', 'FAILED', 'CANCELED']
 # Read compatibility only: new direct reports must use RunStatus.
 RunRecordStatus = RunStatus | Literal['ABORTED']
-RunWaitReason = Literal['LINK_LOST', 'STOPPED_BY_USER', 'RECORDING_UNAVAILABLE']
+RunWaitReason = Literal['LINK_LOST', 'STOPPED_BY_USER', 'RECORDING_UNAVAILABLE', 'SIM_SELF_STOP']
 RunFailCode = Literal['NAV_GOAL_REJECTED', 'NAV_TIMEOUT', 'LOCALIZATION_LOST',
                       'BATTERY_LOW', 'DEVICE_MISSING', 'OPERATOR_ABORT', 'PAUSE_TIMEOUT',
                       'FLOOR_TRANSITION_FAILED', 'NAV_UNAVAILABLE', 'MAP_VERSION_MISMATCH',
@@ -1269,7 +1269,7 @@ class AgentRunUpdate(AgentInput):
             raise ValueError('report identity and monotonic time must be supplied together')
         if self.wait_reason is not None and self.status != 'PAUSED':
             raise ValueError('wait_reason is only valid while PAUSED')
-        if self.fail_code in ('LINK_LOST', 'STOPPED_BY_USER', 'RECORDING_UNAVAILABLE'):
+        if self.fail_code in ('LINK_LOST', 'STOPPED_BY_USER', 'RECORDING_UNAVAILABLE', 'SIM_SELF_STOP'):
             raise ValueError('pause reasons are not failure codes')
         return self
 
@@ -3257,7 +3257,7 @@ class RunSnapshot(Contract):
     def paused_reason(self):
         if self.wait_reason is not None and self.status != 'PAUSED':
             raise ValueError('wait_reason is only valid while PAUSED')
-        if self.fail_code in ('LINK_LOST', 'STOPPED_BY_USER', 'RECORDING_UNAVAILABLE'):
+        if self.fail_code in ('LINK_LOST', 'STOPPED_BY_USER', 'RECORDING_UNAVAILABLE', 'SIM_SELF_STOP'):
             raise ValueError('pause reasons are not failure codes')
         return self
 
