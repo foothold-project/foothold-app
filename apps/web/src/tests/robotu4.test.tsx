@@ -82,11 +82,13 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
     expect(text(hdr.querySelector('.ttl'))).toBe('Go2-7');
     expect($$('.hdr .st').map((s) => s.getAttribute('data-cell'))).toEqual(['link', 'mode', 'battery', 'temp', 'holder']);
     expect($$('.hdr .st small').map(text)).toEqual(['—', 'Shift + 1 ~ 4', '—', '최고 관절 온도', '조종자']);
+    expect(text($('[data-cell="mode"]'))).toMatch(/^—/);   // 걷기 모드 보고(state.gait) 전 = 모름
+    act(() => { push('r7', { gait: { gait: 'sport', available: ['classic', 'sport', 'start', 'ame2'] } } as Partial<ScreenState>); });
     expect(text($('[data-cell="mode"]'))).toMatch(/^Sport/);
     expect(text($('[data-cell="battery"]'))).toMatch(/^80 %/);
     expect(text($('[data-cell="holder"]'))).toMatch(/^—/);
     expect($$('.hdr .seg2 span').map(text)).toEqual(['조종', '점검', '로봇 설정']);
-    act(() => { push('r7', { control: 'LOWLEVEL' } as Partial<ScreenState>); });
+    act(() => { push('r7', { gait: { gait: 'start', available: ['classic', 'sport', 'start', 'ame2'] } } as Partial<ScreenState>); });
     expect(text($('[data-cell="mode"]'))).toMatch(/^START/);
   });
 
@@ -143,7 +145,8 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
     expect(lastAxes()).toBe('0,0,0');
   });
 
-  it('키는 시안 글대로: ↑ · W 앞으로 · ← → · A D 돌기 · ↓ · S 는 보내지 않고 까닭', () => {
+  // 키 줄 글은 시안 그대로(↓ 뒤로는 막힘), 실제 키 뜻은 공통 KEYS(W·↑ 앞 · S·↓ 뒤 · A·← / D·→ 돌기 · Q / E 옆걸음) — 시안과 다른 점은 차이 목록에
+  it('키 뜻은 공통 KEYS: ↑ · W 앞으로 · ← → · A D 돌기 · ↓ · S 뒤로 · Q E 옆걸음', () => {
     mount('u-park'); serve('r7'); drive();
     expect(text($('[data-u4-drive]'))).toBe('조종 중');
     key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
@@ -151,10 +154,11 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
     key('keydown', 'KeyW'); tick(60); expect(lastAxes()).toBe('1.5,0,0'); key('keyup', 'KeyW'); tick(60);
     key('keydown', 'ArrowLeft'); tick(60); expect(Number(lastAxes()!.split(',')[2])).toBeGreaterThan(0); key('keyup', 'ArrowLeft'); tick(60);
     key('keydown', 'KeyD'); tick(60); expect(Number(lastAxes()!.split(',')[2])).toBeLessThan(0); key('keyup', 'KeyD'); tick(60);
-    key('keydown', 'ArrowDown'); tick(60); expect(lastAxes()).toBe('0,0,0');
-    expect(text($('[data-u4-why]'))).toBe('후진은 아직 지원하지 않습니다');
-    key('keyup', 'ArrowDown');
-    key('keydown', 'KeyS'); tick(60); expect(lastAxes()).toBe('0,0,0'); key('keyup', 'KeyS');
+    key('keydown', 'ArrowDown'); tick(60); expect(lastAxes()).toBe('-1.5,0,0'); key('keyup', 'ArrowDown'); tick(60);
+    key('keydown', 'KeyS'); tick(60); expect(lastAxes()).toBe('-1.5,0,0'); key('keyup', 'KeyS'); tick(60);
+    key('keydown', 'KeyQ'); tick(60); expect(Number(lastAxes()!.split(',')[1])).toBeGreaterThan(0); key('keyup', 'KeyQ'); tick(60);
+    key('keydown', 'KeyE'); tick(60); expect(Number(lastAxes()!.split(',')[1])).toBeLessThan(0); key('keyup', 'KeyE'); tick(60);
+    expect(lastAxes()).toBe('0,0,0');
   });
 
   it('동작 단추: 조종 전이면 까닭만 · 조종 중이면 서버로 그 동작 하나 · START 중 일어서기는 시안 까닭', () => {

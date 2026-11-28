@@ -8,7 +8,6 @@ import type { RobotSummary, TrashItem, User } from '../../../contracts/ts';
 import { Root } from '../session';
 import { when } from '../screens/history';
 import { FakeWS } from './fakeWs';
-import { adminNoStop } from './adminStop';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -71,7 +70,6 @@ const ids = () => [...box.querySelectorAll('[data-trash-item]')].map((x) => x.ge
 const alertText = () => [...box.querySelectorAll('[role="alert"]')].map((a) => a.textContent).join(' ');
 const statusText = () => [...box.querySelectorAll('[role="status"]')].map((a) => a.textContent).join(' ');
 const stopSends = async () => {
-  if (adminNoStop(box)) return;
   const s = $<HTMLButtonElement>('[data-stop]')!;
   expect(s.disabled).toBe(false);
   expect($('header')!.lastElementChild).toBe(s);

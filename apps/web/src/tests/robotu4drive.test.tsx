@@ -394,7 +394,9 @@ describe('로봇 탭(시안 u4) 조종 논리 · 옛 세 칸 화면 시험 옮�
     mount('u-park'); serve('r7');
     act(() => push('r7', { robot_info: warm() }));
     expect(temp().textContent).toBe('41 °C최고 관절 온도'); expect(temp().className).toBe('g dk st');
-    act(() => push('r7', { robot_info: warm(0.5, { joints: JT.map((v, i) => (i === 0 ? 62 : v)) }) }));
+    // 새 표본(수신 시각이 바뀐 관절 보고)과 함께 온 온도 — rt 는 같은 표본이면 다시 그리지 않는다
+    const hot = warm(0.5, { joints: JT.map((v, i) => (i === 0 ? 62 : v)) })!; hot.joints!.received_at = '2026-11-19T00:00:01Z';
+    act(() => push('r7', { robot_info: hot }));
     expect(temp().textContent).toBe('62 °C앞 오른 엉덩이'); expect(temp().className).toBe('g dk st bad warncell');
     expect($('[data-u4-hot]')!.textContent).toBe('앞 오른 엉덩이 62 °C · 경고');
   });

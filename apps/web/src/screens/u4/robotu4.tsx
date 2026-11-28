@@ -8,9 +8,10 @@ import type { MapVersion, ScreenAction } from '../../../../contracts/ts';
 import { api } from '../../api';
 import { rt, useLive, useRt } from '../../rt';
 import { useStopPress } from '../../App';
-import { adminReal, type Robot } from '../../fake';
+import type { Robot } from '../../fake';
 import { driveFeedText, useDriveFeed } from '../../drivemedia';
-import { DriveView, canDrive, keepDrive, useServerDrive, type DriveKeys, type Tok } from '../../serverdrive';
+import { DriveView, canDrive, keepDrive, useServerDrive, type Tok } from '../../serverdrive';
+import { GAITS } from '../../gait';
 import { LidarMap } from '../../lidarmap';
 import { REPORT_STALE_MS, go2Pose, go2Temps, JOINTS, jointName } from '../../go2model';
 import { ACTION_NAMES, FACTORY_OFF, LOWLEVEL, actionResultText } from '../actiontrial';
@@ -23,11 +24,6 @@ import '../../proto/pc.pv.css';
 import '../../proto/light.pv.css';
 import './u4.css';
 
-/** 시안 키 안내 줄과 같게: ↑(W) 앞으로 · ← →(A D) 돌기 · ↓(S) 후진 막음. Space 정지는 앱 머리줄 STOP 그대로 */
-export const U4_KEYS: DriveKeys = {
-  map: { ArrowUp: 'up', KeyW: 'up', ArrowLeft: 'rotl', KeyA: 'rotl', ArrowRight: 'rotr', KeyD: 'rotr' },
-  block: { ArrowDown: '후진은 아직 지원하지 않습니다', KeyS: '후진은 아직 지원하지 않습니다' },
-};
 const NA = '—';
 const DOG = <svg className="ic" viewBox="0 0 24 24" style={{ width: '19px', height: '19px' }}><path d="M4 13h11l3-3h2v4l-2 1H5z" /><path d="M6 15l-1 4M10 15v4M14 15v4M17 15l1 4" /></svg>;
 const CUBE = <svg className="ic" viewBox="0 0 24 24" style={{ width: '19px', height: '19px' }}><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /><path d="m3.3 7 8.7 5 8.7-5" /><path d="M12 22V12" /></svg>;
@@ -111,13 +107,13 @@ function MapName({ c, r }: { c: Ctx; r: Robot }) {
   return <span className="g dk mapname" data-u4-mapname>{p ? `${p.building.name} ${p.floor.name}` : NA}</span>;
 }
 
-function Feed({ id, ch, big }: { id: string; ch: 'rgb' | 'depth'; big: boolean }) {
-  return <DriveView f={useDriveFeed(id, ch)} ch={ch} big={big} />;
+/** 카메라 · 깊이 · 라이다 받기. 세 채널 다 이 로봇 화면에 붙여 두고 보이는 칸만 켠다(on) — 숨겼다 다시 열어도 epoch 기록이 이어진다(RV-450 ② · RV-452) */
+function useFeeds(id: string, view: string) {
+  return { rgb: useDriveFeed(id, 'rgb', view === 'map' || view === 'rgb'), depth: useDriveFeed(id, 'depth', view === 'depth'), lidar: useDriveFeed(id, 'lidar', view === 'lidar') };
 }
-function Lidar({ id }: { id: string }) {
-  const f = useDriveFeed(id, 'lidar');
-  return <LidarMap feed={f} empty={driveFeedText(f, 'lidar')} pick />;
-}
+type Feeds = ReturnType<typeof useFeeds>;
+const Feed = ({ fs, ch, big }: { fs: Feeds; ch: 'rgb' | 'depth'; big: boolean }) => <DriveView f={fs[ch]} ch={ch} big={big} />;
+const Lidar = ({ fs }: { fs: Feeds }) => <LidarMap feed={fs.lidar} empty={driveFeedText(fs.lidar, 'lidar')} pick />;
 
 /** 가운데 3D: 시안 go2view 를 그대로 띄우고 실제 관절값 · 나간 명령으로 움직인다 */
 function Stage({ r, q, drive, hot }: { r: Robot; q: number[] | null; drive: Go2Api['drive']; hot: Record<string, string> }) {
@@ -153,25 +149,26 @@ type Tab = 'drive' | 'check' | 'settings';
 type View = 'map' | 'rgb' | 'lidar' | 'depth';
 const VIEWS: [View, string][] = [['map', '지도'], ['rgb', '카메라'], ['lidar', '라이다'], ['depth', '깊이']];
 
-/** 이 화면이 쓰는 조종 조각. 조종할 수 있는 로봇(canDrive · keepDrive)만 useServerDrive 를 붙인다(키 · 조종권은 한 화면에 하나 · 옛 세 칸 화면과 같은 규칙) */
-type D = Pick<ReturnType<typeof useServerDrive>, 'l' | 's' | 'mine' | 'off' | 'why' | 'ready' | 'zero' | 'stick' | 'stopPress' | 'unlockAsk' | 'unlockState' | 'refused' | 'notes' | 'stopLine'>;
-function Driven({ c, r }: { c: Ctx; r: Robot }) { return <Body c={c} r={r} d={useServerDrive(c, r, undefined, U4_KEYS)} can />; }
+/** 이 화면이 쓰는 조종 조각. 조종할 수 있는 로봇(keepDrive = 지금 canDrive 이면 기록도 남김)만 useServerDrive 를 붙인다(키 · 조종권은 한 화면에 하나 · 옛 세 칸 화면과 같은 규칙) */
+type D = Pick<ReturnType<typeof useServerDrive>, 'l' | 's' | 'mine' | 'off' | 'why' | 'ready' | 'zero' | 'stick' | 'stopPress' | 'unlockAsk' | 'unlockState' | 'refused' | 'notes' | 'stopLine' | 'gait' | 'take' | 'takeWhy'>;
+function Driven({ c, r }: { c: Ctx; r: Robot }) { return <Body c={c} r={r} d={useServerDrive(c, r)} can />; }
 function Viewed({ c, r }: { c: Ctx; r: Robot }) {
   const l = useLive(r.id), stopPress = useStopPress(() => rt.stop(r.id));
-  return <Body c={c} r={r} d={{ l, s: l.state, mine: false, off: true, why: '', ready: false, zero: () => {}, stick: () => {}, stopPress, unlockAsk: () => {}, unlockState: null, refused: '', notes: <></>, stopLine: null }} can={false} />;
+  return <Body c={c} r={r} d={{ l, s: l.state, mine: false, off: true, why: '', ready: false, zero: () => {}, stick: () => {}, stopPress, unlockAsk: () => {}, unlockState: null, refused: '', notes: <></>, stopLine: null, take: () => {}, takeWhy: '', gait: { row: false, press: () => {}, cur: l.state?.gait?.gait ?? null, msg: '' } }} can={false} />;
 }
 function Robot1({ c, r }: { c: Ctx; r: Robot }) {
-  return canDrive(c, r) || keepDrive(c, r) ? <Driven c={c} r={r} /> : <Viewed c={c} r={r} />;
+  return keepDrive(c, r) ? <Driven c={c} r={r} /> : <Viewed c={c} r={r} />;
 }
 /** 조종 못 하는 까닭(서버 허용 · 담당 · 총괄 실기) */
-const noDrive = (c: Ctx, r: Robot) => adminReal(c.user, r) ? '총괄은 실기 로봇을 조종하지 않습니다.' : r.owner !== c.user.id ? '내 담당 로봇만 조종할 수 있습니다.'
+const noDrive = (c: Ctx, r: Robot) => r.owner !== c.user.id && c.user.role !== 'ORG_ADMIN' ? '내 담당 로봇만 조종할 수 있습니다.'
   : '서버가 이 로봇의 웹 조종을 허용하지 않았습니다.';
 function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   const { l, s, mine } = d;
-  const [tab, setTab] = useState<Tab>('drive'), [view, setView] = useState<View>('map');
+  const [tab, setTab] = useState<Tab>('drive'), [view, setView] = useState<View>('map'), fs = useFeeds(r.id, view);
   const [msg, setMsg] = useState(''), [pending, setPending] = useState<string | null>(null), tm = useRef(0);
   const say = (m: string) => { setMsg(m); clearTimeout(tm.current); tm.current = window.setTimeout(() => setMsg(''), 2600); };
   useEffect(() => { if (d.why) say(d.why); }, [d.why]);
+  useEffect(() => { if (d.gait.msg) say(d.gait.msg); }, [d.gait.msg]);
   const res = s?.action_result;
   useEffect(() => { if (pending && res?.request_id === pending && res.status !== 'RUNNING') { say(actionResultText(res)); setPending(null); } }, [res?.request_id, res?.status]);
   useEffect(() => () => clearTimeout(tm.current), []);
@@ -179,7 +176,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   const pose = go2Pose(s, fresh), temps = go2Temps(s, fresh, s ? (now - l.stateAt) / 1000 : 0);
   const link = rt.link(), ms = link.at === 'open' && link.latencyMs != null ? `${Math.round(link.latencyMs)} ms` : NA;
   const online = s?.connection === 'ONLINE';
-  const lowlevel = s?.control === 'LOWLEVEL', mode = !online ? NA : lowlevel ? 'START' : 'Sport';
+  const lowlevel = s?.control === 'LOWLEVEL', mode = GAITS.find((x) => x.g === d.gait.cur)?.name ?? NA;   // 걷기 모드(로봇 보고 state.gait) · Shift+1~4 는 useServerDrive
   const soc = s?.battery?.soc ?? (r.sim ? null : r.battery);
   const hotJ = temps && temps.hot >= 0 ? temps.joints[temps.hot] : null;
   const holder = l.holder ?? r.holder ?? null, who = holder?.type === 'USER' ? (holder.id === c.user.id ? '나' : holder.name || NA) : NA;
@@ -213,7 +210,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
     rt.action(r.id, name, {}, false, (why, id) => { if (why) say(`거부 · ${why}`); else { setPending(id ?? null); say('서버 접수 · 로봇의 결과를 기다리고 있습니다.'); } });
   };
   const offAct = (name: ScreenAction['action']) => name === 'StandUp' ? lowlevel : lowlevel ? !LOWLEVEL.has(name) : FACTORY_OFF.has(name);
-  const small = view === 'map' ? <Feed id={r.id} ch="rgb" big={false} /> : <MapView c={c} r={r} />;
+  const small = view === 'map' ? <Feed fs={fs} ch="rgb" big={false} /> : <MapView c={c} r={r} />;
   return <>
     <div className="hdr" data-robot-head={r.id}><span className="ttl" style={{ fontSize: '26px', marginRight: '6px' }}>{r.name}</span>
       <span className="g dk st" data-cell="link"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M12 20h.01" /><path d="M2 8.82a15 15 0 0 1 20 0" /><path d="M5 12.859a10 10 0 0 1 14 0" /><path d="M8.5 16.429a5 5 0 0 1 7 0" /></svg>{online ? '연결' : r.online ? '연결 중' : '끊김'}<small>{ms}</small></span>
@@ -236,7 +233,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
         <span className="g dk tag" style={{ position: 'static', color: '#ffffff' }} data-u4-loc>{located ? '위치 추정 켜짐' : `위치 추정 ${NA}`}</span>
         <span className="mu2" style={{ marginLeft: 'auto', fontSize: '12.5px' }}>실제 관절값으로 제자리에서 움직임 · 바닥 점이 뒤로 흐르면 앞으로 걷는 중</span></div></div>
     <div className="right" data-u4-can={can || undefined}><div className="views" aria-label="로봇 보기">
-      {view === 'map' ? <MapView c={c} r={r} /> : <div className="mapv" data-u4-big={view}>{view === 'lidar' ? <Lidar id={r.id} /> : <Feed id={r.id} ch={view} big />}</div>}
+      {view === 'map' ? <MapView c={c} r={r} /> : <div className="mapv" data-u4-big={view}>{view === 'lidar' ? <Lidar fs={fs} /> : <Feed fs={fs} ch={view} big />}</div>}
       <div className="g dk vsel">{VIEWS.map(([k, t]) => <span key={k} className={view === k ? 'on' : undefined} data-view={k} role="button" tabIndex={0} aria-pressed={view === k} onClick={() => setView(k)}>{t}</span>)}</div>
       <div className="small" data-swap="1" data-cam-inset role="button" tabIndex={0} onClick={() => setView(view === 'map' ? 'rgb' : 'map')}>{small}<span className="cl">{view === 'map' ? '앞 카메라' : '지도'}</span></div>
       <div className="g dk job" data-u4-job><b>{r.mission ?? NA}</b><span>{NA}</span><i><em style={{ width: '0%' }} /></i></div>
@@ -250,8 +247,8 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
         <svg className="ic" viewBox="0 0 24 24" style={{ width: '26px', height: '26px' }}><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z" /><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" /></svg>정지<small>Space</small></div>}
     </div>
       <div className={`ctl${latched ? ' dim' : ''}`}>
-        <div className={`g dk btn${mine ? ' drv' : ''}`} role="button" tabIndex={0} data-u4-drive={mine ? 'mine' : 'take'} aria-disabled={!can || (!mine && d.off) || undefined}
-          onClick={() => { if (!can) say(noDrive(c, r)); else if (mine) { d.zero(); rt.release(r.id); } else if (!d.off) { if (l.holder?.type === 'USER') rt.request(r.id); else rt.take(r.id); } else say('로봇 연결이 끊겼습니다 · 다시 연결되면 누르세요'); }}>
+        <div className={`g dk btn${mine ? ' drv' : ''}`} role="button" tabIndex={0} data-u4-drive={mine ? 'mine' : 'take'} aria-disabled={!can || (!mine && (d.off || !!d.takeWhy)) || undefined}
+          onClick={() => { if (!can) say(noDrive(c, r)); else if (mine) { d.zero(); rt.release(r.id); } else if (d.off) say('로봇 연결이 끊겼습니다 · 다시 연결되면 누르세요'); else if (d.takeWhy) say(d.takeWhy); else d.take(); }}>
           <svg className="ic" viewBox="0 0 24 24" style={{ width: '18px', height: '18px' }}><line x1="6" x2="10" y1="11" y2="11" /><line x1="8" x2="8" y1="9" y2="13" /><line x1="15" x2="15.01" y1="12" y2="12" /><line x1="18" x2="18.01" y1="10" y2="10" /><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z" /></svg>{mine ? '조종 중' : '조종 시작'}</div>
         <div data-go="u4_3_voice" className="g dk btn talk" role="button" tabIndex={0} onClick={() => say('말하기는 아직 서버에 없습니다')}>
           <svg className="ic" viewBox="0 0 24 24" style={{ width: '18px', height: '18px' }}><path d="M12 19v3" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><rect x="9" y="2" width="6" height="13" rx="3" /></svg>말하기</div>
