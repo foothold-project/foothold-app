@@ -1377,7 +1377,11 @@ describe('관제 탭', () => {
     expect(tile('k8').querySelector('.ln span')!.textContent).toBe('정기 점검 · 다리 관절');
     expect($('[data-sum="점검"] b').textContent).toBe('1');
     expect(tile('k3').querySelector('[data-charging]')!.textContent).toBe('충전 중');
-    expect((tile('k3').querySelector('[data-charging]') as HTMLElement).style.color).toBe('var(--u5-ok)');   // 시안 민트(어둠 #00c389 · 밝음 #0E7F63, u5.css)
+    expect((tile('k3').querySelector('[data-charging]') as HTMLElement).style.color).toBe('var(--u5-ok)');
+    // 충전 배지 = 배터리 아이콘 없이 점검 중과 같은 점 펄스(.stb.chk i) · 초록(팀장 01:51)
+    const ch = tile('k3').querySelector<HTMLElement>('[data-charging]')!;
+    expect(ch.classList.contains('chk')).toBe(true); expect(ch.querySelector('.bt')).toBeNull();
+    expect(ch.querySelector<HTMLElement>(':scope > i')!.style.background).toBe('var(--u5-ok)');   // 시안 민트(어둠 #00c389 · 밝음 #0E7F63, u5.css)
     av.mockRestore(); sc.mockRestore();
   });
   it('글이 없는 줄 · 칸은 아이콘을 보이지 않게(줄 높이는 지킴) · 걸음 이름이 없으면 아이콘 없음', () => {

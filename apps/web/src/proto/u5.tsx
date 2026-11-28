@@ -250,7 +250,7 @@ function Cv({ f, front, hotMap, boards }: { f: TileFacts; front: boolean; hotMap
       : f.x.sim ? <span className="g dk ov" style={{ left: '8px', top: '8px' }}>{I(14, IC.cam)}{REAR_LABEL}</span>
       : <RealCam id={f.x.id} />}
     {f.stop ? <span className="stb" style={{ color: TONE_COL[f.stop.tone] ?? 'var(--mu2)' }} data-stop-line={f.stop.tone} title={f.stop.text}>{I(14, IC.stop)}{f.stop.text}</span>
-      : (() => { const b = tileBadge(f); return b && <BadgeTag b={b} battery={f.x.battery} />; })()}
+      : (() => { const b = tileBadge(f); return b && <BadgeTag b={b} />; })()}
   </div>;
 }
 
@@ -268,7 +268,7 @@ function RealCam({ id }: { id: string }) {
  *  1 끊김(다시 붙는 중 = «다시 연결 중», 꺼짐 = «연결 끊김») 2 정지 잠금 3 넘어짐(robot_info.fallen) 4 점검(가용 MAINTENANCE)
  *  5 충전(가용 CHARGING) · 그 둘이 아닐 때 일정 칸 배터리 교체 6 임무(사용자 시뮬 = «시뮬 중», 데모 · 실기 = «임무 중», 멈춤 = «임무 멈춤») 7 그 밖 «대기 · 임무 전».
  *  «조종 중»은 서버가 조종권 안에 실제 입력 여부를 줄 때까지 내지 않는다(값 없으면 7). 상태를 아직 모르면(요약 · 받는 중) null */
-export type Badge = { key: 'relink' | 'lost' | 'pre' | 'latched' | 'fallen' | 'maint' | 'swap' | 'charging' | 'paused' | 'run' | 'simrun' | 'idle'; text: string; icon: keyof typeof IC; col: string; blink?: boolean; bat?: boolean; why?: string };
+export type Badge = { key: 'relink' | 'lost' | 'pre' | 'latched' | 'fallen' | 'maint' | 'swap' | 'charging' | 'paused' | 'run' | 'simrun' | 'idle'; text: string; icon: keyof typeof IC; col: string; blink?: boolean; why?: string };
 const GREY = '#a9b8c6';
 export function tileBadge(f: TileFacts): Badge | null {
   const x = f.x;
@@ -281,15 +281,17 @@ export function tileBadge(f: TileFacts): Badge | null {
   if (pickInfo(x)?.v?.fallen) return { key: 'fallen', text: '넘어짐', icon: 'warn', col: 'var(--u5-red)' };
   // 지금 상태(가용 MAINTENANCE · CHARGING)가 일정 칸(BATTERY_SWAP)보다 먼저(01:31 K-04: 충전 중인데 «배터리 교체»)
   if (f.job?.kind === 'maint') return { key: 'maint', text: '점검 중', icon: 'wrench', col: GREY, blink: true };
-  if (f.charging) return { key: 'charging', text: '충전 중', icon: 'bolt', col: 'var(--u5-ok)', bat: true };
+  if (f.charging) return { key: 'charging', text: '충전 중', icon: 'bolt', col: 'var(--u5-ok)', blink: true };   // 배터리 아이콘 대신 점검 중과 같은 점 펄스 · 초록(팀장 01:51)
   if (f.job) return { key: 'swap', text: '배터리 교체', icon: 'bat', col: GREY };
   if (f.onRun) return f.paused ? { key: 'paused', text: '임무 멈춤', icon: 'warn', col: 'var(--u5-amb)', blink: true, why: f.paused }
     : f.sim ? { key: 'simrun', text: '시뮬 중', icon: 'box', col: GREY } : { key: 'run', text: '임무 중', icon: 'flag', col: 'var(--u5-ok)' };
   return { key: 'idle', text: '대기 · 임무 전', icon: 'home', col: GREY };
 }
-function BadgeTag({ b, battery }: { b: Badge; battery: number | null }) {
+/** 배지 점 색은 여기 한 곳에서 고른다. 지금은 배지 글 색 그대로(점 색 규칙은 팀장 결정 뒤 이 함수만 바꿈) */
+export const badgeDot = (b: Badge): string => b.col;
+function BadgeTag({ b }: { b: Badge }) {
   return <span className={`stb${b.blink ? ' chk' : ''}`} style={{ color: b.col }} title={b.why} data-badge={b.key} {...{ [`data-${b.key}`]: '' }}>{I(14, IC[b.icon])}{b.text}
-    {b.bat ? <span className="bt"><i style={battery != null ? { width: `${Math.round(battery)}%` } : undefined}></i></span> : b.blink ? <i></i> : null}</span>;
+    {b.blink ? <i style={{ background: badgeDot(b) }}></i> : null}</span>;
 }
 
 function Tile({ f, sel, front, open, boards }: { f: TileFacts; sel: boolean; front: boolean; open: () => void; boards: Set<string> }) {
