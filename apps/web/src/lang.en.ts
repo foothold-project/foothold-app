@@ -89,7 +89,7 @@ export const EN: Record<string, string> = {
   // 2 차: 관제(u5) · 로봇(u4) · 지도(u7) · 임무(u6) · 기록(u8) 탭의 앱 글(서버가 준 이름 · 사건 글은 그대로)
   '새 알림': 'New alerts', '연결 끊김': 'Disconnected', '최근': 'Latest', '건만 보입니다 · 기록에서 모두 보기': 'shown · see all in History',
   '타일 보기': 'Tiles', '지도 보기': 'Map', '첫 화면으로': 'Back to start', '임무 중': 'On mission', '충전': 'Charging', '점검': 'Maintenance', '연결 중': 'Connecting', '시뮬 대기': 'Sim waiting',
-  '정면 상태로 뒤집기': 'Flip to front view', '데모 표시': 'Demo label', '모두': 'All', '내 로봇': 'My robots', '뒤 1 m': '1 m behind', '연결': 'Link', '담당자': 'Owner', '할 일': 'Tasks',
+  '정면 상태로 뒤집기': 'Flip to front view', '데모 표시': 'Demo label', '모두': 'All', '내 로봇': 'My robots', '뒤 2 m': '2 m behind', '연결': 'Link', '담당자': 'Owner', '할 일': 'Tasks',
   '정지 잠금': 'Stop latched', '· 정면 보기': '· front view', '시뮬': 'Sim', '임무 전 · 시뮬 등록': 'Before mission · sim registered', '배터리 해당 없음': 'No battery (sim)', '시뮬 계산': 'Sim calc',
   '카메라 신호 없음 · 로봇 상태를 확인하는 중입니다': 'No camera signal · checking robot status', '연결 전': 'Not connected', '작은 지도': 'Mini map', '점 = 로봇 · 점선 = 시뮬': 'Dot = robot · dashed = sim',
   '경보 ·': 'Alarm ·', '관절 위험': 'Joint danger', '로봇은 스스로 멈추지 않습니다.': 'The robot does not stop by itself.', '로봇 탭에서 보기': 'View in Robots', '최근 경고': 'Recent warnings',

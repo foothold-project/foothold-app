@@ -96,7 +96,7 @@ describe('관제 탭', () => {
     mount('u-kim', EIGHT); feed(EIGHT, { k1: { latency_ms: 38, gait: { gait: 'start' }, ...RUN() } });
     const t = tile('k1');
     expect([...t.children].map((e) => e.className)).toEqual(['cv', 'inf']);
-    expect(t.querySelector('.cv .ov')!.textContent).toBe('뒤 1 m');
+    expect(t.querySelector('.cv .ov')!.textContent).toBe('뒤 2 m');
     expect(t.querySelector('.nm b')!.textContent).toBe('K-01');
     expect(t.querySelector('.nm .md')!.textContent).toBe('START');
     expect(t.querySelector('.ln span')!.textContent).toBe('공정 순찰 A');
@@ -369,14 +369,14 @@ describe('관제 탭', () => {
     const R = SOME('g1', 'g2', 'g3'); mount('u-kim', R); feed(R, runs(['g2', 'g3']));
     expect(tile('g3').querySelector('.cv')!.getAttribute('data-face')).toBe('live');
     expect(tile('g2').querySelector('.cv')!.getAttribute('data-face')).toBe('live');
-    expect(tile('g2').querySelector('.cv .ov')!.textContent).toBe('뒤 1 m');
+    expect(tile('g2').querySelector('.cv .ov')!.textContent).toBe('뒤 2 m');
     expect(tile('g2').querySelector('.chip.sim')!.textContent).toBe('시뮬');
     expect(tile('g2').classList.contains('rehearse')).toBe(true);
     act(() => { $('.u5 .flipb').click(); });
     expect(tiles().every((t) => t.querySelector('.cv')!.getAttribute('data-face') === 'front')).toBe(true);
     expect(tile('g3').querySelector('.cv .ov')!.textContent).toBe('최고 관절 온도');
     expect(tile('g2').querySelector('.cv .ov')!.textContent).toBe('임무 중 · 정면 보기');
-    expect($('.u5 .flipb').textContent).toBe('뒤 1 m 시점으로');
+    expect($('.u5 .flipb').textContent).toBe('뒤 2 m 시점으로');
     expect(tile('g3').dataset.sel).toBeUndefined();
   });
 
@@ -387,7 +387,7 @@ describe('관제 탭', () => {
     const cam = (id: string) => JSON.parse(tile(id).querySelector('canvas')!.getAttribute('data-go2')!) as { yaw: number | string; dist: number };
     expect(face('g1')).toBe('live'); expect(cam('g1')).toMatchObject({ yaw: 'back', dist: 2.0 });   // 임무 중 뒤 2.0 m(팀장 01:47) · 칸 글은 REAR_LABEL 그대로
     expect(face('g7')).toBe('live');   // 일시정지도 아직 그 임무 안
-    expect(face('g2')).toBe('live'); expect(tile('g2').querySelector('.cv .ov')!.textContent).toBe('뒤 1 m');
+    expect(face('g2')).toBe('live'); expect(tile('g2').querySelector('.cv .ov')!.textContent).toBe('뒤 2 m');
     for (const id of ['g3', 'g4', 'g6']) { expect(face(id)).toBe('front'); expect(cam(id)).toMatchObject({ yaw: 0, dist: 1.25 }); }
     expect(tile('g3').querySelector('.cv .ov')!.textContent).toBe('대기 중 · 정면 보기');   // 대기 = 시안 K-08 꼬리표(팀장 01:08)
     expect(tile('g3').querySelector('[data-cam]')).toBeNull();   // 임무 전 실기는 카메라 칸 대신 모형 정면

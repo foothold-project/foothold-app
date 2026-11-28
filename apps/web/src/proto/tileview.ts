@@ -35,8 +35,8 @@ export const simLook = (light: boolean) => (light ? { blend: THREE.NormalBlendin
 const HEAD = new THREE.Vector3(0, 0.3, 0), ray = new THREE.Raycaster();
 /** 타일 카메라 거리: 임무 중 뒤 따라가기 2.0 m(팀장 01:47 · 높이 0.55 · 보는 높이 SITE_AIM 0.35 · fov 30) · 정면 1.25 m(시안 go2view) */
 export const REAR_DIST = 2.0, FRONT_DIST = 1.25;
-/** 뒤 시점 칸 글(시안 «뒤 1 m»). 「뒤 2 m」 로 바꿀지는 팀장 결정 전까지 그대로 · 글은 이 상수 하나 */
-export const REAR_LABEL = '뒤 1 m';
+/** 뒤 시점 칸 글(팀장 01:51 «뒤 2 m» · 거리 REAR_DIST 와 맞춤). 글은 이 상수 하나 · 영어는 lang.en.ts */
+export const REAR_LABEL = '뒤 2 m';
 /** 바라보는 높이(m): 점 바닥 · 정면 = 몸통(0.17 · 시안 go2view). 현장 위 뒤 1 m = SITE_AIM(00:53 사진: 0.17 이면 아래로 21° 라 화면이 로봇 앞 5 m 안 바닥만 · 흰 판처럼 보임 →
  *  지평선이 화면 위쪽에 들어오게 올려 앞쪽 배관 · 건물이 보이게) */
 export const BODY_AIM = 0.17, SITE_AIM = 0.35;
