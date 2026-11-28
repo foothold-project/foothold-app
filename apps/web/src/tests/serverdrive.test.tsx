@@ -1260,3 +1260,56 @@ describe('RV-426: PC 입력 세대 마무리', () => {
     mk('keyup', 'ArrowUp');
   });
 });
+
+describe('#533 검토 (11-28 Codex) · PC 서버 경유 키', () => {
+  const mod = (type: 'keydown' | 'keyup', code: string, m: KeyboardEventInit) => act(() => { window.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true, cancelable: true, ...m })); });
+  it('M4: W+Q 로 까닭 줄이 뜬 뒤 Q 만 떼면 전진이 다시 나가므로 까닭 줄도 사라짐 (남은 안내와 명령이 같게)', () => {
+    ready();
+    key('keydown', 'KeyW'); key('keydown', 'KeyQ'); tick(60);
+    expect(lastAxes()).toBe('0,0,0');
+    expect($('[data-sd-why]')!.textContent).toBe(COMBO_BLOCK);
+    key('keyup', 'KeyQ'); tick(60);
+    expect(lastAxes()).toBe('1.5,0,0');
+    expect($('[data-sd-why]')).toBeNull();
+    key('keydown', 'KeyQ'); tick(60); expect($('[data-sd-why]')!.textContent).toBe(COMBO_BLOCK);   // 다시 조합이면 다시 뜸
+    key('keyup', 'KeyQ'); key('keyup', 'KeyW'); tick(60);
+    expect(lastAxes()).toBe('0,0,0');
+    expect($('[data-sd-why]')).toBeNull();   // 다 떼어도 남지 않음
+  });
+  it('M4: 옆 상한에 막힌 Q 를 떼면 그 까닭 줄도 사라짐 (다른 안내 · 0 전송 안내는 그대로)', () => {
+    ready();
+    act(() => simTune({ ...ORG, real_max_vy: 0 }));
+    key('keydown', 'KeyQ'); tick(60);
+    expect($('[data-sd-why]')!.textContent).toBe(SIDE_BLOCK);
+    key('keyup', 'KeyQ'); tick(60);
+    expect($('[data-sd-why]')).toBeNull();
+    act(() => simTune({ ...ORG, real_max_vx: .5 }));
+    key('keydown', 'KeyW'); tick(60); expect($('[data-sd-why]')!.textContent).toBe('조직 속도 상한을 넘는 명령입니다.');
+    key('keydown', 'KeyQ'); tick(60); expect($('[data-sd-why]')!.textContent).toBe(COMBO_BLOCK);
+    key('keyup', 'KeyQ'); tick(60);
+    expect(lastAxes()).toBe('0,0,0');
+    expect($('[data-sd-why]')!.textContent).toBe('조직 속도 상한을 넘는 명령입니다.');   // 남은 W 는 여전히 상한 밖: 조합 까닭이 상한 까닭으로 바뀜(말없이 0 아님)
+    key('keyup', 'KeyW'); tick(60);
+    act(() => simTune({ ...ORG }));
+    key('keydown', 'KeyW'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    act(() => simTune({ ...ORG, real_max_wz: 2 }));   // 누른 채 설정이 바뀜: 0 + 안내
+    const note = $('[data-sd-why]')!.textContent;
+    expect(note).toContain('조직 속도 설정이 바뀌어');
+    key('keyup', 'KeyW'); tick(60);
+    expect($('[data-sd-why]')!.textContent).toBe(note);   // 다른 안내(설정 바뀜)는 키를 떼어도 남음
+  });
+  it('M5: Ctrl · Meta · Alt 와 같이 누른 키(Ctrl+S 저장 등)는 조종 입력이 아님 · 뗄 때까지 0, 브라우저 단축키는 막지 않음', () => {
+    ready();
+    for (const m of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }] as KeyboardEventInit[]) {
+      const e = new KeyboardEvent('keydown', { code: 'KeyS', bubbles: true, cancelable: true, ...m });
+      act(() => { window.dispatchEvent(e); }); tick(60);
+      expect(lastAxes()).toBe('0,0,0');
+      if (!m.metaKey) expect(e.defaultPrevented).toBe(false);
+      if (!m.metaKey) { key('keydown', 'KeyW'); tick(60); expect(lastAxes()).toBe('0,0,0'); }   // 단축키로 누른 S 가 남아 있는 동안 W 도 0 (Meta 는 기존대로 적은 키를 지우고 세대 +1, RV-429)
+      mod('keyup', 'KeyS', m); key('keyup', 'KeyW'); tick(60);
+    }
+    key('keydown', 'KeyS'); tick(60); expect(lastAxes()).toBe('-1.5,0,0');   // 그냥 S 는 그대로 후진
+    key('keyup', 'KeyS'); tick(60); expect(lastAxes()).toBe('0,0,0');
+    expect(axes().every((a) => ALLOWED.has(a))).toBe(true);
+  });
+});

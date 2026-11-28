@@ -6,6 +6,7 @@ import { App } from '../App';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
 import { EmptyControl, actOf, lastly, order } from '../screens/control';
+import { sim } from '../phone';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -205,5 +206,44 @@ describe('관제 탭', () => {
     expect($$('[aria-label="최근 경고"] [data-alert]')).toHaveLength(1);
     expect($('[aria-label="최근 경고"] [data-alert-at]')).toBeNull();
     expect($('[aria-label="최근 경고"]').textContent).not.toContain('미확인');
+  });
+});
+
+/** #533 검토(11-28 Codex) H1 · H2: 운영 관리자(박OO)가 실기 + 시뮬을 함께 가진 PC 관제 */
+describe('#533 관제 · 머리줄 STOP 대상', () => {
+  const MIX: Robot[] = [
+    { id: 'r-a', name: 'Go2-A', owner: 'u-park', ownerName: '박OO', battery: 70, online: true, seenAt: '14:05:20', status: 'RUNNING', mission: '순찰 1/4' },
+    { id: 's-1', name: '시뮬-1', owner: 'u-park', ownerName: '박OO', battery: 90, online: true, seenAt: '14:05:20', status: 'IDLE', sim: true },
+  ];
+  const stops = () => FakeWS.last.of('stop').map((m) => m.robot);
+  const press = () => act(() => { $('header .fh-stop').click(); });
+  const space = () => act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true, cancelable: true })); });
+  it('H1: 관제에서 시뮬 타일을 두 번 누르면 실기 로봇 탭으로 가지 않음 · 머리줄 STOP · Space 가 실기로 가지 않음', () => {
+    mount('u-park', MIX, '#/control'); feed(MIX);
+    act(() => { tile('s-1').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
+    expect(location.hash).not.toBe('#/fleet');
+    press(); space();
+    expect(stops()).not.toContain('r-a');
+  });
+  it('H1: 실기 타일은 그대로 로봇 탭 · STOP = 그 실기', () => {
+    mount('u-park', MIX, '#/control'); feed(MIX);
+    act(() => { tile('r-a').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
+    expect(location.hash).toBe('#/fleet');
+    press();
+    expect(stops()).toEqual(['r-a']);
+  });
+  it('H2: 이 창에 시뮬이 떠 있어도 관제 STOP 은 실기를 고를 수 있음 (시뮬 정지는 그대로 보냄)', () => {
+    const live = vi.spyOn(sim, 'live').mockReturnValue(MIX[1] as never), halt = vi.spyOn(sim, 'stop').mockImplementation(() => {});
+    mount('u-park', MIX, '#/control'); feed(MIX);
+    press();
+    expect(halt).toHaveBeenCalledTimes(1);   // 떠 있는 시뮬 슬롯 정지는 그대로(기존)
+    const pick = box.querySelector<HTMLElement>('[role="dialog"][aria-label="정지할 로봇 고르기"]');
+    expect(pick).not.toBeNull();
+    const sel = pick!.querySelector<HTMLSelectElement>('select')!;
+    expect([...sel.options].map((o) => o.value)).toContain('r-a');
+    act(() => { sel.value = 'r-a'; sel.dispatchEvent(new Event('change', { bubbles: true })); });
+    act(() => { pick!.querySelector<HTMLElement>('button.fh-stop')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })); pick!.querySelector<HTMLElement>('button.fh-stop')!.click(); });
+    expect(stops()).toContain('r-a');
+    live.mockRestore();
   });
 });

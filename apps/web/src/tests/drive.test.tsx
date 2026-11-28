@@ -2176,6 +2176,18 @@ describe('폰 실기 조종 = 서버 명령표', () => {
     key('keydown', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, -MAX_TURN_RATE]);
     key('keyup', 'KeyD');
   });
+  it('#533 H3: 「입력 0」 까닭 줄이 뜬 조합(W+Q+E · W+A+D)은 실제로도 0 (Q·E 나 A·D 가 서로 지워 전진만 나가지 않음)', () => {
+    open();
+    for (const ks of [['KeyW', 'KeyQ', 'KeyE'], ['KeyW', 'KeyA', 'KeyD']]) {
+      ks.forEach((k) => key('keydown', k)); tick(100);
+      expect(text()).toContain(COMBO_BLOCK);
+      expect(lastAxes()).toEqual([0, 0, 0]);
+      tick(200); expect(lastAxes()).toEqual([0, 0, 0]);   // 틱마다도 0
+      [...ks].reverse().forEach((k) => key('keyup', k)); tick(100);
+    }
+    key('keydown', 'KeyW'); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);
+    key('keyup', 'KeyW');
+  });
   it('표에 없는 키 조합(W+Q · A+Q · A+D)은 0 + 까닭 한 줄, 떼면 사라짐', () => {
     open();
     for (const [a, b] of [['KeyW', 'KeyQ'], ['KeyA', 'KeyQ'], ['KeyA', 'KeyD']]) {

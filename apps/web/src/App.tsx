@@ -217,7 +217,9 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     seen.current = robot ? [robot.id, done] : null;
   });
   const halt = (r: Robot) => { rt.stop(r.id); setStopped(r); setChoose(null); };
-  const stop = () => { if (toSim) return sim.stop();   // 시뮬이 고르기 밖이면 그 슬롯만(직결이면 에이전트, 연결 전·끊김이면 정리) — 다른 로봇으로 새지 않음
+  // PC 관제(대상 없음)에 정지할 실기가 있으면 떠 있는 시뮬만 멈추고 끝내지 않는다: 시뮬 정지는 그대로 보내고 실기 고르기도 연다(#533 H2)
+  const alsoPick = !phone && tab === 'control' && !target && stops.some((r) => !r.sim);
+  const stop = () => { if (toSim) { sim.stop(); if (!alsoPick) return; }   // 시뮬이 고르기 밖이면 그 슬롯만(직결이면 에이전트, 연결 전·끊김이면 정리). 다른 로봇으로 새지 않음
     if (!canStop) return;
     const r = target ?? stops.find((x) => x.id === choose); if (r) halt(r); else setChoose(stops.find((x) => rt.get(x.id).lease || rt.get(x.id).releasing)?.id ?? ''); };
   // Space = STOP, 모든 화면(F-COM-01) — 단, 초점이 글 입력칸이면 띄어쓰기로 둔다(10-20 사용자 결정, 화면 STOP 단추는 그대로).

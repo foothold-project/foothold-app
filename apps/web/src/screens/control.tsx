@@ -188,7 +188,10 @@ export function Control(c: Ctx) {
   const t = useTree(c.cancel), places = useMemo(() => floorsOf(t.tree), [t.tree]);
   const list = scope === 'mine' ? c.robots.filter((x) => x.owner === me) : c.robots;
   const tiles = order(list), alerts = tiles.filter(needs);
-  const open = (id: string) => { c.pick(id); c.go('fleet'); };   // 로봇 탭이 그 로봇을 고른 채 열린다(U5-07)
+  // 로봇 탭이 그 로봇을 고른 채 열린다(U5-07). 로봇 탭은 실기만 보이므로 시뮬은 시뮬 탭으로: 시뮬을 열었는데 화면은 첫 실기 · STOP 대상이 어긋나지 않게(#533 H1)
+  const isSim = (id: string) => !!list.find((x) => x.id === id)?.sim;
+  const open = (id: string) => { c.pick(id); c.go(isSim(id) ? 'sim' : 'fleet'); };
+  const where = (id: string) => (isSim(id) ? '시뮬 탭에서 보기' : '로봇 탭에서 보기');
   const front = (x: Robot) => !!x.sim || allFront !== flipped.has(x.id);
   const flip = (id: string) => setFlipped((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const picked = list.find((x) => x.id === sel);
@@ -228,7 +231,7 @@ export function Control(c: Ctx) {
           <Guard>{t.tree ? <SmallMap robots={tiles} sel={sel} places={places} cancel={c.cancel} />
             : t.err ? <div className="fh-row"><p className="fh-msg" role="alert">층 목록을 받지 못했습니다. {t.err}</p><button type="button" className="btn" onClick={t.again}>다시 시도</button></div>
             : <p className="lv-note" role="status">층 목록을 불러오는 중…</p>}</Guard>
-          {picked ? <div className="fh-row" data-picked><b className="fh-grow">{picked.name}</b><button type="button" className="btn" onClick={() => open(picked.id)}>로봇 탭에서 보기</button></div>
+          {picked ? <div className="fh-row" data-picked><b className="fh-grow">{picked.name}</b><button type="button" className="btn" onClick={() => open(picked.id)}>{where(picked.id)}</button></div>
             : <p className="lv-note">타일을 한 번 누르면 지도에서 강조, 두 번 누르면 로봇 탭이 열립니다.</p>}
         </section>
           : <section className="lv-card ct-list" aria-label="로봇 목록(지도 보기)"><ul className="fh-list">{tiles.map((x) => <li key={x.id}>
@@ -237,7 +240,7 @@ export function Control(c: Ctx) {
         {top && <section className="lv-card ct-alarm" aria-label="경보" data-tone={robotStatus(top).tone === 'bad' ? 'bad' : 'warn'}>
           <h2><Icon d={<path d="M12 4l9 16H3zM12 10v4M12 17v.5" />} />{robotStatus(top).tone === 'bad' ? '경고' : '주의'} · {top.name} {why(top)}</h2>
           <p className="lv-note">담당 {ownerName(top)}{alerts.length > 1 ? ` · 다른 경고 ${alerts.length - 1}건` : ''}</p>
-          <div className="fh-row"><button type="button" className="btn" onClick={() => open(top.id)}>로봇 탭에서 보기</button></div>
+          <div className="fh-row"><button type="button" className="btn" onClick={() => open(top.id)}>{where(top.id)}</button></div>
         </section>}
         <section className="lv-card ct-recent" aria-label="최근 경고">
           <div className="fh-row"><h2 className="fh-grow">최근 경고</h2><a className="lbl" href="#/history">기록 탭에서 모두 보기</a></div>

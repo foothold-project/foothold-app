@@ -42,6 +42,7 @@ const KEY: Record<string, Tok> = { KeyW: 'up', ArrowUp: 'up', KeyS: 'down', Arro
 export const SIDE_BLOCK = '옆걸음은 조직 속도 설정(옆 상한)이 허락하지 않아 입력을 0으로 보냅니다.';
 /** 표에 없는 키 조합(W+Q·A+Q·W+S·Q+E 등)은 0. 말없이 멈추지 않게 까닭 한 줄(폰·PC 같은 문구) */
 export const COMBO_BLOCK = '이 키 조합은 함께 보낼 수 없어 입력을 0으로 보냅니다.';
+const OVER_LIMIT = '조직 속도 상한을 넘는 명령입니다.';
 export const MAX_TURN_RATE = orgSettingsSchema.properties.real_max_wz.maximum;
 /** 서버·에이전트 허용 표(SERVER-DRIVE-ADD1 A) — [vx m/s, vy m/s, wz rad/s]. 정확히 이 값만, 표 밖 조합은 0 */
 export const TABLE: Record<string, [number, number, number]> = {
@@ -231,7 +232,12 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
     const [vx, vy, wz] = permitted(cmd, settingsRef.current) ? cmd : TABLE['']; rt.cmd(r.id, [vx, wz], vy, !t);
   };
   /** 누름이 바뀜: 그리고 바로 한 번 보낸다(뗀 그 자리에서 0) */
-  const changed = () => { setOn(id(pressed() ?? [])); if (rt.get(r.id).lease) send(); };
+  const changed = () => {
+    const p = pressed(); setOn(id(p ?? [])); if (rt.get(r.id).lease) send();
+    // 누름이 바뀌면 조합 · 상한 까닭 줄도 지금 누름 기준으로 다시(뗀 뒤 다시 나가는데 «0» 안내가 남지 않게 · #533 M4). 창 초점 · 정지 같은 다른 안내는 그대로
+    const now = !readyRef.current || !p ? '' : unknownCombo(p) ? COMBO_BLOCK : !permitted(command(p), settingsRef.current) ? (command(p)[1] ? SIDE_BLOCK : OVER_LIMIT) : '';
+    setWhy((w) => (w === COMBO_BLOCK || w === SIDE_BLOCK || w === OVER_LIMIT ? now : w));
+  };
   /** 0 으로: 입력 세대를 올려 지금 누른 것을 모두 앞 세대로 — 떼고 새로 눌러야 움직인다. 바로 보낸다 + 안내 */
   const zero = useRef((note = '') => { g.bump(); changed(); if (note) setWhy(note); }).current;
   /** 누른 순간의 세대 — 공백 검사를 먼저(공백 뒤 새 누름은 새 세대) */
@@ -264,11 +270,13 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
       if (typing(e.target) || e.repeat) { if (t && !k.has(e.code)) { k.set(e.code, -1); changed(); } return; }
       if (e.code === 'Space') return zero(SD_NOTE.stop);   // STOP 은 App 머리줄이 보낸다 — 여기는 입력만 먼저 0
       if (!t) return;
-      if (!e.ctrlKey && !e.altKey) e.preventDefault();   // Ctrl·Alt 조합도 같은 누름으로 적는다(브라우저 단축키는 막지 않음)
+      // Ctrl · Alt 조합(Ctrl+S 저장 등 브라우저 단축키)은 조종 입력이 아니다: 앞 세대로 적어 뗄 때까지 0, 단축키는 막지 않음(#533 M5). Meta 는 위 metaCut
+      if (e.ctrlKey || e.altKey) { if (!k.has(e.code)) { k.set(e.code, -1); changed(); } return; }
+      e.preventDefault();
       k.set(e.code, now());   // 잠긴 동안 누른 것도 적는다 — 해제(ready)되면 세대가 올라 앞 세대가 된다
       const p = pressed();
       if (readyRef.current && p && unknownCombo(p)) { changed(); setWhy(COMBO_BLOCK); return; }
-      if (readyRef.current && p && !permitted(command(p), settingsRef.current)) { changed(); setWhy(command(p)[1] ? SIDE_BLOCK : '조직 속도 상한을 넘는 명령입니다.'); return; }
+      if (readyRef.current && p && !permitted(command(p), settingsRef.current)) { changed(); setWhy(command(p)[1] ? SIDE_BLOCK : OVER_LIMIT); return; }
       if (readyRef.current) setWhy(''); changed();
     };
     const up = (e: KeyboardEvent) => { if (metaCut(e)) cut(); else if (keys.current.delete(e.code)) changed(); };

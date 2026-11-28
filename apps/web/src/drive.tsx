@@ -183,7 +183,8 @@ function Screen(c: Ctx) {
   const send = () => {
     if (!rt.get(r.id).lease) return;
     gen.tick(r.id);
-    const a = axes(), y = +held(input.current.keys, 'sl') - +held(input.current.keys, 'sr');
+    // 표 밖 키 조합(W+Q+E · W+S 등)은 화면 까닭 줄(COMBO_BLOCK «입력을 0으로») 그대로 0. Q·E 가 서로 지워 전진만 나가지 않게(#533 H3)
+    const a = unknownCombo(keyToks(input.current.keys)) ? null : axes(), y = +held(input.current.keys, 'sl') - +held(input.current.keys, 'sr');
     const [vx, vy, wz] = a && real && gotRef.current && isSettings(settingsRef.current) ? realAxes(a, settingsRef.current, y) : TABLE[''];
     rt.cmd(r.id, [vx, wz], vy, !a);
   };
