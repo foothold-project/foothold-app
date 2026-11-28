@@ -37,9 +37,8 @@ describe('실기 보기 열기(로봇 탭 실기 상세)', () => {
     expect(box.querySelector('[data-go2-replay], [data-go2-open]')).toBeNull();
     expect(box.textContent).not.toContain('Go2 실기 보기');
   });
-  it('총괄 서랍: 실기 행을 열면 실기 보기 단추(서랍을 닫으면 없음)', async () => {
+  it('총괄: 실기 행을 고르면 그 로봇 상세 옆에 실기 보기 단추(u4 틀 · 서랍 없음)', async () => {
     await mount('u-kim');
-    expect(box.querySelector('[data-go2-open]')).toBeNull();
     const real = ROBOTS.find((r) => !r.sim)!;
     act(() => { fleetRow(box, real.name).click(); }); await flush();
     expect(box.querySelector('[aria-label="로봇 상세"]')!.closest('.fl-side')!.querySelector('[data-go2-open]')!.getAttribute('href')).toBe(href(real.id));

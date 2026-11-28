@@ -98,7 +98,7 @@ describe('탭 전환', () => {
     mount(false); feed();
     expect($$('[aria-label="로봇 목록"] [data-seen]').map((e) => e.textContent)).toEqual(expect.arrayContaining(['마지막 수신 13:40:05']));
     expect($$('[aria-label="로봇 목록"] [data-seen]')).toHaveLength(3);
-    expect($$('main button').filter((b) => /조종/.test(b.textContent!))).toEqual([]);
+    expect($$('main button:not([data-seg])').filter((b) => /조종/.test(b.textContent!))).toEqual([]);   // «조종 · 점검» 보기 탭(u4)은 명령이 아님
   });
   it('폰 브라우저: 아래 탭 줄 없음, 처음은 «로봇 연결»(내 로봇 + MuJoCo «시뮬 열기» 만 — 같은 출처 /sim/, from=web)', () => {
     mount(true, 'u-lee');

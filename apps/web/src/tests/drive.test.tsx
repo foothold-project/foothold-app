@@ -452,7 +452,7 @@ describe('조종 화면', () => {
     serve(LEE, 'r3', 'r1');
     expect(w.of('sub')).toMatchObject([{ robots: ['r3', 'r1'], streams: ['state'] }]);   // 남의 로봇을 구독하면 서버가 연결을 닫는다(4403)
     click(row('Go2-7'));
-    expect([...box.querySelectorAll('button')].filter((b) => /조종/.test(b.textContent!))).toEqual([]);
+    expect([...box.querySelectorAll('button:not([data-seg])')].filter((b) => /조종/.test(b.textContent!))).toEqual([]);   // «조종 · 점검» 보기 탭(u4)은 명령이 아님
     expect($('[aria-label="조종"]')).toBeNull();
     click($('[data-stop]'));
     expect(w.of('stop')).toMatchObject([{ robot: 'r7' }]);
@@ -1891,7 +1891,7 @@ describe('총괄 · 실기도 조종·STOP(11/28), 시뮬은 그대로', () => {
     serve(KIM, 'r7', 's1');
     expect(row('Go2-7').getAttribute('aria-pressed')).toBe('true');
     expect(row('Go2-7').textContent).toContain('80%');   // 실시간 상태(배터리)는 그대로
-    expect($('[aria-label="로봇 상세"]')).toBeNull();   // 총괄: 상세는 행을 누르면 여는 서랍(03 §5.1)
+    expect($('[data-robot-head] h2')!.textContent).toBe('Go2-7');   // u4 틀(11/28): 고른 로봇의 머리 · 상세가 늘 보임(서랍 없음)
     click(row('Go2-7'));
     expect($('[aria-label="로봇 상세"]').textContent).toContain('박OO');
     click($('[data-stop]'));

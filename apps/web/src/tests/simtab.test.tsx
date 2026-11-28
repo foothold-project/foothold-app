@@ -281,7 +281,7 @@ describe('PC «시뮬» 탭', () => {
     serve();
     await mount('u-kim', [ROBOTS[1], { ...ROBOTS[1], id: 'r9', name: 'Go2-9', owner: '', ownerName: undefined },
       { ...ROBOTS[0], id: S2, name: '시뮬-2', owner: '', sim: true }, { ...ROBOTS[0], id: S1, name: '시뮬-1', owner: 'u-kim', sim: true }], '#/fleet');
-    expect([...box.querySelectorAll('.fh-list.robots b')].map((b) => b.textContent)).toEqual(['Go2-7', 'Go2-9']);
+    expect([...box.querySelectorAll('[data-robot-row] .rc-main > b')].map((b) => b.textContent)).toEqual(['Go2-7', 'Go2-9']);
     expect(box.textContent).not.toContain('시뮬-1');
     act(() => { location.hash = '#/sim'; }); await flush();
     await click($('[data-stop]'));
