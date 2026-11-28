@@ -1,5 +1,6 @@
 // 시뮬 로봇 띄우기 → 지도(월드) 고르기 → 직결 조종 → 끝내기(09 ADR-002 §3.2·§6). 상태·요청은 phone.ts, 이 파일은 그림만.
 import { useEffect, useRef, useState, type HTMLAttributes, type PointerEvent } from 'react';
+import { sx, sy, stageRect, vh, vw } from './stage';
 import type { PhoneWelcome, SimProvision, SimRobot } from '../../contracts/ts';
 type SpawnFloor = NonNullable<SimProvision['spawn_floor_id']>;
 import { feedText, media, needsRelink, reasonText, useFeed, type Feed, type MediaChannel } from './media';
@@ -479,10 +480,10 @@ export function SimPip({ cam, big, held }: { cam: Cam; big: () => void; held?: b
   const stopPress = useStopPress(() => sim.stop());   // pointerdown 즉시 — 실기 스틱을 쥔 채 눌러도(RV-456 1)
   if (!l || !r) return null;
   const lock = lockOf(l), text = r.state !== 'RUNNING' ? STATE[r.state] : lock.tone === 'bad' || !l.st ? lock.text : runText(l) || lock.text;
-  const down = (e: PointerEvent<HTMLElement>) => { const b = e.currentTarget.parentElement!.getBoundingClientRect(); grab.current = [e.clientX - b.left, e.clientY - b.top]; e.currentTarget.setPointerCapture?.(e.pointerId); };
+  const down = (e: PointerEvent<HTMLElement>) => { const b = stageRect(e.currentTarget.parentElement!); grab.current = [sx(e) - b.left, sy(e) - b.top]; e.currentTarget.setPointerCapture?.(e.pointerId); };
   const move = (e: PointerEvent<HTMLElement>) => {
     const g = grab.current, w = e.currentTarget.parentElement!; if (!g) return;
-    setAt([Math.max(0, Math.min(innerWidth - w.offsetWidth, e.clientX - g[0])), Math.max(0, Math.min(innerHeight - w.offsetHeight, e.clientY - g[1]))]);
+    setAt([Math.max(0, Math.min(vw() - w.offsetWidth, sx(e) - g[0])), Math.max(0, Math.min(vh() - w.offsetHeight, sy(e) - g[1]))]);
   };
   return <aside className="dv-pip" aria-label="시뮬 작은 창" data-sim-pip style={at ? { left: at[0], top: at[1], bottom: 'auto' } : undefined}>
     <div className="dv-pip-v"><Video ch={cam} /></div>
