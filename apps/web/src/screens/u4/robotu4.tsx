@@ -20,6 +20,7 @@ import { AddRobot } from '../../pairing';
 import { mount, type Go2Api } from './go2view';
 import '../../proto/ui.pv.css';
 import '../../proto/pc.pv.css';
+import '../../proto/light.pv.css';
 import './u4.css';
 
 /** 시안 키 안내 줄과 같게: ↑(W) 앞으로 · ← →(A D) 돌기 · ↓(S) 후진 막음. Space 정지는 앱 머리줄 STOP 그대로 */
