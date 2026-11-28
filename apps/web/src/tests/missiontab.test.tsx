@@ -8,6 +8,7 @@ import { leaving, oldScenario, tabFromHash } from '../menu';
 import { clearPlans } from '../screens/missions';
 import { keptMission } from '../screens/missiontab';
 import u6AppCss from '../screens/missionsu6.app.css?raw';
+import { ticks } from '../screens/missionsu6run';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
 
@@ -312,6 +313,20 @@ describe('임무 탭(W2)', () => {
     expect($('[data-preflight-box]')!.textContent).toContain('K-01 실제 로봇으로 시작');   // u15_2 점검 창
   });
 
+  it('시안 u6_6 모의 실행: 위 띠에 배속 · 배속 칸 고른 값과 같음 · 아래 진행 칸에 일정 시작 ~ 끝 시간 눈금 넷', async () => {
+    await mount('#/missions');
+    await setTime('end', '11:00'); await setTime('start', '10:30');
+    await click($('[data-rehearse]')); await flush();
+    expect($('[data-band]')!.textContent).toContain('모의 실행 · 시뮬 · 1 배');
+    expect($('[data-locked] .on')!.textContent).toBe('1 배');
+    expect($$('[data-ticks] span span').map((e) => e.textContent)).toEqual(['10:30', '10:40', '10:50', '11:00']);
+    expect(calls.filter((c) => c.method !== 'GET' && !['/scenarios/preview', '/estimates'].includes(c.path))).toEqual([]);   // 화면만 열고 보내지 않음
+  });
+  it('모의 실행 시간 눈금: 셋으로 나눈 네 눈금 · 자정 넘김 · 모양이 틀리면 비움', () => {
+    expect(ticks('15:00', '15:30')).toEqual(['15:00', '15:10', '15:20', '15:30']);
+    expect(ticks('23:30', '00:30')).toEqual(['23:30', '23:50', '00:10', '00:30']);
+    expect(ticks('', '15:30')).toEqual([]);
+  });
   it('모의 실행: 시뮬 로봇이 없으면 회색 + 까닭(title) · 보내지 않음', async () => {
     await mount('#/missions', 'u-kim', ROBOTS.filter((r) => !r.sim));
     const b = $<HTMLButtonElement>('[data-rehearse]')!;

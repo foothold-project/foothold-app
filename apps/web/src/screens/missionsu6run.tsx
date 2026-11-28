@@ -18,6 +18,14 @@ import { result, stops, took } from './runreport';
 const DONE = ['COMPLETED', 'FAILED', 'CANCELED'];
 export const NO = '서버에 값 없음';
 const band = { color: 'rgba(159,182,255,.75)', fontWeight: 600 } as const;
+/** 배속: 서버에 배속 값이 없어 시뮬은 실제 속도(1 배) 로만 돈다. 위 띠 · 배속 칸이 같은 값을 쓴다 */
+export const SPEEDS = [1, 10, 30, 60] as const, SPEED = 1;
+/** 진행 칸 시간 눈금: 일정 칸의 시작 ~ 끝(HH:MM)을 셋으로 나눈 네 눈금 (시안 15:00 · 15:10 · 15:20 · 15:30). 끝이 시작보다 이르면 다음 날로 본다 */
+export function ticks(start: string, end: string): string[] {
+  const m = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5)), a = m(start), b = m(end), len = ((b - a + 1440) % 1440) || 1440;
+  if (!/^\d\d:\d\d/.test(start) || !/^\d\d:\d\d/.test(end)) return [];
+  return [0, 1, 2, 3].map((k) => { const t = Math.round(a + (len * k) / 3) % 1440; return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`; });
+}
 
 /** 지금 이 화면의 모의 실행 로봇: 시뮬 로봇 중 실행이 도는 것, 없으면 첫 시뮬 로봇 */
 function useSimRobot(robots: Robot[]) {
@@ -38,18 +46,18 @@ function Dot({ robot, route }: { robot: Robot; route: Route }) {
 export function Rehearse({ x, route, robots, user, cancel, p, close, result: toResult }: { x: Scenario; route: Route; robots: Robot[]; user: Ctx['user']; cancel?: AbortSignal; p: Plan; close: () => void; result: (run: string, robot: string) => void }) {
   const sims = useSimRobot(robots), sim = sims[0], g = useRunGate(sim, x, user, cancel);
   return <>
-    <div className="band" data-band><Ic d={IC.play} />모의 실행 · 시뮬<span style={band}>실제 로봇은 움직이지 않습니다</span></div>
+    <div className="band" data-band><Ic d={IC.play} />모의 실행 · 시뮬 · {SPEED} 배<span style={band}>실제 로봇은 움직이지 않습니다</span></div>
     <div className="map" style={{ left: '24px', top: '128px', width: '1476px', height: '692px', border: '1.5px dashed rgba(159,182,255,.5)' }} aria-label="모의 실행 지도">
       <div className="stage" style={{ inset: 0 }}><RouteStage x={x} route={route} rehearse>{sims.map((r) => <Dot key={r.id} robot={r} route={route} />)}</RouteStage></div>
       <div className="chips"><span className="g dk" style={{ gap: '8px' }}><Ic d={IC.robot} />시뮬 로봇 {sims.length} 대</span>
         <span className="g dk" style={{ gap: '10px' }}><i style={{ width: '22px', borderTop: '3px solid #00c389' }} />실제<i style={{ width: '22px', borderTop: '3px dashed #4c9bff' }} />모의 실행</span></div>
     </div>
-    <Progress sims={sims} x={x} own={g.own?.run_id ?? g.mine} />
+    <Progress sims={sims} x={x} own={g.own?.run_id ?? g.mine} at={ticks(p.start, p.end)} />
     <div className="pane" style={{ left: '1524px', top: '128px', right: '24px', bottom: '24px', padding: '22px' }} aria-label="모의 실행">
       <div className="lab">모의 실행 · {x.name}</div>
       <div className="ttl" style={{ marginTop: '4px' }}>{p.start} ~ {p.end} · 시뮬 로봇 {sims.length} 대</div>
       <div className="lab" style={{ margin: '18px 0 8px' }}>배속</div>
-      <div className="mseg" aria-disabled="true" title="배속은 서버에 값이 없어 바꿀 수 없습니다" data-locked><span className="on">1 배</span><span>10 배</span><span>30 배</span><span>60 배</span></div>
+      <div className="mseg" aria-disabled="true" title="배속은 서버에 값이 없어 바꿀 수 없습니다" data-locked>{SPEEDS.map((k) => <span key={k} className={k === SPEED ? 'on' : undefined}>{k} 배</span>)}</div>
       <div className="row" style={{ justifyContent: 'space-between', margin: '20px 0 6px' }}><span className="lab">지금까지 점검</span><span className="lab">생기면 지도에 표시</span></div>
       {['겹침', '충돌', '중복', '혼잡'].map((t) => <div key={t} className="chk" data-chk={t}><span className="mu2"><Ic d={IC.clock} /></span><div>{t}</div><span className="v mu2">{NO}</span></div>)}
       {sim && <Battery robot={sim} />}
@@ -87,7 +95,7 @@ function Done({ robot: r, run, go }: { robot?: Robot; run: RunSnapshot | null; g
 }
 
 /** 아래 진행 칸: 시뮬 로봇마다 지점 진행(state.run.progress) · 상태 · 이 화면에서 본 경과 */
-function Progress({ sims, x, own }: { sims: Robot[]; x: Scenario; own: string }) {
+function Progress({ sims, x, own, at }: { sims: Robot[]; x: Scenario; own: string; at: string[] }) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
   return <div className="pane" style={{ left: '24px', top: '844px', width: '1476px', bottom: '24px', padding: '18px 24px', border: '1.5px dashed rgba(159,182,255,.4)' }} aria-label="모의 실행 진행">
@@ -95,6 +103,8 @@ function Progress({ sims, x, own }: { sims: Robot[]; x: Scenario; own: string })
       <span className="lab">지금 시각 · 지점 진행은 로봇이 보낸 실행 상태</span>
       <span className="row" style={{ marginLeft: 'auto', gap: '10px', fontSize: '13.5px', fontWeight: '600', color: '#c9cfd8' }}><Ic d={IC.cube} />물리 점검 · {NO}</span></div>
     <div style={{ position: 'relative' }}>{sims.slice(0, 3).map((r, k) => <Row key={r.id} r={r} name={x.name} now={now.getTime()} own={k === 0 ? own : ''} />)}</div>
+    {sims.length > 0 && at.length > 0 && <div className="row lab num" style={{ gap: '14px', fontSize: '11.5px', marginTop: '4px' }} data-ticks>
+      <span style={{ width: '64px' }} /><span style={{ flex: '1', display: 'flex', justifyContent: 'space-between' }}>{at.map((t, k) => <span key={k}>{t}</span>)}</span><span style={{ width: '300px' }} /></div>}
     {!sims.length && <Why>시뮬 로봇이 없습니다.</Why>}
   </div>;
 }
