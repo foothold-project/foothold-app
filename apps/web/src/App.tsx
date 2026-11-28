@@ -410,7 +410,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       <span>▲ 이 앱으로 멈출 로봇이 없습니다 — 현장에서 로봇을 직접 멈추세요.</span>
       <button type="button" className="btn" onClick={() => setChoose(null)}>닫기</button>
     </div>);
-  const bandEl = <Toasts pc={!phone}>{[   // PC = proto/toasts(오른쪽 위 · 같은 원인 합침), 폰 = 예전 띠
+  const bandEl = <Toasts pc={!phone}>{[   // PC = proto/toasts(오른쪽 위 · 겹쳐 쌓기 · 몇 초 뒤 사라짐), 폰 = 예전 띠
       note && <span key="note">▲ {note}</span>,
       // 시안 밖 · 새로 그림 (reviewer 20:30): 서버 경유 정지가 꺼진 실기 한 대를 고른 동안 · 단추 글은 «K-07 정지» 그대로, 누르기 전에 서버로는 못 멈춘다는 것을 알림(모두 정지의 data-phone-only 와 같은 뜻)
       ctlPick && phoneOnly(ctlPick) && <span key="phone-only-pick" data-phone-only-pick>{ctlPick.name} {eunNeun(ctlPick.name)} 현장 폰에서만 멈출 수 있습니다</span>,
@@ -431,7 +431,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
           : <span key={`stop-${r.id}`} data-stop-band>{stopText(r, rt.get(r.id))}</span>; }),
       // A3: 모두 정지에 센 내 시뮬의 결과(직결 · 정리 · 보낼 길 없음)
       simStop && !!simStopText(sim.get()) && <span key="sim-stop" data-stop-band data-sim-stop-band>{simStopText(sim.get())}</span>,
-      ...problems.map((r) => <span key={r.id} data-tone="warn" data-cause="lost">▲ {lostText(r)} 현장에서 로봇 전원과 통신을 확인하세요.</span>),
+      ...problems.map((r) => <span key={r.id} data-tone="warn">▲ {lostText(r)} 현장에서 로봇 전원과 통신을 확인하세요.</span>),
     ].filter(Boolean)}</Toasts>;
   // PC 설정(시안 u9) = 무대(.proto) 바로 아래 1920 × 1080 화면. 옛 틀(.fh-main 여백 16 · 스크롤 · 머리줄 아래로 밀림)에 넣지 않는다
   const bare = !phone && tab === 'settings' && !simOpen;

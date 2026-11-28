@@ -32,25 +32,31 @@
 .proto>.fh.ap-in>.fh-pick>select{order:1;flex:1 0 100%;height:52px;border-radius:14px;background:rgba(255,255,255,.8);border:1px solid rgba(0,0,0,.08);padding:0 14px;font:inherit;font-size:15px;font-weight:700;color:#1f2421}
 .proto>.fh.ap-in>.fh-pick>.btn{order:2;flex:1 1 0;height:52px;border-radius:14px;font:inherit;font-weight:800;font-size:15px;background:rgba(255,255,255,.75);border:1px solid rgba(0,0,0,.08);color:#1f2421;cursor:pointer}
 .proto>.fh.ap-in>.fh-pick>.fh-stop{order:3;flex:1 1 0;height:52px;border-radius:14px;border:0;font:inherit;font-weight:800;font-size:15px;color:#fff;background:linear-gradient(180deg,#ff4d4f,#e04a2f);box-shadow:0 8px 20px rgba(214,47,51,.35),inset 0 1px 0 rgba(255,255,255,.35);cursor:pointer}
-/* STOP 결과 · 연결 · 권한 띠(proto/toasts.tsx): 폰 알림처럼 오른쪽 위에서 내려오는 카드(data-from=bottom 이면 오른쪽 아래에서 올라옴).
+/* STOP 결과 · 연결 · 권한 띠(proto/toasts.tsx): 폰 알림처럼 오른쪽 위에서 내려와 화면을 덮는 카드(data-from=bottom 이면 오른쪽 아래에서 올라옴).
+   안전 카드는 늘 펼쳐 둠 · 정보 · 경고 카드는 .ap-stack 에 겹쳐 쌓임(새것이 맨 앞, 뒤 카드는 가장자리만), 누르면 펼침.
    카드 꼴은 시안 u11 화면 위 한 줄(.line1.err 56 · 16 둥근 · 빨강 유리) 그대로. 내용은 그대로 */
 .proto>.fh.ap-in>.fh-band{position:fixed;right:24px;top:80px;width:460px;z-index:35;display:flex;flex-direction:column;gap:8px;padding:0;border:0;background:none}
 .proto>.fh.ap-in>.fh-band[data-from="bottom"]{top:auto;bottom:24px;flex-direction:column-reverse}
-.proto>.fh.ap-in>.fh-band>.ap-toast{display:flex;flex-wrap:wrap;align-items:center;gap:12px;min-height:56px;box-sizing:border-box;padding:10px 12px 10px 18px;border-radius:16px;font-size:15px;font-weight:700;line-height:1.45;color:#fff;
+.proto>.fh.ap-in>.fh-band .ap-toast{display:flex;flex-wrap:wrap;align-items:center;gap:12px;min-height:56px;box-sizing:border-box;padding:10px 12px 10px 18px;border-radius:16px;font-size:15px;font-weight:700;line-height:1.45;color:#fff;
   background:linear-gradient(180deg,rgba(255,77,79,.3),rgba(255,77,79,.2)),rgba(12,15,20,.82);border:1px solid rgba(255,77,79,.5);box-shadow:0 10px 26px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.12);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);animation:ap-toast-down .24s ease-out both}
-.proto>.fh.ap-in>.fh-band[data-from="bottom"]>.ap-toast{animation-name:ap-toast-up}
-.proto>.fh.ap-in>.fh-band>.ap-toast[data-toast="info"]{border-color:var(--pr)}
-.proto>.fh.ap-in>.fh-band>.ap-toast>span{display:contents}
-.proto>.fh.ap-in>.fh-band>.ap-toast>.ap-toast-t{display:block;flex:1 1 0;min-width:0}
-.proto>.fh.ap-in>.fh-band .ap-toast-n{flex:none;min-width:28px;height:28px;padding:0 8px;box-sizing:border-box;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;background:var(--red);color:#fff}
-.proto>.fh.ap-in>.fh-band .ap-toast-d{order:9;flex:1 0 100%;font-size:13px;font-weight:600}
-.proto>.fh.ap-in>.fh-band .ap-toast-d>summary{cursor:pointer;font-weight:800}
-.proto>.fh.ap-in>.fh-band .ap-toast-d>span{display:block;margin-top:6px}
-.proto>.fh.ap-in>.fh-band>.ap-toast-more{align-self:flex-end;height:36px;padding:0 14px;border-radius:10px;font:inherit;font-size:13px;font-weight:800;cursor:pointer;background:rgba(12,15,20,.82);border:1px solid rgba(255,255,255,.12);color:#fff}
-.proto.light>.fh.ap-in>.fh-band>.ap-toast-more{background:#FFFFFF;border-color:#DCE0DE;color:#1F2421}
-@keyframes ap-toast-down{from{opacity:0;transform:translateY(-14px)}to{opacity:1;transform:none}}
-@keyframes ap-toast-up{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){.proto>.fh.ap-in>.fh-band>.ap-toast{animation:none}}
+.proto>.fh.ap-in>.fh-band[data-from="bottom"] .ap-toast{animation-name:ap-toast-up}
+.proto>.fh.ap-in>.fh-band .ap-toast[data-toast="info"]{border-color:var(--pr)}
+.proto>.fh.ap-in>.fh-band .ap-toast>span{display:contents}
+.proto>.fh.ap-in>.fh-band>.ap-stack{display:grid;cursor:pointer}
+.proto>.fh.ap-in>.fh-band>.ap-stack>.ap-toast{grid-area:1/1;align-self:start;z-index:calc(20 - var(--i));transform-origin:50% 100%;transform:translateY(calc(min(var(--i),2) * 9px)) scale(calc(1 - min(var(--i),2) * .04));transition:transform .2s ease-out,opacity .2s ease-out}
+.proto>.fh.ap-in>.fh-band[data-from="bottom"]>.ap-stack>.ap-toast{grid-area:2/1;align-self:end;transform-origin:50% 0;transform:translateY(calc(min(var(--i),2) * -9px)) scale(calc(1 - min(var(--i),2) * .04))}
+.proto>.fh.ap-in>.fh-band>.ap-stack:not([data-open])>.ap-toast:not([data-depth="0"])>*{visibility:hidden}
+.proto>.fh.ap-in>.fh-band>.ap-stack:not([data-open])>.ap-toast[data-depth="3"],.proto>.fh.ap-in>.fh-band>.ap-stack:not([data-open])>.ap-toast[data-depth="3"]~.ap-toast{opacity:0}
+.proto>.fh.ap-in>.fh-band>.ap-stack[data-open]{display:flex;flex-direction:column;gap:8px;cursor:default}
+.proto>.fh.ap-in>.fh-band[data-from="bottom"]>.ap-stack[data-open]{flex-direction:column-reverse}
+.proto>.fh.ap-in>.fh-band>.ap-stack[data-open]>.ap-toast{transform:none}
+.proto>.fh.ap-in>.fh-band .ap-stack-t{grid-area:2/1;justify-self:end;align-self:flex-end;margin-top:26px;height:32px;padding:0 14px;border-radius:10px;font:inherit;font-size:13px;font-weight:800;cursor:pointer;background:rgba(12,15,20,.82);border:1px solid rgba(255,255,255,.12);color:#fff}
+.proto>.fh.ap-in>.fh-band>.ap-stack[data-open] .ap-stack-t{margin-top:0}
+.proto>.fh.ap-in>.fh-band[data-from="bottom"] .ap-stack-t{grid-area:1/1;order:-1;margin:0 0 26px}
+.proto.light>.fh.ap-in>.fh-band .ap-stack-t{background:#FFFFFF;border-color:#DCE0DE;color:#1F2421}
+@keyframes ap-toast-down{from{opacity:0;translate:0 -14px}to{opacity:1;translate:none}}
+@keyframes ap-toast-up{from{opacity:0;translate:0 14px}to{opacity:1;translate:none}}
+@media (prefers-reduced-motion:reduce){.proto>.fh.ap-in>.fh-band .ap-toast{animation:none;transition:none}}
 .proto>.fh.ap-in>.fh-band .btn{margin-left:auto;flex:none;height:36px;padding:0 14px;border-radius:10px;font:inherit;font-size:13px;font-weight:800;background:rgba(255,255,255,.75);border:1px solid rgba(0,0,0,.08);color:#1f2421;cursor:pointer}
 /* 총괄 차림(시안에 없는 펼침): 시안 창과 같은 밝은 유리 · 어두운 글 */
 .proto .bar .ap-menu{background:linear-gradient(180deg,rgba(255,255,255,.86),rgba(255,255,255,.7));backdrop-filter:blur(22px) saturate(1.8);-webkit-backdrop-filter:blur(22px) saturate(1.8);border:1px solid rgba(255,255,255,.85);border-radius:16px;box-shadow:0 8px 24px rgba(20,30,50,.24),inset 0 1px 0 rgba(255,255,255,.95);color:#1f2421}
@@ -95,8 +101,8 @@
 .proto.light .bar details.ap-bell>.card li>button>.lbl{color:#5E6662}
 .proto.light .bar details.ap-bell>.card .ap-bell-all{color:#0E7F63}
 /* 결과 띠 밝은 판 = 시안 u11 .line1.err 밝은 값(light: rgba(224,74,47,.12) · #E04A2F 선 · 흑연 글자). 흰 바탕을 깔아 뒤 지도 위에서도 읽힘. 닫기 = .btns 밝은 값 */
-.proto.light>.fh.ap-in>.fh-band>.ap-toast{color:#1F2421;background:linear-gradient(180deg,rgba(224,74,47,.12),rgba(224,74,47,.12)),#FFFFFF;border-color:#E04A2F;box-shadow:0 10px 26px rgba(31,36,33,.12)}
-.proto.light>.fh.ap-in>.fh-band>.ap-toast[data-toast="info"]{border-color:var(--pr)}
+.proto.light>.fh.ap-in>.fh-band .ap-toast{color:#1F2421;background:linear-gradient(180deg,rgba(224,74,47,.12),rgba(224,74,47,.12)),#FFFFFF;border-color:#E04A2F;box-shadow:0 10px 26px rgba(31,36,33,.12)}
+.proto.light>.fh.ap-in>.fh-band .ap-toast[data-toast="info"]{border-color:var(--pr)}
 .proto>.fh.ap-in>.fh-band .btn{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#fff;font-weight:700}
 .proto.light>.fh.ap-in>.fh-band .btn{background:#FFFFFF;border-color:#DCE0DE;color:#1F2421}
 .proto .bar details.ap-bell>.card .lv-chip{background:rgba(0,195,137,.14);border:0;color:#00c389;font-weight:800}
