@@ -35,7 +35,7 @@ const FIXED={
     [564.2857,-261.4286,-1.5708],[188.5,-520.7,0],[263.1,-483.4,1.1781],[822.6,-483.4,0],[39.3,-371.5,4.3197],[76.6,-371.5,4.3197],[113.9,-371.5,4.3197]],
   'plant-a':[[2,2,.7],[10,5,3],[20,8,-1.2],[30,15,2.2],[1,1,2.3562],[4.7,1,5.1051],[15.8,1,1.1781],[19.5,1,3.927],[26.9,1,1.1781],[30.6,1,3.927]],
 };
-for(const id of ['warehouse','factory-inspection','element-course','plant-a','factory-site']){
+for(const id of ['warehouse','factory-inspection','element-course','plant-a','factory-site','collapsed-house-v2']){
   const root=new URL('../sim/assets/'+id+'/',import.meta.url),map=JSON.parse(readFileSync(new URL('map.json',root)));
   for(const file of map.physics_assets??[]){const data=readFileSync(new URL(file,root));mj.FS.writeFile('/go2/'+file,data);mj.FS.writeFile('/go2/assets/'+file,data);}
   mj.FS.writeFile('/go2/world.xml',readFileSync(new URL(id+'.xml',root)));
@@ -68,4 +68,4 @@ for(const id of ['warehouse','factory-inspection','element-course','plant-a','fa
 }
 assert.equal(max,0);
 assert.equal(maxMap,0);
-console.log(`start-demo sensor parity PASS: ${n} depth rays max ${max}, ${mapCells} height cells max ${maxMap}, 5 scenes × ${poses} full-body poses + fixed poses vs native`);
+console.log(`start-demo sensor parity PASS: ${n} depth rays max ${max}, ${mapCells} height cells max ${maxMap}, 6 scenes × ${poses} full-body poses + fixed poses vs native`);
