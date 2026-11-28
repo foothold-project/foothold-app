@@ -1013,13 +1013,15 @@
       "height_source": "static_sdf_collision",
       "readiness": "offline_prepared",
       "native_supported": false,
-      "notes": "MuJoCo 로컬 전용.",
+      "notes": "MuJoCo 로컬 전용. 3D 모형은 원본에 없던 f1_floor 평면을 더해 다시 내보낸 것.",
+      "model": "factory_site/models/factory_site_f1floor.glb",
       "scenarios": "factory_site/scenarios-f1.json",
       "zones": "factory_site/zones-f1.json",
       "sha256": {
         "world": "525b62578ea70f6b06e123c945ffc57253b8f2817d3a585bdc69678e84c4b6b8",
         "map": "d8823334f1b6926c479975be38d9cf05893973389c68ba4182c8ca56c46c64bd",
-        "metadata": "b6058983ce0434542da757b2afc2a39b2d079a4dbf5070a2aaf0f150a35c17ae"
+        "metadata": "b6058983ce0434542da757b2afc2a39b2d079a4dbf5070a2aaf0f150a35c17ae",
+        "model": "4f64a33ad364c55a633ccc4fb49ab61dc60c7acb6e1dca759f89e3bbae535b08"
       },
       "mesh_sha256": {}
     }

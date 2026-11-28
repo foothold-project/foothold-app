@@ -37,6 +37,10 @@ MOBILE_ID = 'factory-site'
 FLOOR = 'f1'
 OUT = WORLDS / WORLD_ID
 GLB = OUT / 'models/factory_site.glb'
+# 서버 3D 모형: 원본 GLB 에 없던 f1_floor 평면 (윗면 z -0.005 m, 지도 0~900 x 0~560 m) 을 더해 다시 내보낸 것 (app-lx 11/28 15:03).
+# sim_maps.check_model_frame 은 `<floor>_floor` 마디를 요구한다. 없으면 worlds.json 에 model 을 적지 않는다
+MODEL = OUT / 'models/factory_site_f1floor.glb'
+MODEL_NOTE = ' 3D 모형은 원본에 없던 f1_floor 평면을 더해 다시 내보낸 것.'
 RESOLUTION = 0.5
 BOUNDS = (0.0, -560.0, 900.0, 0.0)
 SURFACE = ('fk_road', 'fk_pave', 'fk_dikefloor')  # 걷는 면: 땅으로 본다
@@ -612,10 +616,11 @@ def register():
         world=rel(f'{WORLD_ID}.sdf'), gt_map=rel(f'maps/{FLOOR}.yaml'), map_metadata=rel('maps/metadata.json'),
         ledger_key=f'{WORLD_ID}/{FLOOR}', height_source='static_sdf_collision',
         readiness='offline_prepared', native_supported=False,
-        notes='MuJoCo 로컬 전용.',
+        notes='MuJoCo 로컬 전용.' + (MODEL_NOTE if MODEL.is_file() else ''),
+        **(dict(model=rel('models/' + MODEL.name)) if MODEL.is_file() else {}),
         scenarios=rel(f'scenarios-{FLOOR}.json'), zones=rel(f'zones-{FLOOR}.json'),
         sha256=dict(world=digest(OUT / f'{WORLD_ID}.sdf'), map=digest(OUT / 'maps' / f'{FLOOR}.yaml'),
-                    metadata=digest(OUT / 'maps/metadata.json')),
+                    metadata=digest(OUT / 'maps/metadata.json'), **(dict(model=digest(MODEL)) if MODEL.is_file() else {})),
         mesh_sha256={})
     write_json(catalogue_path, catalogue)
     mobile_assets(world, pixels, spawn, presets)

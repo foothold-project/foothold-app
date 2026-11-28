@@ -91,10 +91,15 @@ def test_mjcf_is_the_same_box_list_as_sdf():
 
 def test_catalogue_entry_hashes_and_spawn():
     entry = json.loads((S.WORLDS / 'worlds.json').read_text())['worlds']['factory_site/f1']
+    model = entry['sha256'].pop('model')
     assert entry['sha256'] == dict(world=sha(OUT / 'factory_site.sdf'), map=sha(OUT / 'maps/f1.yaml'),
                                    metadata=sha(OUT / 'maps/metadata.json'))
     assert entry['spawn_xyyaw'][:2] == [350.0, -260.0] and entry['floor_z'] == 0.0
-    assert 'model' not in entry  # glb 는 f1_floor 노드가 없어 서버 3D 검사를 통과하지 못함 · 붙이지 않음
+    # 3D 모형: f1_floor 평면을 더해 다시 내보낸 glb (app-lx 11/28 15:03). glb 는 커밋하지 않으므로 있을 때만 해시를 잰다
+    assert entry['model'] == 'factory_site/models/factory_site_f1floor.glb' and entry['model'].endswith(S.MODEL.name)
+    assert '원본에 없던 f1_floor 평면' in entry['notes']
+    if S.MODEL.is_file():
+        assert model == sha(S.MODEL)
 
 
 def test_scenarios_keep_design_points_and_end_at_start():

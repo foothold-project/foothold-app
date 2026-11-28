@@ -193,3 +193,20 @@ def test_buildings_demo_true_only_for_the_world_with_a_demo_robot(maps, seeded, 
     assert demo() == {'factory_site': False, 'warehouse': False, '실제 건물': False}
     set_robot(seeded, 'mine', simulation=True, demo=True, sim_world_id='factory_site')
     assert demo() == {'factory_site': True, 'warehouse': False, '실제 건물': False}
+
+
+MODEL = SOURCE / 'factory_site/models/factory_site_f1floor.glb'
+
+
+@pytest.mark.skipif(not MODEL.is_file(), reason='GLB 는 커밋하지 않음 (apps/simmgr/worlds/**/models/ gitignore)')
+def test_seed_attaches_the_factory_model_with_its_f1_floor(maps, seeded, factory_folder):
+    """f1_floor 마디를 더해 다시 내보낸 공장 GLB 가 load_model 검사를 지나 승인 판에 붙는다 (app-lx 11/28 15:03)."""
+    from hashlib import sha256
+    http, admin, files = maps
+    (factory_folder / 'factory_site/models').mkdir()
+    shutil.copyfile(MODEL, factory_folder / 'factory_site/models' / MODEL.name)
+    seed(http, seeded, factory_folder, files)
+    _, _, floor = factory_floor(http, admin)
+    version = http.get(P + '/map-versions/' + floor['approved_version_id'], headers=admin).json()
+    assert version['model_sha256'] == sha256(MODEL.read_bytes()).hexdigest()
+    assert version['model_floor_z'] == 0.0
