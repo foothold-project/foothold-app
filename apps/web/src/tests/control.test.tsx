@@ -643,6 +643,13 @@ describe('관제 탭', () => {
     expect($('[aria-label="최근 경고"]').textContent).not.toContain('미확인');
   });
 
+  it('끝난 임무(state.run COMPLETED · 목록 current_run 없음)는 진행 막대 · «할 일» 을 남기지 않고 임무 전 꼴(01:02 K-07)', () => {
+    const L: Robot[] = EIGHT.map((r) => (r.id === 'k7' ? { ...r, online: true, status: 'IDLE' as const, mission: undefined } : r));
+    mount('u-kim', L); feed(L, { k7: { run: { run_id: 'r9', status: 'COMPLETED', step: 0, wait_reason: null, fail_code: null, progress: { done: 34, total: 36 } } }, k2: RUN() });
+    expect(tile('k7').textContent).not.toContain('할 일'); expect(tile('k7').dataset.live).toBeUndefined();
+    expect(tile('k7').querySelector('[data-face]')!.getAttribute('data-face')).toBe('front');
+    expect(tile('k2').textContent).toContain('할 일 2 / 4');   // 도는 임무는 그대로
+  });
   it('서버가 임무를 PAUSED(LINK_LOST)로 두면 타일 칸에 시안 상태 표지 «일시정지 · 연결 끊김»', () => {
     mount('u-kim', EIGHT); feed(EIGHT, { k2: { run: { run_id: 'r1', status: 'PAUSED', wait_reason: 'LINK_LOST', progress: { done: 1, total: 4 } } } });
     expect(tile('k2').querySelector('.stb[data-paused]')!.textContent).toBe('일시정지 · 연결 끊김');
