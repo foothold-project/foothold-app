@@ -10,9 +10,9 @@ from foothold_agent.phone.protocol import LIMITS, project_velocity, simulation_v
 from foothold_agent.safety.core import Z, quantize_phone
 
 
-@pytest.mark.parametrize('velocity,experimental_allowed', [((.4, 0, -1), False),
-    ((1.5, 0, 1), False), ((.6789, 0, .0123), True),
-    ((.4, 0, math.nextafter(0, 1)), True), ((1.2345, 0, -.9876), False), (Z, True)])
+@pytest.mark.parametrize('velocity,experimental_allowed', [((.4, 0, -1), True),
+    ((1.5, 0, 1), True), ((.6789, 0, .0123), True),
+    ((.4, 0, math.nextafter(0, 1)), True), ((1.2345, 0, -.9876), True), (Z, True)])
 def test_training_range_and_experimental_envelope_are_separate(h, velocity, experimental_allowed):
     owner, _ = h.moving()
     assert FOOTHOLD_V2.validate(velocity)[0] == velocity
@@ -32,8 +32,8 @@ def test_outside_training_range_stays_unsupported_by_trained_policy(velocity):
     assert FOOTHOLD_V2.validate(velocity) == (Z, 'UNSUPPORTED_VELOCITY')
 
 
-@pytest.mark.parametrize('velocity', [(-.300001, 0, 0), (1.500001, 0, 0),
-    (.6, .300001, 0), (.6, -.300001, 0), (0, 0, .500001), (0, 0, -.500001)])
+@pytest.mark.parametrize('velocity', [(-1.500001, 0, 0), (1.500001, 0, 0),
+    (.6, .500001, 0), (.6, -.500001, 0), (0, 0, 1.200001), (0, 0, -1.200001)])
 def test_outside_simulation_envelope_is_rejected_without_confirming_neutral(h, velocity):
     owner, _, _ = h.connect()
     h.take(owner)

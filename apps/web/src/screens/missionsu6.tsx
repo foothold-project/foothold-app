@@ -9,7 +9,8 @@ import '../proto/dark.pv.css';
 import '../proto/light.pv.css';
 import './missionsu6.css';
 import './missionsu6.app.css';
-import type { Estimate, RobotAvailability, Scenario, ScheduleSlot } from '../../../contracts/ts';
+import type { Estimate, MapVersion, RobotAvailability, Scenario, ScheduleSlot } from '../../../contracts/ts';
+import { dateOf } from './u7/pick';
 import { api, type ApiFail } from '../api';
 import { robotStatus, type Robot } from '../fake';
 import type { Ctx } from '../screens';
@@ -18,7 +19,7 @@ import { rt, useLive } from '../rt';
 import { toMap } from './mapedit';
 import { floorName, floorsOf, useTree, type Place } from './maps';
 import { FINISH } from './missions';
-import { DAY_FROM, DAY_TO, Guess, KIND, MODES, STATE, hm, hourOf, isoAt, mins, two, useMissionList, usePlan, useRoute, type Plan, type Route } from './missiontab';
+import { DAY_FROM, DAY_TO, Guess, KIND, MODES, STATE, hm, hourOf, isoAt, keptMission, mins, two, useMissionList, usePlan, useRoute, type Plan, type Route } from './missiontab';
 import { MissionPlan } from './missionsu6plan';
 import { Rehearse, Result } from './missionsu6run';
 import { Preflight } from './missionsu6pre';
@@ -35,7 +36,16 @@ export function MissionsU6(c: Pick<Ctx, 'user' | 'robots' | 'cancel'> & { initia
   const main = () => { setView({ at: 'main' }); m.again(); };
   // 고장 재배정(u6_9): «이 배정으로 모의 실행» → u6_6 → u6_7 에서 통과하면 «이 배정으로 일정 바꾸기»(→ u6_8). 화면을 옮겨도 안이 남게 여기서 든다
   const fix = useReassign(c.robots, plan, c.cancel), [fixOff, setFixOff] = useState(false), [pend, setPend] = useState(false);
+  // 지도 탭 「이 지도로 모의 실행」(시안 u7_3 → u6_6): 목록이 오면 그 층의 첫 임무를 골라 바로 모의 실행 칸. 그 층 임무가 없으면 목록 그대로 + 한 줄
+  const [noScen, setNoScen] = useState('');
+  useEffect(() => {
+    const fl = keptMission.rehearse; if (!fl || !m.all) return;
+    keptMission.rehearse = '';
+    const x = m.all.find((y) => y.floor_ids.includes(fl));
+    if (x) { m.setSel(x.id); setView({ at: 'rehearse' }); } else setNoScen(places.find((p) => p.floor.id === fl)?.floor.name ?? '그 층');
+  }, [m.all]);   // eslint-disable-line react-hooks/exhaustive-deps
   return <div className={`proto u6${light ? ' light' : ''}`} data-u6={view.at}>
+    {view.at === 'main' && noScen && <div className="g toast" role="status" data-no-scen onClick={() => setNoScen('')}>{floorName(noScen)} 에는 임무가 없습니다 · 새 임무를 만든 뒤 모의 실행하세요</div>}
     {view.at === 'main' && <Main c={c} m={m} plan={plan} route={route} go={setView} fix={fix} fixOff={fixOff} setFixOff={setFixOff}
       rehearseFix={(sid) => { m.setSel(sid); setPend(true); setView({ at: 'rehearse' }); }} />}
     {view.at === 'setup' && <Setup robots={c.robots} places={places} cancel={c.cancel} p={plan} close={main}
@@ -92,7 +102,8 @@ export const Pager = ({ n, per, at, go, label }: { n: number; per: number; at: n
 export const dist = (m: number) => (m >= 1000 ? [(m / 1000).toFixed(2), 'km'] : [String(Math.round(m)), 'm']);
 
 /** 경로 지도(시안 .map 의 .stage 자리): 서버 승인 판 위에 경로 · 지점 번호 · 접근 금지 구역 · 겹침. 사진 그림 자리에 실제 지도를 그린다 */
-export function RouteStage({ x, route, rehearse, children, pick, pickAt, sel }: { x?: Scenario; route: Route; rehearse?: boolean; children?: ReactNode;
+export function RouteStage({ x, route, rehearse, children, pick, pickAt, sel, hide }: { x?: Scenario; route: Route; rehearse?: boolean; children?: ReactNode;
+  /** 지도 칩으로 끈 층(u6_1 경로 · 구역) · 경로를 끄면 잇는 선만 숨기고 지점 번호는 둠 */ hide?: { route?: boolean; zone?: boolean };
   /** 지도 누름 → 지도 좌표(m) · 그 자리 화면 좌표(칸 안 px). 편집기(u6_3 · u6_5)만 */ pick?: (m: [number, number], at: [number, number], ctx: boolean) => void;
   /** 지점 누름(번호) */ pickAt?: (i: number) => void; sel?: number | null }) {
   const { v, vid, look, mapErr, retry, on, segs, inNoGo, px, r, place, floor } = route;
@@ -112,9 +123,9 @@ export function RouteStage({ x, route, rehearse, children, pick, pickAt, sel }: 
   return <MapFrame ref={svg} {...look} photo={v} at={{ right: 10, bottom: 10 }} role={pick ? 'application' : 'img'} aria-label={`${x.name || '임무'} 경로 · ${floorName(place!.floor.name)}`} data-map data-mission-map className={`u6-stage${rehearse ? ' u6-reh' : ''}`}
     onClick={pick ? (e) => hit(e, false) : undefined} onContextMenu={pick ? (e) => hit(e, true) : undefined}>
     <MapImage id={v.id} width={v.width} height={v.height} tint="#8d9590" />
-    {v.features.zones.filter((z) => z.type === 'NO_GO').map((z, i) => <polygon key={i} data-nogo points={z.polygon.map(([a, b]) => px({ x: a, y: b }).join(',')).join(' ')}
+    {!hide?.zone && v.features.zones.filter((z) => z.type === 'NO_GO').map((z, i) => <polygon key={i} data-nogo points={z.polygon.map(([a, b]) => px({ x: a, y: b }).join(',')).join(' ')}
       style={{ fill: '#e04a2f', fillOpacity: 0.16, stroke: '#e04a2f', strokeWidth: 1.5, strokeDasharray: '4 3' }} vectorEffect="non-scaling-stroke"><title>{`접근 금지 구역 ${z.name}`}</title></polygon>)}
-    {segs.map((s, i) => <g key={i}><line x1={s.a[0]} y1={s.a[1]} x2={s.b[0]} y2={s.b[1]} style={{ stroke: 'rgba(255,255,255,.85)', strokeWidth: 7, strokeLinecap: 'round' }} vectorEffect="non-scaling-stroke" />
+    {!hide?.route && segs.map((s, i) => <g key={i}><line x1={s.a[0]} y1={s.a[1]} x2={s.b[0]} y2={s.b[1]} style={{ stroke: 'rgba(255,255,255,.85)', strokeWidth: 7, strokeLinecap: 'round' }} vectorEffect="non-scaling-stroke" />
       <line data-seg={i} data-hit={s.hit || undefined} x1={s.a[0]} y1={s.a[1]} x2={s.b[0]} y2={s.b[1]}
         style={{ stroke: s.hit ? '#ff4d4f' : line, strokeWidth: 4, strokeLinecap: 'round', strokeDasharray: s.hit || rehearse ? '6 5' : undefined }} vectorEffect="non-scaling-stroke" /></g>)}
     {on.map(({ w, i }) => { const [a, b] = px(w), bad = inNoGo(w);
@@ -129,7 +140,7 @@ export function RouteStage({ x, route, rehearse, children, pick, pickAt, sel }: 
 /** u6_1 · u6_8 · u6_9: 왼쪽 임무 목록 · 가운데 지도 · 오른쪽 일정에 추가(또는 배정 · 실행, 고장 재배정) · 아래 오늘 일정 */
 function Main({ c, m, plan: p, route, go, fix, fixOff, setFixOff, rehearseFix }: { c: Pick<Ctx, 'user' | 'robots' | 'cancel'>; m: List; plan: Plan; route: Route; go: (v: View) => void;
   fix: Fix; fixOff: boolean; setFixOff: (v: boolean) => void; rehearseFix: (scenario: string) => void }) {
-  const x = m.cur, [pick, setPick] = useState<string | null>(null), [pre, setPre] = useState(false);
+  const x = m.cur, [pick, setPick] = useState<string | null>(null), [pre, setPre] = useState(false), [hide, setHide] = useState<{ route?: boolean; zone?: boolean }>({});
   const showFix = !fixOff && fix.items.length > 0, rob = c.robots.find((r) => r.id === p.rid), av = p.avail?.find((a) => a.robot_id === p.rid);
   // u6_8: 방금 넣은 칸, 또는 오늘 일정에서 누른 칸 → «실제 로봇 시작 전 점검»(u15_2)
   const made = pick ?? (p.msg?.ok ? p.made : null), slot = made ? p.slots?.find((y) => y.id === made) : undefined;
@@ -137,9 +148,9 @@ function Main({ c, m, plan: p, route, go, fix, fixOff, setFixOff, rehearseFix }:
   return <>
     <List x={x} m={m} p={p} edit={(id) => go({ at: 'plan', id, floor: route.floor, robot: p.rid, gait: p.gait })} add={() => go({ at: 'setup' })} />
     <div className="map" style={{ left: '388px', top: '88px', width: '1112px', height: '600px' }} aria-label="임무 지도">
-      <div className="stage" style={{ inset: 0 }}><RouteStage x={x} route={route}>{rob && <RobotPill robot={rob} route={route} label={`${rob.name}${av ? ` ${stateText(av, c.robots)}` : ''}`} />}
+      <div className="stage" style={{ inset: 0 }}><RouteStage x={x} route={route} hide={hide}>{rob && <RobotPill robot={rob} route={route} label={`${rob.name}${av ? ` ${stateText(av, c.robots)}` : ''}`} />}
         {showFix && c.robots.filter((r) => r.status === 'ERROR' && r.id !== rob?.id).map((r) => <RobotPill key={r.id} robot={r} route={route} bad label={`${r.name} 정지 · 오류`} />)}</RouteStage></div>
-      <Chips />
+      <Chips hide={hide} flip={(k) => setHide((h) => ({ ...h, [k]: !h[k] }))} />
       {x && route.v && <div className="u6-tags">
         <span className="g pill" data-floor-tag>{floorName(route.place!.floor.name)}{route.more > 0 ? ` · 다른 층 지점 ${route.more}` : ''}</span>
         {route.hits > 0 && <span className="g pill" data-overlap><span style={{ color: '#e04a2f', gap: '6px' }} className="row"><Ic d={IC.warn} s={15} />접근 금지 구역과 겹침 {route.hits} 곳</span></span>}</div>}
@@ -156,10 +167,12 @@ function Main({ c, m, plan: p, route, go, fix, fixOff, setFixOff, rehearseFix }:
   </>;
 }
 
-/** 지도 위 칩(시안 경로 · 구역 · 혼잡 시간). 혼잡 시간은 서버 값이 없어 잠근다 */
-function Chips() {
+/** 지도 위 칩(시안 경로 · 구역 · 혼잡 시간). 경로 · 구역은 눌러 켜고 끔(켬 = .g · 끔 = .g.dk, 시안 u6_1 과 같은 꼴). 혼잡 시간은 서버 값이 없어 잠근다 */
+function Chips({ hide, flip }: { hide: { route?: boolean; zone?: boolean }; flip: (k: 'route' | 'zone') => void }) {
+  const chip = (k: 'route' | 'zone', t: string) => <span className={`g${hide[k] ? ' dk' : ''}`} role="button" tabIndex={0} aria-pressed={!hide[k]} data-chip={k}
+    onClick={() => flip(k)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(k); } }}>{t}</span>;
   return <div className="chips" aria-label="지도 보기">
-    <span className="g">경로</span><span className="g">구역</span>
+    {chip('route', '경로')}{chip('zone', '구역')}
     <span className="g dk" aria-disabled="true" title="혼잡 시간은 서버에 값이 없습니다" data-locked>혼잡 시간</span></div>;
 }
 
@@ -409,20 +422,35 @@ function Fix({ f, close, names, rehearse }: { f: Fix; close: () => void; names: 
   </div>;
 }
 
+/** 시안 u6_2 지도 카드 작은 글: 「11/24 스캔 · 판 3 · 출입 금지 1 곳」(구역 0 이면 그 칸을 뺌) · 판을 못 받으면 null */
+export const cardMeta = (v: MapVersion | null | undefined) => {
+  if (!v) return null;
+  const n = v.features?.zones?.filter((z) => z.type === 'NO_GO').length ?? 0;
+  return [`${dateOf(v)} 스캔`, `판 ${v.number}`, ...(n ? [`출입 금지 ${n} 곳`] : [])].join(' · ');
+};
 /** u6_2 새 임무: 지도(승인 판이 있는 층) · 로봇(고른 시간 가용) · 걷기 모드를 고르고 «임무 만들기» */
 function Setup({ robots, places, cancel, p, close, make }: { robots: Robot[]; places: Place[]; cancel?: AbortSignal; p: Plan; close: () => void; make: (floor: string, robot: string, gait: string) => void }) {
   const maps = places.filter((x) => x.floor.approved_version_id);
   const [floor, setFloor] = useState(''), [robot, setRobot] = useState(''), [gait, setGait] = useState<string>('start'), [mp, setMp] = useState(0), [rp, setRp] = useState(0);
   const f = floor || maps[0]?.floor.id || '', avail = p.avail ?? [];
   const r = avail.find((a) => a.robot_id === robot);
-  void cancel;
+  // 시안 u6_2 카드 작은 글 「11/24 스캔 · 판 3 · 출입 금지 1 곳」: 보이는 카드의 승인 판을 받아 날짜(captured_on, 없으면 판 만든 날 · 지도 탭과 같은 규칙) · 판 번호 · 출입 금지 구역 수.
+  // 받기 전 · 못 받으면 옛 글(장소 · 건물)
+  const [vers, setVers] = useState<Record<string, MapVersion | null>>({});
+  const shownIds = maps.filter((x) => x.floor.id === f || maps.filter((y) => y.floor.id !== f).slice(mp * 2, mp * 2 + 2).includes(x)).map((x) => x.floor.approved_version_id!);
+  useEffect(() => {
+    for (const id of shownIds) if (!(id in vers)) {
+      setVers((v) => ({ ...v, [id]: null }));
+      api.version(id, cancel).then((x) => setVers((v) => ({ ...v, [id]: x })), () => {});
+    }
+  }, [shownIds.join()]);   // eslint-disable-line react-hooks/exhaustive-deps
   const MODE: Record<string, [string, string]> = { classic: ['Classic Mode', '기본 걷기. 평평한 바닥에서 가장 조용하고 매끄럽습니다.'], sport: ['Sport Mode', '빠른 걷기. 넓은 통로에서 걸리는 시간을 줄입니다.'], start: ['START Mode', '험지 걷기 (Foothold). 계단 · 경사 · 틈이 있는 길을 그대로 지납니다.'] };
   const card = (x: Place, big: boolean) => { const on = x.floor.id === f;
     return <button key={x.floor.id} type="button" aria-pressed={on} data-setup-map={x.floor.id} onClick={() => setFloor(x.floor.id)} className="u6-mapcard"
       style={{ position: 'relative', borderRadius: '18px', overflow: 'hidden', ...(on ? { border: '1.5px solid rgba(0,195,137,.7)', boxShadow: '0 0 0 4px rgba(0,195,137,.12)' } : { border: '1px solid var(--line)' }), background: 'rgba(255,255,255,.03)' }}>
       <div style={{ height: big ? '370px' : '150px', position: 'relative', overflow: 'hidden' }}><img src={api.imageUrl(x.floor.approved_version_id!)} alt="" className="u6-mapimg" /></div>
       {on && <span style={{ position: 'absolute', right: '14px', top: '14px', color: '#00c389', width: '34px', height: '34px', borderRadius: '50%', background: 'rgba(12,15,20,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ic d={IC.check} s={22} /></span>}
-      <div style={{ padding: '14px 16px', textAlign: 'left' }}><b style={{ fontSize: '16px' }}>{floorName(x.floor.name)}</b><div className="lab" style={{ marginTop: '4px' }}>{x.site.name} · {x.building.name}</div></div></button>; };
+      <div style={{ padding: '14px 16px', textAlign: 'left' }}><b style={{ fontSize: '16px' }}>{floorName(x.floor.name)}</b><div className="lab" style={{ marginTop: '4px' }} data-setup-meta>{cardMeta(vers[x.floor.approved_version_id!]) ?? `${x.site.name} · ${x.building.name}`}</div></div></button>; };
   const first = maps.find((x) => x.floor.id === f), rest = maps.filter((x) => x.floor.id !== f).slice(mp * 2, mp * 2 + 2);
   const t0 = Math.floor(hm2h(p.start)) - 2;   // 시안: 고른 시각 앞뒤 2 시간(150px = 4 시간)
   return <>

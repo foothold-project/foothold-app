@@ -10,7 +10,7 @@ import { ROBOTS, ROLE_NAME, USERS, idleSim, lost, lostText, myRobots, robotsFor,
 import { PC_BOTTOM, PC_TABS, PHONE_SCAN, labelOf, leaving, oldScenario, tabFromHash, tabsFor, type Tab, type TabId } from './menu';
 import { now, rt, useRt, withLive, type Live } from './rt';
 import { BODY, EmptyFleet, inApp, useDash, type Ctx } from './screens';
-import { RobotTab } from './screens/u4/robotu4';
+import { BarChip, RobotTab } from './screens/u4/robotu4';
 import { pcBoard } from './pcboard';
 import { Connect, NO_ROBOT, endDrive, stopText, stopWaiting } from './drive';
 import { sim, useSim } from './phone';
@@ -469,6 +469,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         stop={(canStop || toSim) && <button type="button" className="allstop" aria-label="비상 정지" data-stop style={{ minHeight: 44 }} {...barStop}>{stopFace(ctlPick?.name)}</button>}
         approvals={user.role === 'ORG_ADMIN' ? { n: dash.d ? dash.d.approvals_pending : null, why: dash.err ? `요약을 받지 못했습니다. ${dash.err}` : undefined } : undefined}
         driving={pool.filter((r) => !!rt.get(r.id).lease).map((r) => r.name)}
+        chip={<BarChip robot={tab === 'fleet' ? robot ?? null : null} me={user.id} driving={pool.filter((r) => !!rt.get(r.id).lease).map((r) => r.name)} />}
         menu={<>{logout && <button type="button" className="btn" onClick={logout}>로그아웃</button>}<ThemeNav /></>} />
       {proto5 ? <><Guard key="u5"><Control5 {...ctx!} stop={stopOne} mayStop={(id) => stops.some((r) => r.id === id)} /></Guard>
         <div className={`fh ap-in${light ? ' light' : ''}`}><h1 className="ap-sr">{title}</h1>{pickEl}{bandEl}</div></>

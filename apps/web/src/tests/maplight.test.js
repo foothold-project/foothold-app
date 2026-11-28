@@ -19,6 +19,29 @@ describe('지도 탭 밝은 판 = DESIGN.md 밝음 1', () => {
     const all = rules.map((m) => m[2]).join(';');
     for (const k of ['--bg', '--panel', '--text', '--muted', '--line', '--accent', '--sh-pr3', '--sh-on-pr', '--paper', '--ink', '--rule']) expect(all, k).toMatch(new RegExp(`${k}:`));
   });
+  it('u7_1 미리 보기 아래 글 받침: 밝은 판 = 흰색으로 옅어짐(어두운 띠 아님) · 제목 · 메타 · 버전 기록 = 밝음 1 글자', () => {
+    const css = readFileSync(join(__dirname, '..', 'screens', 'u7', 'u7.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const at = (sel) => [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find((m) => m[1].trim() === sel)?.[2] ?? '';
+    expect(at('.proto.light .u7 .pv-fade')).toMatch(/rgba\(255,255,255,\.94\)/); expect(at('.proto.light .u7 .pv-fade')).not.toMatch(/12,15,20/);
+    expect(at('.proto.light .u7 .pv-ttl')).toBe('color:#1F2421'); expect(at('.proto.light .u7 .pv-meta')).toBe('color:#5E6662');
+    expect(at('.proto.light .u7 .pv-hist')).toMatch(/color:#1F2421/);
+  });
+  it('u7_1 층 겹친 그림 밝은 판: 면 · 선 · 글자가 흰 칸 위에 보이는 밝음 1 값(흰 선 · 흰 면 아님), 고른 층 = 민트', () => {
+    const css = readFileSync(join(__dirname, '..', 'screens', 'u7', 'u7.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const at = (sel) => [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find((m) => m[1].split(',').map((x) => x.trim()).includes(sel))?.[2] ?? '';
+    for (const k of ['sk-l', 'sk-r', 'sk-t']) expect(at(`.proto.light .u7 .sk .${k}`), k).toMatch(/stroke:#5E6662/);
+    expect(at('.proto.light .u7 .sk .sk-tx')).toBe('fill:#5E6662');
+    expect(at('.proto.light .u7 .sk.on .sk-t')).toMatch(/fill:#18A07E/); expect(at('.proto.light .u7 .sk.on .sk-tx')).toBe('fill:#0E7F63');
+  });
+  it('u7_1 층 줄 썸네일 = 칸 바탕 위 선 그림: 어둠 · 밝음 svg 거름(판 그림 원본은 그대로) · 틀 = 칸 바탕 하나', () => {
+    const css = readFileSync(join(__dirname, '..', 'screens', 'u7', 'u7.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const at = (sel) => [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find((m) => m[1].trim() === sel)?.[2] ?? '';
+    expect(at('.u7 .frow .th .mx-thumb image')).toBe('filter:url(#u7-line-d)');
+    expect(at('.proto.light .u7 .frow .th .mx-thumb image')).toBe('filter:url(#u7-line-l)');
+    expect(at('.u7 .frow .th[data-ink=dark] .mx-thumb image')).toBe('filter:url(#u7-line-d-i)');   // 어두운 바탕 판 그림 = 밝은 픽셀이 선
+    expect(at('.proto.light .u7 .frow .th[data-ink=dark] .mx-thumb image')).toBe('filter:url(#u7-line-l-i)');
+    expect(at('.u7 .frow .th .mx-thumb')).toMatch(/background:transparent/);
+  });
   it('u7.css 밝은 판(시안 u7_1 · u7_2 현장 · 층 줄 · 꼬리표)', () => {
     const css = readFileSync(join(__dirname, '..', 'screens', 'u7', 'u7.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
     const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => m[1].includes('.proto.light'));

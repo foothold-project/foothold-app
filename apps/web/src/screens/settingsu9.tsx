@@ -447,7 +447,7 @@ function Display({ admin }: { admin: boolean }) {
   </>;
 }
 
-/** 조작(u9_7). 키 목록은 시안 글 그대로(키 동작은 로봇 탭 몫, 여기서 바꾸지 않음). 켜고 끄는 값 · 조이스틱 · 음성은 앱 · 서버에 아직 없어 잠금 + 까닭 */
+/** 조작(u9_7). 키 목록은 실제 키 배치(contracts/teleop KEYMAP)대로 · 줄 꼴은 시안 그대로(키 동작은 로봇 탭 몫, 여기서 바꾸지 않음). 켜고 끄는 값 · 조이스틱 · 음성은 앱 · 서버에 아직 없어 잠금 + 까닭 */
 function Controls() {
   const pad = usePad();
   return <>
@@ -456,14 +456,15 @@ function Controls() {
   <div className="pane" style={{left:"368px",top:"160px",width:"840px",height:"896px"}} aria-label="키보드">
     <div className="kb">
       <div className="ph"><span className="ttl">키보드</span><span style={{marginLeft:"auto",display:"flex",gap:"10px",alignItems:"center"}}><span className="sw on lock" role="switch" aria-checked="true" aria-disabled="true" title={NO_SWITCH} /></span></div>
-      <div className="rw"><span className="keys"><kbd>↑</kbd></span>
+      {/* 실제 키 배치(contracts/teleop KEYMAP · 로봇 탭 · 시뮬 · 폰 같은 배치, 팀장 11-28 17:25): 시안 글(←→ 돌기 · ↓ 막힘)과 달라 실제대로 적는다 */}
+      <div className="rw" data-keys="ArrowUp KeyW"><span className="keys"><kbd>↑</kbd><kbd>W</kbd></span>
         <div>앞으로<small>누르는 동안 걷습니다</small></div></div>
-      <div className="rw"><span className="keys"><kbd>←</kbd><kbd>→</kbd></span>
-        <div>돌기<small>그 자리에서 왼쪽 · 오른쪽</small></div></div>
-      <div className="rw"><span className="keys"><kbd>↓</kbd></span>
-        <div>뒤로<small>아직 막혀 있습니다 · 누르면 까닭 한 줄</small></div></div>
-      <div className="rw"><span className="keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>
-        <div>방향키와 같음<small>W 앞 · A 왼쪽 · D 오른쪽 · S 뒤 (막힘)</small></div></div>
+      <div className="rw" data-keys="ArrowDown KeyS"><span className="keys"><kbd>↓</kbd><kbd>S</kbd></span>
+        <div>뒤로<small>누르는 동안 · 조직 속도 상한까지</small></div></div>
+      <div className="rw" data-keys="ArrowLeft ArrowRight"><span className="keys"><kbd>←</kbd><kbd>→</kbd></span>
+        <div>옆걸음<small>왼쪽 · 오른쪽</small></div></div>
+      <div className="rw" data-keys="KeyA KeyD"><span className="keys"><kbd>A</kbd><kbd>D</kbd></span>
+        <div>돌기<small>그 자리에서 왼쪽 · 오른쪽 · ↑ 와 함께 누르면 돌며 앞으로</small></div></div>
       <div className="rw"><span className="keys"><kbd>Space</kbd></span>
         <div>정지<small>어느 화면에서나 · 이동 입력보다 먼저</small></div></div>
       <div className="rw"><span className="keys"><kbd>Shift</kbd><kbd>1</kbd></span>
@@ -545,6 +546,9 @@ function PwModal({ close, cancel }: { close: () => void; cancel?: AbortSignal })
     const f = new FormData(e.currentTarget), cur = String(f.get('current')), next = String(f.get('next'));
     if (!cur) { setBad('current'); return setMsg('지금 비밀번호를 입력하세요.'); }
     if (next.length < 8) { setBad('next'); return setMsg('새 비밀번호는 8 자 이상이어야 합니다.'); }
+    // 로그인 화면 창(loginform.tsx)과 같은 검사: 스페이스(정지 키) · 지금과 같은 값은 막음
+    if (/\s/.test(next)) { setBad('next'); return setMsg('스페이스는 정지 키라서 비밀번호에 쓸 수 없습니다.'); }
+    if (next === cur) { setBad('next'); return setMsg('지금 비밀번호와 다른 값을 입력하세요.'); }
     if (next !== String(f.get('again'))) { setBad('again'); return setMsg('새 비밀번호 두 칸이 서로 다릅니다.'); }
     setBusy(true); setMsg(''); setBad('');
     try { await api.password({ current_password: cur, new_password: next }, cancel); expireAuth(PW_DONE); }

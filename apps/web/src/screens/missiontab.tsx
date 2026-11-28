@@ -17,7 +17,8 @@ import { RunCtl } from './missionrun';
 import './missiontab.css';
 
 /** 고른 임무 id · 옛 주소(#/mission/<id> · ?scenario_id=)면 App 이 넣고, 목록에서 고르면 탭이 넣는다(다른 탭에 갔다 와도 그대로) */
-export const keptMission: { sel: string } = { sel: '' };
+/** sel = 고른 임무 · rehearse = 지도 탭 「이 지도로 모의 실행」 이 넘긴 층(임무 탭이 열리면 그 층 임무로 바로 모의 실행 · 한 번 쓰고 비움, 시안 u7_3 → u6_6) */
+export const keptMission: { sel: string; rehearse: string } = { sel: '', rehearse: '' };
 /** 걷기 모드 넷(화면 이름 → 계약 값). 예상 · 일정 본문에만 쓰고 로봇에는 보내지 않는다(#525 전) */
 export const MODES = [['Classic', 'classic'], ['Sport', 'sport'], ['START', 'start'], ['AME-2', 'ame2']] as const;
 export type Gait = (typeof MODES)[number][1];

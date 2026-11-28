@@ -166,3 +166,8 @@
 .proto.light .u4 .stage3d .foot .jnote{background:#FFFFFF}
 /* 점검 탭: 시안 일곱 줄 아래 「조종 준비」 작은 머리(시안 밖 · 새로 그림) */
 .u4 .chk .chkprep{font-size:12.5px;font-weight:700;color:var(--mu2);margin:18px 18px 4px}
+/* 시안 u11_4 .whyb(리모컨 우선 덧말) 값 그대로 · 밝은 판 = 밝음 1 칸 · 글자 */
+.u4 .whyb{position:absolute;z-index:3;height:30px;padding:0 12px;border-radius:9px;display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;color:#ffffff;background:rgba(12,15,20,.78);border:1px solid rgba(255,255,255,.14)}
+.proto.light .u4 .whyb{color:#1F2421;background:#FFFFFF;border-color:#DCE0DE}
+/* 어두운 판 지도 칸 바탕 = --paper(#12161d) · 서버 판 그림 밖도 같은 색 */
+.u4.proto:not(.light) .mapv{background:#12161d}

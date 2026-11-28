@@ -1,4 +1,6 @@
 // 설정 = 시안 u9 판(settingsu9.tsx): 서버 값 자리 · 서버 값이 없는 자리(지어내지 않음) · 쪽 넘기기 · 비밀번호 8 자 · 시안 그림 없는 묶음.
+import { KEYMAP } from '../../../contracts/teleop';
+import u9src from '../screens/settingsu9.tsx?raw';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -93,6 +95,15 @@ describe('계정(u9_1)', () => {
   });
 });
 
+describe('조작 키 표(u9_7)는 실제 키 배치', () => {
+  it('teleop KEYMAP 의 키가 모두 표에 있고 뜻이 같다 · Space 정지 · Shift+1~4', () => {
+    const rows = [...u9src.matchAll(/data-keys="([^"]+)"[^]*?<div>([^<]+)</g)].map((m) => [m[1].split(' '), m[2]] as const);
+    const MEAN: Record<string, string> = { forward: '앞으로', back: '뒤로', left: '옆걸음', right: '옆걸음', turn_left: '돌기', turn_right: '돌기' };
+    for (const [code, k] of Object.entries(KEYMAP)) expect(rows.find(([cs]) => cs.includes(code))?.[1]).toBe(MEAN[k]);
+    expect(u9src).toContain('<kbd>Space</kbd>'); expect(u9src).not.toContain('아직 막혀 있습니다');
+  });
+});
+
 describe('비밀번호 바꾸기 창(u9_2)', () => {
   it('「8 자 이상」 시안 글을 지킨다: 7 자는 안 보냄, 두 칸 다르면 안 보냄, Escape 로 닫힘', async () => {
     serve({ 'GET /events': list([]), 'GET /me': { status: 200, body: U('u-a', 'op-a', '운영자 A', 'OPERATOR') } }); await open(OP);
@@ -105,6 +116,13 @@ describe('비밀번호 바꾸기 창(u9_2)', () => {
     set('next', 'abcdefgh'); set('again', 'abcdefgX');
     await act(async () => { f.requestSubmit(); }); await flush();
     expect($('[role="alert"]').textContent).toBe('새 비밀번호 두 칸이 서로 다릅니다.');
+    // 로그인 화면 창과 같은 검사(gap u9_2): 스페이스 · 지금과 같은 값은 안 보냄
+    set('next', 'abcd efgh'); set('again', 'abcd efgh');
+    await act(async () => { f.requestSubmit(); }); await flush();
+    expect($('[role="alert"]').textContent).toBe('스페이스는 정지 키라서 비밀번호에 쓸 수 없습니다.');
+    set('next', 'old-pass'); set('again', 'old-pass');
+    await act(async () => { f.requestSubmit(); }); await flush();
+    expect($('[role="alert"]').textContent).toBe('지금 비밀번호와 다른 값을 입력하세요.');
     expect(calls.some((c) => c.method === 'POST')).toBe(false);
     act(() => { f.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
     expect(box.querySelector('form[aria-label="비밀번호 바꾸기"]')).toBeNull();

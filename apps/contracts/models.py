@@ -108,6 +108,11 @@ class User(Contract):
     created_at: UTCDateTime
 
 
+class Me(User):
+    # GET/PATCH /me only. Other users' lists never carry personal alert choices.
+    notify_prefs: dict[str, bool] = Field(default_factory=dict)
+
+
 class LoginResponse(User):
     csrf_token: str | None = None
     access_token: str | None = None
@@ -659,12 +664,33 @@ def validate_model_settings(value, *, patch=False):
     return value
 
 
+Weekday = Literal['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+ClockTime = Annotated[str, Field(pattern=r'^([01][0-9]|2[0-3]):[0-5][0-9]$')]
+
+
+class BusyHour(Contract):
+    day: Weekday
+    start: ClockTime
+    end: ClockTime = Field(description="같은 날 start 보다 늦은 HH:MM. 자정을 넘는 구간은 두 줄로 나눈다.")
+    label: str = Field(min_length=1, max_length=32)
+
+    @model_validator(mode='after')
+    def start_before_end(self):
+        if self.start >= self.end:
+            raise ValueError('혼잡 시간의 끝은 시작보다 늦어야 합니다.')
+        return self
+
+
+BusyHours = Annotated[list[BusyHour], Field(max_length=64)]
+
+
 class OrgSettings(Contract):
     model_config = ConfigDict(json_schema_extra=optional_response_fields(
         'sim_max_vx', 'sim_min_vx', 'sim_max_vy', 'sim_max_wz', 'sim_key_vx',
         'stick_deadzone', 'sim_runner_vx', 'sim_runner_wz', 'lidar_view_m',
         'real_no_fast_server_drive', 'real_max_vx', 'real_max_vx_back',
-        'real_max_vy', 'real_max_wz', 'model_overrides'))
+        'real_max_vy', 'real_max_wz', 'model_overrides',
+        'show_demo_label', 'busy_hours', 'dup_inspect_min', 'clip_retention_days'))
 
     battery_low_pct: int = Field(default=20, ge=5, le=50, strict=True)
     run_min_battery_pct: int = Field(default=30, ge=10, le=90, strict=True)
@@ -686,6 +712,10 @@ class OrgSettings(Contract):
     real_max_wz: float = Field(default=MAX_TURN_RATE, ge=0, le=MAX_TURN_RATE, strict=True)
     real_no_fast_server_drive: bool = Field(default=False, strict=True)
     model_overrides: dict[str, dict[str, SettingValue]] = Field(default_factory=dict)
+    show_demo_label: bool = Field(default=True, strict=True, description="데모 로봇에 「데모」 표시. 끄면 표시만 숨긴다.")
+    busy_hours: BusyHours = Field(default_factory=list, description="현장 혼잡 시간. PATCH 는 목록 전체를 바꾼다.")
+    dup_inspect_min: int = Field(default=240, ge=30, le=1440, strict=True, description="같은 지점을 이 분 안에 다시 점검하면 겹침으로 알린다.")
+    clip_retention_days: int = Field(default=30, ge=1, le=365, strict=True, description="클립을 서버에 두는 날 수 1~365. 지금은 값만 두고 지우기는 하지 않는다.")
 
     @classmethod
     def from_stored(cls, settings):
@@ -744,6 +774,11 @@ class OrgSettingsPatch(Contract):
     real_max_wz: float = omitted(ge=0, le=MAX_TURN_RATE, strict=True)
     real_no_fast_server_drive: bool = omitted(strict=True)
     model_overrides: dict[str, dict[str, SettingValue | None]] = omitted()
+    show_demo_label: bool = omitted(strict=True)
+    busy_hours: BusyHours = omitted()
+    dup_inspect_min: int = omitted(ge=30, le=1440, strict=True)
+    # Range lives on OrgSettings: out-of-range is a merged-settings 422, not a 400 body error.
+    clip_retention_days: int = omitted(strict=True)
 
     @field_validator('model_overrides', mode='before')
     @classmethod

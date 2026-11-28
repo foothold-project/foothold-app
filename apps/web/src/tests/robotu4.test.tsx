@@ -7,8 +7,10 @@ import { App } from '../App';
 import { ROBOTS, USERS, type Robot } from './fixtures';
 import { FakeWS, lease, state } from './fakeWs';
 import { simTune } from '../phone';
-import { SIDE_BLOCK, canDrive } from '../serverdrive';
-import { checkShort, railOrder } from '../screens/u4/robotu4';
+import { SIDE_BLOCK, axesOf, canDrive, tokStick } from '../serverdrive';
+import { deadzone, keyStick, stickVelocity, teleopCaps } from '../../../contracts/teleop';
+import { keyAxes } from '../simdrive';
+import { barChipText, checkShort, driveLabel, hotBub, jointTip, railOrder, simTok } from '../screens/u4/robotu4';
 import { rt } from '../rt';
 import { api } from '../api';
 import u4css from '../screens/u4/u4.css?raw';
@@ -207,6 +209,53 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
     expect(lastAxes()).toBe('0,0,0');
   });
 
+  it('Damping 두 번 누르기: 페이지 연 직후(시계 3 초 안) 한 번 누름은 Damp 를 보내지 않고 안내만 · 3 초 안 두 번째에 하나', () => {
+    mount('u-park'); serve('r7'); drive();
+    click($('.views .vstop')!);
+    expect(performance.now()).toBeLessThan(3000);   // 페이지 시계가 막 시작된 때(옛 처음 값 0 이면 여기서 바로 Damp)
+    click($('[data-u4-damp]')!);
+    expect(w.of('action').filter((m) => m.action === 'Damp')).toHaveLength(0);
+    expect(text($('[data-u4-why]'))).toBe('한 번 더 누르면 엎드려 힘을 뺍니다');
+    tick(500);
+    click($('[data-u4-damp]')!);
+    expect(w.of('action').filter((m) => m.action === 'Damp')).toHaveLength(1);
+  });
+
+  it('Damping: 한 번 누른 뒤 단추가 사라졌다가(정지 풀림) 3 초 안에 다시 나타나면 첫 누름은 안내만 (검토 00:41)', () => {
+    mount('u-park'); serve('r7'); drive();
+    click($('.views .vstop')!);
+    tick(4000);
+    click($('[data-u4-damp]')!);
+    expect(w.of('action').filter((m) => m.action === 'Damp')).toHaveLength(0);
+    act(() => { push('r7', { latched: false }); });
+    expect($('[data-u4-damp]')).toBeNull();
+    act(() => { push('r7', { latched: true }); });
+    tick(500);
+    click($('[data-u4-damp]')!);
+    expect(w.of('action').filter((m) => m.action === 'Damp')).toHaveLength(0);
+    click($('[data-u4-damp]')!);
+    expect(w.of('action').filter((m) => m.action === 'Damp')).toHaveLength(1);
+  });
+
+  it('Damping: 한 번 누른 뒤 엎드림 · 조종권 잃음으로 단추가 사라졌다가 3 초 안에 다시 나타나도 첫 누름은 안내만 (검토 00:47)', () => {
+    const damps = () => w.of('action').filter((m) => m.action === 'Damp').length;
+    mount('u-park'); serve('r7'); drive();
+    click($('.views .vstop')!);
+    tick(4000);
+    click($('[data-u4-damp]')!); expect(damps()).toBe(0);
+    act(() => { push('r7', { posture: { state: 'LYING' } } as unknown as Partial<ScreenState>); });
+    expect($('[data-u4-damp]')).toBeNull();
+    act(() => { push('r7', { posture: { state: 'STANDING' } } as unknown as Partial<ScreenState>); });
+    tick(300);
+    click($('[data-u4-damp]')!); expect(damps()).toBe(0);   // 엎드림으로 사라졌다 나타남 → 안내만
+    act(() => { w.recv(lease('r7', null)); });
+    expect($('[data-u4-damp]')).toBeNull();
+    act(() => { w.recv(lease('r7', PARK, 'L-again')); });   // 정지 잠금(latched)은 그대로 · 조종권만 다시
+    expect($('[data-u4-damp]')).not.toBeNull();
+    click($('[data-u4-damp]')!); expect(damps()).toBe(0);   // 조종권 잃음으로 사라졌다 나타남 → 안내만
+    click($('[data-u4-damp]')!); expect(damps()).toBe(1);
+  });
+
   it('동작 단추: 조종 전이면 까닭만 · 조종 중이면 서버로 그 동작 하나 · START 중 일어서기는 시안 까닭', () => {
     mount('u-park'); serve('r7');
     click($('[data-u4-act="Sit"]')!);
@@ -335,21 +384,15 @@ describe('로봇 탭 보기 칸 · 지도 경로 · 시뮬 시점(서버 값만)
     expect(text($('.views .small [data-sd-cam]'))).toBe('카메라 신호 없음 · 이 브라우저는 3D 를 그리지 못합니다');
   });
 
-  it('큰 무대 = 관제 타일과 같은 판정(proto/u5 onRun): 진행 중 임무 + 서버 위치 · 방향 + 현장 판 = 현장 + 뒤 따라가기, 임무 없음 · 끝남 · 위치 없음 = 정면', async () => {
+  it('큰 무대(팀장 23:48) = 늘 정면 · 임무 중에도 현장 꼴 없음 · 바닥 표시는 가용 판정(충전 · 점검) 그대로', async () => {
     board([ASG('a1')], [WP(10, -60, '밸브 확인')]);
+    vi.spyOn(api, 'availability').mockResolvedValue({ items: [{ robot_id: 'r7', state: 'CHARGING', demo: false, location_label: null, busy_label: null, busy_slot_id: null }] } as never);
     mount('u-park', withRun()); serve('r7');
-    const stage = () => $('.stage3d')!.getAttribute('data-u4-stage');
-    act(() => { push('r7', { location: LOC } as Partial<ScreenState>); });
+    act(() => { push('r7', { location: LOC, run: { ...RUN, status: 'MOVING' } } as unknown as Partial<ScreenState>); });
     await flush();
-    expect(stage()).toBe('front');   // 상태에 임무 없음
-    act(() => { push('r7', { run: { ...RUN, status: 'MOVING' } } as unknown as Partial<ScreenState>); });
-    expect(stage()).toBe('world');
-    act(() => { push('r7', { run: { ...RUN, status: 'PAUSED' } } as unknown as Partial<ScreenState>); });
-    expect(stage()).toBe('world');   // 일시정지도 임무 중(타일과 같음)
-    act(() => { push('r7', { run: { ...RUN, status: 'COMPLETED' } } as unknown as Partial<ScreenState>); });
-    expect(stage()).toBe('front');
-    act(() => { push('r7', { run: { ...RUN, status: 'MOVING' }, location: { ...LOC, yaw: null } } as unknown as Partial<ScreenState>); });
-    expect(stage()).toBe('front');   // 방향 없으면 현장을 놓지 않음
+    const st = $('.stage3d')!;
+    expect(st.hasAttribute('data-u4-stage')).toBe(false); expect(st.getAttribute('data-u4-pad')).toBe('charge');
+    expect(st.getAttribute('data-u4-legs')).toBe('down');   // 충전 = 엎드림(관절값 없을 때)
   });
 
   it('같은 이름 배정이 둘이면 경로를 고르지 않는다(지어내지 않음): 지점 0 · 진행과 상태만', async () => {
@@ -666,6 +709,23 @@ describe('걷기 모드 창(시안 u4_7)', () => {
     expect(w.of('gait')).toEqual([]);
   });
 
+  it('시안 u4_7: Shift+2 는 창 없이 보내지 않고 Sport 를 고른 확인 창 · 바꾸기를 눌러야 gait 하나 · 못 쓰는 모드 · 조종권 없음은 원래 까닭', () => {
+    const key = (code: string) => act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { code, shiftKey: true, bubbles: true, cancelable: true })); });
+    mount('u-park'); serve('r7');
+    act(() => { push('r7', { gait: { gait: 'classic', available: ['classic', 'sport'] } } as Partial<ScreenState>); });
+    key('Digit2');
+    expect($('[data-u4-mode]')).toBeNull(); expect(w.of('gait')).toEqual([]);
+    drive();
+    const n0 = w.of('gait').length;
+    key('Digit2');
+    expect($('[data-u4-mode] .ttl')!.textContent).toBe('걷기 모드를 Sport 로 바꿀까요?');
+    expect(w.of('gait').length).toBe(n0);
+    click($('[data-u4-mode-go]')!);
+    expect(w.of('gait').length).toBe(n0 + 1);
+    key('Digit3');
+    expect($('[data-u4-mode]')).toBeNull();
+  });
+
   it('연 뒤 조종권을 잃으면 창이 닫히고 gait 0 (검토 21:25)', () => {
     mount('u-park'); serve('r7'); drive();
     act(() => { push('r7', { gait: { gait: 'classic', available: ['classic', 'sport'] } } as Partial<ScreenState>); });
@@ -855,6 +915,92 @@ describe('확대 조종 배치(폰과 같은 자리)', () => {
     const w = $('[data-u4-why]')!;
     expect(w.getAttribute('data-off-proto')).toBe('help-pill');
     expect(flat).toContain('.u4 .deck .why{position:absolute;left:50%;top:10px;transform:translateX(-50%);padding:4px 11px;border-radius:999px;background:rgba(20,24,30,.42);border:1px solid rgba(255,255,255,.16);color:rgba(255,255,255,.86);font-size:11.5px;font-weight:600');
+  });
+});
+
+describe('조종권 단추 · 머리 칩 글 (시안 u11_2 ~ u11_4)', () => {
+  it('단추: 내 조종 = 조종 중 · 요청 대기 = 요청 보냄 · 남이 가짐 = 조종권 요청 · 그 밖 = 조종 시작', () => {
+    expect(driveLabel({ mine: true, asking: false, otherHolds: false })).toBe('조종 중');
+    expect(driveLabel({ mine: false, asking: true, otherHolds: true })).toBe('요청 보냄');
+    expect(driveLabel({ mine: false, asking: false, otherHolds: true })).toBe('조종권 요청');
+    expect(driveLabel({ mine: false, asking: false, otherHolds: false })).toBe('조종 시작');
+  });
+  it('칩: 리모컨 우선 · 보기 전용 · 요청 중이면 지금 조종자 · 그 밖은 내 조종 로봇', () => {
+    expect(barChipText({ at: 'remote', name: 'K-01', holder: null, driving: ['K-01'] })).toBe('K-01 리모컨 우선');
+    expect(barChipText({ at: 'handed', name: 'K-01', holder: '운영자 A', driving: [] })).toBe('K-01 보기 전용');
+    expect(barChipText({ at: 'ask', name: 'K-01', holder: '운영자 A', driving: [] })).toBe('운영자 A 조종 중');
+    expect(barChipText({ at: 'ask', name: 'K-01', holder: null, driving: [] })).toBeNull();
+    expect(barChipText({ at: null, name: '', holder: null, driving: ['K-01', 'K-03'] })).toBe('K-01 외 1 대 조종 중');
+    expect(barChipText({ at: 'link', name: 'K-01', holder: null, driving: [] })).toBeNull();
+  });
+  it('리모컨 우선 덧말 둘은 시안 자리 · 모드 덧말은 걷는 동안만', () => {
+    expect(u4src).toContain("line?.at === 'remote' && moving && <div className=\"whyb\" style={{ left: '495px', top: '140px' }}");
+    expect(u4src).toContain("right: '60px', top: '846px'");
+    expect(u4css).toMatch(/\.u4 \.whyb\{position:absolute;z-index:3;height:30px/);
+  });
+});
+
+describe('관절 경고 말풍선 · 마우스 온도 (시안 u4_2 · u4_4)', () => {
+  it('말풍선 첫 줄 조사는 받침대로 · 둘째 줄은 시안 글', () => {
+    expect(hotBub('앞 오른 고관절', 61.6)).toBe('앞 오른 고관절이 온도가 높습니다 · 62 °C');
+    expect(hotBub('앞 왼 종아리', 60)).toBe('앞 왼 종아리가 온도가 높습니다 · 60 °C');
+    expect(u4src).toContain('<small>경고 60 °C 넘음 · 걷기는 계속합니다 · 쉬게 하려면 「앉아」</small>');
+  });
+  it('마우스 꼬리표: 관절 이름 + 온도 · 값 없으면 보고 없음', () => {
+    expect(jointTip('FR_calf', 48.2)).toBe('앞 오른 종아리 48 °C');
+    expect(jointTip('RL_hip', null)).toBe('뒤 왼 고관절 온도 보고 없음');
+    expect(u4src).toContain("temps={tab === 'check' ? temps?.joints ?? null : null}");
+  });
+});
+
+describe('어두운 판 지도 (리드 사진 00:30)', () => {
+  it('서버 판 그림은 어두운 판에서 밝기를 --paper ~ 벽 회색으로 옮김 · 공장 그림은 그대로 · 칸 바탕 --paper', () => {
+    expect(u4src).toContain("const dark = !light() && !!src && src !== fac;");
+    expect(u4src).toContain('tableValues="0.2745 0.0706"');   // R: 벽 0x46 → 바탕 0x12
+    expect(u4src).toContain("filter: dark ? 'url(#u4-plan-d)' : undefined");
+    expect(u4css).toContain('.u4.proto:not(.light) .mapv{background:#12161d}');
+  });
+});
+
+describe('조종 한 식 (contracts teleop · 팀장 11-28 23:08)', () => {
+  const ORG = { sim_max_vx: 1.0, sim_max_vy: 0.4, sim_max_wz: 1.0, sim_key_vx: 0.6, stick_deadzone: 0.1 } as never;
+  it('서버 경유 시뮬: 키 = keyStick 자리 → stickVelocity · 실기는 고정 명령표 그대로', () => {
+    const caps = teleopCaps(ORG, true), want = (k: Parameters<typeof keyStick>[0]) => stickVelocity(keyStick(k, caps, 0.6), caps, deadzone(ORG)).map((v) => Math.round(v * 1e6) / 1e6 || 0);
+    expect(axesOf(['up'], ORG, true)).toEqual(want(['forward']));
+    expect(axesOf(['up'], ORG, true)[0]).toBeCloseTo(0.6, 6);   // 앞 키 = sim_key_vx
+    expect(axesOf(['down'], ORG, true)[0]).toBeCloseTo(-0.6, 6);
+    expect(axesOf(['left'], ORG, true)).toEqual([0, 0.4, 0]);
+    expect(axesOf(['rotr', 'up'], ORG, true)).toEqual(want(['forward', 'turn_right']));
+    expect(axesOf(['up', 'down'], ORG, true)).toEqual([0, 0, 0]);   // 반대 키 = 0 (keyStick)
+    // 시뮬 · 데모는 표에 없는 조합도 막지 않음(팀장 결정 · 조합은 정책 몫): 옆 + 돌기 · 앞 + 옆 · 뒤 + 돌기
+    expect(axesOf(['left', 'rotl'], ORG, true)).toEqual([0, 0.4, 1]);
+    expect(axesOf(['up', 'right'], ORG, true)).toEqual([want(['forward'])[0], -0.4, 0]);
+    expect(axesOf(['down', 'rotr'], ORG, true)[2]).toBe(-1);
+    expect(axesOf(['left', 'rotl'], ORG, false)).toEqual([0, 0, 0]);   // 실기 = 표에 없는 조합 0 그대로
+    expect(axesOf(['up'], ORG, false)).toEqual([1.5, 0, 0]);   // 실기 = 표 값
+    // 화면 손잡이 기울기(비례): 민 축은 그 기울기 · 키보드와 같은 식
+    expect(axesOf(['up'], ORG, true, [0.5, 0, 0])[0]).toBeCloseTo(0.25, 6);
+    expect(tokStick(['up', 'rotl'], ORG, true)).toEqual(keyStick(['forward', 'turn_left'], caps, 0.6));
+    expect(tokStick(['up', 'rotl'], ORG, false)).toEqual([1, 0, 1]);
+  });
+  it('직결 시뮬(simdrive · PC 시뮬 탭) 키 = 같은 keyStick 자리 · 실기 직결은 끝까지', () => {
+    const L = { vx_mode: 'continuous', vx_min: -0.5, vx_max: 1.0, vy_min: -0.3, vy_max: 0.3, wz_min: -0.5, wz_max: 0.5, commands: [], experimental: [] };
+    const w = { simulation: true, limits: L, policy: { name: 'x' } } as never;
+    const [f, t, y] = keyAxes(['forward', 'turn_left', 'left'], w);
+    expect(f).toBeCloseTo(Math.sqrt(0.6 / 1.0), 9); expect(t).toBe(1); expect(y).toBe(1);
+    expect(keyAxes(['forward'], { ...(w as object), simulation: false } as never)[0]).toBe(1);
+  });
+  it('시뮬 손잡이: 방향 토큰 문턱 없이 기울기 그대로 → 문턱은 teleop 데드존 하나 (검토 00:53)', () => {
+    expect(simTok([0.15, 0, 0])).toEqual(['up']); expect(simTok([0, -0.12, 0])).toEqual(['right']); expect(simTok([0, 0, 0.2])).toEqual(['rotl']); expect(simTok([0, 0, 0])).toEqual([]);
+    // 0.3 아래 기울기도 나감: 전진 0.2 → 0.2·0.2 × sim_max_vx 1.0 = 0.04 · 데드존(0.1) 안 0.05 → 0
+    expect(axesOf(simTok([0.2, 0, 0]), ORG, true, [0.2, 0, 0])[0]).toBeCloseTo(0.04, 6);
+    expect(axesOf(simTok([0, 0, 0.2]), ORG, true, [0, 0, 0.2])[2]).toBeCloseTo(0.2, 6);
+    expect(axesOf(simTok([0.05, 0, 0]), ORG, true, [0.05, 0, 0])).toEqual([0, 0, 0]);
+    expect(u4src).toContain('put(e.pointerId, el, sim ? simTok(an) : stickTok(side, x, y), an);');
+  });
+  it('키를 누르면 로봇 탭 화면 손잡이도 그 자리로 (보내는 식과 같은 자리)', () => {
+    expect(u4src).toContain("keyPos = tokStick(d.on ? (d.on.split('+') as Tok[]) : [], tune, !!d.sim)");
+    expect(u4src).toContain('<Stick side="L" put={d.stick} show={[-keyPos[1], -keyPos[0]]} sim={!!d.sim} /><Stick side="R" put={d.stick} show={[-keyPos[2], 0]} sim={!!d.sim} />');
   });
 });
 

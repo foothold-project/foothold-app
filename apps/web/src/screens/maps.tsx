@@ -2,6 +2,7 @@
 // 나무·판·그림·요소는 서버 값 그대로 그린다. 편집 도구는 screens/mapedit.tsx(W4b), 판 비교·되돌리기는 screens/mapdiff.tsx(W4c), 로봇 점은 위치-판 묶기(D5) 뒤.
 // 편집 저장·되돌리기·올리기는 누구나 바로 새 승인 판(10-27 결재 없음). 옛 PENDING 판은 «저장 기록»에 «적용 안 됨»으로 보인다. 화면 글에는 «판»을 쓰지 않는다(11-04 — 저장 시각·만든 사람으로 부름).
 // 큰 그림은 <image> 가 쿠키로 따로 받는다 — 불러오기·실패는 이 칸 안 글로만, 머리줄·STOP 은 경계(App Guard) 밖.
+import { keptMission } from './missiontab';
 import { Map3D, modelOf } from './map3d';
 import { DemoSite3D } from './u7/site3d';
 import { Empty } from '../empty';
@@ -236,7 +237,7 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   // 지도 탭 = 실기 장소만, 시뮬 탭 = 시뮬 + 실기 장소(RB-SCEN-SIMTAB 11-11 — 시나리오는 실기·시뮬 같은 것을 시뮬 탭에서 고친다). 이름으로 거르지 않음 — 서버 purpose.
   // 장소 고치기(이름·삭제·만들기)는 그 탭 쓰임의 장소만(own)
   const own = (s: MapSite) => purposeOf(s) === purpose;
-  const t = useMemo(() => ({ ...t0, tree: t0.tree && { ...t0.tree, items: sim ? t0.tree.items : t0.tree.items.flatMap((s) => { const x = mapTabSite(s); return x ? [x] : []; }) } }), [t0.tree, t0.err]);
+  const t = useMemo(() => ({ ...t0, tree: t0.tree && { ...t0.tree, items: sim ? t0.tree.items : t0.tree.items.filter((s) => purposeOf(s) === 'REAL') } }), [t0.tree, t0.err]);
   const admin = c.user.role === 'ORG_ADMIN', places = useMemo(() => floorsOf(t.tree), [t.tree]), robots = c.robots ?? [];
   const [pick, setPick] = useState(() => kept.d?.floor ?? keptPlan.floor), cur = places.find((p) => p.floor.id === pick);
   const [sel, setSel0] = useState<string | null>(() => (keptPlan.kind === 'scenarios' && !kept.d ? keptPlan.sel : null)), setSel = (x: string | null) => { keptPlan.sel = x; setSel0(x); };
@@ -598,7 +599,7 @@ function FloorView({ pickFloor, p, sim, admin, names, cancel, again, told, top, 
       {(vox || sb) && !editing && <button type="button" className="btn" aria-pressed={on3d} data-voxel-toggle onClick={() => { setD3(!on3d); setCmp(false); setM3(false); }}>{on3d ? '지도 보기' : '3D 로 보기'}</button>}
       {editing && <span className="mx-tag mx-edit" data-editing>▲ 편집 중</span>}
       <span className="fh-grow" />
-      {left && toScen && !inApp() && <button type="button" className="btn pri" data-to-sim onClick={() => toScen('')}>이 지도로 모의 실행</button>}
+      {left && toScen && !inApp() && <button type="button" className="btn pri" data-to-sim onClick={() => { keptMission.rehearse = p.floor.id; toScen(''); }}>이 지도로 모의 실행</button>}
       {!editing && <Menu label={<span aria-hidden="true">···</span>} title="더 보기" end className="more">
         {!sim && real && <button type="button" className="btn" onClick={upBtn}>새 지도 올리기…</button>}
         {canMake && <button type="button" className="btn" data-make-open onClick={mkBtn}>지도 만들기</button>}
@@ -705,7 +706,7 @@ function FloorView({ pickFloor, p, sim, admin, names, cancel, again, told, top, 
     {/* 시안 밖 · 새로 그림: 3D 지도 파일 · 로봇 저장 묶음 보기(기능 있음) */}
     {(vox || sb) && <button type="button" className="btns" style={{ height: '46px', padding: '0 18px', fontSize: '14px' }} aria-pressed={on3d} data-voxel-toggle data-off-proto onClick={() => { setD3(!on3d); setCmp(false); setM3(false); }}>{ic(16, CUBE)}{on3d ? '지도 보기' : '3D 로 보기'}</button>}
     {now && real && <div role="group" aria-label="보기·편집" style={{ display: 'contents' }}><button type="button" className="btns" style={{ height: '46px', padding: '0 18px', fontSize: '14px' }} onClick={start}>{ic(16, PEN)}편집</button></div>}
-    {toScen && !inApp() && <button type="button" className="btnp" style={{ height: '46px', padding: '0 20px', fontSize: '14.5px' }} data-to-sim onClick={() => toScen('')}>이 지도로 모의 실행</button>}
+    {toScen && !inApp() && <button type="button" className="btnp" style={{ height: '46px', padding: '0 20px', fontSize: '14.5px' }} data-to-sim onClick={() => { keptMission.rehearse = p.floor.id; toScen(''); }}>이 지도로 모의 실행</button>}
     {/* 시안 밖 · 새로 그림: 더 보기(새 지도 올리기 · 지도 만들기 · 이름 바꾸기 · 휴지통) */}
     <Menu label={<span aria-hidden="true">···</span>} title="더 보기" end className="more u7-more">
       {real && <button type="button" className="btn" onClick={upBtn}>새 지도 올리기…</button>}

@@ -11,8 +11,8 @@
 - wz: 제자리를 포함해 입력 |wz|≥0.5일 때 부호에 따른 고정±0.5 rad/s, 그 미만0.
 - 축별 데드존은0, 상·하한 밖은 끝값으로 자르고 `clipped=true`다.
   앞/뒤·옆·회전 조합을 허용하며 놓으면 즉시0이다.
-- `SIMULATION_LIMITS`는 vx_min=−0.3, vx_max=1.0, vy_min=−0.3, vy_max=0.3,
-  wz_min=−0.5, wz_max=0.5와
+- `SIMULATION_LIMITS`는 vx_min=−1.5, vx_max=1.5, vy_min=−0.5, vy_max=0.5,
+  wz_min=−1.2, wz_max=1.2 (조직 설정 sim_max_* 위 끝, 11/28 팀장 「다 연다」 · apps/contracts/teleop.py)와
   `experimental=['reverse','lateral','turn_in_place']`를 알린다.
   Pydantic·JSON Schema·TS에서 experimental은 선택 필드이며 생략하면 빈 목록이다.
 - 잘려서0인 비중립 입력은 이유가 있는 데드존 축으로 전달해 새 중립을 만들지 않는다.

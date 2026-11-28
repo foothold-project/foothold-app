@@ -7,7 +7,7 @@ import type { FloorContext, Scenario, SimCatalog, SimRobot } from '../../../cont
 import { App } from '../App';
 import { ROBOTS, USERS } from './fixtures';
 import { FakeWS, type Msg } from './fakeWs';
-import { DEAD, NUDGE, TURN_ON, allowed, sim, velocity, type Axes } from '../phone';
+import { DEAD, NUDGE, allowed, sim, velocity, type Axes } from '../phone';
 import { STALLED, remainingTime, timeNotice } from '../simdrive';
 import { newer } from '../simmap';
 import driveCss from '../drive.css?raw';
@@ -109,26 +109,30 @@ const CONT = { vx_mode: 'continuous' as const, vx_min: 0, vx_min_moving: 0.2, vx
 const hello = (limits: object) => ({ ...welcome(), limits }) as unknown as Parameters<typeof velocity>[1];
 
 describe('시뮬 연속 앞 속도(02 F-TO-05)', () => {
-  it('데드존 안 0, 살짝 → 0.2, 끝 → 1.0, 후진 0, 회전은 기존 규칙', () => {
+  it('공용 식 teleop: 데드존 안 0 · 전후 s·|s| × 상한(최소값 없음) · 후진 0 · 회전 직선', () => {
     const w = hello(CONT), vx = (f: number) => velocity([f, 0], w).vx;
-    expect([vx(0), vx(DEAD), vx(-1), vx(-0.3)]).toEqual([0, 0, 0, 0]);
-    expect(vx(DEAD + 1e-6)).toBeGreaterThanOrEqual(0.2);
-    expect(vx(DEAD + 1e-6)).toBeCloseTo(0.2, 5);
+    expect([vx(0), vx(DEAD - 1e-6), vx(-1), vx(-0.3)]).toEqual([0, 0, 0, 0]);
+    expect(vx(DEAD + 1e-6)).toBeCloseTo(0.01, 5);
     expect(vx(1)).toBe(1);
-    expect(vx(0.55)).toBeCloseTo(0.6, 9);
+    expect(vx(0.55)).toBeCloseTo(0.3025, 9);
     expect(velocity([1, -1], w)).toEqual({ vx: 1, vy: 0, wz: -0.5 });
-    expect(velocity([1, 1], w)).toEqual({ vx: 1, vy: 0, wz: 0.5 });
+    expect(velocity([1, 0.4], w)).toEqual({ vx: 1, vy: 0, wz: 0.2 });
   });
   it('limits 값이 바뀌면 따라간다(화면에 숫자 없음)', () => {
     const w = hello({ ...CONT, vx_min_moving: 0.3, vx_max: 0.8 });
     expect(velocity([1, 0], w).vx).toBe(0.8);
-    expect(velocity([DEAD + 1e-6, 0], w).vx).toBeCloseTo(0.3, 5);
+    expect(velocity([0.5, 0], w).vx).toBeCloseTo(0.2, 9);   // 0.5·0.5 × 0.8 (vx_min_moving 은 식에 쓰지 않음)
   });
-  it('이산 모드(vx_mode 없음)는 기존 식 그대로(제자리 회전만 0)', () => {
-    const w = hello(welcome().limits), old = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v >= 0 ? v * hi : -v * lo));
-    for (let f = -1; f <= 1; f += 0.05) for (const t of [-1, -0.3, 0, 0.4, 1]) {
-      const vx = old(f, 0, 0.6);
-      expect(velocity([f, t], w)).toEqual({ vx, vy: 0, wz: vx === 0 ? 0 : old(t, -0.5, 0.5) });
+  it('시뮬 이산 모드(vx_mode 없음)도 같은 공용 식 · 제자리 회전만 0 · 실기 직결은 옛 식 그대로', () => {
+    const w = hello(welcome().limits), gate = (v: number) => (Math.abs(v) < DEAD ? 0 : v);
+    for (let i = -20; i <= 20; i++) for (const t of [-1, -0.3, 0, 0.4, 1]) {
+      const f = i / 20, g = gate(f), vx = Math.max(0, g * Math.abs(g) * 0.6) + 0, v = velocity([f, t], w);
+      expect(v.vx).toBeCloseTo(vx, 12); expect(v.vy).toBe(0); expect(v.wz).toBeCloseTo(vx === 0 ? 0 : gate(t) * 0.5, 12);
+    }
+    const r = { ...hello(welcome().limits), simulation: false }, old = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v >= 0 ? v * hi : -v * lo));
+    for (let i = -20; i <= 20; i++) for (const t of [-1, -0.3, 0, 0.4, 1]) {
+      const vx = old(i / 20, 0, 0.6);
+      expect(velocity([i / 20, t], r)).toEqual({ vx, vy: 0, wz: vx === 0 ? 0 : old(t, -0.5, 0.5) });
     }
   });
   it('연속 모드: 3단 숨김·상태 줄 값·놓으면 즉시 0·STOP 늘 보임', async () => {
@@ -147,11 +151,11 @@ describe('시뮬 연속 앞 속도(02 F-TO-05)', () => {
     expect(last(a.of('cmd'))).toMatchObject({ vx: 1, vy: 0, wz: 0 });
     expect($('[data-sim-vx]')!.textContent).toBe('1.00 m/s');
     ptr(fwd, 'pointermove', 50, 44); await wait(80);
-    expect(last(a.of('cmd')).vx).toBeCloseTo(0.2 + 0.8 * 0.02 / 0.9, 9);
+    expect(last(a.of('cmd')).vx).toBeCloseTo(0.12 * 0.12, 9);   // teleop 전후 s·|s|
     ptr(fwd, 'pointermove', 50, 46); await wait(80);
     expect(last(a.of('cmd'))).toMatchObject({ vx: 0 });
     ptr(fwd, 'pointermove', 50, 25); await wait(80);
-    expect($('[data-sim-vx]')!.textContent).toBe('0.56 m/s');
+    expect($('[data-sim-vx]')!.textContent).toBe('0.25 m/s');
     ptr(fwd, 'pointerup', 50, 25);
     const n = a.of('cmd').length; await wait(60);
     expect(a.of('cmd').slice(n).every((m) => m.vx === 0 && m.wz === 0)).toBe(true);
@@ -258,37 +262,29 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
       expect(allowed(w)).toEqual({ back: false, left: false, right: false, spin: false, experimental: false });
     }
   });
-  it('시뮬 limits: 4방향 — 뒤 vx_min_moving~|vx_min|, 옆 데드존 밖 비례', () => {
+  it('시뮬 limits: 4방향 — 뒤 s·|s| × |vx_min|, 옆 직선 × vy 상한 (teleop)', () => {
     const w = hello(OMNI);
     expect(velocity([-1, 0, 0], w)).toEqual({ vx: expect.closeTo(-0.3, 9), vy: 0, wz: 0 });
-    expect(velocity([-DEAD - 1e-6, 0, 0], w).vx).toBeCloseTo(-0.2, 5);
+    expect(velocity([-0.5, 0, 0], w).vx).toBeCloseTo(-0.075, 9);
     expect(velocity([0, 0, 1], w)).toEqual({ vx: 0, vy: 0.3, wz: 0 });
     expect(velocity([0, 0, -1], w)).toEqual({ vx: 0, vy: -0.3, wz: 0 });
-    expect(velocity([0, 0, DEAD], w).vy).toBe(0);
-    expect(velocity([1, 1, 0.55], w)).toEqual({ vx: 1, vy: expect.closeTo(0.15, 9), wz: 0.5 });
+    expect(velocity([0, 0, DEAD - 1e-6], w).vy).toBe(0);
+    expect(velocity([1, 1, 0.55], w)).toEqual({ vx: 1, vy: expect.closeTo(0.165, 9), wz: 0.5 });
     expect(allowed(w)).toMatchObject({ back: true, left: true, right: true, spin: false, experimental: false });
     expect(allowed(hello({ ...OMNI, experimental: ['turn_in_place'] })).spin).toBe(true);
   });
-  it('축 고정·시뮬 회전 ±max: 정상 조작은 에이전트 양자화(|vy|≥0.05·|fw|≥1)에 안 잘림, 실기 식 불변', () => {
+  it('시뮬은 축 고정 · 회전 문턱 없이 두 축 함께 · 회전 직선 (teleop 한 식) · 실기 직결은 축 고정 · 옛 식 그대로', () => {
     const w = hello(EXP);
-    // 앞 + 작은 옆 흔들림 → vy 0, 옆 + 작은 앞 흔들림 → vx 0(0.2 로 튀지 않음)
-    for (const y of [-0.25, -0.12, 0.12, 0.25]) expect(velocity([0.6, 0, y], w).vy).toBe(0);
-    expect(velocity([1, 0, 0.3], w)).toEqual({ vx: 1, vy: 0, wz: 0 });
-    expect(velocity([0.2, 0, 1], w)).toEqual({ vx: 0, vy: 0.3, wz: 0 });
-    // 대각선(둘 다 큼)은 그대로
+    expect(velocity([1, 0, 0.3], w)).toEqual({ vx: 1, vy: expect.closeTo(0.09, 9), wz: 0 });
     const d = velocity([0.8, 0, -0.6], w);
-    expect(d.vx).toBeCloseTo(0.2 + 0.8 * 0.7 / 0.9, 9); expect(d.vy).toBeCloseTo(-0.3 * 0.5 / 0.9, 9); expect(Math.abs(d.vy)).toBeGreaterThanOrEqual(0.05);
-    // 회전: 문턱 아래 0, 넘으면 ±wz_max 두 값만(부분 회전 wz 없음)
-    for (const t of [0.1, 0.3, 0.49, -0.49]) expect(velocity([1, t], w).wz).toBe(0);
-    for (const t of [0.5, 0.7, 1]) { expect(velocity([1, t], w).wz).toBe(0.5); expect(velocity([1, -t], w).wz).toBe(-0.5); }
-    expect(velocity([0, 0.8], w).wz).toBe(0.5);   // 제자리 회전 허가(turn_in_place)
+    expect(d.vx).toBeCloseTo(0.64, 9); expect(d.vy).toBeCloseTo(-0.18, 9);
+    for (const t of [0.3, 0.7, 1]) { expect(velocity([1, t], w).wz).toBeCloseTo(0.5 * t, 9); expect(velocity([1, -t], w).wz).toBeCloseTo(-0.5 * t, 9); }
+    expect(velocity([0, 0.8], w).wz).toBeCloseTo(0.4, 9);   // 제자리 회전 허가(turn_in_place)
     expect(velocity([0, 0.8], hello(OMNI)).wz).toBe(0);   // 허가 없으면 그대로 0
-    // 실기 limits: 축 고정·회전 문턱 없이 기존 식(옆 범위 0)
-    const r = hello(welcome().limits), old = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v >= 0 ? v * hi : -v * lo));
-    for (let f = -1; f <= 1; f += 0.05) for (const t of [-1, -0.3, 0, 0.4, 1]) for (const y of [-1, -0.1, 0, 0.3, 1]) {
-      const vx = old(f, 0, 0.6);
-      expect(velocity([f, t, y], r)).toEqual({ vx, vy: 0, wz: vx === 0 ? 0 : old(t, -0.5, 0.5) });
-    }
+    // 실기 직결(simulation false): 축 고정 · 옛 비례 식
+    const r = { ...hello(OMNI), simulation: false };
+    for (const y of [-0.25, 0.25]) expect(velocity([0.6, 0, y], r).vy).toBe(0);
+    expect(velocity([1, 0.4, 0], r)).toEqual({ vx: 1, vy: 0, wz: 0.2 });
   });
   it('시뮬(EXP): 스틱이 눌려 있으면 정확한 0 을 보내지 않음(deadman 뒤 손 뗌 관문 — PR #92 Codex), 손 뗌만 0', () => {
     for (const L of [EXP, { ...CONT, experimental: ['turn_in_place'] }]) {
@@ -299,17 +295,15 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
         if (!f && !t && !y) continue;
         const a: Axes = [f / 20, t / 20, y / 10], v = velocity(a, w);
         if (v.vx === 0 && v.vy === 0 && v.wz === 0) throw new Error(`${a} → 정확한 0`);
-        // 움직이지 않는 표시값 wz 는 에이전트 회전 문턱(wz_max) 아래 — 일부러 돌릴 때(±wz_max)만 문턱
-        if (v.vx === 0 && v.vy === 0) expect(Math.abs(v.wz) === L.wz_max || Math.abs(v.wz) < L.wz_max * TURN_ON).toBe(true);
+        if (v.vx === 0 && v.vy === 0) expect(Math.abs(v.wz)).toBeLessThanOrEqual(L.wz_max);
       }
     }
-    // Codex 재현: 단독 회전 t=0.3 은 부모와 같은 작은 wz(에이전트가 잘라 sentinel), 문턱 위는 ±wz_max, 데드존은 NUDGE
+    // 회전은 직선(teleop) · 데드존 안 누름은 NUDGE
     const w = hello(EXP);
     expect(velocity([0, 0.3], w)).toEqual({ vx: 0, vy: 0, wz: 0.15 });
     expect(velocity([0, -0.49], w)).toEqual({ vx: 0, vy: 0, wz: expect.closeTo(-0.245, 9) });
-    expect(velocity([0, 0.6], w)).toEqual({ vx: 0, vy: 0, wz: 0.5 });
-    expect(velocity([DEAD, 0, 0.05], w)).toEqual({ vx: 0, vy: 0, wz: NUDGE });
-    expect(velocity([1, 0.3], w)).toEqual({ vx: 1, vy: 0, wz: 0 });   // 움직이는 중 문턱 아래 회전은 그대로 0
+    expect(velocity([DEAD - 1e-6, 0, 0.05], w)).toEqual({ vx: 0, vy: 0, wz: NUDGE });
+    expect(velocity([1, 0.3], w)).toEqual({ vx: 1, vy: 0, wz: 0.15 });
   });
   it('experimental 있음: 시험용 띠, 뒤·옆·제자리 회전 보냄, 화살표 모두 켬, STOP 보임', async () => {
     const a = await launch({ ...welcome(), limits: EXP }); await drive(a);
@@ -996,10 +990,10 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
     expect(box.textContent).not.toContain('정책 go2-flat');
     expect(box.textContent).not.toContain('시뮬 시계 차');
     const fwd = stick('전후');
-    ptr(fwd, 'pointerdown', 50, 33.75); await wait(80);
+    ptr(fwd, 'pointerdown', 50, 50 - 50 * Math.sqrt(0.4)); await wait(80);   // teleop: 기울기 √0.4 → 0.4 m/s
     expect($('[data-sim-vx]')!.textContent).toBe('0.40 m/s');
     expect($('[data-sim-vx]')!.textContent).toMatch(/^\d+\.\d{2} m\/s$/);
-    ptr(fwd, 'pointerup', 50, 33.75);
+    ptr(fwd, 'pointerup', 50, 50 - 50 * Math.sqrt(0.4));
     await menuItem('정보');
     const info = $('[data-sim-info]')!.textContent!;
     expect(info).toContain('정책 go2-flat v1');
