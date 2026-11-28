@@ -108,3 +108,6 @@
 .u5 .abox{border:1.5px solid rgba(255,77,79,.6)!important;background:linear-gradient(180deg,rgba(255,77,79,.16),rgba(255,77,79,.06))!important}
 .u5 .rstop{height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;gap:8px;font-size:15px;font-weight:800;color:#fff;background:linear-gradient(180deg,#ff4d4f,#e04a2f);box-shadow:0 10px 24px rgba(214,47,51,.42),inset 0 1px 0 rgba(255,255,255,.35)}
 .u5 [data-go]{cursor:pointer}
+
+/* 시안 u5 는 어둠 판: 시뮬 타일(.rehearse)은 시안처럼 회색 점선 · 흰 글. 밝은 판의 .rehearse 는 그대로 */
+.proto:not(.light) .u5 .tile.rehearse{color:inherit;border:1.5px dashed rgba(138,147,163,.7)}
