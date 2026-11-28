@@ -13,6 +13,7 @@ import { MapFrame, MapImage, around, useWalls, type Box } from '../mapframe';
 import { leaving } from '../menu';
 import { Chip, inApp, type Ctx, type Dash } from '../screens';
 import { Compare, Rollback } from './mapdiff';
+import { History } from './u7/history';
 import { Editor, Glyph, featKeys, featName, featSub, kept } from './mapedit';
 import { Hint, Locked, Menu, Pane, Pop, SideTitle, shut } from './mapscen';
 import { MissionAdmin, ScenList, ScenarioEdit, SimOpen, keptPlan, useScenarios } from './missions';
@@ -574,6 +575,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, side, name,
   const [editing, setEditing] = useState<MapVersion | null>(back), [done, setDone] = useState<Msg>(null);   // editing = 편집 시작 때 승인 판(저장 기준)
   // 비교 보기, 되돌리기 칸(연 때의 옛 판·승인 판 — 답이 끊겨 목록을 다시 받는 동안에도 칸과 안내가 남게 목록 밖에 둔다)
   const [cmp, setCmp] = useState(false), [undo, setUndo] = useState<{ v: MapVersion; now: MapVersion } | null>(null);
+  const [h9, setH9] = useState(open0 === 'history');   // 시안 u7_9 버전 기록 화면(지도 탭)
   // 목록은 받을 때의 기준(몇 번째 받기 + 승인 판 id)과 묶어 둔다 — 기준이 바뀌면 새 목록이 올 때까지 없음으로(늦게 온 옛 목록이 덮지 않게)
   const key = `${n}:${approved}`;
   useEffect(() => {
@@ -705,11 +707,14 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, side, name,
       <dt>3D 모형</dt><dd>{model ? '있음' : '없음'}</dd>
       {who && <><dt>만든 사람</dt><dd>{who}</dd></>}</dl></div>}
     <span className="fh-grow" />
-    {hist}
+    {hist}{/* 옛 저장 기록 접기: 시험 28 개를 u7_9 로 옮길 때까지 남김(보고에 적음) */}
+    {!!list?.length && now && <button type="button" className="btn" data-open-u79 onClick={() => { setCmp(false); setH9(true); }}>버전 기록 · 비교 · 되돌리기</button>}
   </aside>;
   return <section className="mx" aria-label="지도 보기">
     <h2 className="mx-sr">{title}{editing ? ' · 편집 중' : ''}</h2>
-    {left ? <div className="mp-fl">{panel}<div className="mp-fr">{bar}{main}</div></div> : <>{bar}{main}{hist}</>}
+    {left && h9 && list && now ? <History p={p} list={list} now={now} names={names} real={real} cancel={cancel} back={() => setH9(false)} gone={reload}
+        restore={(x) => { const go = () => { setUndo({ v: x, now }); setDone(null); }; if (leaving.ask) leaving.ask(go); else go(); }} />
+      : left ? <div className="mp-fl">{panel}<div className="mp-fr">{bar}{main}</div></div> : <>{bar}{main}{hist}</>}
     {!editing && <Pop open={up} close={() => { if (!vbusy) setUp(false); }} label="새 지도 올리기">{/* 3D 파일 올리는 중엔 닫기·형식 바꾸기 막음(요청은 이어지는데 진행·결과만 사라지지 않게) */}
       {admin && <span className="mx-seg" role="group" aria-label="올릴 파일" data-up-kind><button type="button" className="btn" aria-pressed={!vu} disabled={vbusy} onClick={() => setVu(false)}>그림·yaml</button>
         <button type="button" className="btn" aria-pressed={vu} disabled={vbusy} onClick={() => setVu(true)}>3D 지도 파일(.pcd·.ply)</button></span>}
@@ -725,7 +730,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, side, name,
     </Pop>}
     {!editing && <Pop open={!!undo} close={() => setUndo(null)} label="이 기록으로 되돌리기">
       {undo && <Rollback key={undo.v.id} v={undo.v} name={savedAs(undo.v)} cancel={cancel} now={undo.now} close={() => setUndo(null)} reload={reload}
-        done={(x) => { setUndo(null); setCmp(false); if (x.status === 'PENDING') { setSel(''); setDone(asked); told(); }
+        done={(x) => { setUndo(null); setCmp(false); setH9(false); if (x.status === 'PENDING') { setSel(''); setDone(asked); told(); }
           else { setSel(x.id); setDone({ text: `${savedAs(undo.v)} 기록으로 되돌렸습니다. 다음 실행부터 이 지도를 씁니다.`, ok: true }); } reload(); }} />}
     </Pop>}
   </section>;
