@@ -50,8 +50,9 @@ export const flyTime = () => (calm() ? 0 : FLY_S);
 /** 「전체 보기」 시점(팀장 03:19 · 03:42 «꽉»): 정북 · 아래로 첫 시점과 같은 각(SITE_EL · 팀장 좋은 예도 이 각).
  *  가까운 변(앞 모서리 둘)이 칸 폭을 FULL_OVER(1.3 · 팀장 좋은 예처럼 양옆이 잘림) 만큼 넘치게 하는 가장 가까운 거리 · 먼 변(높이 FULL_H)은 FULL_TOP 아래 · 앞 변은 FULL_BOT 위. 거리 · 바라볼 점은 반 가르기 */
 export const FULL_TOP = 0.93, FULL_OVER = 1.3, FULL_BOT = -0.97, FULL_H = 25, FULL_EL = SITE_EL, FULL_UP = 0.2;
-export function fullShot(aspect: number, elDeg = FULL_EL, over = FULL_OVER): SiteShot {
-  const W = SITE_PX_W / K, H = SITE_PX_H / K, x0 = -OX / K, z0 = -OY / K, el = (elDeg * Math.PI) / 180;
+/** box = 실제 받은 현장 모형의 바닥 둘레(x · z). 없으면 지도 판 크기(SITE_PX). 04:13 사진: 모형이 판보다 작아 판 모서리로 맞추면 공장이 칸 폭만큼만 보였음 */
+export function fullShot(aspect: number, elDeg = FULL_EL, over = FULL_OVER, box?: { x0: number; z0: number; W: number; H: number }): SiteShot {
+  const { W, H, x0, z0 } = box ?? { W: SITE_PX_W / K, H: SITE_PX_H / K, x0: -OX / K, z0: -OY / K }, el = (elDeg * Math.PI) / 180;
   const cam = new THREE.PerspectiveCamera(SITE_FOV, aspect, 1, 1e5), v = new THREE.Vector3(), tgt = new THREE.Vector3();
   const far = [new THREE.Vector3(x0, FULL_H, z0), new THREE.Vector3(x0 + W, FULL_H, z0)], near = [new THREE.Vector3(x0, 0, z0 + H), new THREE.Vector3(x0 + W, 0, z0 + H)];
   const put = (d: number, tz: number) => { tgt.set(x0 + W / 2, 0, tz); cam.position.set(tgt.x, Math.sin(el) * d, tz + Math.cos(el) * d); cam.lookAt(tgt); cam.updateMatrixWorld(); };
@@ -63,6 +64,8 @@ export function fullShot(aspect: number, elDeg = FULL_EL, over = FULL_OVER): Sit
   const tz = aimAt(hi); return { tgt: new THREE.Vector3(x0 + W / 2, 0, tz), el, az: 0, d: hi };
 }
 /** 안개는 지도 밖 땅만: 시작 = 바라볼 점까지 거리 + 부지 반 대각선(지도 어디도 안개 앞) · 끝 = 시작 + FOG_LEN. 지도 밝기는 거리와 상관없음 */
+/** 받은 현장 모형의 바닥 둘레(없거나 비면 undefined → 판 크기) */
+export const siteBox = (o: THREE.Object3D | null) => { if (!o) return undefined; const b = new THREE.Box3().setFromObject(o); return b.isEmpty() ? undefined : { x0: b.min.x, z0: b.min.z, W: b.max.x - b.min.x, H: b.max.z - b.min.z }; };
 export const SITE_R = Math.hypot(SITE_PX_W / K, SITE_PX_H / K) / 2, FOG_LEN = 1200;
 export const fogFor = (d: number) => ({ near: d + SITE_R, far: d + SITE_R + FOG_LEN });
 /** 지금 카메라 자리를 시점 값으로(바라볼 점 · 높이각 · 방위 · 거리) */
@@ -182,7 +185,7 @@ export function SiteView({ all, sel, open, from, focus, home, homeTick = 0 }: { 
     // 날아가는 중 사용자가 끌거나 휠을 굴리면 그 자리에서 멈추고 손을 넘김
     const grab = () => { if (!trip || trip.done) return; trip.stop(); trip = null; touched = true; ctl.enabled = true; ctl.update(); };
     canvas.addEventListener('pointerdown', grab, true); canvas.addEventListener('wheel', grab, { capture: true, passive: true });
-    goHome.current = () => { fly = 1; look = 0; touched = true; trip = flight(shotOf(cam.position, ctl.target), fullShot(w / h)); ctl.enabled = false; };
+    goHome.current = () => { fly = 1; look = 0; touched = true; trip = flight(shotOf(cam.position, ctl.target), fullShot(w / h, FULL_EL, FULL_OVER, siteBox(site))); ctl.enabled = false; };
     const v = new THREE.Vector3(), clock = new THREE.Clock(); let raf = 0;
     r.autoClear = false;
     const frame = () => {

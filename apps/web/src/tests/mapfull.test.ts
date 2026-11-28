@@ -1,7 +1,7 @@
 // 팀장 03:19 · 03:20 관제 「지도 보기」 전체 보기: 공장 전체가 칸을 꽉 · 멀어져도 지도는 안개에 덮이지 않음 · 컷 없이 날아감(끌면 멈춤 · 움직임 줄이기면 바로)
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
-import { FLY_S, FULL_BOT, FULL_OVER, FULL_TOP, LIFT_MAX, SITE_FOV, SITE_R, flight, fogFor, fullShot, nearShot, shotOf, type SiteShot } from '../proto/u5map';
+import { FLY_S, FULL_BOT, FULL_OVER, FULL_TOP, LIFT_MAX, SITE_FOV, SITE_R, flight, fogFor, fullShot, siteBox, nearShot, shotOf, type SiteShot } from '../proto/u5map';
 import { K, OX, OY, SITE_PX_H, SITE_PX_W } from '../proto/site';
 
 const AR = 1306 / 798;
@@ -39,5 +39,10 @@ describe('지도 보기 전체 보기', () => {
   it('지금 카메라 자리 → 시점 값 되돌리기', () => {
     const s = { tgt: new THREE.Vector3(300, 0, 200), el: 0.7, az: 0.4, d: 500 }, c = camOf(s), o = shotOf(c.position, s.tgt);
     expect(o.el).toBeCloseTo(0.7, 6); expect(o.az).toBeCloseTo(0.4, 6); expect(o.d).toBeCloseTo(500, 6);
+  });
+  it('받은 현장 모형 둘레로 맞춤(모형이 판보다 작으면 더 가까이) · 모형 없으면 판 크기', () => {
+    const g = new THREE.Group(); const m = new THREE.Mesh(new THREE.BoxGeometry(700, 10, 450)); m.position.set(450, 5, 280); g.add(m);
+    const b = siteBox(g)!; expect(b.W).toBeCloseTo(700, 3); expect(b.H).toBeCloseTo(450, 3); expect(siteBox(null)).toBeUndefined();
+    expect(fullShot(AR, undefined, undefined, b).d).toBeLessThan(fullShot(AR).d);
   });
 });
