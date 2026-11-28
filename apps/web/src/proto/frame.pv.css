@@ -60,3 +60,5 @@
 .proto .bar details.ap-bell>.card{overflow:hidden!important}
 .proto .bar details.ap-bell>.card li>button>.fh-grow{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .proto .bar details.ap-bell>.card .ap-bell-all{align-self:center;font-size:12.5px;font-weight:800;color:#0E7F63;text-decoration:none;padding:6px 10px}
+/* 닫힌 알림 칸은 배치도 하지 않는다: 닫힌 details 안 카드가 605px 로 배치돼 세로 넘침 칸으로 잡히던 것(기록 · 임무 탭) */
+.proto .bar details.ap-bell:not([open])>.card{display:none!important}
