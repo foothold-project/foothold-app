@@ -10,7 +10,17 @@ export type TileLook = {
   /** 부위 색(시안 hot: {FL_calf: 'hot'}) */ hot: Record<string, string>;
   /** 시뮬 영상 칸이 있으면 이것을 먼저 그린다 */ video?: HTMLVideoElement | HTMLCanvasElement | null;
 };
-type View = { c: HTMLCanvasElement; look: () => TileLook };
+type Pose = { x: number; z: number; rot: number };
+type Held = Pose & { travel: number };
+type View = { c: HTMLCanvasElement; look: () => TileLook; at: Held | null };
+/** 서버 위치 · yaw 를 칸 화면에서 부드럽게 따라감(시간 상수 0.25 s · 방향은 짧은 쪽). 5 m 넘게 뛰면(다시 잡힘) 바로 옮김.
+ *  travel = 실제로 간 거리 누적(바닥 점이 이만큼 흐름 · 서 있으면 멈춤) */
+export function follow(cur: Held | null, to: Pose, dt: number): Held {
+  if (!cur || Math.hypot(to.x - cur.x, to.z - cur.z) > 5) return { ...to, travel: cur?.travel ?? 0 };
+  const k = 1 - Math.exp(-dt / 0.25), x = cur.x + (to.x - cur.x) * k, z = cur.z + (to.z - cur.z) * k;
+  const d = Math.atan2(Math.sin(to.rot - cur.rot), Math.cos(to.rot - cur.rot));
+  return { x, z, rot: cur.rot + d * k, travel: cur.travel + Math.hypot(x - cur.x, z - cur.z) };
+}
 const HOT: Record<string, number> = { warn: 0xf2b705, hot: 0xff4d4f, ok: 0x00c389 }, SIM = 0x4c9bff;
 
 let one: Tiles | null = null;
@@ -25,7 +35,7 @@ class Tiles {
   t = 0.35; last = 0; raf = 0; failed = false; hemi!: THREE.HemisphereLight; rims: [THREE.DirectionalLight, number, number][] = [];
 
   add(c: HTMLCanvasElement, look: () => TileLook) {
-    const v = { c, look }; this.views.add(v); this.start();
+    const v: View = { c, look, at: null }; this.views.add(v); this.start();
     return () => { this.views.delete(v); if (!this.views.size) { cancelAnimationFrame(this.raf); this.raf = 0; } };
   }
   private start() {
@@ -115,12 +125,14 @@ class Tiles {
       const yaw = look.front ? 0 : Math.PI, dist = look.front ? 1.25 : 2.1;
       this.cam.aspect = w / h; this.cam.updateProjectionMatrix();
       this.cam.position.set(Math.sin(yaw) * dist, 0.55, Math.cos(yaw) * dist); this.cam.lookAt(0, 0.17, 0);
-      const p = look.pose;
+      // 현장 = 그 로봇 지도 안 실제 자리 · 방향(서버 위치 · yaw 를 보간). 로봇은 늘 가운데 · 시점은 뒤쪽 위 그대로라 걷고 돌면 현장이 지나가고 돈다
+      v.at = look.pose ? follow(v.at, look.pose, dt) : null;
+      const p = v.at;
       this.world.visible = !!(p && this.site);
       if (p) { this.world.rotation.set(0, -p.rot, 0); this.world.position.set(0, 0, 0); this.world.updateMatrix();
         const off = new THREE.Vector3(-p.x, 0, -p.z).applyAxisAngle(new THREE.Vector3(0, 1, 0), -p.rot); this.world.position.copy(off); }
       this.gm.uniforms.col.value.setHex(look.cyber ? SIM : 0x00c389).lerp(new THREE.Color(0xffffff), 0.4);
-      this.gm.uniforms.off.value = look.walk ? -this.t * 0.45 : 0;
+      this.gm.uniforms.off.value = p ? -p.travel : look.walk ? -this.t * 0.45 : 0;   // 자리가 있으면 실제로 간 거리만큼, 없으면 시안 걷기 흐름
       this.shadow.visible = !look.cyber;
       if (b) {
         this.paint(b, look);

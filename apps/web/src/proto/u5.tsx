@@ -2,7 +2,7 @@
 // 고정 글 자리만 서버 값으로 바꿨다. 서버에 없는 값은 칸을 두고 그 글만 비운다. 명령은 기존 모듈(STOP = App 의 정지 처리, 고름 = controlPick)만 부른다.
 import { NO_SIGNAL, driveFeedText, useDriveFeed } from '../drivemedia';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { MapSite, RobotAvailability, RobotSummary, ScreenState, SiteTree } from '../../../contracts/ts';
+import type { Location, MapSite, RobotAvailability, RobotSummary, ScreenState, SiteTree } from '../../../contracts/ts';
 import { api, type ApiFail } from '../api';
 import { RUN } from '../screens';
 import { realDash } from '../screens/fleet';
@@ -159,9 +159,12 @@ function fitGrid(n: number): { cols: number; rows: number; zoom: number } {
 }
 
 // ── 타일 ──────────────────────────────────────────────────
-function Cv({ f, front, hotMap }: { f: TileFacts; front: boolean; hotMap: Record<string, string> }) {
+/** 타일 · 작은 지도 공통: 데모 현장 승인 판(boards)의 위치만 현장 좌표로. 판 id 가 다르거나 없으면 null(엉뚱한 자리보다 뺌) */
+export const tilePose = (l: Location | null | undefined, boards: Set<string>) => (l?.map_version_id && boards.has(l.map_version_id) ? sitePose(l) : null);
+const locOf = (f: TileFacts) => stateOf(f.x)?.location ?? (f.x.unknown === 'summary' ? null : f.x.location);
+function Cv({ f, front, hotMap, boards }: { f: TileFacts; front: boolean; hotMap: Record<string, string>; boards: Set<string> }) {
   const ref = useRef<HTMLCanvasElement>(null), look = useRef<TileLook>({ pose: null, front, cyber: f.sim, walk: false, down: false, hot: {} });
-  look.current = { pose: sitePose(stateOf(f.x)?.location ?? (f.x.unknown === 'summary' ? null : f.x.location)), front: front || f.sim, cyber: f.sim, walk: f.walk, down: f.act === 'lie' || f.charging, hot: hotMap };
+  look.current = { pose: tilePose(locOf(f), boards), front: front || f.sim, cyber: f.sim, walk: f.walk, down: f.act === 'lie' || f.charging, hot: hotMap };
   useEffect(() => (ref.current ? tileGl().add(ref.current, () => look.current) : undefined), []);
   const go2 = JSON.stringify({ walk: f.walk, glow: !f.sim, pin: !f.sim, hot: hotMap, cyber: f.sim, yaw: front || f.sim ? 0 : 'back', dist: front || f.sim ? 1.25 : 2.1, floor: 0.5 });
   const showFront = front || f.sim;
@@ -190,7 +193,7 @@ function RealCam({ id }: { id: string }) {
     <span className="g dk ov" style={{ left: '8px', top: '40px', maxWidth: 'calc(100% - 16px)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} data-cam="none" title={text}>{I(14, IC.cam)}{text || NO_SIGNAL.rgb}</span></>;
 }
 
-function Tile({ f, sel, front, pick, open }: { f: TileFacts; sel: boolean; front: boolean; pick: () => void; open: () => void }) {
+function Tile({ f, sel, front, pick, open, boards }: { f: TileFacts; sel: boolean; front: boolean; pick: () => void; open: () => void; boards: Set<string> }) {
   const q = f.x.online && !f.x.unknown ? f.x.robotInfo?.temperature?.joints : null, qk = q ? q.join(',') : '';
   const hotMap = useMemo(() => Object.fromEntries((q && q.length === 12 ? q : []).flatMap((c, i) => { const lv = tempLevel(c ?? null); return lv ? [[JOINTS[i].replace(/_joint$/, ''), lv === 'warn' ? 'warn' : 'hot']] : []; })), [qk]);
   const cls = `tile${f.level ? ` lv-${f.level}` : ''}${f.sim ? ' sim' : ''}${sel ? ' sel' : ''}${f.level ? ' warncell' : ''}${f.sim ? ' rehearse' : ''}`;
@@ -198,7 +201,7 @@ function Tile({ f, sel, front, pick, open }: { f: TileFacts; sel: boolean; front
   return <div className={cls} data-t={f.x.name} data-robot={f.x.id} data-tone={f.level ?? undefined} data-act={f.act} data-sel={sel || undefined} data-live={f.walk ? '1' : undefined} role="button" tabIndex={0} aria-pressed={sel} aria-label={`${f.x.name} 타일`}
     onClick={() => (sel ? open() : pick())} onDoubleClick={open} onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) { e.preventDefault(); open(); } }}>
     {f.flag && <span className="flag warntag" style={{ background: red ? 'var(--u5-red)' : 'var(--u5-amb)' }} data-warn-flag>{I(13, IC.warn)}{f.flag}</span>}
-    <Cv f={f} front={front} hotMap={hotMap} />
+    <Cv f={f} front={front} hotMap={hotMap} boards={boards} />
     <div className="inf"><div className="nm"><b style={red ? { color: 'var(--u5-red)' } : undefined}>{f.x.name}</b>{f.sim && <span className="chip sim">시뮬</span>}{f.demo && <span className="chip" data-demo>데모</span>}<span className="md">{f.mode && I(15, IC.mode)}{f.mode}</span></div>
       <div className="ln">{(() => { const txt = f.mission?.name || (f.charging ? '충전 중' : f.job ? f.job.text : f.sim ? '임무 전 · 시뮬 등록' : '');
         return <>{I(16, f.mission ? IC.flag : f.charging ? IC.bolt : f.job ? (f.job.kind === 'maint' ? IC.wrench : IC.bat) : f.sim ? IC.home : IC.flag, undefined, !txt)}<span>{txt}</span></>; })()}{f.mission && f.mission.total > 0 && <em>할 일 {f.mission.done} / {f.mission.total}</em>}</div>
@@ -215,7 +218,7 @@ export const demoBoards = (tree: SiteTree | null | undefined) => new Set((tree?.
 function Mini({ all, sel, boards, toMap }: { all: TileFacts[]; sel: string; boards: Set<string>; toMap?: (from: DOMRect) => void }) {
   const dots = [...all].sort((a, b) => a.x.name.localeCompare(b.x.name, 'ko', { numeric: true })).flatMap((f) => {
     // 데모 현장 승인 판의 위치만: 판 id 가 다르거나 없으면 그리지 않음(엉뚱한 자리보다 뺌). 서버 판 m → 시안 그림 px = design.json transform(25 + u·3.5, 20 + v·3.5 · v = -y)
-    const l = stateOf(f.x)?.location ?? (f.x.unknown === 'summary' ? null : f.x.location), p = l?.map_version_id && boards.has(l.map_version_id) ? sitePose(l) : null;
+    const p = tilePose(locOf(f), boards);
     if (!p) return [];
     const [px, py] = toMapPx(p.x, p.z), left = `calc(50% + ${Math.round(px * 0.125 - 200)}px)`, top = `${Math.round(py * 0.125)}px`;
     const kind = f.sim ? 'sim' : f.level === 'bad' || f.level === 'crit' ? 'r' : f.level === 'warn' || f.lostNow ? 'o' : '';
@@ -319,7 +322,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
         <span className={demo ? 'tgl on' : 'tgl'} role="switch" aria-checked={demo} tabIndex={0} onClick={() => setDemo(!demo)}>데모 표시<i></i></span>
         <div className="seg2 flt" role="group" aria-label="범위"><span className={scope === 'all' ? 'on' : ''} data-f="모두" role="button" tabIndex={0} aria-pressed={scope === 'all'} onClick={() => see('all')}>모두</span><span className={scope === 'mine' ? 'on' : ''} data-f="내 로봇" role="button" tabIndex={0} aria-pressed={scope === 'mine'} onClick={() => see('mine')}>내 로봇</span></div></div></div>
     {view === 'tiles' ? <div className={all.length > 8 ? 'wall many' : 'wall'} style={{ gridTemplateColumns: `repeat(${g.units ?? g.cols},1fr)`, gridTemplateRows: `repeat(${g.rows},1fr)` }} aria-label="로봇 타일" data-count={all.length}>
-      {all.map((f, i) => <ZoomBox key={f.x.id} zoom={g.zoom} span={g.span?.[i]}><Tile f={f} sel={f.x.id === sel} front={front} pick={() => controlPick.set(f.x.id)} open={() => open(f.x.id)} /></ZoomBox>)}</div>
+      {all.map((f, i) => <ZoomBox key={f.x.id} zoom={g.zoom} span={g.span?.[i]}><Tile f={f} sel={f.x.id === sel} front={front} pick={() => controlPick.set(f.x.id)} open={() => open(f.x.id)} boards={boards} /></ZoomBox>)}</div>
       : <SiteView all={all} sel={sel} pick={(id) => controlPick.set(id)} open={open} from={from} />}
     <div className="side">
       {view === 'tiles' ? <>
