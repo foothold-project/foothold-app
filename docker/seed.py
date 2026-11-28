@@ -22,6 +22,11 @@ NAMESPACE = UUID('3f0c7a52-6f7e-4d36-9b8f-2a51c4d0e9a1')
 BOOTSTRAP_KEYS = ('FH_DB_PASSWORD', 'FH_BOOTSTRAP_PASSWORD')
 
 
+def sim_robot_id(org_id):
+    """The seeded simulation robot; tools/local_up.py --sim gives simmgr this slot."""
+    return uuid5(NAMESPACE, f'{org_id}/sim-robot-1')
+
+
 def password_key(username):
     return 'FH_SEED_PASSWORD_' + username.upper().replace('-', '_')
 
@@ -99,7 +104,7 @@ def seed(database_url, org_id, files_root, admin_username, passwords, worlds=Non
                     db.flush()
                     event(db, org_id, 'USER_CREATED', admin.id, {'user_id': str(user.id), 'role': role})
             sync_worlds(db, org_id, admin.id, worlds or WORLD_FOLDER, files_root)
-            robot_id = uuid5(NAMESPACE, f'{org_id}/sim-robot-1')
+            robot_id = sim_robot_id(org_id)
             if db.get(Robot, robot_id) is None:
                 # Same shape as an unowned slot after a rejected start; no manager needed.
                 db.add(Robot(id=robot_id, org_id=org_id, name=SIM_ROBOT_NAME, model='unitree_go2',

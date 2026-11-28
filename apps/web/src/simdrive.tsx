@@ -88,11 +88,11 @@ const runText = (l: Link) => {
 /** STOP 결과 한 줄 — 보냈다는 것과 로봇이 알린 잠금을 나눠 쓴다(확인 안 된 «정지됨» 없음, F-COM-01) */
 export function stopText({ stop: p, link: l, step, slotBusy }: Sim) {
   if (!p) return '';
-  if (p.via === 'none') return '■ 로봇에 연결되지 않아 정지 명령을 보낼 길이 없습니다 — 로봇은 폰 입력이 끊기면 스스로 멈춥니다(실기 미검증). 현장 비상 정지 수단을 쓰세요.';
-  if (p.via === 'cleanup') return step === 'pick' ? '' : slotBusy ? '■ 로봇에 연결 전 — 명령 없음. 내 시뮬 로봇으로 확인되면 정리합니다.'
-    : step === 'checking' ? '■ 로봇에 연결 전 — 명령 없음. 정리를 확인하지 못했습니다 — 다시 끝내기를 누르세요.' : '■ 로봇에 연결 전 — 명령 없음, 정리 중입니다.';
+  if (p.via === 'none') return '■ 로봇에 연결되지 않아 정지 명령을 보낼 길이 없습니다. 로봇은 폰 입력이 끊기면 스스로 멈춥니다(실기 미검증). 현장 비상 정지 수단을 쓰세요.';
+  if (p.via === 'cleanup') return step === 'pick' ? '' : slotBusy ? '■ 로봇에 연결 전 · 명령 없음. 내 시뮬 로봇으로 확인되면 정리합니다.'
+    : step === 'checking' ? '■ 로봇에 연결 전 · 명령 없음. 정리를 확인하지 못했습니다. 다시 끝내기를 누르세요.' : '■ 로봇에 연결 전 · 명령 없음, 정리 중입니다.';
   const st = l?.st;
-  if (!st || l!.stAt <= p.at) return '■ 정지 요청을 로봇에 보냈습니다. 로봇 확인을 기다립니다.';
+  if (!st || l!.stAt <= p.at) return '■ 정지 요청을 직결로 로봇에 보냈습니다(서버를 거치지 않음). 로봇 확인을 기다립니다.';
   if (!st.latched) return '■ 정지 요청을 보냈지만 로봇이 아직 잠금을 알리지 않았습니다.';
   // 빈 applied = 출력 보고 없음(현장 승인 닫힘 등) · [].every 는 참이라 따로
   if (!st.applied?.length) return '▲ 정지 잠금 · 멈춤 출력은 확인되지 않았습니다 (현장 승인이 닫혀 있을 수 있음). 리모컨이나 현장에서 멈추세요.';

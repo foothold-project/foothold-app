@@ -754,7 +754,7 @@ describe('시뮬 직결 실패', () => {
     expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.path)).toEqual([`/simulation/robots/${S1}`]);
   });
 
-  it('띄우는 중 STOP → 서버 stop 0·다른 로봇(rt) stop 0, 문구 «연결 전 — 명령 없음», 201 이 오면 바로 DELETE 1·연결 0', async () => {
+  it('띄우는 중 STOP → 서버 stop 0·다른 로봇(rt) stop 0, 문구 «연결 전 · 명령 없음», 201 이 오면 바로 DELETE 1·연결 0', async () => {
     let answer!: (r: Reply) => void;
     serve({ 'POST /simulation/robots': () => new Promise<Reply>((f) => { answer = f; }) });
     await mount();
@@ -762,7 +762,7 @@ describe('시뮬 직결 실패', () => {
     expect($('[data-sim="starting"]')).toBeTruthy();
     const before = FakeWS.all.map((w) => w.sent.length);
     await click($('[data-stop]'));
-    expect($('[data-sim-stop]')!.textContent).toContain('로봇에 연결 전 — 명령 없음, 정리 중');
+    expect($('[data-sim-stop]')!.textContent).toContain('로봇에 연결 전 · 명령 없음, 정리 중');
     expect(FakeWS.all.every((w, i) => w.sent.length === (before[i] ?? 0))).toBe(true);   // rt 등 다른 연결로 stop 0
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false);   // 답 전에는 지울 대상이 확정되지 않음
     mine = [simRobot()];

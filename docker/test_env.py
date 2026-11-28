@@ -38,3 +38,17 @@ def test_compose_host_ports_all_from_env_and_seed_passed():
     assert published and all(re.fullmatch(r'127\.0\.0\.1:\$\{FH_\w+_PORT:-\d+\}:\d+', p) for p in published)
     for key in ('FH_SEED', *(seed.password_key(name) for name, *_ in seed.ACCOUNTS)):
         assert re.search(rf'^\s+{key}: \$\{{{key}:-', compose, re.M), key
+
+
+def test_sim_assets_mounted_read_only_from_env():
+    compose = (REPOSITORY / 'compose.yaml').read_text()
+    web = compose[compose.index('\n  web:'):compose.index('\nvolumes:')]
+    mounts = [m for m in re.findall(r"^\s+- (.+)$", web, re.M) if 'FH_SIM_ASSETS' in m]
+    assert len(mounts) == 1
+    # Blank: the empty named volume (assets are optional; only /sim/ is missing).
+    assert re.fullmatch(r"'?\$\{FH_SIM_ASSETS:-no_sim_assets\}:/workspace/sim-assets:ro'?", mounts[0]), mounts
+    assert re.search(r'^  no_sim_assets:$', compose[compose.index('\nvolumes:'):], re.M)
+    assert re.search(r'^\s+FH_SIM_ASSETS: /workspace/sim-assets$', web, re.M)
+    # The production asset place is not touched by the local stack.
+    assert '/var/lib/foothold/sim-policy' not in compose
+    assert example()['FH_SIM_ASSETS'] == ''
