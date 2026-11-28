@@ -180,6 +180,15 @@ describe('관제 탭', () => {
     expect([...labelsBelow([{ id: 'k2', x: 100, y: 120, w: 40 }, { id: 'k4', x: 102, y: 108, w: 40 }])]).toEqual(['k2']);   // 위쪽 K-04 는 위 · 아래쪽 K-02 는 아래
     expect(labelsBelow([{ id: 'a', x: 0, y: 100, w: 40 }, { id: 'b', x: 80, y: 100, w: 40 }]).size).toBe(0);
   });
+  it('시뮬 파랑(팀장 02:07): 임무 중 시뮬 배지 글 · 점 = --u5-sim, 이름 옆 «시뮬» 태그도 --u5-sim(어둠 #4C9BFF · 밝음 #2F6FE0 = foothold-brand sim 토큰)', () => {
+    const L: Robot[] = EIGHT.map((r) => (r.id === 'k8' ? { ...r, online: true, status: 'RUNNING' as const } : r));   // EIGHT 의 k8 은 꺼진 시뮬 · 붙은 임무 중 시뮬로
+    mount('u-kim', L); feed(L, { k8: RUN() });
+    const b = tile('k8').querySelector<HTMLElement>('[data-badge="simrun"]')!;
+    expect(b.textContent).toBe('시뮬 중'); expect(b.style.color).toBe('var(--u5-sim)');
+    expect(b.querySelector<HTMLElement>(':scope > i')!.style.background).toBe('var(--u5-sim)');
+    expect(u5Css).toContain('.u5 .chip.sim{border-style:dashed;border-color:var(--u5-sim);color:var(--u5-sim)}');
+    expect(u5Css).toMatch(/\.u5\{[^}]*--u5-sim:#4C9BFF/); expect(u5Css).toMatch(/\.proto\.light \.u5\{[^}]*--u5-sim:#2F6FE0/);
+  });
   it('배치: 4 대 이하 2×2 (u5_6), 8 대 이하 4×2 (u5_1), 22 대 = 줄인 칸이 1472×900 안에 다 들어감', () => {
     expect(wallGrid(3)).toEqual({ cols: 2, rows: 2, zoom: 1 });
     expect(wallGrid(8)).toEqual({ cols: 4, rows: 2, zoom: 1 });
