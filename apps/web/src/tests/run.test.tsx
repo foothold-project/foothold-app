@@ -89,12 +89,12 @@ async function connectAgain() {
   await recv(a, welcome());
   return a;
 }
-/** 조종 시작 → 잠금 해제(state latched=false) */
+/** 조종 → 다시 시작 → 일어서기(state latched=false). PC 시뮬 탭(screens/sim.tsx)은 아직 옛 글 「조종 시작」 · 「잠금 해제」 */
 async function ready(a: FakeWS, run: object | null = null) {
   await recv(a, phoneState({ run }));
-  await click(btn('조종 시작'));
+  await click(btn('조종') ?? btn('조종 시작'));
   await recv(a, phoneState({ ...held, run }));
-  await click(btn('잠금 해제'));
+  if (btn('잠금 해제')) await click(btn('잠금 해제')); else { await click(btn('다시 시작')); await click($('[data-restart-go]')); }
   await recv(a, phoneState({ ...held, latched: false, run }));
 }
 /** 폰: 시나리오 띠(닫혀 있으면 메뉴 → «시나리오», 열려 있으면 메뉴 단추로 닫기) */

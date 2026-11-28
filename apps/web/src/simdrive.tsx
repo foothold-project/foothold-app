@@ -8,6 +8,7 @@ import { useOrbit, viewBlock } from './extview';
 import { DEAD, HELD_RUN, RESULT, RUN_END, SAFE_NOTICE, allowed, runHolds, runMoving, sim, stopping, tuned, useSim, velocity, type Sim } from './phone';
 import { runView, startBlock, startFloor, useScenarios } from './run';
 import { Sheet, Stick } from './drive';
+import { RestartAskBox, useRestartAsk } from './robotact';
 import { inputGen, metaCut } from './rt';
 import { Chip, inApp } from './screens';
 import { typing, useStopPress } from './App';
@@ -284,6 +285,7 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
   const s = useSim(), l = s.link!, r = s.robot!, st = l.st, w = l.welcome;
   useDeadline(!!r.expires_at);
   const open = l.at === 'open', mine = !!l.lease, ready = open && mine && st?.latched === false;
+  const restart = useRestartAsk(() => { const k = sim.get().link; return { mine: k?.at === 'open' && !!k.lease, latched: k?.st?.latched, gen: k?.st?.stop_gen, lease: k?.lease }; });   // 「다시 시작」 확인 창(u4_10 · reviewer H1 묶음)
   const input = useRef<[number, number, number]>([0, 0, 0]);   // [전후, 회전, 옆]
   // 입력 세대(rt inputGen — 실기 drive.tsx 와 같은 규칙): 키(e.code)·스틱 손가락마다 누른 순간의 세대. 잠김·해제·조종권·stop_gen·연결·STOP·숨김·live 가 바뀌거나 blur 면 +1.
   // 앞 세대 입력이 아직 눌려 있으면 명령 전체 0 — 떼었다가 다시 눌러야 한다. sg = 스틱마다 잡은 손가락의 세대(없으면 null)
@@ -391,8 +393,8 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
     <button key="rel" type="button" className="btn pri" onClick={leave}>다시 반납</button>,
     l.at === 'closed' && <button key="re" type="button" className="btn" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>,
   ].filter(Boolean) : [
-    open && !mine && <button key="take" type="button" className="btn pri" disabled={l.busy === 'take' || runHolds(l)} onClick={() => sim.take()}>조종 시작</button>,
-    open && mine && st?.latched !== false && <button key="unlock" type="button" className="btn pri" disabled={l.busy === 'unlock'} onClick={() => sim.unlock()}>잠금 해제</button>,
+    open && !mine && <button key="take" type="button" className="btn pri" disabled={l.busy === 'take' || runHolds(l)} onClick={() => sim.take()}>조종</button>,
+    open && mine && st?.latched !== false && <button key="unlock" type="button" className="btn pri" disabled={l.busy === 'unlock'} onClick={restart.open}>다시 시작</button>,
     l.at === 'closed' && <button key="re" type="button" className="btn pri" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>,
     open && left < 60 && <button key="pass" type="button" className="btn" onClick={() => sim.connect()}>{moving ? '새 출입증으로 다시 연결(실행 일시정지)' : '새 출입증으로 다시 연결'}</button>,
     open && !mine && !(left < 60) && relink(cam) && <button key="media" type="button" className="btn" data-media-again onClick={() => sim.connect()}>영상 다시 받기</button>,   // 조종 중이면 다시 연결이 조종을 끊으므로 내지 않음
@@ -459,6 +461,7 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
         {acts && acts.length > 0 && <div className="fh-row">{acts}</div>}
         <HeldRun />
       </div>}
+      {restart.live && <RestartAskBox name={short(r.robot_id)} cancel={restart.close} go={() => restart.go(() => sim.unlock())} />}
       {l.ask && mine && <TakeoverAsk id="sim-ask-t" title="다른 사람이 이 시뮬 로봇의 조종권을 요청했습니다" give={() => sim.respond(true)} keep={() => sim.respond(false)} />}
       {mine && open && <><Stick label="전후" both on={live} epoch={+live} gen={gen} press={sync} grip={(o) => { sg.current[0] = o; }} lift={push} set={(v, y) => { put(2, y); put(0, v); }}>
           <Arrows on={{ up: true, down: can.back, left: can.left, right: can.right }} /></Stick>
