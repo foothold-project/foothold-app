@@ -42,6 +42,8 @@ def frame(raw, robot):
     optional = {'proto'}
     if kind == 'stop':
         optional.add('request_id')
+    if kind == 'hello':
+        optional.add('display_name')  # display only (11/28)
     if kind == 'run.start':
         optional.add('assignment_id')
     if kind == 'run.control':
@@ -55,6 +57,9 @@ def frame(raw, robot):
     if ('proto' in value and value['proto'] != PROTO) or kind == 'hello' and value.get('proto') != PROTO:
         raise ValueError('PROTOCOL_MISMATCH')
     if kind == 'hello' and (not isinstance(value['ticket'], str) or not 1 <= len(value['ticket']) <= 2048):
+        raise ValueError('VALIDATION')
+    if kind == 'hello' and 'display_name' in value and (
+            not isinstance(value['display_name'], str) or not 1 <= len(value['display_name']) <= 64):
         raise ValueError('VALIDATION')
     for key in ('device', 'request_id', 'run_id', 'screen_id', 'scenario_id', 'floor_id', 'map_version_id', 'assignment_id', 'lease_id'):
         if key in value and value[key] != uuid(value[key]):

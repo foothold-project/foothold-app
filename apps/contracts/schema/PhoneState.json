@@ -1194,6 +1194,54 @@
       "title": "RobotResponseHealth",
       "type": "object"
     },
+    "RunCommandResult": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 64,
+          "title": "Code",
+          "type": "string"
+        },
+        "op": {
+          "enum": [
+            "start",
+            "pause",
+            "resume",
+            "abort"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "SUCCEEDED",
+            "REJECTED"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "op",
+        "run_id",
+        "status",
+        "code"
+      ],
+      "title": "RunCommandResult",
+      "type": "object"
+    },
     "RunSnapshot": {
       "additionalProperties": false,
       "properties": {
@@ -1499,6 +1547,33 @@
       ],
       "default": null
     },
+    "holder_name": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Holder Name"
+    },
+    "holder_type": {
+      "anyOf": [
+        {
+          "enum": [
+            "USER",
+            "RUN"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Holder Type"
+    },
     "latched": {
       "title": "Latched",
       "type": "boolean"
@@ -1594,6 +1669,17 @@
       "anyOf": [
         {
           "$ref": "#/$defs/RunSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "run_result": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RunCommandResult"
         },
         {
           "type": "null"
@@ -1770,7 +1856,9 @@
     "wall_time_ms",
     "sim_time_s",
     "sim_wall_delta_s",
-    "simulation"
+    "simulation",
+    "holder_type",
+    "holder_name"
   ],
   "title": "PhoneState",
   "type": "object"

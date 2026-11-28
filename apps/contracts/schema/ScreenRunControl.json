@@ -1,0 +1,64 @@
+{
+  "$id": "fh-app/1/ScreenRunControl",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "lease_id": {
+      "format": "uuid",
+      "title": "Lease Id",
+      "type": "string"
+    },
+    "op": {
+      "enum": [
+        "pause",
+        "resume",
+        "abort"
+      ],
+      "title": "Op",
+      "type": "string"
+    },
+    "proto": {
+      "const": "fh-rt/1",
+      "description": "첫 메시지는 필수, 후속은 생략 가능; null은 거부한다.",
+      "title": "Proto",
+      "type": "string"
+    },
+    "robot": {
+      "format": "uuid",
+      "title": "Robot",
+      "type": "string"
+    },
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "screen_id": {
+      "format": "uuid",
+      "title": "Screen Id",
+      "type": "string"
+    },
+    "t": {
+      "const": "run.control",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "robot",
+    "t",
+    "lease_id",
+    "run_id",
+    "screen_id",
+    "op"
+  ],
+  "title": "ScreenRunControl",
+  "type": "object"
+}
