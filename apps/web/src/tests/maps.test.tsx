@@ -2311,7 +2311,7 @@ describe('구역 지키기 — 지도 편집', () => {
     await click(btn('저장', $('.mx-bar')!)); await save();
     const ask = () => $('[data-overlap]');
     expect(ask()!.textContent).toContain('시나리오 동선과 겹칩니다. 시나리오를 수정하시겠습니까?');
-    expect([...ask()!.querySelectorAll('li')].map((l) => l.textContent)).toEqual(['1층 순찰 — 지점이 구역 안 · 길이 구역을 지남', '야간 점검 — 길이 구역을 지남']);
+    expect([...ask()!.querySelectorAll('li')].map((l) => l.textContent)).toEqual(['1층 순찰, 지점이 구역 안 · 길이 구역을 지남', '야간 점검, 길이 구역을 지남']);
     expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(0);     // 묻는 동안은 저장하지 않음
     await click($('[data-overlap-no]'));
     expect(ask()).toBeNull(); expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(0);
