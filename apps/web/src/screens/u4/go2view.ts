@@ -120,7 +120,7 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
     const l = !!canvas.closest('.light'); if (l === lit) return; lit = l;
     grid.traverse((o) => { const m = (o as THREE.Points).material as THREE.ShaderMaterial | undefined; if (!m?.uniforms?.col) return;
       m.blending = l ? THREE.NormalBlending : dark.blend; m.uniforms.col.value.copy(l ? mint : dark.col); m.needsUpdate = true; });
-    shadow.material.opacity = l ? 0.18 : 0.35;
+    shadow.material.opacity = l ? 0.07 : 0.35;   // 흰 바탕에서 0.18 은 큰 회색 원으로 보임
     pools.forEach((o) => { o.visible = !l; });
   };
   const clock = new THREE.Clock(); let t = 0.35, off = 0, raf = 0;

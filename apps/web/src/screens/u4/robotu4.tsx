@@ -158,7 +158,7 @@ function MapView({ c, r, b, run, route, onFactory }: { c: Ctx; r: Robot; b: Boar
       {wps.map(({ w, i }) => { const p = at(w.x, w.y), ok = nx != null && i < nx; return <g key={i} transform={`translate(${p[0].toFixed(0)},${p[1].toFixed(0)})`} data-u4-wp={i + 1} data-done={ok || undefined}>
         <circle r="15" fill="#0b0e12" stroke={ok ? '#00c389' : 'rgba(255,255,255,.55)'} strokeWidth="2.5" />
         <text y="5" textAnchor="middle" fontSize="14" fontWeight="800" fill={ok ? '#00c389' : '#fff'}>{i + 1}</text></g>; })}
-      {others.map(({ x, p }) => <g key={x.id} transform={`translate(${p[0].toFixed(0)},${p[1].toFixed(0)})`}>
+      {others.map(({ x, p }) => <g key={x.id} data-u4-other transform={`translate(${p[0].toFixed(0)},${p[1].toFixed(0)})`}>
         <circle r="9" fill={x.online ? '#9aa4ae' : '#5e6662'} stroke="#0b0e12" strokeWidth="3" />
         <text x="16" y="5" fontSize="15" fontWeight="700" fill="#cfd6dc">{`${x.name} · ${railLine(x, c.user.id).split(' · ')[1] ?? ''}`}</text></g>)}
       {me && <g id="me" transform={`translate(${me[0].toFixed(1)},${me[1].toFixed(1)}) rotate(${yaw == null ? 0 : (-yaw * 180 / Math.PI).toFixed(1)})`}>
