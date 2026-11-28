@@ -56,3 +56,7 @@
 /* 종 칸 바탕: 시안 u5 에는 종 펼침 화면이 없어 시안 창 유리(u11 .modal)에서 출발하되 뒤 글이 비치지 않게 거의 불투명 + 흐림 */
 .proto .bar details.ap-bell>.card{background:linear-gradient(180deg,rgba(250,251,250,.98),rgba(242,244,243,.97))!important;backdrop-filter:blur(30px) saturate(1.6)!important;-webkit-backdrop-filter:blur(30px) saturate(1.6)!important}
 .proto .bar details.ap-bell>.card li>button{background:#fff!important}
+/* 종 칸 스크롤 0(팀장 «어떤 모니터도 스크롤 0»): 최근 BELL_TOP 건 · 글은 두 줄까지 · 넘친 건수는 아래 「기록에서 모두 보기」 */
+.proto .bar details.ap-bell>.card{overflow:hidden!important}
+.proto .bar details.ap-bell>.card li>button>.fh-grow{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.proto .bar details.ap-bell>.card .ap-bell-all{align-self:center;font-size:12.5px;font-weight:800;color:#0E7F63;text-decoration:none;padding:6px 10px}

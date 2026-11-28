@@ -355,6 +355,8 @@ export const BELL_MS = 15_000;
 /** 알림 종(F-COM-03, PC 머리줄): 안 읽은 수 배지 + 펼치면 최근 20개. 누르면 읽음 처리하고 그 기록으로 간다.
  *  못 받으면 이전 값 그대로 · 실패 글은 펼친 칸 안에만 */
 /** face = 종 겉모양을 바꿀 때(PC 시안 머리줄 · proto/bar BellFace), pop = 펼친 칸에 더할 class(시안 틀 밖 옛 색 변수 .fh · 테마) — 받기 · 읽음 · 차림 동작은 그대로 */
+/** PC 머리줄 종 칸에 보이는 최근 알림 수. 무대(1920 × 1080) 안 칸 높이 640 에 스크롤 없이 들어가는 수, 나머지는 기록 탭에서 */
+const BELL_TOP = 5;
 export function Bell({ cancel, face, pop }: { cancel?: AbortSignal; face?: (unread: number) => ReactNode; pop?: string }) {
   const [list, setList] = useState<NotificationList | null>(null), [err, setErr] = useState('');
   const box = useRef<HTMLDetailsElement>(null), get = useRef(() => {});
@@ -401,8 +403,9 @@ export function Bell({ cancel, face, pop }: { cancel?: AbortSignal; face?: (unre
       {err && <div className="fh-row"><p className="fh-msg" role="alert">{err}</p><button type="button" className="btn" onClick={() => get.current()}>다시 시도</button></div>}
       {list && !list.items.length && <p className="lv-note">알림이 없습니다.</p>}
       {!list && !err && <p className="lv-note" role="status">알림을 불러오는 중…</p>}
-      {!!list?.items.length && <ul className="fh-list">{list.items.map((x) => <li key={x.id}><button type="button" onClick={() => open(x)} data-unread={!x.read_at || undefined}>
+      {!!list?.items.length && <ul className="fh-list">{(face ? list.items.slice(0, BELL_TOP) : list.items).map((x) => <li key={x.id}><button type="button" onClick={() => open(x)} data-unread={!x.read_at || undefined}>
         {!x.read_at && <Chip tone="ok" text="새 알림" />}<span className="fh-grow" style={WRAP}><b>{x.title}</b> {sentence(x.body)}</span><span className="lbl">{when(x.created_at)}</span></button></li>)}</ul>}
+      {face && list && list.items.length > BELL_TOP && <a className="ap-bell-all" href="#/history" onClick={() => { if (box.current) box.current.open = false; }} data-bell-all>최근 {BELL_TOP} 건만 보입니다 · 기록에서 모두 보기</a>}
     </div>
   </details>;
 }
