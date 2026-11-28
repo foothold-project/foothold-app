@@ -18,6 +18,12 @@ import mapscenCss from '../screens/mapscen.css?raw';
 import { FakeWS } from './fakeWs';
 import { keptMission } from '../screens/missiontab';
 
+// 데모 현장 3D(u7/site3d)의 시안 GLB 받기: jsdom 의 fetch 는 three FileLoader 의 신호를 못 받아 처리 안 된 오류를 낸다 → 받기 실패로(그리기는 site3d.test · 사진)
+vi.mock('three/examples/jsm/loaders/GLTFLoader.js', async (orig) => {
+  const m = await orig<typeof import('three/examples/jsm/loaders/GLTFLoader.js')>();
+  class L extends m.GLTFLoader { load(...[, , , bad]: Parameters<InstanceType<typeof m.GLTFLoader>['load']>) { queueMicrotask(() => bad?.(new Error('jsdom'))); } }
+  return { ...m, GLTFLoader: L };
+});
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const KIM: User = { id: 'a1', username: 'kim', display_name: '김총괄', role: 'ORG_ADMIN', locked: false, robot_ids: [], created_at: '2026-10-19T00:00:00Z' };
@@ -2430,11 +2436,20 @@ describe('지도 탭 · 시안 u7', () => {
     expect(box.querySelector('[data-factory]')).toBeNull();   // 실제 현장(REAL) = 서버 판 그대로
     await click(sites.querySelector('[data-building="b9"]'));
     expect(card('층 목록').querySelector('.mx-thumb [data-factory]')!.getAttribute('href')).toBe(FACTORY_PNG);   // 데모 판 = 시안 공장 그림(썸네일 · 미리 보기 · 층 화면)
-    expect(card('미리 보기').querySelector('[data-factory]')).not.toBeNull();
+    expect(card('미리 보기').querySelector('[data-site3d="preview"]')).not.toBeNull();   // 미리 보기 = 시안 u7_1 「3D 보기 · 미리 보기」(시안 공장 모형)
+    expect(card('미리 보기').querySelector('[data-tag3d]')!.textContent).toBe('3D 보기 · 미리 보기');
     await click($('[data-open-map]'));
     expect(card('지도 보기').querySelector('h2')!.textContent).toBe('시안 공장 터 큰 공장 1층');
     expect(card('지도 보기').querySelector('[data-map] [data-factory]')).not.toBeNull();
     expect(card('지도 보기').querySelector('[data-scale]')).toBeNull();   // 공장 그림에 박힌 축척 하나만(시안 u7_3)
+    // 3D 보기(시안 u7_4): 판에 서버 모형(model_sha256)이 없어도 데모 판은 시안 공장 모형 · 보이기는 금지 구역 하나 · 2D 보기로 돌아옴
+    const tog = (k: string) => $(`[data-model-toggle="${k}"]`)!;
+    expect([tog('2D').textContent, tog('3D').textContent]).toEqual(['2D 보기', '3D 보기']);
+    await click(tog('3D'));
+    expect($('[data-site3d="view"]')).not.toBeNull(); expect($('[data-map3d]')).toBeNull();
+    expect([...box.querySelectorAll('[data-map-layer]')].map((x) => x.textContent)).toEqual(['금지 구역']);
+    await click(tog('2D'));
+    expect($('[data-site3d]')).toBeNull(); expect(card('지도 보기').querySelector('[data-map] [data-factory]')).not.toBeNull();
     expect($('[aria-label="보기·편집"]')).toBeNull();
     expect($('[data-demo-ro]')!.textContent).toBe(SIM_SAVE);
     expect(box.textContent).not.toContain('«편집»');
