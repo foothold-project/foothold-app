@@ -71,7 +71,7 @@ services:
       - ./deploy/prepare_sim.py:/workspace/deploy/prepare_sim.py:ro
       # 저장소의 정책 ONNX(assets/sim-policy). 자산 묶음에 없는 것만 prepare_sim 이 SHA 로 확인해 쓴다.
       - ./assets/sim-policy:/workspace/assets/sim-policy:ro
-      # 비공개 시뮬 자산(ORT · MuJoCo · Go2 모형 · policy_v2). 저장소 밖 폴더를 읽기 전용으로만 붙인다.
+      # 비공개 시뮬 자산(ORT · MuJoCo · Go2 모형). 저장소 밖 폴더를 읽기 전용으로만 붙인다.
       # 비어 있으면 빈 볼륨이 붙고 시뮬만 빠진다(/sim/ 은 안내 화면).
       - '${FH_SIM_ASSETS:-no_sim_assets}:/workspace/sim-assets:ro'
     depends_on:

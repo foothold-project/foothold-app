@@ -11,7 +11,7 @@
 
 두 파일은 공개 저장소 foothold-lab 의 `inbox/jay/20261103-policy-handoff/start-m15500-app` 와 SHA-256 이 같고, 실기 실행기가 고정한 SHA 와도 같다. 정답/복원은 map_on + use_gt true/false, 끔은 map_off 이다. ONNX 전용이며 f32 되돌림이 없다.
 
-**정책 자리: 저장소에 둠.** `assets/sim-policy/` 에 m15500 두 파일과 `ame2-demo.onnx` 를 `SHA256SUMS` 와 함께 둔다. `deploy/prepare_sim.py` 는 자산 묶음에 같은 이름의 파일이 있으면 묶음을 먼저 쓰고 (묶음 사본이 틀리면 저장소 사본으로 바꾸지 않고 그 정책만 뺀다), 없으면 저장소 사본을 쓴다. 저장소 사본은 `SHA256SUMS` 의 값과 아래 고정 SHA 가 같고 파일도 그 값일 때만 `/sim/` 으로 복사한다. 하나라도 다르면 그 정책만 빼고 경고한다. MuJoCo · onnxruntime-web · Go2 모형 · `policy_v2.f32` · `policy_v2.onnx` 는 저장소에 두지 않고 지금처럼 자산 묶음에서 SHA 로 확인해 받는다. 그래서 묶음이 없으면 저장소 정책만으로는 시뮬이 뜨지 않고 `/sim/` 은 안내 화면이다. 시험 벡터는 커밋하지 않는다. 운영 서버는 `/var/lib/foothold/sim-policy` 를 그대로 쓴다 (배포 묶음에 `assets/` 를 넣지 않으므로 저장소 사본 길은 로컬 · Docker 에서만 쓰인다).
+**정책 자리: 저장소에 둠.** `assets/sim-policy/` 에 m15500 두 파일과 `ame2-demo.onnx` 를 `SHA256SUMS` 와 함께 둔다. `deploy/prepare_sim.py` 는 자산 묶음에 같은 이름의 파일이 있으면 묶음을 먼저 쓰고 (묶음 사본이 틀리면 저장소 사본으로 바꾸지 않고 그 정책만 뺀다), 없으면 저장소 사본을 쓴다. 저장소 사본은 `SHA256SUMS` 의 값과 아래 고정 SHA 가 같고 파일도 그 값일 때만 `/sim/` 으로 복사한다. 하나라도 다르면 그 정책만 빼고 경고한다. MuJoCo · onnxruntime-web · Go2 모형은 저장소에 두지 않고 지금처럼 자산 묶음에서 SHA 로 확인해 받는다 (policy_v2 는 아래 nvidia-demo 절). 그래서 묶음이 없으면 저장소 정책만으로는 시뮬이 뜨지 않고 `/sim/` 은 안내 화면이다. 시험 벡터는 커밋하지 않는다. 운영 서버는 `/var/lib/foothold/sim-policy` 를 그대로 쓴다 (배포 묶음에 `assets/` 를 넣지 않으므로 저장소 사본 길은 로컬 · Docker 에서만 쓰인다).
 
 ### 입출력 계약 (m13000 과 비교)
 
@@ -48,7 +48,7 @@ start는 추론 중이고 `stats.slow`로 시뮬 지연이 확인될 때만 그�
 
 앱 시뮬 모드 id·메뉴 이름은 `nvidia-demo`이며, 옛 URL 값 `foothold-v2`는 별칭으로 받는다. 원본 모델·파일 이름과 해시는 유지한다.
 
-운영 결정 2026-11-28: nvidia-demo 는 더 이상 고르지 않는다. 웹 시뮬의 고르기 목록과 기본값은 START (m15500) · AME-2 이고 기본은 START 다 (`mobile/sim/policy-modes.js` 의 `PICK_POLICY_IDS` · `DEFAULT_PICK_POLICY_ID` · `pickPolicyId`, 웹 설정은 `apps/web/src/screens/settings.tsx` 의 `SIM_MODELS`). 옛 링크 `?policy=nvidia-demo` · `foothold-v2` 는 START 로 연다. 계약의 `model_overrides` 는 저장된 nvidia-demo 값을 그대로 읽지만 새 값은 받지 않고 지우기 (null) 만 받는다. `policy_v2.onnx` · `policy_v2.f32` 는 저장소 `assets/policy-v2/` 에 보관만 하며 (아래 SHA-256 과 같음) prepare_sim · compose · 웹 · 서버 어디서도 그 폴더를 읽지 않는다. 자산 묶음의 `policy_v2.f32` 는 지금처럼 `/sim/` 준비의 필수 파일로 남아 있다 (Node 핵심 `sim.js` 와 simmgr 가 아직 nvidia-demo 를 기본으로 쓰기 때문이며, 그 교체는 따로 한다).
+운영 결정 2026-11-28: nvidia-demo 는 더 이상 고르지 않는다. 웹 시뮬의 고르기 목록과 기본값은 START (m15500) · AME-2 이고 기본은 START 다 (`mobile/sim/policy-modes.js` 의 `PICK_POLICY_IDS` · `DEFAULT_PICK_POLICY_ID` · `pickPolicyId`, 웹 설정은 `apps/web/src/screens/settings.tsx` 의 `SIM_MODELS`). 옛 링크 `?policy=nvidia-demo` · `foothold-v2` 는 START 로 연다. 계약의 `model_overrides` 는 저장된 nvidia-demo 값을 그대로 읽지만 새 값은 받지 않고 지우기 (null) 만 받는다. `policy_v2.onnx` · `policy_v2.f32` 는 저장소 `assets/policy-v2/` 에 보관만 하며 (아래 SHA-256 과 같음) prepare_sim · compose · 웹 · 서버 어디서도 그 폴더를 읽지 않는다. `deploy/prepare_sim.py` 도 policy_v2 를 쓰지 않는다. 자산 묶음에 `policy_v2.f32` · `policy_v2.onnx` 가 있어도 확인하거나 `/sim/` 에 싣지 않고, 없어도 `/sim/` 은 START · AME-2 로 준비된다 (이전에는 `policy_v2.f32` 가 없거나 SHA 가 다르면 `/sim/` 전체를 뺐다). Node 핵심 `sim.js` 와 simmgr 는 아직 nvidia-demo 를 기본으로 쓰며 자기 자산 폴더에서 읽는다. 그 교체는 따로 한다.
 
 2026-10-29, 기준 `origin/dev` = `468715b2f78d39d38fc9124bd8cbc05fa12d36bf`.
 MVP `foothold-v2`의 LFS oid·모델 카드와 10월 12일 내보내기의 원본 SHA-256이 같다.

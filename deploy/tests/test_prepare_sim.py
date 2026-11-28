@@ -18,7 +18,6 @@ def bundle(tmp_path, monkeypatch):
     (source / "index.html").write_text("<html>sim</html>")
     (source / "maps.json").write_text("[]")
     for name, content in {
-        "policy_v2.f32": b"test policy",
         "vendor/three.module.js": b"three", "vendor/three.core.js": b"core",
         "vendor/LICENSE": b"license", "mujoco/mujoco.js": b"js",
         "mujoco/mujoco.wasm": b"\x00asm",
@@ -30,7 +29,6 @@ def bundle(tmp_path, monkeypatch):
         path = private / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
-    monkeypatch.setattr(prepare_sim, "POLICY_SHA", hashlib.sha256(b"test policy").hexdigest())
     # The checked-in policies stay out of these cases unless a test fills this folder.
     monkeypatch.setattr(prepare_sim, "REPO_POLICY", tmp_path / "repo-policy")
     return source, private, dist
@@ -40,23 +38,43 @@ def test_release_contains_sim_runtime_policy_and_wasm_mime(bundle):
     source, private, dist = bundle
     assert prepare_sim.package(*bundle)
     assert all((dist / "sim" / name).is_file() for name in (
-        "index.html", "mujoco/mujoco.wasm", "policy_v2.f32", "maps.json",
+        "index.html", "mujoco/mujoco.wasm", "maps.json",
         "assets/unitree_go2/assets/body.obj", "vendor/three.module.js")) and (
         mimetypes.guess_type(str(dist / "sim/mujoco/mujoco.wasm"))[0] == "application/wasm")
     assert not (dist / "sim/ame2_actor.f32").exists()
 
 
-def test_missing_policy_keeps_web_and_warns(bundle, capsys):
+def test_policy_v2_in_bundle_is_not_connected(bundle, capsys):
+    """Operating decision 2026-11-28: policy_v2 is neither required nor published to /sim/."""
+    source, private, dist = bundle
+    pins = adapter_pins()
+    assert set(pins) == {"policy_v2.f32", "policy_v2.onnx"}
+    (private / "policy_v2.f32").write_bytes(b"f32")
+    (private / "policy_v2.onnx").write_bytes(b"onnx")
+    assert prepare_sim.package(*bundle)
+    assert not (dist / "sim/policy_v2.f32").exists() and not (dist / "sim/policy_v2.onnx").exists()
+    assert "policy_v2" not in capsys.readouterr().err
+    assert not hasattr(prepare_sim, "POLICY_SHA") and "policy_v2.onnx" not in prepare_sim.ONNX_SHA
+
+
+def adapter_pins():
+    """policy_v2 SHAs as the (no longer offered) nvidia-demo adapter records them."""
+    text = (Path(__file__).resolve().parents[2] / "mobile/sim/policy-adapters.js").read_text()
+    import re
+    return {name: digest for name, digest in re.findall(r"file: '(policy_v2\.(?:f32|onnx))', sha256: '([0-9a-f]{64})'", text)}
+
+
+def test_missing_runtime_keeps_web_and_warns(bundle, capsys):
     source, private, dist = bundle
     (dist / "index.html").write_text("web")
-    (private / "policy_v2.f32").unlink()
+    (private / "mujoco/mujoco.wasm").unlink()
     assert not prepare_sim.package(*bundle)
     assert (dist / "index.html").read_text() == "web"
     assert not (dist / "sim").exists()
     assert "web only" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("name", ["policy_v2.f32", "vendor/three.module.js"])
+@pytest.mark.parametrize("name", ["mujoco/mujoco.wasm", "vendor/three.module.js"])
 def test_linked_private_input_rejected(bundle, name):
     source, private, dist = bundle
     path = private / name
@@ -68,7 +86,7 @@ def test_linked_private_input_rejected(bundle, name):
 
 @pytest.mark.parametrize("name,content", [
     ("mujoco/package.json", b'{"name":"@mujoco/mujoco","version":"999"}'),
-    ("policy_v2.f32", b"changed"),
+    ("mujoco/package.json", b'{"name":"other","version":"3.17.0"}'),
 ])
 def test_hash_and_mujoco_version_mismatch_keep_web(bundle, capsys, name, content):
     source, private, dist = bundle
@@ -107,8 +125,7 @@ def test_complete_ame2_pair_verified_and_incomplete_pair_omitted(bundle, monkeyp
 def test_onnx_hashes_match_provenance_and_browser_contract():
     root = Path(__file__).resolve().parents[2]
     adapters = (root / "mobile/sim/policy-adapters.js").read_text()
-    for name, document in (("ame2-demo.onnx", "AME2-PROVENANCE.md"),
-                           ("policy_v2.onnx", "POLICY-PROVENANCE.md")):
+    for name, document in (("ame2-demo.onnx", "AME2-PROVENANCE.md"),):
         digest = prepare_sim.ONNX_SHA[name]
         assert digest in (root / "docs" / document).read_text()
         assert digest in adapters
@@ -131,14 +148,13 @@ def test_optional_onnx_preserves_f32_simulator(bundle, monkeypatch, capsys, stat
     })
     # An old build and archived unverified model cannot bypass private SHA checks.
     (dist / "sim").mkdir()
-    (dist / "sim/policy_v2.onnx").write_bytes(b"stale")
+    (dist / "sim/ame2-demo.onnx").write_bytes(b"stale")
     for name, data in models.items():
         (source / name).write_bytes(b"unverified archived model")
         if state != "missing":
             (private / name).write_bytes(data if state == "valid" else b"incorrect")
     (private / "ame2_actor_crop_test.onnx").write_bytes(b"never publish")
     assert prepare_sim.package(*bundle)
-    assert (dist / "sim/policy_v2.f32").read_bytes() == b"test policy"
     assert (dist / "sim/mujoco/mujoco.wasm").is_file()
     for name, data in models.items():
         path = dist / "sim" / name
@@ -149,7 +165,7 @@ def test_optional_onnx_preserves_f32_simulator(bundle, monkeypatch, capsys, stat
             assert not path.exists()
     assert not (dist / "sim/ame2_actor_crop_test.onnx").exists()
     warning = capsys.readouterr().err
-    assert ("policy_v2.onnx absent" in warning) == (state != "valid")
+    assert ("ame2-demo.onnx absent" in warning) == (state != "valid")
 
 
 @pytest.mark.parametrize("state", ["valid", "missing", "wrong-sha", "copy-missing"])
@@ -179,7 +195,7 @@ def test_optional_ort_is_complete_or_omitted_and_preserves_f32(bundle, monkeypat
 
         monkeypatch.setattr(prepare_sim.shutil, "copyfile", interrupted_copy)
     assert prepare_sim.package(*bundle)
-    assert (dist / "sim/policy_v2.f32").read_bytes() == b"test policy"
+    assert (dist / "sim/mujoco/mujoco.wasm").is_file()
     if state == "valid":
         assert {p.name for p in (dist / "sim/ort").iterdir()} == set(contents)
         for name, data in contents.items():
@@ -236,7 +252,7 @@ def test_security_violations_still_abort(bundle, monkeypatch, violation):
 @pytest.mark.parametrize("violation", ["fifo", "mesh-traversal"])
 def test_content_error_cannot_mask_security_violation(bundle, violation):
     source, private, dist = bundle
-    (private / "policy_v2.f32").write_bytes(b"wrong SHA")
+    (private / "mujoco/package.json").write_bytes(b'{"name":"@mujoco/mujoco","version":"999"}')
     if violation == "fifo":
         os.mkfifo(private / "unexpected-fifo")
     else:
@@ -272,7 +288,7 @@ def fake_models(monkeypatch):
 
 
 def checked_in(folder, models, names=REPO_NAMES):
-    """The repository folder: the three policies and their SHA256SUMS, no policy_v2."""
+    """The repository folder: the three policies and their SHA256SUMS."""
     folder.mkdir(exist_ok=True)
     for name in names:
         (folder / name).write_bytes(models[name])
@@ -289,11 +305,10 @@ def test_repo_policies_used_when_bundle_lacks_them(bundle, monkeypatch, capsys):
     for name in REPO_NAMES:
         assert (dist / "sim" / name).read_bytes() == models[name]
         assert (dist / "sim" / name).stat().st_mode & 0o777 == 0o644
-    # policy_v2 lives only in the bundle: just that policy is missing, with a notice.
-    assert not (dist / "sim/policy_v2.onnx").exists()
-    assert (dist / "sim/policy_v2.f32").read_bytes() == b"test policy"
+    # No policy_v2 in the bundle: START and AME-2 are prepared, nothing about policy_v2 is said.
+    assert not (dist / "sim/policy_v2.onnx").exists() and not (dist / "sim/policy_v2.f32").exists()
     warning = capsys.readouterr().err
-    assert "policy_v2.onnx absent" in warning and "start-m15500" not in warning and "ame2-demo" not in warning
+    assert "policy_v2" not in warning and "start-m15500" not in warning and "ame2-demo" not in warning
 
 
 def test_bundle_policy_used_before_repo(bundle, monkeypatch, capsys):
@@ -403,7 +418,7 @@ def test_policy_v2_is_stored_but_never_served():
     folder = root / "assets/policy-v2"
     record = (root / "docs/POLICY-PROVENANCE.md").read_text()
     sums = dict(reversed(line.split()) for line in (folder / "SHA256SUMS").read_text().splitlines())
-    assert sums == {"policy_v2.onnx": prepare_sim.ONNX_SHA["policy_v2.onnx"], "policy_v2.f32": prepare_sim.POLICY_SHA}
+    assert sums == adapter_pins()
     for name, digest in sums.items():
         assert digest in record
         assert hashlib.sha256((folder / name).read_bytes()).hexdigest() == digest

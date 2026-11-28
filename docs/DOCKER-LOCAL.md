@@ -40,11 +40,11 @@ lockfile에 맞춘다. 서버 소스를 고치면 `docker compose up --build ser
 `/sim/` 은 안내 화면이다. 넣으려면 아래 2 · 3 단계를 하고 `python3 tools/local_up.py --docker` 를 다시 한다.
 
 1. 저장소를 clone 하고 루트로 간다.
-2. 시뮬 자산 묶음 `foothold-sim-assets`(MuJoCo · ORT · Go2 모형 · `policy_v2` · `README.md` · `SHA256SUMS`)를 팀에서 받아
+2. 시뮬 자산 묶음 `foothold-sim-assets`(MuJoCo · ORT · Go2 모형 · `README.md` · `SHA256SUMS`)를 팀에서 받아
    저장소 **밖** 폴더에 둔다. 공개 저장소에는 없다. `sha256sum -c SHA256SUMS` 로 확인할 수 있다.
    정책 ONNX 셋 (start-m15500 map_on · map_off · ame2-demo) 은 저장소 `assets/sim-policy/` 에 있어
-   묶음에 없어도 된다. 묶음에 같은 이름이 있으면 묶음을 먼저 쓴다. `/sim/` 준비에 쓰는 `policy_v2.f32` 는 묶음에서 받는다
-   (저장소 `assets/policy-v2/` 는 보관용이라 읽지 않는다).
+   묶음에 없어도 된다. 묶음에 같은 이름이 있으면 묶음을 먼저 쓴다. `policy_v2` 는 쓰지 않는다
+   (묶음에 있어도 싣지 않고, 저장소 `assets/policy-v2/` 는 보관용이라 읽지 않는다).
    컨테이너의 `node` 사용자(uid 1000)가 읽으므로 파일은 644 · 폴더는 755 로 두거나 uid 1000 소유로 둔다.
    못 읽는 파일이 있으면 `/sim/` 안내 화면과 web 로그에 그렇게 적힌다.
 3. `.env` 또는 셸에 `FH_SIM_ASSETS=<그 폴더>` 를 **절대 경로로** 적는다(셸 값이 이긴다). `./` 없는 상대 경로는
