@@ -8,9 +8,6 @@
 .u5 .cnt b{font-weight:800;color:#ffffff;font-variant-numeric:tabular-nums}
 .u5 .cnt .ic{color:var(--mu2)}
 .u5 .sep{width:1px;height:22px;background:var(--line)}
-.u5 .pinf{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--mu2)}
-.u5 .pinf i{width:16px;height:16px;border-radius:5px;border:1.5px solid #00c389;background:rgba(0,195,137,.25);display:flex;align-items:center;justify-content:center}
-.u5 .pinf i::after{content:"";width:6px;height:6px;border-radius:2px;background:#00c389}
 .u5 .tgl{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:rgba(232,235,240,.78)}
 .u5 .tgl i{width:34px;height:20px;border-radius:10px;background:rgba(255,255,255,.14);position:relative}
 .u5 .tgl i::after{content:"";position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;background:#ffffff;box-shadow:0 1px 3px rgba(0,0,0,.4)}
@@ -139,8 +136,6 @@
 .proto.light .u5 .tgl.on i{background:#18A07E}
 .proto.light .u5 .chip{color:#5E6662;background:#F6F7F6;border-color:#DCE0DE}
 .proto.light .u5 .chip.sim{color:var(--u5-sim);border-color:var(--u5-sim)}
-.proto.light .u5 .pinf i{border-color:#18A07E;background:rgba(24,160,126,.18)}
-.proto.light .u5 .pinf i::after{background:#18A07E}
 .proto.light .u5 .pg{background:#DCE0DE}
 .proto.light .u5 .pg i{background:#18A07E}
 .proto.light .u5 .s{background:#F6F7F6;border-color:#DCE0DE}

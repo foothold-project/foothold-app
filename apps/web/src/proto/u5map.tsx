@@ -48,7 +48,7 @@ export const flyTime = () => (calm() ? 0 : FLY_S);
 const calm = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 /** from = 작은 지도 칸 자리(화면 px). 있으면 그 자리에서 큰 지도 자리로 자람(320 ms). focus = 작은 지도 더블클릭 때 고른 로봇: 첫 시점에서 그 로봇으로 다가감. 움직임 줄이기면 바로 */
-export function SiteView({ all, sel, open, from, focus }: { all: TileFacts[]; sel: string; open: (id: string) => void; from?: DOMRect | null; focus?: string }) {
+export function SiteView({ all, sel, open, from, focus, home }: { all: TileFacts[]; sel: string; open: (id: string) => void; from?: DOMRect | null; focus?: string; home?: () => void }) {
   const box = useRef<HTMLDivElement>(null), fromTop = useRef(!!from && !calm());
   useLayoutEffect(() => {
     const el = box.current; if (!el || !from || !fromTop.current || typeof el.animate !== 'function') return;
@@ -201,5 +201,6 @@ export function SiteView({ all, sel, open, from, focus }: { all: TileFacts[]; se
     <div className="mks" ref={marks}>{all.map((f) => { const k = tone(f); return <div key={f.x.id} className={`mk3 ${k === 'bad' ? 'r' : k === 'link' ? 'o' : k === 'rest' ? 'sim' : ''}${f.x.id === sel ? ' sel' : ''}`} data-n={f.x.name} data-r3={f.x.id} style={{ display: 'none' }}
       role="button" tabIndex={0} aria-pressed={f.x.id === sel} {...pickPress(f.x.id, f.x.id === sel, () => open(f.x.id))}><span className="lb">{icon(f)}{f.x.name}<small>{sub(f)}</small></span><i></i></div>; })}</div>
     <span className="g dk ov" style={{ left: '14px', bottom: '14px' }}>{ic(14, IC.box)}실시간 3D · 끌어서 돌리기 · 휠 확대</span>
+    {home && <span className="g dk ov" style={{ right: '14px', top: '14px', cursor: 'pointer' }} role="button" tabIndex={0} data-home onClick={home} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); home(); } }}>{ic(14, IC.undo)}전체 보기</span>}
   </div>;
 }

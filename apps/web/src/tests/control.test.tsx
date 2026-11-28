@@ -71,14 +71,14 @@ const RUN = (status = 'MOVING') => ({ run: { run_id: 'r1', status, step: 0, wait
 const runs = (ids: string[], status = 'MOVING') => Object.fromEntries(ids.map((id) => [id, RUN(status)]));
 
 describe('관제 탭', () => {
-  it('시안 칸 순서: 보기 · 첫 화면으로 · 수 일곱(임무 중 · 충전 · 점검 · 연결 중 · 시뮬 · 경고 · 주의) · 뒤집기 · 데모 표시 · 범위, 그 아래 타일 벽 · 오른쪽 칸', async () => {
+  it('시안 칸 순서: 보기 · 수 일곱(임무 중 · 충전 · 점검 · 연결 중 · 시뮬 · 경고 · 주의) · 뒤집기 · 데모 표시 · 범위, 그 아래 타일 벽 · 오른쪽 칸', async () => {
     dashOk({ robots_running: 7 });
     mount('u-kim', EIGHT); feed(EIGHT, runs(['k1', 'k2', 'k3', 'k4', 'k5', 'k6']));
     await act(async () => {});
     const u5 = $('.proto > main.u5');
     expect([...u5.children].map((e) => e.className)).toEqual(['tb', 'wall', 'side']);
     expect($$('.u5 .tb .seg2 [data-v]').map((e) => e.textContent)).toEqual(['타일 보기', '지도 보기']);
-    expect($('.u5 .tb .pinf').textContent).toBe('첫 화면으로');
+    expect($('.u5 .tb [data-home]')).toBeNull();   // 「첫 화면으로」 는 머리 줄에서 뺌 · 지도 보기 안 「전체 보기」(팀장 02:21)
     expect($$('.u5 .tb .cnt').map((e) => e.dataset.sum)).toEqual(['임무 중', '충전', '점검', '연결 중', '시뮬', '경고', '주의']);
     expect($('[data-sum="임무 중"] b').textContent).toBe('6');   // 임무 중 배지 = 진행 중인 임무가 있는 실기 · 데모(K-07 끊김 · K-08 시뮬 빼고)
     expect($('[data-sum="충전"] b').textContent).toBe('');   // 가용(GET /robots/availability)을 받지 못함 = 수를 비움(em dash 없음)
@@ -1423,15 +1423,16 @@ describe('관제 탭', () => {
       expect(tile('k1')).not.toBeNull(); expect(localStorage.getItem('fh-control-demo')).toBe('1');
     } finally { av.mockRestore(); localStorage.setItem('fh-control-demo', '1'); }
   });
-  it('첫 화면으로(대조표 u5_1): 지도 보기 첫 시점으로 새로 엶(다가가기 없음 · 작은 지도에서 자라기 없음)', () => {
+  it('전체 보기(팀장 02:21 · 옛 「첫 화면으로」): 지도 보기 안 단추 · 되돌리기 아이콘 · 누르면 첫 시점으로 새로 엶(다가가기 없음)', () => {
     mount('u-kim', TWENTY); feed(TWENTY);
-    const home = $('[data-home]') as HTMLElement;
-    expect(home.getAttribute('role')).toBe('button');
-    act(() => { home.click(); });
-    const big = () => $('.u5 .big') as HTMLElement;
-    expect(big()).not.toBeNull(); expect(big().hasAttribute('data-focus')).toBe(false); expect(big().hasAttribute('data-from-mini')).toBe(false);
+    expect($('[data-home]')).toBeNull();   // 타일 보기 · 머리 줄에는 없음
+    act(() => { ($('.u5 .tb [data-v="지도 보기"]') as HTMLElement).click(); });
+    const big = () => $('.u5 .big') as HTMLElement, home = () => big().querySelector('[data-home]') as HTMLElement;
+    expect(home().getAttribute('role')).toBe('button'); expect(home().textContent).toBe('전체 보기');
+    expect(home().querySelector('path')!.getAttribute('d')).toBe('M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8');
+    expect(big().hasAttribute('data-focus')).toBe(false); expect(big().hasAttribute('data-from-mini')).toBe(false);
     const cv = big().querySelector('canvas');
-    act(() => { home.click(); });
+    act(() => { home().click(); });
     expect(big().querySelector('canvas')).not.toBe(cv);   // 카메라를 새로(첫 시점) 잡도록 다시 그림
   });
   it('가용(GET /robots/availability) · 오늘 일정(GET /schedule): 구역 이름 = location_label · 데모 칩 · 충전 = state CHARGING 만 · 지금 걸친 BATTERY_SWAP 칸 = «배터리 교체» · MAINTENANCE = «점검 중» 칩 + busy_label 줄 · 실패면 수를 비움', async () => {

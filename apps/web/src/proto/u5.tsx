@@ -42,6 +42,7 @@ export const IC = {
   user: <><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></>,
   home: <><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" /><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></>,
   dog: <><path d="M4 13h11l3-3h2v4l-2 1H5z" /><path d="M6 15l-1 4M10 15v4M14 15v4M17 15l1 4" /></>,
+  undo: <><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></>,   // 되돌리기(앱의 다른 화면과 같은 꼴)
   stop: <><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z" /><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" /></>,
 };
 export const ic = I;
@@ -489,7 +490,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
   const me = c.user.id, admin = c.user.role === 'ORG_ADMIN';
   // 작은 지도 → 지도 보기(팀장 11-28 17:23 · 시안 밖): 작은 지도 칸 자리에서 큰 지도 자리로 자라며 넘어가고, 3D 첫 시점은 위에서 본 틀에서 시안 시점으로 내려앉음
   const [from, setFrom] = useState<DOMRect | null>(null), [focus, setFocus] = useState(''), [home, setHome] = useState(0);
-  const toHome = () => { setFrom(null); setFocus(''); setHome((k) => k + 1); setView('map'); };   // 첫 화면으로 = 지도 보기 첫 시점(무리 가운데)
+  const toHome = () => { setFrom(null); setFocus(''); setHome((k) => k + 1); setView('map'); };   // 전체 보기 = 지도 보기 첫 시점(무리 가운데) · 지도 보기 안 단추(팀장 02:21)
   const [pick, setPick] = useState<Group[]>([]), flip = (g: Group) => setPick((p) => (p.includes(g) ? p.filter((x) => x !== g) : [...p, g]));
   const [view, setView] = useState<'tiles' | 'map'>('tiles'), [scope, setScope] = useState<'all' | 'mine'>(admin ? 'all' : 'mine'), [front, setFront] = useState(false), [demo, setDemoNow] = useState(demoShown);
   const setDemo = (on: boolean) => { setDemoNow(on); keepDemo(on); };
@@ -516,7 +517,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
     role="button" tabIndex={0} aria-pressed={on} onClick={() => flip(k)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(k); } }}>{I(16, icon, col)}{`${k} `}<b style={col ? { color: col } : undefined}>{v ?? ''}</b></span>; };
   return <main className="u5" data-view={view} aria-label="관제">
     <div className="tb"><div className="seg2" role="group" aria-label="보기">{seg(view === 'tiles', '타일 보기', IC.tiles, () => setView('tiles'))}{seg(view === 'map', '지도 보기', IC.map, () => { setFrom(null); setFocus(''); setView('map'); })}</div>
-      <span className="pinf" role="button" tabIndex={0} data-home onClick={toHome} onKeyDown={(e) => { if (e.key === 'Enter') toHome(); }} style={{ cursor: 'pointer' }}><i></i>첫 화면으로</span><span className="sep"></span>
+      <span className="sep"></span>
       {/* 임무 중 = 타일이 «임무 중» 인 로봇(실행 상태 RUNNING · 끊기지 않음, 시뮬 포함). 서버 요약의 robots_running 은 실기만이라 타일과 어긋나서 쓰지 않음 */}
       {cnt('임무 중', IC.flag, n(GROUP['임무 중']))}
       {cnt('충전', IC.bolt, av ? n(GROUP['충전']) : null, undefined, undefined, av ? undefined : '가용(GET /robots/availability)을 받지 못했습니다')}
@@ -538,7 +539,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
     {none ? <div className="wall mu2" data-filter-empty style={{ placeItems: 'center', fontSize: '14px' }}>고른 상태의 로봇이 없습니다 · 머리 줄 칸을 다시 누르면 풀립니다</div>
       : view === 'tiles' ? <div className={wall.length > 8 ? 'wall many' : 'wall'} style={{ gridTemplateColumns: `repeat(${g.units ?? g.cols},1fr)`, gridTemplateRows: `repeat(${g.rows},1fr)` }} aria-label="로봇 타일" data-count={wall.length} data-all={all.length}>
       {wall.map((f, i) => <ZoomBox key={f.x.id} zoom={g.zoom} span={g.span?.[i]}><Tile f={f} sel={f.x.id === sel} front={front} open={() => open(f.x.id)} boards={boards} /></ZoomBox>)}</div>
-      : <SiteView key={home} all={shown} sel={sel} open={open} from={from} focus={focus} />}
+      : <SiteView key={home} all={shown} sel={sel} open={open} from={from} focus={focus} home={toHome} />}
     <div className="side">
       {view === 'tiles' ? <>
         <Mini all={shown} sel={sel} boards={boards} toMap={(r, id) => { setFrom(r); setFocus(id); setView('map'); }} />
