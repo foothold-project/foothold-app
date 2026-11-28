@@ -371,3 +371,18 @@ export function Go2Figure({ pose, motion = NONE, showJoints = true, temps = null
     </ul>}
   </div>;
 }
+
+// 온도(RB-TEMP-WEB 11-19) — 옛 pcdrive.tsx 에서 옮김(로봇 탭 시안 u4 · 관제 타일 · 준비 점검이 같이 씀)
+const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const top = (a: unknown[]) => { const f = a.map(num).filter((v): v is number => v != null); return f.length ? Math.max(...f) : null; };
+/** 온도 보고가 이보다 오래되면(초) 온도만 «—»(그림 흐림 규칙과 따로) */
+export const TEMP_STALE_S = 3;
+export type Temps = { joints: (number | null)[]; hot: number; battery: number | null; inside: number | null } | null;
+/** 관절 12개(JOINTS 순서)·가장 뜨거운 관절·배터리 4개 중 최고·몸 안(자세 센서·본체) 중 최고. 연결이 끊겼거나 보고가 오래되면 null(지어내지 않음).
+ *  ago = 이 state 를 받은 뒤 화면 시계로 지난 초 — 나이 = age_s + ago(RV-409 4: 다음 보고를 기다리지 않고 3초 넘으면 «—») */
+export function go2Temps(s: Live['state'], fresh: boolean, ago = 0): Temps {
+  const t = s?.robot_info?.temperature;   // 계약 Go2Temperature(#407) — 값 없으면 키 없음. 받은 값은 그래도 수·길이를 확인
+  if (!fresh || s?.connection !== 'ONLINE' || !t || !(t.age_s + ago <= TEMP_STALE_S)) return null;
+  const joints = Array.isArray(t.joints) && t.joints.length === 12 ? t.joints.map(num) : JOINTS.map(() => null), hi = top(joints);
+  return { joints, hot: hi == null ? -1 : joints.indexOf(hi), battery: top(Array.isArray(t.battery) ? t.battery : []), inside: top([t.imu, ...(Array.isArray(t.body) ? t.body : [])]) };
+}

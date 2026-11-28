@@ -9,11 +9,10 @@ import { api } from '../../api';
 import { rt, useLive, useRt } from '../../rt';
 import { useStopPress } from '../../App';
 import { adminReal, type Robot } from '../../fake';
-import { useDriveFeed } from '../../drivemedia';
+import { driveFeedText, useDriveFeed } from '../../drivemedia';
 import { DriveView, canDrive, keepDrive, useServerDrive, type DriveKeys, type Tok } from '../../serverdrive';
 import { LidarMap } from '../../lidarmap';
-import { go2Temps } from '../../pcdrive';
-import { REPORT_STALE_MS, go2Pose, JOINTS, jointName } from '../../go2model';
+import { REPORT_STALE_MS, go2Pose, go2Temps, JOINTS, jointName } from '../../go2model';
 import { ACTION_NAMES, FACTORY_OFF, LOWLEVEL, actionResultText } from '../actiontrial';
 import { floorsOf, isVersion, shape, toPixel, useTree } from '../maps';
 import type { Ctx } from '../../screens';
@@ -117,7 +116,7 @@ function Feed({ id, ch, big }: { id: string; ch: 'rgb' | 'depth'; big: boolean }
 }
 function Lidar({ id }: { id: string }) {
   const f = useDriveFeed(id, 'lidar');
-  return <LidarMap feed={f} empty="라이다 신호 없음" tag={false} pick />;
+  return <LidarMap feed={f} empty={driveFeedText(f, 'lidar')} pick />;
 }
 
 /** 가운데 3D: 시안 go2view 를 그대로 띄우고 실제 관절값 · 나간 명령으로 움직인다 */
@@ -201,6 +200,8 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   const stopTag = !latched ? null : d.unlockState === 'unconfirmed' ? `미확인 · 로봇이 정지 확인을 못 해 잠금이 그대로입니다. ${d.refused || '현장에서 로봇이 완전히 멈췄는지 확인한 뒤 다시 누르세요.'}`
     : d.unlockState === 'wait' ? `해제 대기 · 로봇이 정지를 확인하면 풀립니다.${d.refused ? ` ${d.refused}` : ''}`
     : lying ? '정지됨 · 엎드린 뒤 다리 힘을 뺐습니다' : '정지됨 · 한 번 더 누르면 엎드려 힘을 뺍니다';
+  // 한 번 허용된 로봇이 끊김(keepDrive): 화면은 그대로 두고 조종 시작만 꺼 둔다(누른 것 버림 · 0 · 조종권 반납은 useServerDrive)
+  const offTag = can && d.off ? '로봇 연결이 끊겼습니다 · 다시 연결되면 «조종 시작»을 다시 누르세요' : null;
   const hotTag = hotJ != null && hotJ >= 60 ? `${jointName(JOINTS[temps!.hot])} ${Math.round(hotJ)} °C · 경고` : null;
   const act = (name: ScreenAction['action']) => {
     if (!can) return say(noDrive(c, r));
@@ -224,15 +225,17 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
         {([['drive', '조종', ''], ['check', '점검', 'u4_4_check'], ['settings', '로봇 설정', 'u4_5_settings']] as const).map(([k, t, go]) =>
           <span key={k} {...(go ? { 'data-go': go } : {})} className={tab === k ? 'on' : ''} data-seg={t} role="tab" aria-selected={tab === k} tabIndex={0} onClick={() => setTab(k)}>{t}</span>)}
       </div></div>
-    <div className="stage3d"><Stage r={r} q={pose?.q ?? null} drive={drive} hot={hot} />
+    <div className="stage3d" data-stale={pose ? undefined : ''}><Stage r={r} q={pose?.q ?? null} drive={drive} hot={hot} />
       <span className="g dk tag hint"><svg className="ic" viewBox="0 0 24 24" style={{ width: '14px', height: '14px' }}><path d="M16.466 7.5C15.643 4.237 13.952 2 12 2 9.239 2 7 6.477 7 12s2.239 10 5 10c.342 0 .677-.069 1-.2" /><path d="m15.194 13.707 3.814 1.86-1.86 3.814" /><path d="M19 15.57c-1.804.885-4.274 1.43-7 1.43-5.523 0-10-2.239-10-5s4.477-5 10-5c4.838 0 8.873 1.718 9.8 4" /></svg>끌어서 돌려 보기</span>
-      {stopTag && <div className="g dk tag" style={{ left: '24px', top: '24px', color: lying && !d.unlockState ? '#f2b705' : '#ff4d4f', fontSize: '14px', fontWeight: '800' }} role="status" data-u4-stopped>{stopTag}</div>}
+      {offTag ? <div className="g dk tag" style={{ left: '24px', top: '24px', color: '#ff4d4f', fontSize: '14px', fontWeight: '800' }} role="status" data-u4-offline>{offTag}</div>
+        : stopTag ? <div className="g dk tag" style={{ left: '24px', top: '24px', color: lying && !d.unlockState ? '#f2b705' : '#ff4d4f', fontSize: '14px', fontWeight: '800' }} role="status" data-u4-stopped>{stopTag}</div>
+        : d.stopLine ? <div className="g dk tag" style={{ left: '24px', top: '24px', color: d.stopLine.tone === 'bad' ? '#ff4d4f' : d.stopLine.tone === 'ok' ? '#00c389' : '#f2b705', fontSize: '14px', fontWeight: '800' }} role="status" data-sd-stop-phase data-tone={d.stopLine.tone}>{d.stopLine.text}</div> : null}
       {hotTag && <span className="g dk tag warntag" style={{ left: '150px', top: '300px', color: '#ff4d4f' }} data-u4-hot>{hotTag}</span>}
       <div className="g bub" style={{ left: '58%', top: '70px' }} data-u4-notes>{d.notes}</div>
       <div className="foot"><span className="g dk tag" style={{ position: 'static', color: '#00c389', minWidth: '178px', justifyContent: 'center' }} data-u4-walk>{walk}</span>
         <span className="g dk tag" style={{ position: 'static', color: '#ffffff' }} data-u4-loc>{located ? '위치 추정 켜짐' : `위치 추정 ${NA}`}</span>
         <span className="mu2" style={{ marginLeft: 'auto', fontSize: '12.5px' }}>실제 관절값으로 제자리에서 움직임 · 바닥 점이 뒤로 흐르면 앞으로 걷는 중</span></div></div>
-    <div className="right"><div className="views" aria-label="로봇 보기">
+    <div className="right" data-u4-can={can || undefined}><div className="views" aria-label="로봇 보기">
       {view === 'map' ? <MapView c={c} r={r} /> : <div className="mapv" data-u4-big={view}>{view === 'lidar' ? <Lidar id={r.id} /> : <Feed id={r.id} ch={view} big />}</div>}
       <div className="g dk vsel">{VIEWS.map(([k, t]) => <span key={k} className={view === k ? 'on' : undefined} data-view={k} role="button" tabIndex={0} aria-pressed={view === k} onClick={() => setView(k)}>{t}</span>)}</div>
       <div className="small" data-swap="1" data-cam-inset role="button" tabIndex={0} onClick={() => setView(view === 'map' ? 'rgb' : 'map')}>{small}<span className="cl">{view === 'map' ? '앞 카메라' : '지도'}</span></div>
@@ -247,7 +250,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
         <svg className="ic" viewBox="0 0 24 24" style={{ width: '26px', height: '26px' }}><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z" /><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" /></svg>정지<small>Space</small></div>}
     </div>
       <div className={`ctl${latched ? ' dim' : ''}`}>
-        <div className={`g dk btn${mine ? ' drv' : ''}`} role="button" tabIndex={0} data-u4-drive={mine ? 'mine' : 'take'}
+        <div className={`g dk btn${mine ? ' drv' : ''}`} role="button" tabIndex={0} data-u4-drive={mine ? 'mine' : 'take'} aria-disabled={!can || (!mine && d.off) || undefined}
           onClick={() => { if (!can) say(noDrive(c, r)); else if (mine) { d.zero(); rt.release(r.id); } else if (!d.off) { if (l.holder?.type === 'USER') rt.request(r.id); else rt.take(r.id); } else say('로봇 연결이 끊겼습니다 · 다시 연결되면 누르세요'); }}>
           <svg className="ic" viewBox="0 0 24 24" style={{ width: '18px', height: '18px' }}><line x1="6" x2="10" y1="11" y2="11" /><line x1="8" x2="8" y1="9" y2="13" /><line x1="15" x2="15.01" y1="12" y2="12" /><line x1="18" x2="18.01" y1="10" y2="10" /><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z" /></svg>{mine ? '조종 중' : '조종 시작'}</div>
         <div data-go="u4_3_voice" className="g dk btn talk" role="button" tabIndex={0} onClick={() => say('말하기는 아직 서버에 없습니다')}>

@@ -12,7 +12,6 @@ import { holderText } from '../drive';
 import { NO_SIGNAL } from '../drivemedia';
 import { PhoneRelay, useRelayExpiry } from '../phoneRelay';
 import { canDrive, keepDrive, stopLine } from '../serverdrive';
-import { PcDrive } from '../pcdrive';
 import { ActionTrial } from './actiontrial';
 import { MapFrame, MapImage } from '../mapframe';
 import { Guard } from '../App';
@@ -344,9 +343,6 @@ function Operator(c: Ctx) {
   const bad = isLost(r), [sheet, setSheet] = useState<'' | 'settings' | 'guide'>(''), [list, setList] = useState(false);
   useEffect(() => { setSheet(''); setList(false); }, [r.id]);   // 로봇을 고르면 바로 조종 화면(허용된 로봇만)
   const guide = () => setSheet('guide');
-  if (own && keepDrive(c, r) && !list) return <Pair user={c.user} mine={mine.map((x) => x.id)} refresh={c.refresh} cancel={c.cancel}>
-    <PcDrive key={r.id} c={c} r={r} back={() => setList(true)} floorMap={<Guard><FleetMap robots={[r]} sel={r.id} cancel={c.cancel} /></Guard>} />
-  </Pair>;
   return <Pair user={c.user} mine={mine.map((x) => x.id)} refresh={c.refresh} cancel={c.cancel}>
     <div className="fh-focus" data-lost={bad || undefined} data-summary={!own || undefined}>
       {(mine.length > 1 || (!own && mine.length > 0)) && <section className="lv-card fl-pick" aria-label="내 로봇 고르기"><h2>내 실기 로봇 {mine.length}대</h2>
