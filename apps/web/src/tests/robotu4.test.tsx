@@ -11,6 +11,8 @@ import { SIDE_BLOCK, canDrive } from '../serverdrive';
 import { checkShort, railOrder } from '../screens/u4/robotu4';
 import { api } from '../api';
 import u4css from '../screens/u4/u4.css?raw';
+import u4src from '../screens/u4/robotu4.tsx?raw';
+import { WALK_MIN_SPEED } from '../proto/u5';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -92,6 +94,31 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
     expect($$('.hdr .seg2 span').map(text)).toEqual(['조종', '점검', '로봇 설정']);
     act(() => { push('r7', { gait: { gait: 'start', available: ['classic', 'sport', 'start', 'ame2'] } } as Partial<ScreenState>); });
     expect(text($('[data-cell="mode"]'))).toMatch(/^START/);
+  });
+
+  it('관절값 없는 로봇: speed ≥ WALK_MIN_SPEED(관제 타일과 같은 문턱)면 다리를 걷기 꼴로, 0 이면 선 자세 · 관절값 · 엎드림이 이김', () => {
+    mount('u-park'); serve('r7');
+    const legs = () => $('.stage3d')!.getAttribute('data-u4-legs'), note = () => $('[data-u4-jointnote]')!;
+    act(() => { push('r7', { speed: 0.3, posture: { state: 'STANDING' } } as unknown as Partial<ScreenState>); });
+    expect(legs()).toBe('walk');
+    expect([note().getAttribute('data-u4-jointnote'), text(note())]).toEqual(['walk', '관절값이 없어 걷는 속도로 걷기 꼴을 그림']);
+    expect(text($('[data-u4-walk]'))).toContain('걷는 중 · 0.3 m/s');
+    act(() => { push('r7', { speed: WALK_MIN_SPEED - 0.01 }); }); expect(legs()).toBe('stand');
+    act(() => { push('r7', { speed: WALK_MIN_SPEED }); }); expect(legs()).toBe('walk');
+    act(() => { push('r7', { speed: 0 }); });
+    expect(legs()).toBe('stand'); expect(text($('[data-u4-walk]'))).toBe('서 있음');
+    act(() => { push('r7', { speed: 0.3, posture: { state: 'LYING' } } as unknown as Partial<ScreenState>); }); expect(legs()).toBe('down');
+    const N = ['FR', 'FL', 'RR', 'RL'].flatMap((l) => ['hip', 'thigh', 'calf'].map((p) => `${l}_${p}_joint`));
+    act(() => { push('r7', { robot_info: { joints: { names: N, positions: N.map(() => 0.5), age_s: 0 } } } as unknown as Partial<ScreenState>); });
+    expect(legs()).toBe('q');
+    expect(u4src).not.toMatch(/sp < 0\.05/);   // 로봇 탭 안의 따로 둔 문턱은 없음
+  });
+
+  it('고른 시뮬 카드도 파랑: .rcard.on.rehearse 가 고른 칸 초록을 덮음(어둠 #4C9BFF · 밝음 #2F6FE0)', () => {
+    const flat = u4css.replace(/\s+/g, ' ');
+    expect(flat).toContain('.proto .u4 .rcard.on.rehearse{background:rgba(76,155,255,.10);border:1px dashed #4C9BFF}');
+    expect(flat).toContain('.proto .u4 .rcard.on.rehearse .av{background:#4C9BFF;color:#fff}');
+    expect(flat).toContain('.proto.light .u4 .rcard.on.rehearse .av{background:#2F6FE0;color:#fff}');
   });
 
   it('가운데 3D · 아래 알약 · 오른쪽 보기(지도 · 카메라 · 라이다 · 깊이) · 작은 칸 · 정지 Space · 키 줄 · 동작 일곱 · 글은 시안 그대로', () => {
