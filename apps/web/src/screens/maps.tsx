@@ -686,7 +686,7 @@ function FloorView({ pickFloor, p, sim, admin, names, cancel, again, told, top, 
       {LAY.filter(([k]) => !show3 || k === 'zones').map(([k, t, c]) => <label key={k} className="lay" data-map-layer={k}><i className="sw2" style={{ background: c }} aria-hidden="true" />{show3 ? '금지 구역' : t}
         <input type="checkbox" role="switch" className="u7-hide" checked={lay[k]} onChange={() => setLay({ ...lay, [k]: !lay[k] })} /><span className={`sw${lay[k] ? ' on' : ''}`} aria-hidden="true" /></label>)}
       {/* 「지나온 경로」: 서버에 로봇이 지나온 길 기록(계약 · API)이 아직 없다 → 꺼 둔 채 까닭 한 줄 */}
-      <label className="lay" data-map-layer="trail" aria-disabled="true" style={{ opacity: 0.55 }} title={TRAIL_WHY}><i className="sw2" style={{ background: '#00c389' }} aria-hidden="true" />지나온 경로
+      <label className="lay" data-map-layer="trail" aria-disabled="true" style={{ opacity: 0.55 }} title={TRAIL_WHY}><i className="sw2" style={{ background: 'var(--pr)' }} aria-hidden="true" />지나온 경로
         <input type="checkbox" role="switch" className="u7-hide" checked={false} disabled aria-describedby="mp-trail-why" /><span className="sw" aria-hidden="true" /></label>
       <p className="mu2" id="mp-trail-why" style={{ fontSize: '11.5px', margin: '2px 8px 0' }} data-trail-why>{TRAIL_WHY}</p></div>}
     {v && <div aria-label="이 지도"><div className="h3" style={{ marginTop: '22px' }}>이 지도</div><div className="kv">{kv.map(([k, x]) => <Fragment key={k}><span>{k}</span><b className={x === NA ? 'mu2' : undefined}>{x}</b></Fragment>)}</div></div>}
