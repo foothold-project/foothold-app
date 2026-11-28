@@ -111,16 +111,20 @@ describe('지도 없음', () => {
     serve(KIM, [RA]); await open('#/map');
     expect($('[data-empty="map"]')).toBeNull();
     expect($('[data-make-robot]')).toBeTruthy();   // 시안 u7_1: 머리 「새 지도 만들기」 · 파일 올리기는 관리 칸
-    expect(filled()).toEqual(['새 지도 만들기', '지도 열기']);   // 시안 u7_1 btnp 둘(머리 · 미리 보기)
+    expect(filled()).toEqual(['새 지도 만들기', '로봇 탭으로']);   // 시안 u7_1 머리 btnp + 처음 층(판 없음) 미리 보기 빈 칸 단추(지도 열기는 판 없으면 없음)
+    expect($('[data-open-map]')).toBeNull();
   });
   it('고른 층에 지도가 없으면: 아이콘 · 한 줄 까닭 · «새 지도 올리기…» 하나(«지도 만들기»는 ··· 메뉴)', async () => {
     serve(KIM, [RA]); await open('#/map');
     const b = box.querySelector<HTMLButtonElement>('[aria-label="지도 고르기"] [data-building]');
     if (b) { act(() => b.click()); await flush(); }
-    { const o = box.querySelector<HTMLButtonElement>('[data-open-map]'); if (o) { act(() => o.click()); await flush(); } }   // 시안 u7_1: 건물 = 고르기, «지도 열기»로 연다
-    const r = empty('floor');
-    expect(r.title).toBe('이 층에 아직 지도가 없습니다');
-    expect(r.acts).toEqual(['새 지도 올리기…']);
+    // 지도 탭 미리 보기 = 지도 0 개 칸과 같은 부품(시안 u11_7 짜임) · 실제 현장이면 「로봇 탭으로」 + 보조 단추 · 「지도 열기」 거짓 단추 없음
+    const r = empty('pick-floor');
+    expect(r.title).toBe('지도 없음');
+    expect(r.acts).toEqual(['로봇 탭으로', '파일 올리기']);
+    expect(r.e.querySelector('.btnp')!.textContent).toBe('로봇 탭으로'); expect(r.e.querySelector('[data-empty-act]')!.className).toBe('btns');
+    expect($('[data-open-map]')).toBeNull(); expect($('[data-open-history]')).toBeNull();
+    expect($('[data-empty="map"]')).toBeNull();   // 지도 0 개 칸은 따로(같은 부품 · 다른 자리)
   });
 });
 
