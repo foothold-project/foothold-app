@@ -15,6 +15,7 @@ import { rt } from '../rt';
 import { oldScenario } from '../menu';
 import { stopLine } from '../serverdrive';
 import { toRobot } from '../fake';
+import { en } from '../lang';
 // 옛 PC 관제 부품(관제 요약 · 상세 서랍 · 연결 상태 · 조종 준비) 시험: PC 로봇 탭은 시안 u4 라 부품을 앱 맥락 안에 직접 그린다 → W1 u5
 beforeEach(() => { pcBoard.on = true; });
 afterEach(() => { pcBoard.on = false; });
@@ -160,6 +161,46 @@ describe('관제 탭', () => {
     expect(tile('g3').querySelectorAll('.ln')[1].textContent).toBe('위치 1.3, 2.0 m');
     expect(JSON.parse(tile('g3').querySelector('canvas')!.dataset.go2!).hot).toEqual({ FL_thigh: 'hot' });   // 타일 카메라: 그 관절만 칠함(관절마다 자기 단계)
     expect([tempLevel(48), tempLevel(51), tempLevel(61), tempLevel(72), tempLevel(null)]).toEqual([null, 'warn', 'bad', 'crit', null]);
+  });
+
+  // 팀장 21:26: Go2 X 처럼 정지 잠금과 높지 않은 관절 온도(41 °C)가 붙어 온도가 잠금 원인처럼 읽혔다 → 머리표 = 잠금 까닭(서버 값만), 온도 칩은 온도 문턱(tempLevel)을 넘을 때만 경고색
+  it('정지 잠금 + 보통 온도: 머리표 «경고 · 정지 잠금 · 까닭»(서버 latch_reason · 없으면 까닭 미상), 정면 온도 칩은 회색 «최고 관절 온도 41 °C», 최근 경고 제목도 잠금', () => {
+    mount('u-kim', TWENTY); feed(TWENTY, { g3: { status: 'STOP_LATCHED', ...temp([40, 41, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]) } });
+    const flag = () => tile('g3').querySelector('[data-warn-flag]')!.textContent;
+    expect(flag()).toBe('경고 · 정지 잠금 · 까닭 미상');   // 칸 없음
+    expect(tile('g3').dataset.tone).toBe('bad');
+    act(() => { $('.u5 .flipb').click(); });
+    const ov = tile('g3').querySelector<HTMLElement>('.cv .ov')!;
+    expect(ov.textContent).toBe('최고 관절 온도 41 °C'); expect(ov.style.color).toBe('');
+    expect(small('g3', 'temp')).toBe('보통');
+    const row = $('[aria-label="최근 경고"] [data-alert="g3"]');
+    expect([...row.querySelector('div')!.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join('')).toBe('K-04 정지 잠금 · 까닭 미상');
+    const T = temp([40, 41, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
+    const W = { BOOT: '기동 잠금', USER_STOP: '사람 정지', FALL: '넘어짐', LINK_LOST: '연결 끊김', DEVICE_FAULT: '장치 고장', POLICY: '권한 확인 늦음', LEASE_END: '조종권 끝남', OTHER: '기타' };
+    const E = { BOOT: 'boot latch', USER_STOP: 'stopped by a person', FALL: 'fall', LINK_LOST: 'link lost', DEVICE_FAULT: 'device fault', POLICY: 'permission check late', LEASE_END: 'control ended', OTHER: 'other' };
+    for (const [k, v] of Object.entries(W)) {
+      act(() => { FakeWS.last.recv(state('g3', { status: 'STOP_LATCHED', ...T, latch_reason: k, robot_info: { ...T.robot_info, fallen: k !== 'FALL' }, stop_applied: true } as never)); });
+      expect(flag()).toBe(`경고 · 정지 잠금 · ${v}`);   // latch_reason 하나만 · fallen · stop_applied 로 짐작해 붙이지 않음
+      expect(en(flag()!)).toBe(`Warning · Stop latched · ${E[k as keyof typeof E]}`);
+    }
+    act(() => { FakeWS.last.recv(state('g3', { status: 'STOP_LATCHED', ...T, latch_reason: null, safety_reason: 'OUTPUT_STALLED' } as never)); });
+    expect(flag()).toBe('경고 · 정지 잠금 · 까닭 미상');   // null
+    act(() => { FakeWS.last.recv(state('g3', { status: 'STOP_LATCHED', ...T, latch_reason: 'NEW_CODE' } as never)); });
+    expect(flag()).toBe('경고 · 정지 잠금 · 까닭 미상');   // 모르는 값
+    expect(en('정지 잠금 · 까닭 미상')).toBe('Stop latched · reason unknown');
+    // 로봇 목록(RobotSummary) 값: 소켓 state 가 칸을 주지 않을 때만
+    const S = (o: object) => toRobot({ id: 'x', name: 'X', model: 'Go2', owner: null, connection: 'ONLINE', status: 'STOP_LATCHED', battery: null, location: null, lease: null, current_run: null, devices: [], attention: [], simulation: false, server_drive_allowed: true, ...o } as never);
+    expect([S({ latch_reason: 'BOOT' }).latchReason, S({ latch_reason: null }).latchReason, S({}).latchReason]).toEqual(['BOOT', null, null]);
+  });
+  it('정지 잠금 + 문턱 넘은 온도(61 °C): 머리표는 잠금(위험 70 °C 전까지), 온도 칩만 경고색 · 관절 이름, 잠금 없으면 전처럼 온도가 머리표', () => {
+    mount('u-kim', TWENTY); feed(TWENTY, { g3: { status: 'STOP_LATCHED', ...temp([40, 41, 42, 43, 61, 44, 45, 46, 47, 48, 49, null]) }, g5: temp([40, 41, 42, 43, 52, 44, 45, 46, 47, 48, 49, null]) });
+    expect(tile('g3').querySelector('[data-warn-flag]')!.textContent).toBe('경고 · 정지 잠금 · 까닭 미상');
+    expect(tile('g3').querySelector('[data-fact="temp"]')!.className).toBe('s r');
+    expect(tile('g5').querySelector('[data-warn-flag]')!.textContent).toBe('주의 · 왼쪽 앞다리 허벅지 52 °C');
+    act(() => { $('.u5 .flipb').click(); });
+    const ov = tile('g3').querySelector<HTMLElement>('.cv .ov')!;
+    expect(ov.textContent).toBe('왼쪽 앞다리 허벅지 61 °C'); expect(ov.style.color).toBe('var(--u5-red)');
+    expect(tile('g5').querySelector<HTMLElement>('.cv .ov')!.style.color).toBe('var(--u5-amb)');   // 주의(50 °C ~) = 주황
   });
 
   it('관절 위험(70 °C 이상) = 경보 칸(u5_5): 제목 · 그 로봇 정지 · 로봇 탭에서 보기, 정지는 기존 정지 길(rt.stop)로 그 로봇만', () => {
