@@ -241,7 +241,7 @@ const stopSends = async () => {
   if (adminNoStop(box)) return;
   const s = $<HTMLButtonElement>('[data-stop]')!;
   expect(s.disabled).toBe(false);
-  expect($('header')!.lastElementChild).toBe(s);
+  expect($('header, .bar .rt')!.lastElementChild).toBe(s);
   act(() => FakeWS.last.open());
   await click(s);
   const sel = $<HTMLSelectElement>('[aria-label="정지할 로봇"]');
@@ -960,7 +960,7 @@ describe('시나리오 편집(03 §5.3)', () => {
     await click(fold());
     expect(fold().getAttribute('aria-expanded')).toBe('false'); expect(fold().textContent).toBe('◂ 단계 2 · 1층 순찰 · 1층');   // 접혀도 무엇을 보는지 — 이름·층 한 줄(SCENARIO-TAB-PICKER)
     expect(point(0).closest('[hidden]')).toBeTruthy(); expect(card('단계 창').hasAttribute('data-fold')).toBe(true);   // 접기 = 숨김(unmount 아님, #235 B2)
-    await click($('nav a[href="#/fleet"]')); await toSim();   // 다른 탭에 갔다 와도(같은 시나리오가 다시 열림) 접은 그대로
+    await click($('[aria-label="주 메뉴"] [data-href="#/fleet"]')); await toSim();   // 다른 탭에 갔다 와도(같은 시나리오가 다시 열림) 접은 그대로
     expect(fold().getAttribute('aria-expanded')).toBe('false');
     await click(fold());
     expect(fold().getAttribute('aria-expanded')).toBe('true');
@@ -1046,7 +1046,7 @@ describe('검토 반영(PR #38 B1~B6)', () => {
     await setVal(name(), '느린 새 임무'); await click(btn('＋ 대기'));
     await click(saveBtn());
     expect(writes()).toEqual(['POST /missions']);
-    await click($('nav a[href="#/fleet"]'));
+    await click($('[aria-label="주 메뉴"] [data-href="#/fleet"]'));
     await toSim();
     expect(name().value).toBe('느린 새 임무');
     expect(saveBtn().disabled).toBe(true); expect(name().closest('fieldset')!.disabled).toBe(true);
@@ -1189,7 +1189,7 @@ describe('저장 안 한 편집', () => {
     await open(); await kind('임무');
     await click(row('m1'));
     await setVal(name(), '쓰던 이름');
-    await click($('nav a[href="#/fleet"]'));
+    await click($('[aria-label="주 메뉴"] [data-href="#/fleet"]'));
     await toSim();
     expect(row('m1').textContent).toContain('저장 안 한 편집');
     expect(name().value).toBe('쓰던 이름');

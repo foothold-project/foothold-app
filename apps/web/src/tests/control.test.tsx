@@ -43,7 +43,7 @@ describe('관제 탭', () => {
   it('PC 첫 화면 = 관제(메뉴 첫 탭), 20대여도 같은 크기 타일 20개 · 경고 타일이 맨 앞(빨강 → 주황) + 테두리 표시', () => {
     mount('u-kim', TWENTY); feed(TWENTY);
     expect($('h1').textContent).toBe('관제');
-    expect($('nav a[aria-current="page"]').getAttribute('href')).toBe('#/control');
+    expect($('[aria-label="주 메뉴"] [aria-current="page"]').getAttribute('data-href')).toBe('#/control');
     expect(tiles()).toHaveLength(20);
     expect($('[aria-label="로봇 타일"]').dataset.count).toBe('20');
     expect(tiles().slice(0, 2).map((t) => t.dataset.robot)).toEqual(['g15', 'g9']);

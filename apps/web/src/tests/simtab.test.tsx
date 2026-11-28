@@ -114,7 +114,9 @@ describe('PC «시뮬» 탭', () => {
   it('두 역할 모두 왼쪽 메뉴에 «시뮬» 없음(U0-01) · #/sim 주소로는 열림, 폰 틀에는 없음(#/sim → 조종)', async () => {
     for (const uid of ['u-lee', 'u-kim']) {
       serve(); await mount(uid);
-      expect([...box.querySelectorAll('.fh-nav a')].map((a) => a.textContent)).not.toContain('시뮬');
+      const menu = [...box.querySelectorAll('[aria-label="주 메뉴"] [data-href]')].map((a) => a.textContent);   // PC 시안 머리줄 .tabs
+      expect(menu).toHaveLength(6);
+      expect(menu).not.toContain('시뮬');
       expect($('h1')!.textContent).toBe('시뮬');
       act(() => root?.unmount()); root = null; box.remove(); sim.clear();
     }

@@ -74,7 +74,7 @@ const stopSends = async () => {
   if (adminNoStop(box)) return;
   const s = $<HTMLButtonElement>('[data-stop]')!;
   expect(s.disabled).toBe(false);
-  expect($('header')!.lastElementChild).toBe(s);
+  expect($('header, .bar .rt')!.lastElementChild).toBe(s);
   act(() => FakeWS.last.open());
   await click(s);
   const sel = $<HTMLSelectElement>('[aria-label="정지할 로봇"]');
@@ -92,7 +92,7 @@ describe('휴지통(05 §5.1)', () => {
     serve(KIM);
     await open();
     expect($('h1')!.textContent).toBe('휴지통');
-    expect($('nav a[href="#/trash"]')).toBeNull();
+    expect($('[aria-label="주 메뉴"] [data-href="#/trash"]')).toBeNull();
     expect(ids()).toEqual(['sc1', 'f2', 'b2']);
     expect(row('sc1').textContent).toContain('시나리오'); expect(row('sc1').textContent).toContain('옛 순찰');
     expect(row('f2').textContent).toContain('층'); expect(row('f2').textContent).toContain('본동 안');

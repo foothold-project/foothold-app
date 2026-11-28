@@ -35,7 +35,7 @@ const $ = <T extends Element = HTMLElement>(s: string) => box.querySelector<T>(s
 const $$ = (s: string) => [...box.querySelectorAll<HTMLElement>(s)];
 /** 메뉴에 보이는 탭(결재 탭은 10-27 숨김 — 주소로는 열림) */
 const shown = () => tabsFor(false).filter((t) => !t.hidden);
-const navLabels = () => $$('nav[aria-label="주 메뉴"] a').map((a) => a.childNodes[1].textContent);
+const navLabels = () => $$('[aria-label="주 메뉴"] [data-href]').map((a) => a.textContent);   // PC 시안 머리줄 .tabs (글만)
 const click = (el: Element) => act(() => { (el as HTMLElement).click(); });
 const robotRow = (name: string) => fleetRow(box, name);
 /** 다른 사람으로 로그인한 것처럼 같은 틀을 다시 그림(가짜 역할 전환 고르개는 없앰 — 역할은 서버 /me) */
@@ -83,16 +83,16 @@ describe('탭 전환', () => {
     mount(false);
     expect(navLabels()).toEqual(['관제', '로봇', '지도', '임무', '기록', '설정']);
     expect($('h1').textContent).toBe('관제');   // PC 첫 화면(U5-02)
-    expect($('nav a[href="#/drive"]')).toBeNull();
-    expect($('nav a[href="#/approval"]')).toBeNull();
-    expect($('nav a[href="#/sim"]')).toBeNull();
+    expect($('[aria-label="주 메뉴"] [data-href="#/drive"]')).toBeNull();
+    expect($('[aria-label="주 메뉴"] [data-href="#/approval"]')).toBeNull();
+    expect($('[aria-label="주 메뉴"] [data-href="#/sim"]')).toBeNull();
     for (const t of shown()) {
-      click($(`nav a[href="#/${t.id}"]`));
+      click($(`[aria-label="주 메뉴"] [data-href="#/${t.id}"]`));
       const to = t.id === 'missions' ? shown().find((x) => x.id === 'map')! : t;   // 임무 = 지도 탭 시나리오(W-mission 전)
       const l = labelOf(to, 'ORG_ADMIN');
       expect($('h1').textContent).toBe(l);
       expect($('main').getAttribute('aria-label')).toBe(l);
-      expect($$('nav a[aria-current="page"]').map((a) => a.getAttribute('href'))).toEqual([`#/${to.id}`]);
+      expect($$('[aria-label="주 메뉴"] [aria-current="page"]').map((a) => a.getAttribute('data-href'))).toEqual([`#/${to.id}`]);
     }
   });
   for (const h of ['#/drive', '#/drive/r7']) it(`PC 옛 주소 ${h} → 로봇 탭(조종 화면 없음)`, () => {
@@ -100,7 +100,7 @@ describe('탭 전환', () => {
     expect($('h1').textContent).toBe('로봇');
     expect(location.hash).toBe('#/fleet');
     expect($('[aria-label="조종"]')).toBeNull();
-    expect($('nav a[aria-current="page"]').getAttribute('href')).toBe('#/fleet');
+    expect($('[aria-label="주 메뉴"] [aria-current="page"]').getAttribute('data-href')).toBe('#/fleet');
   });
   it('PC 로봇 목록: 행마다 «마지막 수신» 시각, 상세에 조종 단추 없음', () => {
     mount(false, 'u-kim', '#/fleet'); feed();
@@ -188,15 +188,15 @@ describe('STOP 상시 표시', () => {
     const s = $$('[aria-label="비상 정지"]');
     if (admin) { expect(s, where).toHaveLength(0); expect($('[data-band][role="status"]'), where).not.toBeNull(); return; }
     expect(s, where).toHaveLength(1);
-    expect(s[0].closest('header'), where).not.toBeNull();
-    expect($('header').lastElementChild, where).toBe(s[0]);
+    expect(s[0].closest('header, .bar'), where).not.toBeNull();   // 폰 머리줄 · PC 시안 머리줄
+    expect($('header, .bar .rt').lastElementChild, where).toBe(s[0]);
     expect(s[0].closest('[data-sheet]'), where).toBeNull();
     expect(parseInt(s[0].style.minHeight), where).toBeGreaterThanOrEqual(phone ? 64 : 44);
     expect($('[data-band][role="status"]'), where).not.toBeNull();
   };
   for (const u of USERS) it(`PC · ${u.name}: 모든 탭에 STOP ${u.role === 'ORG_ADMIN' ? '0개(총괄·실기만)' : '1개'} + 상태 띠 자리`, () => {
     mount(false, u.id);
-    for (const t of shown()) { click($(`nav a[href="#/${t.id}"]`)); one(false, t.id, u.role === 'ORG_ADMIN'); }
+    for (const t of shown()) { click($(`[aria-label="주 메뉴"] [data-href="#/${t.id}"]`)); one(false, t.id, u.role === 'ORG_ADMIN'); }
   });
   for (const u of USERS) it(`폰 · ${u.name}: 로봇 연결·조종·시트 4개·기록에 STOP ${u.role === 'ORG_ADMIN' ? '0개(총괄·실기만)' : '1개(64px)'} + 상태 띠 자리`, () => {
     mount(true, u.id);
@@ -222,7 +222,7 @@ describe('금지어 0', () => {
   };
   for (const u of USERS) it(`PC · ${u.name}`, () => {
     mount(false, u.id);
-    for (const t of shown()) { click($(`nav a[href="#/${t.id}"]`)); none(t.id); }
+    for (const t of shown()) { click($(`[aria-label="주 메뉴"] [data-href="#/${t.id}"]`)); none(t.id); }
   });
   for (const u of USERS) it(`폰 · ${u.name}`, () => {
     mount(true, u.id);
@@ -264,7 +264,7 @@ describe('B1 폭 전환', () => {
     resize(false);   // 폰에 없던 지도 탭은 기억해 뒀다가 PC 로 돌아오면 되돌린다(11-28 조정 결정)
     expect($('h1').textContent).toBe('지도');
     expect(location.hash).toBe('#/map');
-    expect($('nav a[aria-current="page"]').getAttribute('href')).toBe('#/map');
+    expect($('[aria-label="주 메뉴"] [aria-current="page"]').getAttribute('data-href')).toBe('#/map');
   });
 });
 
@@ -277,7 +277,7 @@ describe('폭 전환 뒤 고른 탭 기억', () => {
     resize(false);
     expect(location.hash).toBe('#/settings');
     expect($('main').getAttribute('aria-label')).toBe('설정');
-    expect($('nav a[aria-current="page"]').getAttribute('href')).toBe('#/settings');
+    expect($('[aria-label="주 메뉴"] [aria-current="page"]').getAttribute('data-href')).toBe('#/settings');
   });
   it('운영 관리자: 지도 → 폰 폭 → PC 폭이면 지도, 두 번 오가도 그대로', () => {
     mount(false, 'u-lee', '#/map');
@@ -307,7 +307,7 @@ describe('폭 전환 뒤 고른 탭 기억', () => {
     mount(true, 'u-lee', '#/drive/r3');
     resize(false);
     expect(location.hash).toBe('#/fleet');
-    click($('nav[aria-label="주 메뉴"] a[href="#/history"]'));
+    click($('[aria-label="주 메뉴"] [data-href="#/history"]'));
     resize(true);
     expect($('main').getAttribute('aria-label')).toBe('기록');   // jsdom 은 a 누름의 주소 이동을 하지 않아 본문으로 본다
   });
@@ -364,7 +364,7 @@ describe('R2·R3 보강', () => {
   it('STOP 은 머리줄 맨 오른쪽(마지막) 요소 — PC·폰', () => {
     for (const phone of [false, true]) {
       mount(phone, 'u-lee', '#/history');
-      expect($('header').lastElementChild).toBe($('[data-stop]'));
+      expect($('header, .bar .rt').lastElementChild).toBe($('[data-stop]'));
       act(() => root?.unmount()); box.remove();
     }
     mount(false);
@@ -379,18 +379,20 @@ describe('R2·R3 보강', () => {
       for (const [o, om] of Object.entries(MARK)) if (o !== id) expect(text, `${id} 에 ${o} 내용`).not.toContain(om);
     }
   });
-  it('화면 밝기(11-02): PC 는 왼쪽 메뉴 «설정» 바로 위 단추(누를 때마다 바뀜·설정 탭엔 없음), 폰은 ⋯ 안 고르는 칸', () => {
+  it('화면 밝기(11-02 · 시안 틀 11-28): PC 는 머리줄 나 칸 차림 안 단추(누를 때마다 바뀜·설정 탭 본문엔 없음), 폰은 ⋯ 안 고르는 칸', () => {
     mount(false, 'u-kim', '#/settings');
-    const b = $('nav[aria-label="주 메뉴"] [data-theme-pick]');
-    expect(b.nextElementSibling!.getAttribute('href')).toBe('#/settings');
+    expect($('[data-theme-pick]')).toBeNull();   // 차림은 접혀 있음
+    click($('.bar .who'));
+    const b = $('.bar [role="menu"] [data-theme-pick]');
     expect($('main [data-theme-pick]')).toBeNull();
     const seen = [b.getAttribute('aria-label')];
     for (let i = 0; i < 3; i++) { click(b); seen.push(b.getAttribute('aria-label')); }
     expect(seen).toEqual(['화면 밝기 어두움', '화면 밝기 밝음', '화면 밝기 기기 설정 따름', '화면 밝기 어두움']);
     click(b);
     expect([$('.fh').classList.contains('light'), localStorage.getItem('fh.theme')]).toEqual([true, 'light']);
+    expect($('.proto').classList.contains('light')).toBe(true);   // 시안 틀 밝은 판 = 같은 DOM 위 .proto.light
     resize(true);
-    expect($('nav[aria-label="주 메뉴"]')).toBeNull();
+    expect($('[aria-label="주 메뉴"]')).toBeNull();
     expect($('.fh-more select[data-theme-pick]')).not.toBeNull();
   });
   it('미구현 단추는 비활성 + «준비 중» 글에 이어짐', () => {

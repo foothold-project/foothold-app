@@ -478,7 +478,7 @@ describe('조종 화면', () => {
   it('폰 조종 화면: 왼쪽 전후·오른쪽 회전 조이스틱, STOP 64px 머리줄 오른쪽 끝', () => {
     mount(true, 'u-park', '#/drive/r7');
     serve(PARK, 'r7');
-    expect($('header').lastElementChild).toBe($('[data-stop]'));
+    expect($('header, .bar .rt').lastElementChild).toBe($('[data-stop]'));
     expect(parseInt($('[data-stop]').style.minHeight)).toBeGreaterThanOrEqual(64);
     ready();
     const fwd = $('[aria-label="전후 조이스틱"]'), turn = $('[aria-label="회전 조이스틱"]');
@@ -533,10 +533,10 @@ describe('실시간 연결(05 §9)', () => {
     serve(KIM, 'r3', 'r7', 'r1');
     w.auto = null;                                         // 서버가 말이 없어짐
     tick(2750);
-    expect($('header [data-link]')).toBeNull();
+    expect($('header [data-link], .bar [data-link]')).toBeNull();
     expect(w.of('ping').length).toBe(2);
     tick(250);
-    expect($('header [data-link]').textContent).toContain('연결 끊김');
+    expect($('header [data-link], .bar [data-link]').textContent).toContain('연결 끊김');
     expect(band()).toContain('서버 연결이 끊겼습니다. 로봇 상태를 알 수 없습니다.');
     expect($('[aria-label="내 로봇"]').textContent).toContain('상태 모름');
     expect(card('Go2-3').querySelector('button')!.textContent).toBe('보기만');
@@ -549,7 +549,7 @@ describe('실시간 연결(05 §9)', () => {
     mount(false, 'u-kim', '#/fleet');
     serve(KIM, 'r3', 'r7', 'r1');
     act(() => w.drop(4403));
-    expect($('header [data-link]').textContent).toContain('연결 거부');
+    expect($('header [data-link], .bar [data-link]').textContent).toContain('연결 거부');
     expect(band()).toContain('서버가 실시간 연결을 거부했습니다(권한 없음)');
     tick(60_000);
     expect(FakeWS.all).toHaveLength(1);
@@ -563,14 +563,14 @@ describe('실시간 연결(05 §9)', () => {
     act(() => w.drop(1006));
     tick(1000);
     act(() => FakeWS.last.drop(code));                     // 열리기 전에 또 끊김 — 1006 이면 2 s 지만 1013·1012 는 1 s
-    expect($('header [data-link]').textContent).toContain('연결 끊김');
+    expect($('header [data-link], .bar [data-link]').textContent).toContain('연결 끊김');
     tick(999);
     expect(FakeWS.all).toHaveLength(2);
     tick(1);
     expect(FakeWS.all).toHaveLength(3);
     serve(KIM, 'r3', 'r7', 'r1');
     expect(w.of('sub')).toHaveLength(1);
-    expect($('header [data-link]')).toBeNull();
+    expect($('header [data-link], .bar [data-link]')).toBeNull();
   });
 
   it('그 밖의 끊김은 1·2 s… 늘려 다시 연결', () => {
@@ -817,7 +817,7 @@ describe('PR #12 검토 1차', () => {
     act(() => FakeWS.last.drop(1006));                     // 열리기 전에 닫힘 = 브라우저가 HTTP 401/403 을 알리는 방식
     await settle();
     expect(lost).toHaveBeenCalled();
-    expect($('header [data-link]').textContent).toContain('연결 거부');
+    expect($('header [data-link], .bar [data-link]').textContent).toContain('연결 거부');
     tick(60_000);
     expect(FakeWS.all).toHaveLength(1);
     setAuthLost(() => {});
@@ -827,7 +827,7 @@ describe('PR #12 검토 1차', () => {
     mount(false, 'u-kim', '#/fleet');
     for (let i = 0; i < 6; i++) { act(() => FakeWS.last.drop(1006)); await settle(); tick(Math.min(10, 2 ** i) * 1000); }
     expect(FakeWS.all).toHaveLength(7);
-    expect($('header [data-link]').textContent).toContain('연결 끊김');
+    expect($('header [data-link], .bar [data-link]').textContent).toContain('연결 끊김');
     expect(band()).toContain('연결 재시도 중입니다');
     expect(band()).not.toContain('거부');
   });
@@ -835,7 +835,7 @@ describe('PR #12 검토 1차', () => {
     vi.stubGlobal('fetch', me(403));
     mount(false, 'u-kim', '#/fleet');
     act(() => FakeWS.last.drop(1006)); await settle();
-    expect($('header [data-link]').textContent).toContain('연결 거부');
+    expect($('header [data-link], .bar [data-link]').textContent).toContain('연결 거부');
     tick(60_000);
     expect(FakeWS.all).toHaveLength(1);
   });
@@ -844,7 +844,7 @@ describe('PR #12 검토 1차', () => {
     mount(false, 'u-kim', '#/fleet');
     tick(60_000);
     expect((f.mock.calls as unknown as [string][]).filter(([u]) => !/\/(dashboard|robots\/|notifications|events|sites)/.test(String(u)))).toEqual([]);   // 관제 요약·상세·알림·최근 사건·지도 칸 층 목록 말고 인증 확인(REST)은 0
-    expect($('header [data-link]').textContent).toContain('연결 끊김');
+    expect($('header [data-link], .bar [data-link]').textContent).toContain('연결 끊김');
     expect(FakeWS.all.length).toBeGreaterThan(3);
   });
   it('[B2] 수락 전 끊김이라도 REST 도 안 닿으면(서버·네트워크) 계속 다시 연결, 열린 뒤 끊김은 REST 확인 안 함', async () => {
@@ -869,7 +869,7 @@ describe('PR #12 검토 1차', () => {
     expect([a.readyState, b.readyState, c.readyState]).toEqual([3, 3, 0]);
     expect(a.onopen ?? b.onmessage ?? b.onclose).toBeNull();
     act(() => { a.open(); b.open(); });
-    expect($('header [data-link]').textContent).toContain('연결 끊김');   // 버린 소켓이 열려도 연결로 치지 않음
+    expect($('header [data-link], .bar [data-link]').textContent).toContain('연결 끊김');   // 버린 소켓이 열려도 연결로 치지 않음
     act(() => root?.unmount()); root = null;
     expect(FakeWS.all.every((x) => x.readyState === 3)).toBe(true);
   });
@@ -1089,7 +1089,7 @@ describe('S0 서버 후속(apps/server README «S0»)', () => {
     expect(lastAxes()).toEqual([1.5, 0, 0]);
     w.auto = null;                                         // 서버가 말이 없어짐(ping·state 없음)
     let waited = 0;
-    while (!box.querySelector('header [data-link]') && waited < 4000) { tick(50); waited += 50; }
+    while (!box.querySelector('header [data-link], .bar [data-link]') && waited < 4000) { tick(50); waited += 50; }
     expect(waited).toBeGreaterThanOrEqual(2900);           // 3 s(0.25 s 간격 확인) 전에는 끊김으로 보지 않음
     expect(waited).toBeLessThanOrEqual(3300);
     expect(cmds().slice(-2).map((m) => String(m.axes))).toEqual(['1.5,0,0', '0,0,0']);   // 끊김 직전까지 조종, 끊으며 0
@@ -1097,7 +1097,7 @@ describe('S0 서버 후속(apps/server README «S0»)', () => {
     tick(2000);
     expect(cmds().length).toBe(n);                         // 그 뒤 cmd 0건(새 소켓에도)
     expect(FakeWS.all.slice(1).every((s) => s.of('cmd').length === 0)).toBe(true);
-    expect($('header [data-link]').textContent).toContain('연결 끊김');
+    expect($('header [data-link], .bar [data-link]').textContent).toContain('연결 끊김');
     stopOn();
   });
 
@@ -1106,7 +1106,7 @@ describe('S0 서버 후속(apps/server README «S0»)', () => {
     serve(KIM, 'r3', 'r7', 'r1');
     w.auto = null;
     for (let i = 0; i < 10; i++) { tick(1000); recv({ t: 'ping', t_server: new Date().toISOString() }); }
-    expect(box.querySelector('header [data-link]')).toBeNull();
+    expect(box.querySelector('header [data-link], .bar [data-link]')).toBeNull();
     expect(FakeWS.all).toHaveLength(1);
   });
 
@@ -1312,7 +1312,7 @@ describe('폰 조종 앱 틀', () => {
   /** STOP: 머리줄 맨 끝, 시트 밖, 누를 수 있음, 64 px 이상 */
   const stopReachable = () => {
     expect(stopBtn().parentElement!.tagName).toBe('HEADER');
-    expect($('header').lastElementChild).toBe(stopBtn());
+    expect($('header, .bar .rt').lastElementChild).toBe(stopBtn());
     expect(stopBtn().closest('[data-sheet]')).toBeNull();
     expect(stopBtn().disabled).toBe(false);
     expect(parseInt(stopBtn().style.minHeight)).toBeGreaterThanOrEqual(64);
@@ -2079,7 +2079,7 @@ describe('전체화면(⋯ 메뉴)', () => {
     tick(100);
     expect(lastAxes()).toEqual([1.5, 0, 0]);
     expect([w.of('lease.release'), w.of('hidden'), w.of('stop')].map((a) => a.length)).toEqual([0, 0, 0]);
-    expect($('header').lastElementChild).toBe($('[data-stop]'));
+    expect($('header, .bar .rt').lastElementChild).toBe($('[data-stop]'));
     click($('[data-stop]'));
     expect(w.of('stop')).toHaveLength(1);
   });
@@ -2096,7 +2096,7 @@ describe('전체화면(⋯ 메뉴)', () => {
     act(() => push('r7', { speed: 0.1 }));
     expect($('[data-full-tip]')).toBeNull();
     expect($('[data-layout]').hasAttribute('data-drive')).toBe(true);
-    expect($('header').lastElementChild).toBe($('[data-stop]'));
+    expect($('header, .bar .rt').lastElementChild).toBe($('[data-stop]'));
   });
 
   it('아이폰(요소 전체화면 없음): 단추 없이 «홈 화면에 추가» 안내, 홈 화면 앱으로 열렸으면 안내도 없음 — STOP 그대로', () => {
@@ -2108,7 +2108,7 @@ describe('전체화면(⋯ 메뉴)', () => {
     act(() => push('r7', { speed: 0.1 }));
     expect($('[data-full]')).toBeNull();
     expect($('[data-full-tip]').textContent).toContain('홈 화면에 추가');
-    expect($('header').lastElementChild).toBe($('[data-stop]'));
+    expect($('header, .bar .rt').lastElementChild).toBe($('[data-stop]'));
   });
 
   it('좁은 창(768 미만): 마우스 쓰는 총괄은 PC 틀(지도 탭 그대로), 손가락 입력 총괄·운영자는 폰 틀 (11-11 현민님)', () => {

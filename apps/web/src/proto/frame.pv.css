@@ -1,0 +1,16 @@
+/* 시안 틀(.proto)에 앱을 꽂는 자리만. 시안 값(ui.proto.css · pc.proto.css)은 건드리지 않고, 시안에 없던 것(단추 기본값 · 펼침 차림 · 옛 화면 자리)만 둔다 */
+/* 시안 «모두 정지» 는 span 이지만 앱은 눌러야 해서 button: 브라우저 기본 테두리 · 글꼴만 지운다(값은 .allstop 그대로) */
+.proto .bar button.allstop{border:0;font-family:inherit;letter-spacing:inherit;line-height:inherit;cursor:pointer;touch-action:manipulation}
+.proto .bar .tabs span,.proto .bar .who{cursor:pointer;user-select:none}
+.proto .bar .proto-whobox{position:relative;display:flex}
+.proto .bar .proto-menu{position:absolute;right:0;top:calc(100% + 12px);z-index:30;min-height:0;display:flex;flex-direction:column;gap:8px;padding:12px;min-width:220px;border-radius:12px;background:var(--panel);border:1px solid var(--line2);box-shadow:var(--shadow);color:var(--text)}
+.proto .bar details.proto-bell{position:relative;display:flex}
+.proto .bar details.proto-bell>summary{list-style:none;display:flex;cursor:pointer}
+.proto .bar details.proto-bell>summary::-webkit-details-marker{display:none}
+.proto .bar details.proto-bell>.card{position:absolute;right:0;top:calc(100% + 12px);z-index:30;min-height:0;padding:12px;color:var(--text)}
+/* 머리줄 아래 앱 자리: STOP 결과 띠 · 정지 고르기는 모든 화면 위에, 아직 시안으로 옮기지 않은 탭은 옛 본문 */
+.proto>.fh.proto-in{position:absolute;left:0;right:0;top:64px;min-height:0;z-index:20}
+.proto>.fh.proto-in.old{bottom:0;z-index:1;background:var(--bg)}
+.proto>.fh.proto-in.old .fh-body{height:100%;min-height:0}
+.proto>.fh.proto-in.old .fh-main{overflow-y:auto}
+.proto .proto-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
