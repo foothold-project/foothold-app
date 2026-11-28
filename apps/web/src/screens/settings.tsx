@@ -443,7 +443,7 @@ export function Account({ u, self, put, gone, cancel }: { u: ApiUser; self: bool
     {self ? <p className="lv-note">내 이름은 «계정» 묶음의 「이름 바꾸기」에서 바꿉니다.</p> : <form className="fh-form" onSubmit={save} noValidate>
       <label className="fh-field"><span>이름</span><input className="inp" name="display_name" maxLength={128} value={name} onChange={(e) => setName(e.target.value)} /></label>
       <label className="fh-field"><span>역할</span><select className="inp" name="role" value={role} onChange={(e) => setRole(e.target.value as Role)}>
-        <option value="OPERATOR">{ROLE_NAME.OPERATOR}</option><option value="ORG_ADMIN">{ROLE_NAME.ORG_ADMIN}</option></select></label>
+        <option value="OPERATOR">운영자</option><option value="ORG_ADMIN">총괄</option></select></label>   {/* 사용자 고치기 창(시안 u9 이름) */}
       <div className="fh-row"><button type="submit" className="btn pri" disabled={busy}>저장</button></div>
     </form>}
     <div className="fh-row">

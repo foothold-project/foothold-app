@@ -127,6 +127,8 @@ describe('총괄 — 계정 관리', () => {
     expect(box.innerHTML).not.toContain(body.temp_password);
     // 창을 닫으면 만든 계정을 바로 고른다(계정 상세)
     expect(dlg('사용자 고치기').querySelector('[aria-label="계정 상세"] h2')!.textContent).toBe('정운영');
+    // 역할 선택 이름은 시안 u9 대로(운영자 · 총괄)
+    expect([...dlg('사용자 고치기').querySelectorAll('select[name="role"] option')].map((o) => o.textContent)).toEqual(['운영자', '총괄']);
   });
 
   it('만들기: 빈 칸은 보내지 않음, 아이디 중복 409 는 쉬운 문구', async () => {
