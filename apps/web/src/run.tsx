@@ -34,6 +34,7 @@ const nextText = (code: string | null) => code && code in RUN_NEXT ? RUN_NEXT[co
 /** 일시정지 이유(wait_reason) */
 export const RUN_WAIT: Record<string, string> = {
   LINK_LOST: '화면 연결이 끊겨 멈췄습니다(로봇 정지·잠금).', STOPPED_BY_USER: 'STOP 으로 멈췄습니다(잠금 유지).',
+  SIM_SELF_STOP: '시뮬 로봇이 스스로 멈췄습니다(잠금 유지) · 잠금을 풀고 «이어서»를 누르세요.',
   RECORDING_UNAVAILABLE: `실행 기록을 저장하지 못해 멈췄습니다 · 이어갈 수 없습니다. «취소»하세요. ${SIM_RESTART}`, '': '일시정지했습니다(로봇 정지·잠금).',
 };
 const mmss = (s: number) => `${Math.floor(s / 60)}분 ${(s % 60).toString().padStart(2, '0')}초`;

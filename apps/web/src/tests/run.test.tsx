@@ -311,6 +311,16 @@ describe('시나리오 실행 — 진행 표시·단추', () => {
     expect(b.of('run.control').find((m) => m.op === 'resume')!.resume_token).toBe(TOKEN);
   });
 
+  it('시뮬이 스스로 멈춤 (SIM_SELF_STOP, #640): 이유 한 줄이 보이고 원문 코드는 안 보임', async () => {
+    const a = await launch('phone');
+    const { run_id } = await startPhone(a) as unknown as { run_id: string };
+    await recv(a, phoneState({ ...held, latched: false, run: runOf(run_id) }));
+    const paused = runOf(run_id, { status: 'PAUSED', wait_reason: 'SIM_SELF_STOP' });
+    await recv(a, phoneState({ ...held, latched: true, run: paused }));
+    await recv(a, { t: 'run.update', ...paused });
+    expect(visible()).toContain('시뮬 로봇이 스스로 멈췄습니다');
+  });
+
   it('출입증 만료 임박 + 실행 중: 만료되면 일시정지·같은 화면 이어서 안내', async () => {
     const a = await launch('phone');
     const { run_id } = await startPhone(a) as unknown as { run_id: string };
