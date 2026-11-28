@@ -1,6 +1,6 @@
 // 탭 본문 — 03 UX §5 배치 뼈대 수준. 관제 요약·로봇 목록·상세는 서버 값(설정 탭은 screens/settings.tsx, 기록 탭은 screens/history.tsx, 지도 탭·관제 지도 칸은 screens/maps.tsx, 결재 탭은 screens/approvals.tsx, 임무 탭은 screens/missions.tsx), 폰 시나리오 시트는 이 층 시나리오 고르기(screens/missions.tsx ScenarioPick).
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { driveBlock, ownerName, robotStatus, toRobot, type Robot, type Tone, type User } from './fake';
+import { ADMIN_LATER, driveBlock, ownerName, robotStatus, toRobot, type Robot, type Tone, type User } from './fake';
 import type { Dashboard, Device, RobotSummary, User as ApiUser } from '../../contracts/ts';
 import { api, type ApiFail } from './api';
 import { Drive, holderText } from './drive';
@@ -19,7 +19,7 @@ import { PhoneRelay, useRelayExpiry } from './phoneRelay';
 import { RobotInfo, pickInfo } from './go2status';
 import { Empty } from './empty';
 import { AdminFleet, OperatorRobot, realDash } from './screens/fleet';
-import { AddRobot, AssignOwner } from './pairing';
+import { AddRobot, AssignOwner, ManageRobot } from './pairing';
 
 /** go(t, id): id 를 주면 그 로봇 화면을 바로 연다(#/drive/<id>). open = PC 조종 탭에서 로봇 화면이 열림. robots = 서버가 준 로봇 목록 그대로 */
 export type Ctx = { user: User; robot: Robot; robots: Robot[]; pick: (id: string) => void; go: (t: TabId, id?: string) => void; open: boolean; phone: boolean;
@@ -86,12 +86,11 @@ export function EmptyFleet({ user, cancel, dash, robots, refresh }: { user: User
     <MapCard cancel={cancel} /><Operators user={user} d={d} /></>;
 }
 
-/** PC 웹 운영 관리자의 «새 로봇 추가»(폰과 같은 화면 · pairing.tsx). 펼치면 children(목록 칸) 자리에. 총괄은 실기를 연결하지 않아 없음
+/** PC 웹 «새 로봇 추가»(폰과 같은 화면 · pairing.tsx). 펼치면 children(목록 칸) 자리에. 총괄도 붙인다(11/28 · 서버 #544)
  *  children 이 함수면 «+ 새 로봇 추가» 단추를 받아 그 칸 안에 둔다(빈 화면의 다음 할 일 하나) */
 export function Pair({ user, mine, refresh, cancel, children }: { user: User; mine: string[]; refresh: () => void; cancel?: AbortSignal; children: ReactNode | ((add: ReactNode) => ReactNode) }) {
   const [on, setOn] = useState(false), fn = typeof children === 'function';
   const add = <button type="button" className={fn ? 'btn pri' : 'btn'} onClick={() => setOn(true)} data-pair-start>+ 새 로봇 추가</button>;
-  if (user.role === 'ORG_ADMIN') return <>{fn ? children(null) : children}</>;
   if (on) return <AddRobot mine={mine} close={() => setOn(false)} refresh={refresh} cancel={cancel} />;
   return fn ? <>{children(add)}</> : <>{children}<div className="fh-row" style={{ flexBasis: '100%' }}>{add}</div></>;
 }
@@ -194,8 +193,10 @@ export function Detail({ close, solo, ...c }: Ctx & { close?: () => void; solo?:
     <Line k="담당"><span>{ownerName(r)}</span></Line>
     {!r.sim && r.serial && <Line k="기체번호"><span className="mono">{r.serial}</span></Line>}
     {!hidden && attn(c.robot, SHOWN) && <Line k="주의"><span>{attn(c.robot, SHOWN)}</span></Line>}
-    {/* 총괄: 담당 없는 실기에만 담당 지정(그 밖 실기 쓰기 없음 — 서버 403). 담당 운영(PC 웹): 내 로봇 관리 */}
+    {/* 총괄: 담당 없는 실기에 담당 지정, 내가 담당인 실기는 관리(11/28). 남 담당 실기의 이름 · 지우기 · 끊기 · 담당 바꾸기는 서버 2 차 전이라 까닭 한 줄 */}
     {c.user.role === 'ORG_ADMIN' && !r.sim && !c.robot.owner && <AssignOwner r={c.robot} refresh={c.refresh} cancel={c.cancel} />}
+    {c.user.role === 'ORG_ADMIN' && !r.sim && c.robot.owner === c.user.id && <ManageRobot key={`${r.id}-${r.owner}`} r={c.robot} refresh={c.refresh} cancel={c.cancel} />}
+    {c.user.role === 'ORG_ADMIN' && !r.sim && !!c.robot.owner && c.robot.owner !== c.user.id && <p className="lbl" data-admin-later>{ADMIN_LATER}</p>}
   </>;
   useRelayExpiry(r.phoneRelay, r.phoneRelayAt);   // 폰 경유 값이 새 state 없이 낡아도 아래 묶음을 다시 고른다
   const info = pickInfo(r);   // 실기 Go2 자세·상태 번호·넘어짐 추정(표시만) — 배터리 옆, 시뮬은 숨김
