@@ -27,7 +27,9 @@ const S2 = scen('s2', '가스 점검', [wp(0, 1), wp(1, 1)], { finish: { mode: '
 const S3 = scen('s3', '지난 임무', [wp(0, 0)], { archived_at: '2026-11-27T00:00:00Z' });
 const ALL = [S1, S2, S3];
 
-let calls: { method: string; path: string; q: URLSearchParams; body?: Record<string, unknown> }[] = [];
+let calls: { method: string; path: string; q: URLSearchParams; body?: Record<string, unknown>; key?: string | null }[] = [];
+/** POST /assignments 답(시험이 바꿈). 기본 = 그 로봇 ACTIVE */
+let assignReply: (b: Record<string, unknown>) => Promise<Response> = async (b) => new Response(JSON.stringify({ id: `new-${b.robot_id}`, robot_id: b.robot_id, scenario_id: b.scenario_id, scenario_version: b.scenario_version, status: 'ACTIVE' }), { status: 201, headers: { 'Content-Type': 'application/json' } });
 /** 오늘 로컬 h:m 의 ISO */
 const at = (h: number, m = 0) => { const d = new Date(); d.setHours(h, m, 0, 0); return d.toISOString(); };
 const slot = (id: string, robot_id: string, kind: ScheduleSlot['kind'], h0: number, m0: number, h1: number, m1: number, scenario_id: string | null = 's2'): ScheduleSlot =>
@@ -44,7 +46,8 @@ function serve() {
   vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
     const method = init.method ?? 'GET', [path, qs = ''] = url.replace(/^\/api\/v1/, '').split('?');
     const body = init.body ? JSON.parse(String(init.body)) : undefined;
-    calls.push({ method, path, q: new URLSearchParams(qs), body });
+    calls.push({ method, path, q: new URLSearchParams(qs), body, key: new Headers(init.headers).get('Idempotency-Key') });
+    if (method === 'POST' && path === '/assignments') return assignReply(body!);
     const fail = (status: number, code: string, detail = {}) => new Response(JSON.stringify({ error: { code, message: code === 'SCHEDULE_CONFLICT' ? '같은 로봇의 다른 일정과 겹칩니다.' : '오류', detail } }), { status });
     if (path === '/schedule') return ok({ day: new URLSearchParams(qs).get('day'), tz: new URLSearchParams(qs).get('tz'), slots: srv.slots });
     if (path === '/robots/availability') return ok({ items: srv.avail });
@@ -67,6 +70,8 @@ function serve() {
     if (m) { const x = ALL.find((s) => s.id === m[1]); return x ? ok(x) : new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: '없음', detail: {} } }), { status: 404 }); }
     if (method === 'POST' && path === '/scenarios/preview') return ok({ reachable: true, points: [], segments: [], floor_ids: ['f1'], map_version_ids: ['v1'], required_devices: [], est_distance_m: 3, distance_note: '' });
     if (path === '/actions') return ok([]);
+    if (path === '/assignments') return ok({ items: [{ id: 'as1', robot_id: 'r2', scenario_id: 's1', scenario_version: 1, status: 'ACTIVE' }, { id: 'as2', robot_id: 'r1', scenario_id: 's1', scenario_version: 1, status: 'REMOVED' },
+      { id: 'as3', robot_id: 'r1', scenario_id: 's2', scenario_version: 1, status: 'ACTIVE' }], next_cursor: null });
     return new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: '없음', detail: {} } }), { status: 404 });
   });
 }
@@ -78,16 +83,16 @@ const ROBOTS: Robot[] = [
 ];
 let root: Root | null = null, box: HTMLDivElement;
 const flush = () => act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); await new Promise((r) => setTimeout(r, 0)); });
-async function mount(hash: string) {
+async function mount(hash: string, who = 'u-kim') {
   window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
   if (!srv) fresh();
   serve();
   location.hash = hash;
   box = document.createElement('div'); document.body.append(box);
-  act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === 'u-kim')} robots={ROBOTS} />); });
+  act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === who)} robots={ROBOTS} />); });
   await flush(); await flush();
 }
-afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); clearPlans(); keptMission.sel = ''; fresh(); leaving.ask = null; vi.unstubAllGlobals(); vi.restoreAllMocks(); localStorage.clear(); });
+afterEach(() => { assignReply = async (b) => new Response(JSON.stringify({ id: `new-${b.robot_id}`, robot_id: b.robot_id, scenario_id: b.scenario_id, scenario_version: b.scenario_version, status: 'ACTIVE' }), { status: 201, headers: { 'Content-Type': 'application/json' } }); act(() => root?.unmount()); root = null; box?.remove(); clearPlans(); keptMission.sel = ''; fresh(); leaving.ask = null; vi.unstubAllGlobals(); vi.restoreAllMocks(); localStorage.clear(); });
 const $ = <T extends Element = HTMLElement>(s: string) => box.querySelector<T>(s);
 const $$ = (s: string) => [...box.querySelectorAll<HTMLElement>(s)];
 const last = <T,>(l: T[]) => l[l.length - 1];
@@ -110,6 +115,50 @@ describe('임무 탭(W2)', () => {
     expect(oldScenario('#/map')).toBeNull();
   });
 
+  it('로봇에 배정(W1 runctl 후속): 이미 배정된 로봇은 고르기에서 빠짐 · POST /assignments(멱등 key) · 답 전엔 성공 없음 · 답 뒤 성공 한 줄 + 그 로봇 실행 칸', async () => {
+    let done!: () => void;
+    assignReply = (b) => new Promise((ok) => { done = () => ok(new Response(JSON.stringify({ id: 'as9', robot_id: b.robot_id, scenario_id: b.scenario_id, scenario_version: b.scenario_version, status: 'ACTIVE' }), { status: 201, headers: { 'Content-Type': 'application/json' } })); });
+    await mount('#/missions');
+    const sel = $<HTMLSelectElement>('[data-assign] select')!;
+    expect([...sel.options].map((o) => o.value)).toEqual(['r1', 'r3']);   // r2 는 s1 에 이미 ACTIVE
+    act(() => { sel.value = 'r1'; sel.dispatchEvent(new Event('change', { bubbles: true })); });
+    await click($('[data-assign] button'));
+    const post = calls.filter((c) => c.method === 'POST' && c.path === '/assignments');
+    expect(post).toHaveLength(1);
+    expect(post[0].body).toEqual({ scenario_id: 's1', scenario_version: 1, robot_id: 'r1' });
+    expect(post[0].key).toMatch(/^[0-9a-f-]{36}$/);
+    expect($('[data-assign-msg]')?.textContent ?? '').not.toContain('배정했습니다');
+    expect($$('[data-run-list] [data-run-ctl]').map((e) => e.dataset.runCtl)).toEqual(['r2']);
+    await act(async () => { done(); }); await flush();
+    expect($('[data-assign-msg]')!.textContent).toBe('K-01 에 배정했습니다.');
+    expect($$('[data-run-list] [data-run-ctl]').map((e) => e.dataset.runCtl)).toEqual(['r2', 'r1']);
+  });
+  it('로봇에 배정: 서버 거절(409 ASSIGNMENT_EXISTS)은 문구 한 줄 · 실행 칸은 생기지 않음 · 답 못 받으면 다시 보낼 때 같은 key', async () => {
+    let n = 0;
+    assignReply = async () => (++n === 1 ? Promise.reject(new TypeError('network')) : new Response(JSON.stringify({ error: { code: 'ASSIGNMENT_EXISTS', message: '이미 배정되었거나 결재를 기다리는 시나리오 판입니다.', detail: {} } }), { status: 409, headers: { 'Content-Type': 'application/json' } }));
+    await mount('#/missions');
+    await click($('[data-assign] button'));
+    await click($('[data-assign] button'));
+    const post = calls.filter((c) => c.method === 'POST' && c.path === '/assignments');
+    expect(post).toHaveLength(2);
+    expect(post[1].key).toBe(post[0].key);   // 같은 시도의 다시 보내기
+    expect($('[data-assign-msg]')!.textContent).toContain('이미 배정되었거나 결재를 기다리는 시나리오 판입니다.');
+    expect($$('[data-run-list] [data-run-ctl]').map((e) => e.dataset.runCtl)).toEqual(['r2']);
+  });
+  it('로봇에 배정: 담당 로봇이 없는 운영 관리자는 회색 단추 대신 까닭 한 줄 · 보내지 않음', async () => {
+    await mount('#/missions', 'u-park');
+    expect($('[data-assign] button')).toBeNull();
+    expect($('[data-assign]')!.textContent).toContain('배정은 담당 로봇에만 할 수 있습니다');
+    expect(calls.some((c) => c.method === 'POST' && c.path === '/assignments')).toBe(false);
+  });
+  it('지금 실행(W1 runctl): 고른 임무가 ACTIVE 로 배정된 로봇만 실행 칸 · 조종권 없으면 «조종권 잡기»로 이음 · 다른 임무를 고르면 그 임무의 로봇', async () => {
+    await mount('#/missions');
+    const ids = () => $$('[data-run-list] [data-run-ctl]').map((e) => e.dataset.runCtl);
+    expect(ids()).toEqual(['r2']);   // s1: r2 ACTIVE · r1 REMOVED 는 빠짐
+    expect($('[data-run-ctl="r2"]')!.textContent).toContain('조종권 잡기');
+    await click($('[data-mission="s2"]'));
+    expect(ids()).toEqual(['r1']);
+  });
   it('탭 열림: 세 칸(목록 · 지도 · 일정 칸) + 오늘 일정, 첫 임무를 펼쳐 할 일 번호와 끝 동작', async () => {
     await mount('#/missions');
     expect($('h1')!.textContent).toBe('임무');

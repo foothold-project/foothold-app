@@ -1637,3 +1637,23 @@ describe('직결 시뮬 조종 — 새로 누른 입력만(RB-SIMDRIVE-FRESH-PRE
     ptr(fwd, 'pointerup', 50, 0);
   });
 });
+
+describe('폰 시뮬 조종 RUN 이 쥐면 (#537 state.holder_type · 08:04)', () => {
+  it('«조종 시작» 회색 + 까닭 한 줄 · 일시정지 못 함은 실행 칸 한 곳 · 칠한 단추 없음 · RUN 이 놓으면 «조종 시작» 다시 켜짐', async () => {
+    const a = await launch();
+    a.auto = ((m: Msg) => (['hello', 'cmd', 'ping', 'stop', 'lease.take'].includes(m.t) ? undefined : {})) as FakeWS['auto'];
+    await recv(a, phoneState({ holder_type: 'RUN', holder_name: null, run: { run_id: 'run-o', status: 'MOVING', step: 0, progress: { done: 0, total: 3 }, wait_reason: null, fail_code: null } }));
+    expect(btn('조종 시작')!.disabled).toBe(true);
+    expect($('[data-sim-card] [data-held-run] button')).toBeNull();
+    expect(box.textContent!.split('예약 임무가 조종 중입니다 · 임무가 끝나거나 멈춘 뒤 조종할 수 있습니다.')).toHaveLength(2);   // 한 곳
+    expect(box.textContent!.split('이 화면에서는 일시정지할 수 없습니다')).toHaveLength(2);   // 실행 칸 한 곳
+    expect($('[data-sim-card] [data-held-run]')!.textContent).toBe('예약 임무가 조종 중입니다 · 임무가 끝나거나 멈춘 뒤 조종할 수 있습니다.');
+    expect([...box.querySelectorAll<HTMLButtonElement>('[data-sim-card] .btn.pri')].filter((b) => !b.disabled).map((b) => b.textContent)).toEqual([]);
+    await click(btn('조종 시작'));
+    expect(a.sent.filter((m) => m.t === 'lease.take')).toEqual([]);
+    await recv(a, phoneState({ holder_type: null, holder_name: null }));
+    expect(btn('조종 시작')!.disabled).toBe(false);
+    expect($('[data-held-run]')).toBeNull();
+  });
+});
+
