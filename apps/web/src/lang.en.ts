@@ -150,6 +150,16 @@ export const EN: Record<string, string> = {
   '알림 닫기': 'Dismiss alert', '접기': 'Collapse', '현장에서 로봇 전원과 통신을 확인하세요.': 'Check the robot’s power and network on site.',
   '조종권 요청': 'Control request', '넘겨주시겠습니까?': 'Hand over control?', '계속 조종': 'Keep driving', '넘기기': 'Hand over', '넘기면 로봇을 그 자리에 세워 잠근 뒤 조종권이 넘어갑니다.': 'Handing over stops and latches the robot where it is, then passes control.',
   '서버와 연결이 끊겼습니다': 'Lost connection to the server', '서버가 연결을 받지 않습니다': 'The server refused the connection', '다시 연결하는 중입니다': 'Reconnecting', '리모컨이 우선입니다': 'The remote has priority',
+  // 3 차 안전(11/29): 정지 띠 · 정지 고르기 창 · 서버 연결 띠. 글 뜻만 옮기고 덧붙이지 않음
+  '다시 연결됨 · 로봇의 정지 확인을 기다리는 중. 현장을 확인하세요.': 'reconnected · waiting for the robot to confirm the stop. Check on site.',
+  '실시간 연결이 끊겨 로봇 확인은 보이지 않습니다. 현장을 확인하세요.': 'the live link is down, so the robot’s confirmation cannot be seen. Check on site.',
+  '다시 연결': 'Reconnect', '연결 재시도 중입니다.': 'Retrying.', '로봇 상태를 알 수 없습니다.': 'Robot status is unknown.', '다시 연결 · 잠긴 채 시작': 'Reconnected · starts latched',
+  '어느 로봇을 정지할까요?': 'Which robot should stop?', '정지할 로봇 고르기': 'Pick a robot to stop', '정지할 로봇': 'Robot to stop', '로봇 고르기': 'Pick a robot',
+  '내 시뮬 정지': 'Stop my sims', '멈출 수 있는 로봇 정지': 'Stop robots I can stop', '전체 정지': 'Stop everything', '내 시뮬 모두 정지': 'Stop all my sims', '멈출 수 있는 로봇 모두 정지': 'Stop all robots I can stop',
+  '멈출 로봇 없음': 'No robot to stop', '▲ 이 앱으로 멈출 로봇이 없습니다 — 현장에서 로봇을 직접 멈추세요.': '▲ No robot can be stopped from this app. Stop the robot on site.',
+  '▲ 로봇에 닿을 길 없음 · 현장에서 멈추세요. 서버 연결이 끊겼고 이 폰은 로봇과 직결되어 있지 않아 정지 명령을 보내지 못했습니다.': '▲ No way to reach the robot · stop it on site. The server link is down and this phone is not linked to the robot, so the stop was not sent.',
+  '▲ 서버 다시 연결됨 · 앞선 정지는 보내지 못했음 · 로봇 상태를 확인하세요.': '▲ Server reconnected · the earlier stop was not sent · check the robot.',
+  '목록에 없는 로봇입니다. 로봇 목록을 다시 받은 뒤 고르세요.': 'This robot is not in the list. Reload the robot list and pick again.', '담당 로봇이 아닙니다. 내 로봇만 열 수 있습니다.': 'Not your robot. You can open only your robots.',
 };
 
 /** 규칙 안에서 나머지 글을 사전으로(없으면 그대로) */
@@ -214,6 +224,23 @@ export const EN_RULES: [RegExp, (m: RegExpExecArray) => string][] = [
   [/^가짜 (\d+)$/, (m) => `Test ${m[1]}`], [/^가짜 순찰 (\d+\/\d+)$/, (m) => `Test patrol ${m[1]}`],
   [/^(\d+) 건 모두 보기$/, (m) => `Show all ${m[1]}`],
   [/^(.+) 연결이 끊겼습니다\. 마지막 확인: (.+)\((.*)\)\. 지금 상태는 알 수 없습니다\.$/, (m) => `${m[1]} disconnected. Last seen: ${EN[m[2]] ?? m[2]} (${m[3]}). Current status unknown.`],
+  // 3 차 안전(11/29): 정지 띠(drive.tsx stopText · App.tsx groupStops · lostStop · lostSent · unsureStop)
+  [/^■ (.+) 정지 요청됨 — 로봇이 아직 잠금을 알리지 않았습니다\.$/, (m) => `■ Stop requested for ${m[1]} · the robot has not reported the latch yet.`],
+  [/^▲ (.+) 정지 요청됨 — 폰 경유 자료는 받았지만 직접 로봇 보고로 정지를 확인하지 못했습니다\. 현장을 확인하세요\.$/, (m) => `▲ Stop requested for ${m[1]} · phone relay data arrived, but the robot did not confirm the stop directly. Check on site.`],
+  [/^▲ (.+) 지금 로봇으로 보낼 길이 없습니다\. 리모컨이나 현장에서 멈추세요\.$/, (m) => `▲ No way to reach ${m[1]} right now. Stop it with the remote or on site.`],
+  [/^■ (.+) 정지 요청을 보내는 중입니다\.$/, (m) => `■ Sending stop to ${m[1]}.`],
+  [/^▲ (.+) 정지 요청을 보내지 못했습니다\. ([\s\S]*)현장에서 (?:로봇을 )?직접 멈추세요\.(.*)$/, (m) => `▲ Could not send stop to ${m[1]}. ${m[2]}Stop it on site directly.${m[3].replace(' 사유:', ' Reason:')}`],
+  [/^▲ (.+) 정지 요청을 보냈지만 서버 접수를 확인하지 못했습니다\. ([\s\S]*)현장에서 (?:로봇을 )?직접 멈추세요\.(.*)$/, (m) => `▲ Stop sent to ${m[1]} but the server did not confirm it. ${m[2]}Stop it on site directly.${m[3].replace(' 사유:', ' Reason:')}`],
+  [/^■ (.+) 정지 요청됨 — 서버가 받았습니다\. 로봇 확인을 기다립니다\.$/, (m) => `■ Stop requested for ${m[1]} · server received it. Waiting for the robot.`],
+  [/^■ (.+) 정지 요청됨\(대체 경로\)(?: — | · )(.+)$/, (m) => `■ Stop requested for ${m[1]} (fallback path) · ${en0(m[2])}`],
+  [/^▲ (.+) 정지 요청 뒤 로봇 연결이 끊겼습니다\. 지금 상태는 알 수 없습니다\. 현장을 확인하세요\.$/, (m) => `▲ ${m[1]} disconnected after the stop. Current status unknown. Check on site.`],
+  [/^■ (.+) 정지 잠금 · 로봇이 잠금과 멈춤 출력을 알렸습니다\.$/, (m) => `■ ${m[1]} stop latched · the robot reported latch and zero output.`],
+  [/^▲ (.+) 정지 잠금 · 출력이 아직 멈추지 않았습니다\. 현장을 확인하세요\.$/, (m) => `▲ ${m[1]} stop latched · output has not stopped yet. Check on site.`],
+  [/^▲ (.+) 정지 잠금 · 멈춤 출력은 확인되지 않았습니다 \(현장 승인이 닫혀 있을 수 있음\)\. 리모컨이나 현장에서 멈추세요\.$/, (m) => `▲ ${m[1]} stop latched · zero output not confirmed (site approval may be closed). Stop it with the remote or on site.`],
+  [/^(.+) 서버 접수 · 로봇 상태 모름 · 정지가 닿지 않을 수 있음 · 현장에서 확인하세요\.$/, (m) => `${m[1]} received by server · robot status unknown · the stop may not arrive · check on site.`],
+  [/^(.+) 상태 모름 · 정지가 닿지 않을 수 있음 · 현장에서 확인하세요\.?$/, (m) => `${m[1]} status unknown · the stop may not arrive · check on site.`],
+  [/^(.+) 연결 끊김 · 정지를 보낼 수 없습니다\. 다시 연결되면 로봇은 잠긴 상태로 시작합니다\. 지금 멈춰야 하면 리모컨이나 현장에서 멈추세요\.$/, (m) => `${m[1]} disconnected · cannot send a stop. It starts latched when it reconnects. To stop it now, use the remote or stop it on site.`],
+  [/^(.+) 연결이 끊겨 정지를 보내지 못했습니다\. 다시 연결되면 로봇은 잠긴 상태로 시작합니다\. 지금 멈춰야 하면 리모컨이나 현장에서 멈추세요\.$/, (m) => `${m[1]} was disconnected, so the stop was not sent. It starts latched when it reconnects. To stop it now, use the remote or stop it on site.`],
   [/^(위험|경고|주의) · (.+)$/, (m) => (EN[m[2]] ? `${LV[m[1]]} · ${EN[m[2]]}` : `${LV[m[1]]} · ${m[2]}`)],
 ];
 

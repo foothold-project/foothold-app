@@ -71,3 +71,24 @@ describe('영어판 관제 화면', () => {
     expect(box.querySelector('[data-band]')!.textContent).toContain('K-04 disconnected.');
   });
 });
+
+// 안전 범위(정지 띠 · 정지 고르기 창 · 서버 연결 띠): 뜻만 옮김 · 영어 값에 긴 줄표 없음
+describe('정지 띠 · 고르기 창 사전', () => {
+  const cases: [string, string][] = [
+    ['■ K-01 정지 요청을 보내는 중입니다.', '■ Sending stop to K-01.'],
+    ['▲ K-01 정지 요청을 보내지 못했습니다. 시간 초과 현장에서 로봇을 직접 멈추세요.', '▲ Could not send stop to K-01. 시간 초과 Stop it on site directly.'],
+    ['■ K-01 정지 요청됨 — 서버가 받았습니다. 로봇 확인을 기다립니다.', '■ Stop requested for K-01 · server received it. Waiting for the robot.'],
+    ['■ K-01 정지 요청됨 — 로봇이 아직 잠금을 알리지 않았습니다.', '■ Stop requested for K-01 · the robot has not reported the latch yet.'],
+    ['■ K-01 정지 요청됨(대체 경로) — 실시간 연결이 끊겨 로봇 확인은 보이지 않습니다. 현장을 확인하세요.', '■ Stop requested for K-01 (fallback path) · the live link is down, so the robot’s confirmation cannot be seen. Check on site.'],
+    ['■ K-01 · K-02 정지 요청됨(대체 경로) · 다시 연결됨 · 로봇의 정지 확인을 기다리는 중. 현장을 확인하세요.', '■ Stop requested for K-01 · K-02 (fallback path) · reconnected · waiting for the robot to confirm the stop. Check on site.'],
+    ['■ K-01 정지 잠금 · 로봇이 잠금과 멈춤 출력을 알렸습니다.', '■ K-01 stop latched · the robot reported latch and zero output.'],
+    ['▲ K-01 정지 잠금 · 출력이 아직 멈추지 않았습니다. 현장을 확인하세요.', '▲ K-01 stop latched · output has not stopped yet. Check on site.'],
+    ['▲ K-01 지금 로봇으로 보낼 길이 없습니다. 리모컨이나 현장에서 멈추세요.', '▲ No way to reach K-01 right now. Stop it with the remote or on site.'],
+    ['K-01 상태 모름 · 정지가 닿지 않을 수 있음 · 현장에서 확인하세요', 'K-01 status unknown · the stop may not arrive · check on site.'],
+    ['K-01 서버 접수 · 로봇 상태 모름 · 정지가 닿지 않을 수 있음 · 현장에서 확인하세요.', 'K-01 received by server · robot status unknown · the stop may not arrive · check on site.'],
+    ['K-01 연결 끊김 · 정지를 보낼 수 없습니다. 다시 연결되면 로봇은 잠긴 상태로 시작합니다. 지금 멈춰야 하면 리모컨이나 현장에서 멈추세요.', 'K-01 disconnected · cannot send a stop. It starts latched when it reconnects. To stop it now, use the remote or stop it on site.'],
+    ['어느 로봇을 정지할까요?', 'Which robot should stop?'],
+    ['다시 연결 · 잠긴 채 시작', 'Reconnected · starts latched'],
+  ];
+  for (const [k, v] of cases) it(k, () => { expect(en(k)).toBe(v); expect(v).not.toContain('—'); });
+});
