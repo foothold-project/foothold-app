@@ -13,6 +13,8 @@ const NAME = Object.fromEntries(GAITS.map((x) => [x.g, x.name])) as Record<GaitN
 const BY_CODE: Record<string, GaitName> = Object.fromEntries(GAITS.map((x) => [`Digit${x.n}`, x.g]));
 /** Shift+1~4(다른 수정 키 없이) → 모드. 숫자 줄 물리 키(e.code)라 자판 배열과 무관 */
 export const gaitKey = (e: KeyboardEvent): GaitName | undefined => (e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey ? BY_CODE[e.code] : undefined);
+/** 모드 설명 한 줄(시안 u1 걷기 칸 둘째 줄 · u6 임무 칩) */
+export const GAIT_NOTE: Record<string, string> = { classic: '평지 기본', sport: '빠른 걷기', start: '험지 기본', ame2: '준비 중' };
 export const GAIT_KEYS = 'Shift+1~4 걷기 모드 (Classic · Sport · START · AME-2)';
 /** 보낸 뒤 이 시간 안에 로봇 결과가 없으면 «결과를 받지 못함» */
 export const GAIT_WAIT_MS = 20000;
