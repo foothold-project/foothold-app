@@ -376,7 +376,7 @@ function Fix({ f, close, names }: { f: Fix; close: () => void; names: (id: strin
     {f.msg && <Why alert={!f.msg.ok} data-fix-msg>{f.msg.text}</Why>}
     <div className="row" style={{ position: 'absolute', left: '20px', right: '20px', bottom: '20px', gap: '8px' }}>
       <button type="button" className="btns" style={{ width: '118px', height: '52px', fontSize: '14.5px' }} aria-pressed={hand} onClick={() => setHand((h) => !h)} data-fix-hand>직접 고르기</button>
-      <button type="button" className="btnp rehearse" style={{ flex: '1', height: '52px', fontSize: '15px' }} disabled={f.busy || !f.items.some((i) => i.to)} onClick={f.apply} data-fix-apply><Ic d={IC.check} />{f.busy ? '바꾸는 중…' : '이 배정으로 일정 바꾸기'}</button>
+      <button type="button" className="btnp" style={{ flex: '1', height: '52px', fontSize: '15px' }} disabled={f.busy || !f.items.some((i) => i.to)} onClick={f.apply} data-fix-apply><Ic d={IC.check} />{f.busy ? '바꾸는 중…' : '이 배정으로 일정 바꾸기'}</button>
     </div>
     <button type="button" className="lab u6-link u6-later" onClick={close}>나중에 · 일정에 추가로</button>
   </div>;
