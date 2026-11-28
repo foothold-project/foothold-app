@@ -3,8 +3,8 @@
 import { startTransition, useEffect, useState, type ReactNode } from 'react';
 import type { MapDiff, MapVersion } from '../../../../contracts/ts';
 import { api, type ApiFail } from '../../api';
-import { CH, DiffPic, diffFail, isDiff, says } from '../mapdiff';
-import { shape, type Place } from '../maps';
+import { CH, DiffDetail, diffFail, isDiff, says } from '../mapdiff';
+import { shape, stateOf, type Place } from '../maps';
 import '../../proto/ui.pv.css';
 import '../../proto/pc.pv.css';
 import '../../proto/light.pv.css';
@@ -16,7 +16,7 @@ const GONE = '이 기록을 찾을 수 없습니다. 지워졌을 수 있어 새
 const light = () => typeof document !== 'undefined' && document.documentElement.dataset.theme === 'light';
 
 /** list = 같은 층 판 목록(최신이 위), now = 지금 승인 판. restore = 그 판으로 되돌리기 확인 열기(한때 승인된 판만 · 실기 현장만). back = 층 화면(u7_3) */
-/** form = 되돌리기 확인(바꾼 이유 칸 · Rollback) — 열려 있으면 「vN 로 되돌리기」 자리에 그린다(떠 있는 창 없음) */
+/** form = 되돌리기 확인(바꾼 이유 칸 · Rollback). 열려 있으면 「vN 로 되돌리기」 자리에 그린다(떠 있는 창 없음) */
 export function History({ p, list, now, names, real, cancel, back, restore, gone, form }: {
   p: Place; list: MapVersion[]; now: MapVersion; names: (id: string) => string | undefined; real: boolean; cancel?: AbortSignal;
   back: () => void; restore: (v: MapVersion) => void; gone: () => void; form?: ReactNode;
@@ -53,7 +53,7 @@ export function History({ p, list, now, names, real, cancel, back, restore, gone
         const on = x.id === a?.id || x.id === b.id, who = names(x.created_by);
         return <div key={x.id} className={`frow${on ? ' on' : ''}`} style={{ padding: '14px' }} role="button" tabIndex={0} aria-pressed={on} data-save={x.id} onClick={() => pick(x)}>
           <span className={`tag${x.id === now.id ? ' m' : ''}`} style={{ height: '28px', fontSize: '13px' }}>{vn(x)}</span>
-          <div style={{ flex: '1', minWidth: '0' }}><b style={{ fontSize: '14.5px' }}>{x.reason}</b><div className="meta"><span>{md(x.created_at)}</span>{who && <span>{who}</span>}</div></div>
+          <div style={{ flex: '1', minWidth: '0' }}><b style={{ fontSize: '14.5px' }}>{x.reason}</b><div className="meta"><span>{md(x.created_at)}</span>{who && <span>{who}</span>}{x.id !== now.id && <span data-u7-state>{stateOf(x, now.id).text}</span>}</div></div>
           {x.id === now.id && <span className="mu2" style={{ fontSize: '12px' }}>현재 버전</span>}</div>;
       })}</div>
       {form ? <div style={{ position: 'absolute', left: '20px', right: '20px', bottom: '20px', fontSize: '13px' }} data-u7-restore-form>{form}</div>
@@ -67,8 +67,8 @@ export function History({ p, list, now, names, real, cancel, back, restore, gone
       <div className="row" style={{ marginLeft: 'auto', gap: '16px', fontSize: '13px', fontWeight: '600' }}>
         {([['added', '추가됨'], ['removed', '지워짐'], ['changed', '바뀜']] as const).map(([k, t]) => <span key={k} className="row" style={{ gap: '6px' }}><i className="sw2" style={{ background: CH[k].color }} />{t}</span>)}
         <span className="row" style={{ gap: '6px' }}><i className="sw2" style={{ background: SAME }} />같음</span></div></div>
-    <div className="pane" style={{ left: '348px', top: '160px', right: '24px', height: '740px', overflow: 'hidden', padding: '0' }}>
-      <div className="u7-pic">{d ? <DiffPic d={d} name={vn} style={{ display: 'block', width: '100%', height: '100%' }} />
+    <div className="pane" style={{ left: '348px', top: '160px', right: '24px', height: '740px', overflow: 'hidden', padding: '0' }} aria-label="기록 비교">
+      <div className="u7-pic">{d ? <DiffDetail key={`${d.version.id}:${d.against?.id ?? ''}`} d={d} name={vn} u7 />
         : <p className="mu2" role={err ? 'alert' : 'status'} style={{ padding: '80px 24px', textAlign: 'center' }}>{err || '두 기록을 비교하는 중'}
           {err && <> · <span role="button" tabIndex={0} style={{ textDecoration: 'underline' }} onClick={() => (err === GONE ? gone() : setN(n + 1))}>다시 시도</span></>}</p>}</div>
       <div className="g dk tl" style={{ left: '20px', top: '20px', height: '38px', padding: '0 14px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '700' }}>
