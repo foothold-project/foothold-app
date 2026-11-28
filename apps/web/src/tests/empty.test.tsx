@@ -118,12 +118,15 @@ describe('지도 없음', () => {
 });
 
 describe('기록 없음', () => {
-  it('거른 조건 없이 0 건: 아이콘 · 한 줄 까닭 · «지도 탭에서 시나리오 실행» 하나', async () => {
+  it('PC 거른 조건 없이 0 건: 시안 u11_8 빈 기록(그림 · 제목 · 한 줄 까닭, 단추 없음 · 옛 Empty 아님)', async () => {
     serve(LEE, [RA]); await open('#/history');
-    const r = empty('records');
-    expect(r.title).toBe('아직 기록이 없습니다');
-    expect(r.acts).toEqual(['지도 탭에서 시나리오 실행']);
-    expect(($('[data-empty="records"] a') as HTMLAnchorElement).getAttribute('href')).toBe('#/map');
+    const e = $('[data-empty="log"]')!;
+    expect(e.classList.contains('pane')).toBe(true);
+    expect(e.querySelector('h2')!.textContent).toBe('아직 기록이 없습니다');
+    expect(e.querySelectorAll('p')).toHaveLength(1);
+    expect(e.querySelectorAll('svg.art')).toHaveLength(1);
+    expect(e.querySelector('img, canvas, a, button')).toBeNull();
+    expect($('[data-empty="records"]')).toBeNull();
   });
   it('폰(담당 로봇 0대): 지도 탭이 없어 다음 할 일은 «조종 화면으로» 하나', async () => {
     serve(LEE, []); await open('#/history', true);

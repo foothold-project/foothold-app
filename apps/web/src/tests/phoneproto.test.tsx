@@ -215,11 +215,11 @@ describe('폰 알림 목록 = 시안 u3_3', () => {
     expect($('[role="region"][aria-label="실행 기록"]')!.textContent).toContain('공정 순찰 A');
   });
 
-  it('PC 기록 탭은 그대로(표 · 시안 u3_3 아님)', async () => {
+  it('PC 기록 탭은 시안 u8 (u3_3 아님)', async () => {
     serve(routes());
     await open(false, '#/history');
     expect($('.u33')).toBeNull();
-    expect(box.querySelectorAll('[aria-label="사건"] tbody tr')).toHaveLength(3);
+    expect($('.proto.pv.u8[data-hs-frame]')).not.toBeNull();
   });
 });
 
