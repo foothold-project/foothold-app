@@ -188,6 +188,8 @@ function useFeeds(id: string, view: string, can: boolean) {
 type Feeds = ReturnType<typeof useFeeds>;
 /** 보기만 하는 로봇의 빈 칸 까닭(영상 연결을 열지 않음) */
 export const VIEW_ONLY = '보기만 하는 로봇이라 영상을 받지 않습니다';
+/** 조종권 없이 걷기 모드 칸을 누름: 창을 열지 않고 까닭 한 줄(검토 21:25 · noGait 과 같은 꼴) */
+export const MODE_NEED_DRIVE = '조종을 시작해야 걷기 모드를 바꿀 수 있습니다.';
 const NoFeed = ({ ch, why }: { ch: 'rgb' | 'depth'; why: string }) => <div className="dv-video" role="img" aria-label={ch === 'rgb' ? '카메라' : '뎁스 카메라'} {...(ch === 'rgb' ? { 'data-sd-cam': '' } : { 'data-sd-depth': '' })}>
   <span style={{ padding: 12, textAlign: 'center' }}>{`${NO_SIGNAL[ch]} · ${why}`}</span></div>;
 const Feed = ({ fs, ch, big, can }: { fs: Feeds; ch: 'depth'; big: boolean; can: boolean }) => (can ? <DriveView f={fs[ch]} ch={ch} big={big} /> : <NoFeed ch={ch} why={VIEW_ONLY} />);
@@ -418,6 +420,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   const link = rt.link(), ms = link.at === 'open' && link.latencyMs != null ? `${Math.round(link.latencyMs)} ms` : '';
   const online = s?.connection === 'ONLINE';
   const lowlevel = s?.control === 'LOWLEVEL', mode = GAITS.find((x) => x.g === d.gait.cur)?.name ?? NONE;   // 걷기 모드(로봇 보고 state.gait) · Shift+1~4 는 useServerDrive
+  const modeTap = () => (noGait ? say(NO_GAIT) : !mine ? say(MODE_NEED_DRIVE) : openMode());
   const noGait = !!d.gait.avail && !d.gait.avail.length;   // 쓸 수 있는 모드 빈 목록 = 바꾸기 꺼짐 · 까닭
   const sim = useSimLook()(r), demo = useContext(Demo).has(r.id), left = minutesLeft(s?.battery);
   const soc = s?.battery?.soc ?? (sim ? null : r.battery);
@@ -470,7 +473,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
     <div className="hdr" data-robot-head={r.id}><span className="ttl" style={{ fontSize: '26px', marginRight: '6px' }}>{r.name}{demo && DEMO}</span>
       <span className="g dk st" data-cell="link"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M12 20h.01" /><path d="M2 8.82a15 15 0 0 1 20 0" /><path d="M5 12.859a10 10 0 0 1 14 0" /><path d="M8.5 16.429a5 5 0 0 1 7 0" /></svg>{sim && online ? '시뮬' : online ? '연결' : r.online ? '연결 중' : '끊김'}<small>{sim && online ? '서버 계산' : ms}</small></span>
       <span data-go="u4_7_mode" className="g dk st" data-cell="mode" aria-disabled={noGait || undefined} title={noGait ? NO_GAIT : undefined} role="button" tabIndex={0}
-        onClick={() => { if (noGait) say(NO_GAIT); else openMode(); }} onKeyDown={(e) => { if (e.key === 'Enter') { if (noGait) say(NO_GAIT); else openMode(); } }}><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="m8 3 4 8 5-5 5 15H2L8 3z" /></svg>{mode}<small {...(noGait ? { 'data-gait-none': '' } : {})}>{noGait ? '바꿀 수 있는 모드 없음' : 'Shift + 1 ~ 4'}</small></span>
+        onClick={modeTap} onKeyDown={(e) => { if (e.key === 'Enter') modeTap(); }}><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="m8 3 4 8 5-5 5 15H2L8 3z" /></svg>{mode}<small {...(noGait ? { 'data-gait-none': '' } : {})}>{noGait ? '바꿀 수 있는 모드 없음' : 'Shift + 1 ~ 4'}</small></span>
       <span className="g dk st" data-cell="battery"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M10 14v-4" /><path d="M22 14v-4" /><path d="M6 14v-4" /><rect x="2" y="6" width="16" height="12" rx="2" /></svg>{r.unknown === 'summary' ? '확인 안 됨' : soc == null ? NONE : `${Math.round(soc)} %`}<small>{sim ? '시뮬' : soc == null ? '배터리' : left != null ? `약 ${left} 분` : ''}</small></span>
       <span className={`g dk st${hotTag ? ' bad warncell' : ''}`} data-cell="temp"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z" /></svg>{hotJ == null ? NONE : `${Math.round(hotJ)} °C`}<small>{hotJ != null && hotJ >= 60 ? jointName(JOINTS[temps!.hot]) : '최고 관절 온도'}</small></span>
       <span className="g dk st" data-cell="holder"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>{who}<small>조종자</small></span>

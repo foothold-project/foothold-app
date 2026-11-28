@@ -616,6 +616,24 @@ describe('railOrder', () => {
 });
 
 describe('걷기 모드 창(시안 u4_7)', () => {
+  it('조종권 없이 모드 칸을 누르면 창을 열지 않고 까닭 한 줄 · gait 0 (검토 21:25)', () => {
+    mount('u-park'); serve('r7');
+    act(() => { push('r7', { gait: { gait: 'classic', available: ['classic', 'sport'] } } as Partial<ScreenState>); });
+    click($('[data-cell="mode"]')!);
+    expect($('[data-u4-mode]')).toBeNull();
+    expect(text($('[data-u4-why]'))).toBe('조종을 시작해야 걷기 모드를 바꿀 수 있습니다.');
+    expect(w.of('gait')).toEqual([]);
+  });
+
+  it('연 뒤 조종권을 잃으면 창이 닫히고 gait 0 (검토 21:25)', () => {
+    mount('u-park'); serve('r7'); drive();
+    act(() => { push('r7', { gait: { gait: 'classic', available: ['classic', 'sport'] } } as Partial<ScreenState>); });
+    const n0 = w.of('gait').length;
+    click($('[data-cell="mode"]')!); click($('[data-u4-gait="sport"]')!);
+    act(() => { w.recv(lease('r7', null)); });
+    expect($('[data-u4-mode]')).toBeNull(); expect(w.of('gait').length).toBe(n0);
+  });
+
   it('L3: 못 쓰는 모드는 눌러도 고르지 않고 보내지 않음', () => {
     mount('u-park'); serve('r7'); drive();
     act(() => { push('r7', { gait: { gait: 'classic', available: ['classic', 'sport'] } } as Partial<ScreenState>); });
