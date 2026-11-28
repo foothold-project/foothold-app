@@ -26,16 +26,6 @@ def inside_polygon(x, y, polygon):
     return inside
 
 
-def polygon_area(polygon):
-    return abs(sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(polygon, polygon[1:] + polygon[:1]))) / 2
-
-
-def location_zone(zones, x, y):
-    """Named zone a point stands in: smallest area first, then zone id. Any type; boundary is inside."""
-    hits = [zone for zone in zones if inside_polygon(x, y, zone['polygon'])]
-    return min(hits, key=lambda zone: (polygon_area(zone['polygon']), zone['id']), default=None)
-
-
 def segment_touches(a, b, polygon):
     return (inside_polygon(*a, polygon) or inside_polygon(*b, polygon)
         or any(intersects(a, b, c, d) for c, d in zip(polygon, polygon[1:] + polygon[:1])))
@@ -89,8 +79,6 @@ def rasterize(origin, resolution, width, height, zones):
         return float(nearest) if abs(value - nearest) <= 1e-9 else value
     cells = {}
     for zone in zones:
-        if zone['type'] == 'AREA':
-            continue  # a named place only: no movement rule, no cell
         polygon = [[snap((cosine * (x - ox) + sine * (y - oy)) / resolution),
                     snap((-sine * (x - ox) + cosine * (y - oy)) / resolution)] for x, y in zone['polygon']]
         bottom = max(0, math.ceil(min(p[1] for p in polygon)) - 1)

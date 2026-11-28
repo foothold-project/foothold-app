@@ -1,0 +1,133 @@
+/* 폰 실기 조종 화면 = 시안 u1 틀로 옮기며 더한 것(시안 값 아님 · 자리는 시안 값).
+   머리줄(.fh-head[data-u1])은 화면 전체를 덮는 겹: 바탕 없음 · 손가락은 제 칸만 · z 는 조종 판 안 모든 층(작은 지도 펼침 60 · 창 · 스캔 겹)보다 위.
+   오른쪽 위 상태 줄(연결 · ⋯ = 시안 .col 첫 줄 자리), 오른쪽 아래 정지(시안 .stop 92 × 68 · 같은 Stop 부품) */
+.fh.phone:has(.fh-head[data-u1]){position:relative}
+.fh.phone .fh-head[data-u1]{position:absolute;inset:0;z-index:80;min-height:0;padding:0;border:0;background:none;backdrop-filter:none;-webkit-backdrop-filter:none;pointer-events:none;display:block}
+.fh-head[data-u1] .u1-top{pointer-events:auto;position:absolute;right:calc(12px + env(safe-area-inset-right,0px));top:calc(12px + env(safe-area-inset-top,0px));box-sizing:border-box;width:92px;height:36px;display:flex;align-items:center;justify-content:space-around;padding:0 6px;border-radius:14px;color:#fff;
+ background:linear-gradient(180deg,rgba(30,36,44,.62),rgba(20,24,30,.50));border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(22px) saturate(1.5);-webkit-backdrop-filter:blur(22px) saturate(1.5);box-shadow:0 8px 22px rgba(0,0,0,.25)}
+.fh-head[data-u1] .u1-top .fh-dot{margin:0;color:#fff}
+.fh-head[data-u1] .u1-top .fh-dot-t{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.fh-head[data-u1] .u1-top .fh-more summary{min-width:36px;min-height:32px;border:0;background:none;color:#fff;display:flex;align-items:center;justify-content:center}
+.fh-head[data-u1] .fh-stop{box-sizing:border-box;pointer-events:auto;position:absolute;right:calc(12px + env(safe-area-inset-right,0px));bottom:calc(12px + env(safe-area-inset-bottom,0px));width:92px;height:68px;min-width:0;margin:0;padding:0;border-radius:18px;border:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+ background:linear-gradient(180deg,#f2575a,#d62f33);color:#fff;font-weight:800;font-size:14px;box-shadow:0 10px 24px rgba(214,47,51,.42),inset 0 1px 0 rgba(255,255,255,.35)}
+.fh-head[data-u1] .fh-stop svg{width:20px;height:20px}
+/* 시안 u1_3: 정지 잠금 중에는 조이스틱 · 동작 줄을 숨김(보이지도 눌리지도 않음 · 부품은 붙어 있어 손가락 세대 판정은 그대로) */
+.u1d[data-stop-held] :is(.stick,.act){visibility:hidden}
+/* 시안 u1_7: 정지를 보냈는데 잠금 보고가 없으면 흰 테 + 「다시 누르기」 */
+.fh-head[data-u1] .fh-stop[data-again]{box-shadow:0 0 0 3px #fff,0 10px 24px rgba(214,47,51,.42)}
+.fh-head[data-u1] .fh-stop[data-again] small{display:block;font-size:9.5px;font-weight:600;opacity:.85}
+/* 정지 글: 시안 .stop 14px(frame.css .fh-stop-t>span 19px · 자간 .08em 을 덮음) */
+.fh-head[data-u1] .fh-stop-t>span{font-size:14px;letter-spacing:normal}
+/* 정지 결과 띠 · 정지 고르기 · 반납 안내: 머리줄이 없으므로 화면 위 가운데에 뜬다(시안 .ban 자리) */
+.fh.phone:has(.fh-head[data-u1]) :is(.fh-band,.fh-pick){position:absolute;left:120px;right:120px;top:12px;z-index:79;border-radius:14px;border:1px solid rgba(255,255,255,.25)}
+.fh.phone:has(.fh-head[data-u1]) .fh-band:empty{display:none}
+/* 정지 결과 띠: 왼쪽 위 상태 칩(오른끝 ~272)과 오른쪽 위 줄을 덮지 않게 가운데 · 글 폭만큼 (시안 u1_7 .ban) */
+.fh.phone:has(.fh-head[data-u1]) .fh-band{left:50%;right:auto;transform:translateX(-50%);width:max-content;max-width:calc(100% - 560px);min-width:200px}
+
+/* ── 조종 판 안 시안 겹(.proto.pv.u1d · drive.tsx). 시안 값은 u1d.css(기계 생성), 여기는 앱에 얹으며 더한 것 ── */
+/* 시안 u1 은 공통 ui.css 가 아니라 u1/ui.css 를 읽는다. 공통과 다른 값(색 변수 · 글꼴)만 이 화면에 */
+.proto.pv.u1d{--pr:#12b886;--pr2:#0ca678;--ink:#16191f;--mu:#5d6573;--red:#e5383b;font-family:Pretendard,"Noto Sans CJK KR",sans-serif}
+/* 겹: 영상 칸을 덮되 바탕 없이(시안 body 바탕 · 앱이 함께 읽는 pc.pv.css .proto 1920 판을 지움), 손가락은 제 칸만. z 1 = 조종권 요청 창(3) · 시트 밑 */
+.proto.pv.u1d{position:absolute;inset:0;width:auto;height:auto;background:transparent;z-index:1;pointer-events:none;overflow:hidden}
+.u1d>:not(.vig,.scrim,.u1-says),.u1d .u1-says button{pointer-events:auto}
+.u1d button{font:inherit;color:inherit;letter-spacing:inherit;border:0;cursor:pointer;background:none;text-align:inherit}
+.u1d button:disabled{cursor:default;opacity:.5}
+.u1d button:focus-visible{outline:2px solid #2fd39a;outline-offset:2px}
+/* 칩: 아이콘 칸(시안 인라인 값) · 상태 글 색(시안 u1_2 조종 중 · u1_3 정지됨 · u1_9 리모컨 · u1_8 리모컨만) · 배터리 칸 채움은 서버 값 */
+.u1d .u1-chip{color:#fff}
+.u1d .u1-ico{width:30px;height:30px;border-radius:10px;background:var(--pr);position:relative;display:inline-flex;align-items:center;justify-content:center;color:#fff}
+.u1d .u1-st{font-size:12px;margin-left:2px;font-weight:700;white-space:nowrap}
+.u1d .u1-st.ok{color:#18a07e}.u1d .u1-st.warn{color:#d9a21f}.u1d .u1-st.bad{color:#e04a2f}.u1d .u1-st.off{color:rgba(255,255,255,.6)}
+.proto.light.u1d .u1-chip{color:var(--ink)}.proto.light.u1d .u1-st.off{color:var(--mu)}
+.u1d .bat i::before{width:var(--soc,68%)}
+/* 칩 펼침(시안 u1_10 .pane · 밝은 유리 .g): 앱이 함께 읽는 pc.pv.css .proto .pane 이 번지지 않게 .g 값 */
+.proto.u1d .g.pane{border-radius:18px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.48));border:1px solid rgba(255,255,255,.85);box-shadow:0 8px 24px rgba(20,30,50,.14),inset 0 1px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(0,0,0,.04);z-index:6}
+.u1d .pane[hidden]{display:none}
+.u1d .pane .r>span:last-child{color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 작은 지도: 옛 .dv-mini(가로 낮은 폰은 숨김 · 오른쪽 아래)를 시안 자리로 */
+.dv.ph .proto.u1d .mm.dv-mini{display:block;right:auto;bottom:auto}
+.u1d .mm .dv-video{font-size:11px}
+/* 오른쪽 줄: 첫 줄(36)은 머리줄 겹 .u1-top 이라 그 아래부터(시안 top 12 + 36 + 8) */
+.u1d .u1-col{top:calc(56px + env(safe-area-inset-top,0px));right:calc(12px + env(safe-area-inset-right,0px))}
+.u1d .u1-col>button{position:relative;width:100%}
+.u1d .u1-mode{min-height:54px;border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;text-align:center}
+.u1d .u1-mode b{font-size:13.5px;font-weight:800;letter-spacing:.02em}
+.u1d .u1-mode span{font-size:10.5px;font-weight:600;opacity:.7}
+.u1d .u1-mode[aria-expanded="true"]{border-color:#18a07e}
+/* 보기 셋(시안 「지도로」 칸 자리 · 시안 첫 줄 결로 셋을 한 줄): 고른 것은 초록 */
+.u1d .u1-views{position:relative;height:44px;border-radius:14px;padding:0 3px;justify-content:space-between}
+.u1d .u1-views button{flex:1;height:36px;border-radius:10px;font-size:11px;font-weight:700;text-align:center}
+.u1d .u1-views button[aria-pressed="true"]{background:rgba(24,160,126,.85);color:#fff}
+.u1d .u1-go:not(:disabled) .ic{color:#2fd39a}
+.u1d .u1-unlock{right:calc(12px + env(safe-area-inset-right,0px))!important;bottom:calc(88px + env(safe-area-inset-bottom,0px))!important}
+/* 위 띠 줄(시안 .ban · 작은 지도와 오른쪽 줄 사이 · u14_2 상태 줄과 같은 자리). 시안 띠는 한 줄 40 높이, 앱 글은 길 수 있어 감싼다 */
+.u1d .u1-says{position:absolute;left:164px;right:116px;top:64px;display:flex;flex-direction:column;align-items:center;gap:6px;z-index:2;pointer-events:none}
+.u1d .u1-says .ban{position:relative;left:auto;transform:none;top:auto;height:auto;min-height:34px;padding:7px 16px 7px 14px;white-space:normal;line-height:1.35;text-align:center;word-break:keep-all;font-size:12.5px}
+.u1d .u1-says .ban.u1-info,.u1d .u1-says .ban.u1-who{background:rgba(14,17,22,.72);border:1px solid rgba(255,255,255,.18);color:#fff}
+.u1d .u1-says .fh-why{color:inherit}
+.u1d .u1-says .banbt{flex:none;white-space:nowrap}
+.u1d .u1-says .dv-run{gap:8px}.u1d .u1-says .dv-run [data-run-stop]{opacity:.75;font-weight:600}
+/* 손잡이: 같은 Stick 에 시안 .stick 꼴 · 자리(left 22 · right 118). 옛 .dv-stick 크기 · 색(가로 낮은 폰 88 · 밝은 판 판 색)이 이기지 않게 */
+.fh .dv-stage .proto.u1d .dv-stick.stick{width:118px;height:118px;bottom:calc(14px + env(safe-area-inset-bottom,0px));display:block;border:1px solid rgba(255,255,255,.35);background:radial-gradient(circle at 50% 40%,rgba(255,255,255,.22),rgba(255,255,255,.06) 70%)}
+.fh .dv-stage .proto.u1d .dv-stick.stick>i{width:48px;height:48px;background:radial-gradient(circle at 40% 32%,#fff,#dfe3e8 60%,#c3c9d1)}
+.u1d .stick.v{left:calc(22px + env(safe-area-inset-left,0px))}.u1d .stick.h{right:calc(118px + env(safe-area-inset-right,0px))}
+.u1d .stick>span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.proto.light.u1d .dv-stick.stick{border-color:rgba(20,30,50,.18)!important;background:radial-gradient(circle at 50% 40%,rgba(20,30,50,.10),rgba(20,30,50,.03) 70%)!important}
+/* 아래 동작 줄: 시안 .act div 값을 button 에 그대로 · 옛 .dv-sheets 가운데 끌기 지움 */
+.u1d .act.dv-sheets{transform:none}
+.u1d .act button{display:flex;flex-direction:column;align-items:center;gap:4px;color:#fff;font-size:9.5px;font-weight:600;text-shadow:0 1px 3px rgba(0,0,0,.6);min-width:44px;position:relative}
+/* 까닭 글(순정 확인 전 등)은 글 아래에 걸어 줄 높이를 늘리지 않음: 늘면 일곱 단추가 다 같이 12px 올라감(시안 u1_2 대조) */
+.u1d .act em{position:absolute;top:100%;left:50%;transform:translateX(-50%);white-space:nowrap}
+.u1d .act button[aria-expanded="true"] span{border-color:#18a07e;box-shadow:0 0 0 3px rgba(24,160,126,.30),0 6px 14px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.45)}
+.proto.light.u1d .act button{color:var(--ink);text-shadow:none}
+.proto.light.u1d .act span{background:linear-gradient(180deg,rgba(255,255,255,.9),rgba(255,255,255,.7));border-color:rgba(20,30,50,.14)}
+/* 시나리오 확인 창(시안 .dlg): 옛 .dv-ask 꼴이 이기지 않게 · 시안 .bts span 값을 button 에 · 가림막은 손가락을 막지 않음(STOP · 정지 머리줄 그대로) */
+.proto.u1d .dlg.dv-ask{display:block;max-width:calc(100% - 24px);color:var(--ink)}
+.u1d .dlg .bts button{flex:1;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:13.5px;font-weight:800}
+.u1d .dlg .bts .dsec{border:1px solid rgba(0,0,0,.06)}
+/* 지도 스캔 겹(u14_2)이 있으면 시안 u14_2 배치: 스캔 작은 지도가 .mm 자리 · 진행 줄 · 칸은 아래 동작 줄 위 */
+.dv-stage:has(.u142-over) .u1d .mm{display:none!important}
+.dv-stage:has(.u1d) .u142-over .sm{top:64px;bottom:auto;width:140px;height:96px}
+.dv-stage:has(.u1d) .u142-over .sp{bottom:80px}
+.dv-stage:has(.u1d) .u142-over .dlg{bottom:80px}
+.dv-stage:has(.u1d) .u142-over .u142-says{bottom:150px}
+/* 밝은 판: 시안 u1_10(밝은 유리 .g) 결. 오른쪽 위 상태 줄 · 위 안내 띠도 같은 유리로 */
+.fh.phone.light .fh-head[data-u1] .u1-top{color:#16191f;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.48));border-color:rgba(255,255,255,.85);box-shadow:0 8px 24px rgba(20,30,50,.14),inset 0 1px 0 rgba(255,255,255,.95)}
+.fh.phone.light .fh-head[data-u1] .u1-top :is(.fh-dot,.fh-more summary){color:#16191f}
+.proto.light.u1d .u1-says .ban.u1-info,.proto.light.u1d .u1-says .ban.u1-who{background:linear-gradient(180deg,rgba(255,255,255,.86),rgba(255,255,255,.66));border-color:rgba(20,30,50,.12);color:#16191f;box-shadow:0 8px 24px rgba(20,30,50,.14)}
+/* 칩 펼침 맨 아래 시트 줄(시나리오 · 지도·목표 · 정책 · 시안 밖): 펼침 줄 결의 작은 단추 셋 */
+.u1d .pane .u1-sheets{position:static;transform:none;gap:6px;height:auto;padding-top:8px}   /* .dv-sheets(drive.css 아래 줄 절대 위치)를 칩 펼침 안 제 줄로 */
+.u1d .pane .u1-sheets button{flex:1;height:32px;border-radius:10px;background:rgba(20,30,50,.06);color:var(--ink);font-size:11.5px;font-weight:700;text-align:center}
+.u1d .pane .u1-sheets button[aria-expanded="true"]{background:rgba(24,160,126,.16);color:#0e7f63}
+/* 설정 확인 알약(시안 밖 · 새로 그림 · app-lead 11-28 22:26): 동작 줄(.act bottom 18px) 위 가운데 · 손가락을 막지 않음 */
+.u1d .u1-pill{position:absolute;left:50%;bottom:84px;transform:translateX(-50%);margin:0;padding:4px 12px;border-radius:999px;font-size:11.5px;font-weight:600;line-height:1.3;white-space:nowrap;color:#fff;background:rgba(14,17,22,.72);border:1px solid rgba(255,255,255,.18);z-index:2;pointer-events:none}
+.proto.light.u1d .u1-pill{background:rgba(255,255,255,.86);border-color:rgba(20,30,50,.12);color:#16191f}
+/* 임무 카드(시안 u1_1 · u1_11 왼쪽 아래 값 그대로 · screens/u1mission.tsx). 남은 거리 칸은 서버 값이 없어 없음 */
+.u1d .u1-mission{position:absolute;left:12px;bottom:12px;width:300px;padding:10px 14px 9px;border-radius:18px;color:#fff;z-index:2}
+.u1d .u1-mission .row{display:flex;align-items:center}
+.u1d .u1-mission .mh{justify-content:space-between}.u1d .u1-mission .mh>.row{gap:7px;min-width:0}
+.u1d .u1-mission .mn{font-size:11px;font-weight:700;opacity:.75;white-space:nowrap}
+.u1d .u1-mission b{font-size:15px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.u1d .u1-mission .me{font-size:11px;font-weight:600;opacity:.75;white-space:nowrap}
+.u1d .u1-mission .mb{gap:4px;margin-top:9px}
+.u1d .u1-mission .mb i{flex:1;height:5px;border-radius:3px;background:rgba(255,255,255,.28)}
+.u1d .u1-mission .mb i.on{background:var(--pr)}
+.u1d .u1-mission .mf{justify-content:space-between;margin-top:7px}
+.u1d .u1-mission .ml{font-size:12px;font-weight:700}
+.u1d .u1-mission .ml.pz{color:#d9a21f}
+.proto.light.u1d .u1-mission{color:var(--ink)}.proto.light.u1d .u1-mission .mn,.proto.light.u1d .u1-mission .me{color:var(--mu);opacity:1}
+.proto.light.u1d .u1-mission .mb i{background:#d5dae0}.proto.light.u1d .u1-mission .mb i.on{background:var(--pr)}
+/* 임무 바탕 2D 지도(시안 u1_1 평면 · 판 그림 + 경로 · u1mission.tsx MissionMap). 시안 경로 초록 · 지난 길 흐리게 · 지금 지점 번호표 */
+.u1d .u1-mmap{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+.u1d .u1-mmap .rt{fill:none;stroke:#18a07e;stroke-width:3;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}
+.u1d .u1-mmap .rt.done{stroke:rgba(24,160,126,.45)}
+.u1d .u1-mmap .wp{fill:#fff;stroke:#18a07e;stroke-width:2;vector-effect:non-scaling-stroke}.u1d .u1-mmap .wp.on{fill:#18a07e}
+.u1d .u1-mmap .me{fill:#fff;stroke:#18a07e;stroke-width:4;vector-effect:non-scaling-stroke}
+.u1d .u1-mmap .lbl{font-weight:800;fill:#fff;paint-order:stroke;stroke:rgba(10,14,20,.7)}.proto.light.u1d .u1-mmap .lbl{fill:var(--ink);stroke:rgba(255,255,255,.9)}.u1d .u1-mmap .lbl .no{fill:#18a07e}
+/* 임무 화면(u1mission · 보이기만): 시안 u1_1 에는 동작 줄이 없다 · 바탕 지도는 영상 위 · 카드 넘기기 점(시안 .row 점 값) */
+.u1d[data-mission] .act{display:none}
+.u1d .u1-mmap{background:var(--bg)}
+.u1d .u1-mission .dots{gap:3px}
+.u1d .u1-mission .dots button{width:4px;height:4px;border-radius:50%;background:#c5cad2;padding:0;border:0;min-width:0;position:relative}
+.u1d .u1-mission .dots button::after{content:"";position:absolute;inset:-10px -4px}
+.u1d .u1-mission .dots button.on{width:10px;border-radius:2px;background:#fff}.proto.light.u1d .u1-mission .dots button.on{background:var(--ink)}

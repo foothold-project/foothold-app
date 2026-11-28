@@ -11,7 +11,7 @@ import { ROBOTS, USERS, type Robot } from './fixtures';
 import { fleetNames, fleetRow } from './fleetRow';
 import { FakeWS, fail, lease, state } from './fakeWs';
 import { simTune } from '../phone';
-import { isSettings, LYING_TEXT, POSE, POSE_LOST, POSE_WAIT_MS, POWER_HINT, poseWhy, REAL_WAIT, SD_NOTE, ServerDrive, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
+import { isSettings, LYING_TEXT, POSE, POSE_LOST, POSE_WAIT_MS, POWER_HINT, poseWhy, REAL_WAIT, SD_NOTE, SIDE_BLOCK, COMBO_BLOCK, ServerDrive, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
 import { api } from '../api';
 import { BODY_CHECK, BODY_FAULT, DEPTH_HINT, IDENTITY_FAULT_LABEL, NO_SIGNAL, RETRY_MS, useDriveFeed } from '../drivemedia';
 import { DriveView } from '../serverdrive';
@@ -92,35 +92,65 @@ describe('서버 경유 시험 조종 패널', () => {
     expect(toRobot({ id: 'x', simulation: false, server_drive_allowed: true } as never).serverDrive).toBe(true);
     expect(toRobot({ id: 'x', simulation: false, server_drive: true } as never).serverDrive).toBe(false);   // 옛 가정 이름은 아님
     expect(toRobot({ id: 'x', simulation: false } as never).serverDrive).toBe(false);
-    mount('u-park', ON, false); serve('r7'); click(row('Go2-7'));   // 로봇 탭 = 세 칸 조종 화면(pcdrive)
-    expect($('[data-server-drive]')!.textContent).toContain(TRIAL);
+    mount('u-park', ON, false); serve('r7'); click(row('Go2-7'));   // PC 로봇 탭(시안 u4)에 조종이 붙음(옛 세 칸 화면 자리)
+    expect($('[data-u4-can]')).not.toBeNull();
     expect($('[data-sd-stop]')).not.toBeNull();
     unmount();
     const k = FakeWS.all.length;
     mount('u-park', ROBOTS); serve('r7'); click(row('Go2-7'));   // 서버가 켜지 않음 → 보기만(카메라·라이다 연결도 없음)
-    expect($('[data-server-drive]')).toBeNull();
+    expect($('[data-u4-can]')).toBeNull(); expect($('[data-server-drive]')).toBeNull();
     expect(FakeWS.all.slice(k).some((x) => x.url.includes('drive-media'))).toBe(false);
     unmount();
-    mount('u-kim'); serve('r3', 'r7', 'r1'); click(row('Go2-7'));   // 총괄 → 보기만
-    expect($('[data-server-drive]')).toBeNull();
+    mount('u-kim', ON, false); serve('r3', 'r7', 'r1'); click(row('Go2-7'));   // 총괄 = 모든 권한(#547 · 11/28): 서버가 허용한 실기면 로봇 탭에 조종이 붙음
+    expect($('[data-u4-can]')).not.toBeNull();
   });
 
-  it('키: 화살표 = 이동, A/D = 제자리 회전, ↑+A/D — 표의 SI 값 그대로, 그 밖 조합·W 는 0', () => {
+  it('키(11-28 17:25): W·↑ 전진 · S·↓ 후진 · ← / → 옆걸음 · A / D 제자리 회전 · Q · E 없음, ↑+A/D · 표의 SI 값 그대로, 그 밖 조합은 0', () => {
     ready();
     expect(document.body.textContent).toContain('누르고 있으면 2초에 걸쳐 최고 속도까지 올라가고, 떼면 바로(약 0.3초) 멈춥니다');   // 앞뒤·옆·회전 공통 안내(11-20)
-    expect(hold(['ArrowUp'])).toBe('1.5,0,0');
-    expect(hold(['ArrowDown'])).toBe('-1.5,0,0');
-    expect(hold(['ArrowLeft'])).toBe('0,1,0');
-    expect(hold(['ArrowRight'])).toBe('0,-1,0');
+    for (const k of ['ArrowUp', 'KeyW']) expect(hold([k])).toBe('1.5,0,0');
+    for (const k of ['ArrowDown', 'KeyS']) expect(hold([k])).toBe('-1.5,0,0');
     expect(hold(['KeyA'])).toBe('0,0,2.5');
     expect(hold(['KeyD'])).toBe('0,0,-2.5');
+    expect(hold(['ArrowLeft'])).toBe('0,1,0');
+    expect(hold(['ArrowRight'])).toBe('0,-1,0');
     expect(hold(['ArrowUp', 'KeyA'])).toBe('1.5,0,2.5');
+    expect(hold(['KeyW', 'KeyA'])).toBe('1.5,0,2.5');
     expect(hold(['KeyD', 'ArrowUp'])).toBe('1.5,0,-2.5');
-    for (const k of [['ArrowDown', 'KeyA'], ['ArrowLeft', 'ArrowUp'], ['KeyA', 'KeyD'], ['KeyW'], ['KeyS'], ['KeyQ']]) expect(hold(k)).toBe('0,0,0');
+    for (const k of [['KeyQ'], ['KeyE'], ['KeyQ', 'KeyE']]) expect(hold(k)).toBe('0,0,0');   // Q · E 는 뺌: 아무 동작 없음
+    for (const k of [['ArrowDown', 'KeyA'], ['ArrowLeft', 'ArrowUp'], ['KeyA', 'KeyD'], ['ArrowLeft', 'ArrowRight'], ['KeyZ']]) expect(hold(k)).toBe('0,0,0');
     expect(lastAxes()).toBe('0,0,0');
     expect(axes().every((a) => ALLOWED.has(a))).toBe(true);
   });
-
+  it('표에 없는 키 조합(W+← · A+← · W+S · ←+→)은 0 + 까닭 한 줄, 표에 있는 키를 새로 누르면 사라짐', () => {
+    ready();
+    for (const ks of [['KeyW', 'ArrowLeft'], ['KeyA', 'ArrowLeft'], ['KeyW', 'KeyS'], ['ArrowLeft', 'ArrowRight']]) {
+      ks.forEach((k) => key('keydown', k)); tick(60);
+      expect(lastAxes()).toBe('0,0,0');
+      expect($('[data-sd-why]')!.textContent).toBe('이 키 조합은 함께 보낼 수 없어 입력을 0으로 보냅니다.');   // 멈춤 확인 아님(입력 0 만)
+      [...ks].reverse().forEach((k) => key('keyup', k));
+    }
+    key('keydown', 'KeyW'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    expect($('[data-sd-why]')).toBeNull();
+    key('keyup', 'KeyW');
+  });
+  it('옆걸음(← / →): 조직 옆 상한(real_max_vy)이 표 값 1 을 허락하지 않으면 0 + 까닭 한 줄, 단추는 흐림 · 글 입력칸·창 밖이면 0', () => {
+    ready(); view();
+    expect($('[data-sd-move="left"]')!.textContent).toContain('←');
+    expect($('[data-sd-move="right"]')!.textContent).toContain('→');
+    key('keydown', 'ArrowLeft'); tick(60); expect(lastAxes()).toBe('0,1,0');
+    act(() => { window.dispatchEvent(new Event('blur')); }); tick(60); expect(lastAxes()).toBe('0,0,0');
+    key('keyup', 'ArrowLeft');
+    const input = document.createElement('input'); document.body.append(input); input.focus();
+    const typed = (type: string) => act(() => { input.dispatchEvent(new KeyboardEvent(type, { code: 'ArrowRight', bubbles: true, cancelable: true })); });
+    typed('keydown'); tick(60); expect(lastAxes()).toBe('0,0,0');
+    typed('keyup'); input.remove();
+    act(() => simTune({ ...ORG, real_max_vy: 0 }));
+    expect($('[data-sd-move="left"]')!.getAttribute('aria-disabled')).toBe('true');
+    key('keydown', 'ArrowLeft'); tick(60); expect(lastAxes()).toBe('0,0,0');
+    expect($('[data-sd-why]')!.textContent).toBe(SIDE_BLOCK);
+    key('keyup', 'ArrowLeft');
+  });
   it('조직 상한을 넘는 단추·키는 0, 저장으로 낮추면 즉시 0이며 올려도 자동 재개 없음', () => {
     ready(); view();
     expect($('[data-sd-move="left"]')!.getAttribute('aria-disabled')).toBe('false');
@@ -241,6 +271,28 @@ describe('서버 경유 시험 조종 패널', () => {
     key('keyup', 'ArrowUp');
   });
 
+  it('조이스틱(gamepad.ts 의 Pad 키)은 키보드와 같은 표 · 같은 막힘', () => {
+    ready();
+    expect(hold(['PadUp'])).toBe('1.5,0,0');
+    expect(hold(['PadDown'])).toBe('-1.5,0,0');
+    expect(hold(['PadRotL'])).toBe('0,0,2.5');
+    expect(hold(['PadRight'])).toBe('0,-1,0');
+    expect(hold(['PadUp', 'PadRotR'])).toBe('1.5,0,-2.5');
+    expect(hold(['PadLeft', 'PadUp'])).toBe('0,0,0');   // 표 밖 조합 = 0(키 ←+↑ 과 같음)
+    expect(axes().every((a) => ALLOWED.has(a))).toBe(true);
+  });
+  it('조이스틱도 STOP 뒤에는 가운데로 돌렸다 다시 밀어야 움직임', () => {
+    ready();
+    const auto = w.auto!;
+    w.auto = (m) => (m.t === 'stop' ? { ok: true } : auto(m));
+    key('keydown', 'PadUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    key('keydown', 'Space'); tick(200);
+    expect(lastAxes()).toBe('0,0,0');
+    key('keyup', 'Space'); tick(200);
+    expect(lastAxes()).toBe('0,0,0');   // 밀고 있어도 0
+    key('keyup', 'PadUp'); key('keydown', 'PadUp'); tick(60);
+    expect(w.of('stop').length).toBe(1);
+  });
   it('Space(머리줄 STOP)도 입력을 바로 0 으로', () => {
     ready();
     const auto = w.auto!;
@@ -967,8 +1019,8 @@ describe('서버 경유 뎁스', () => {
 
   it('로봇 관측 칸에 «뎁스» 보기 — 받는 연결 없이 «뎁스 카메라 신호 없음»', () => {
     mount('u-park'); serve('r7'); click(row('Go2-7'));
-    click($('[data-view="depth"]')!);
-    expect($('[data-no-signal="depth"]')!.textContent).toContain(NO_SIGNAL.depth);
+    click($('.u4 .views .vsel [data-view="depth"]')!);   // PC 로봇 탭(시안 u4) 보기 고르기
+    expect($('[data-u4-big="depth"]')!.textContent).toContain(NO_SIGNAL.depth);
     expect(has()).toBe(false);
   });
 });

@@ -33,6 +33,23 @@
 /* 10-26 실폰: 영상 칸은 본문 끝까지(여백·모서리 없음). 노치·홈 막대 자리(.fh.phone safe-area 여백)와 페이지 바탕은 영상 칸 색으로 이어서
    화면 전체가 영상 칸처럼 보이게 — 조작부(조이스틱·STOP·단추)는 그대로 safe-area 안쪽 */
 html:has(.dv.ph),.fh:has(.dv.ph){background:#05080A}
+/* 밝은 판(u11): 영상이 없을 때 영상 칸 · 페이지 바탕은 테마 바탕(어두운 고정색이면 밝음에서 화면 전체가 검게 보이고 영상 칸 밖 글자가 묻힌다). 영상 위 판은 아래 고정색 그대로 */
+html:has(.fh.light .dv.ph),.fh.light:has(.dv.ph){background:var(--bg)}
+.fh.light .dv-stage{background:var(--panel2)}
+.fh.light .dv-video{background:var(--panel2);color:var(--muted)}
+.fh.light .dv-mini{background:var(--panel);border-color:var(--line2)}
+/* 밝음 · 영상 없음(영상 칸에 img · canvas · video 가 없음): 판 · 단추 · 조이스틱을 «지도 없음» 칸과 같은 결로 — 종이 바탕 · 가는 선 · 먹 글자(관제 색조: 색을 줄이고 가는 선) */
+.fh.light .dv-stage:not(:has(img,canvas,video)) .dv-hud .dv-line{background:var(--panel);border:1px solid var(--line2);color:var(--text)}
+.fh.light .dv-stage:not(:has(img,canvas,video)) .dv-hud .dv-note{background:var(--panel);border:1px solid var(--line2);color:var(--text)}
+.fh.light .dv-stage:not(:has(img,canvas,video)) .dv-hud .fh-why{color:var(--text)}
+.fh.light .dv-stage:not(:has(img,canvas,video)) .dv-hud .btn:not(.pri){background:var(--panel);border-color:var(--line2);color:var(--text)}
+.fh.light .dv-stage:not(:has(img,canvas,video)) .dv-sheets .btn{background:var(--panel);border-color:var(--line2);color:var(--text)}
+.fh.light .dv-stage:not(:has(img,canvas,video)) .dv-stick{background:var(--panel);border:1px solid var(--line2)}
+.fh.light .dv-stage:not(:has(img,canvas,video)) .dv-stick>i{background:var(--line2)}
+.fh.light .dv-stage:not(:has(img,canvas,video)) .dv-stick>span{color:var(--text)}
+.fh.light .dv-stage:not(:has(img,canvas,video)) .dv-arrows{stroke:var(--text)}
+/* 밝음 · 영상 있음: 어두운 scrim 판 그대로. 조이스틱만 판 값 .66(하얀 프레임 위 .5 면 글자 3.1:1 → 5.4:1) */
+.fh.light .dv-stage:has(img,canvas,video) .dv-stick{background:rgba(8,11,14,.66)}
 .dv.ph .dv-stage{border-radius:0}
 .dv.ph>:not(.dv-body){margin:0 8px 8px}
 /* 조종 화면: 조이스틱을 길게 눌러도 글자 선택·돋보기·길게 누르기 메뉴·끌기 그림자가 없게(iOS Safari 는 -webkit- 만 먹음). 입력란만 예외 */
@@ -48,6 +65,8 @@ html:has(.dv.ph),.fh:has(.dv.ph){background:#05080A}
 .dv-hud .dv-note{background:rgba(8,11,14,.66);color:#E6EBEF}   /* 영상 칸 위 안내 — 판 색은 .dv-line 값 그대로 */
 .dv-hud .dv-views{flex-direction:row;align-self:flex-end;gap:6px}
 .dv-hud .dv-views .btn{min-width:56px;min-height:44px;background:rgba(8,11,14,.66);border-color:rgba(230,235,239,.45);color:#E6EBEF}
+/* 밝음 · 영상 위 판의 보통 단추(«조종 끝내기» 등): 판 색과 글자를 함께 고정(밝음 .btn 바탕 위에 영상 판 흰 글자가 얹히지 않게). 어두움은 기존 .btn 값 그대로 */
+.fh.light .dv-hud .btn:not(.pri){background:rgba(8,11,14,.66);border-color:rgba(230,235,239,.45);color:#E6EBEF}
 .dv.ph .dv-mini{width:100px;height:70px;right:12px;bottom:144px}
 .dv-stick{position:absolute;bottom:12px;width:120px;height:120px;border-radius:50%;border:1.5px solid rgba(230,235,239,.45);background:rgba(8,11,14,.5);display:grid;place-items:center;touch-action:none;user-select:none}
 .dv-stick.v{left:12px}.dv-stick.h{right:12px}
@@ -73,6 +92,9 @@ html:has(.dv.ph),.fh:has(.dv.ph){background:#05080A}
 /* 10-23 구도: 왼쪽 위 «<», 위 가운데 상태 알약, 오른쪽 위 설정, 아래 두 구석 조이스틱(상하·좌우 화살표), 왼쪽 조이스틱 옆 시나리오 단추 하나 → 가로 띠 */
 .dv-top{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:1;box-sizing:border-box;max-width:calc(100% - 120px);min-height:32px;display:flex;align-items:center;gap:4px;padding:4px 14px;border-radius:16px;background:rgba(8,11,14,.66);color:#E6EBEF;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
 .dv-top[data-tone="bad"]{box-shadow:inset 0 0 0 1px var(--bad)}
+/* 시뮬 직결 「다시 시작」 창: 상태 알약 아래끝(8 + 32) + 8 */
+[data-sim-drive] .dv-ask{top:48px}
+@media (orientation:portrait){[data-sim-drive] .dv-ask{top:80px}}   /* 세로: STOP(8 + 64) 아래끝 + 8 */
 .dv-leave{left:8px;right:auto}
 .dv-gear:disabled{opacity:.45;cursor:default}
 .dv-gear{position:absolute;top:8px;right:8px;z-index:2;width:44px;height:44px;box-sizing:border-box;display:grid;place-items:center;padding:0;border:1px solid rgba(230,235,239,.45);border-radius:22px;background:rgba(8,11,14,.66);color:#E6EBEF;cursor:pointer}
@@ -85,7 +107,10 @@ html:has(.dv.ph),.fh:has(.dv.ph){background:#05080A}
 .dv-act:not([data-bare]){box-sizing:border-box;padding:6px 6px 8px 8px;border:1px solid rgba(230,235,239,.45);border-radius:12px;background:rgba(8,11,14,.8)}
 .dv-act-head{display:flex;align-items:flex-start;gap:4px;max-width:100%}
 .dv-act-t{flex:1;min-width:0;max-height:30vh;overflow-y:auto}
-.dv-act-t>.dv-note:first-child{font-weight:600}
+.dv-act-t>.dv-note:first-child,.dv-act-t>.dv-note-row:first-child>.dv-note{font-weight:600}
+/* 알림 칸 «+N» (PHONE-CLUTTER 11-28): 접힌 등급 3~5 수 · 손가락 크기 44px · 색은 안내 줄 글 색 그대로 */
+.dv-note-row{display:flex;align-items:center;gap:4px}.dv-note-row>.dv-note{flex:1;min-width:0}
+.dv-more{flex:none;min-height:44px;min-width:44px;padding:0 12px;border:1px solid rgba(230,235,239,.35);border-radius:22px;background:rgba(8,11,14,.5);color:#E6EBEF;font:inherit;font-size:13px;white-space:nowrap;cursor:pointer}
 .dv-x{flex:none;width:44px;height:44px;display:grid;place-items:center;padding:0;border:0;background:none;color:#E6EBEF;cursor:pointer}
 .dv-act .fh-row{justify-content:center}
 /* 시뮬 시험용 표시(limits.experimental): 10-26 영상 위에서 빼고 메뉴 맨 위 한 줄. 긴 문장은 설정 시트·aria-label */

@@ -1,11 +1,13 @@
 // 실기 로봇 연결(ROBOT-PAIRING, 05 §3.1). 운영 관리자: 새 로봇 추가(QR·6자리 → 이름(기본값·기체번호 작게) → 끝, RB-EASY-PAIR) → 내 로봇 관리(이름·연결 끊기·지우기).
-// 총괄은 실기 로봇에 쓰기가 없다 — 담당 없는 실기의 담당 지정만(AssignOwner). 연결 키는 화면에 오지 않는다(노트북 연결 프로그램이 poll 로 한 번 받음).
+// 총괄도 로봇을 붙인다(11/28 · 서버 #544) · 담당 없는 실기의 담당 지정(AssignOwner). 남 담당 실기의 관리는 서버 2 차 전. 연결 키는 화면에 오지 않는다(노트북 연결 프로그램이 poll 로 한 번 받음).
 // 담당 넘기기(TransferOwner): 내 로봇 관리 안 — 넘길 대상 목록(owner-candidates) → 같은 화면 확인 → PATCH owner_user_id.
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { PairingClaimed, RobotInstallerInfo, RobotOwnerCandidate, User as ApiUser } from '../../contracts/ts';
 import { api, type ApiFail } from './api';
 import { PHONE_Q } from './App';
-import type { Robot } from './fake';
+import { toRobot, type Robot, type User } from './fake';
+import { ScanPanel, ScanStart } from './screens/scanentry';
+import { PairDone, PairName } from './screens/phonepair';
 import { Chip, inApp } from './screens';
 import { OwnerSelect, robotFail } from './screens/settings';
 
@@ -52,10 +54,10 @@ function Scan({ found, close, at }: { found: (code: string) => void; close: () =
 }
 
 type Os = RobotInstallerInfo['items'][number]['platform'];
-const OS_NAME: Record<Os, string> = { linux: 'Ubuntu 노트북', windows: '윈도우 노트북' };
+export const OS_NAME: Record<Os, string> = { linux: 'Ubuntu 노트북', windows: '윈도우 노트북' };
 /** 서버가 아직 만드는 중(첫 info 요청이 빌드를 시작 — not_built 는 곧 building) → 10초마다 다시 묻는다 */
-const MAKING = new Set(['building', 'not_built']);
-const WHY: Record<string, string> = {
+export const MAKING = new Set(['building', 'not_built']);
+export const WHY: Record<string, string> = {
   build_failed: '설치 파일을 만들지 못했습니다. 총괄 운영 관리자에게 알려 주세요.',
   invalid_artifact: '설치 파일을 만들지 못했습니다. 총괄 운영 관리자에게 알려 주세요.',
   build_tools_missing: '이 서버에서는 설치 파일을 만들 수 없습니다. 총괄 운영 관리자에게 알려 주세요.',
@@ -64,16 +66,16 @@ const WHY: Record<string, string> = {
   not_supported_yet: '준비 중입니다. 곧 받을 수 있습니다.',
 };
 /** 이 브라우저의 운영체제(그 줄을 위에·강조). 모르면 null */
-const myOs = (): Os | null => {
+export const myOs = (): Os | null => {
   const p = `${(navigator as { userAgentData?: { platform?: string } }).userAgentData?.platform ?? ''} ${navigator.userAgent}`;
   return /Windows/i.test(p) ? 'windows' : /Android/i.test(p) ? null : /Linux|X11|Ubuntu/i.test(p) ? 'linux' : null;
 };
 
 /** 새 로봇 추가 위 «노트북에 연결 프로그램이 없나요?» — 운영체제별 받기·만드는 중·이유. 실패해도 코드 입력은 그대로(카드 안 한 줄).
  *  폰(좁은 화면·앱)은 노트북 브라우저에서 받으라는 안내, 받기 링크는 작게 */
-function Installer({ cancel, phone }: Cancel & { phone: boolean }) {
+/** 설치 파일 정보(GET /robot-installer). 닫으면 조회를 끊고, 만드는 중이면 10 초마다 다시 묻는다. 로봇 탭 u2_1 도 같은 값을 쓴다 */
+export function useInstallers(cancel?: AbortSignal) {
   const [items, setItems] = useState<RobotInstallerInfo['items'] | null>(null), [fail, setFail] = useState('');
-  const mine = myOs();
   useEffect(() => {
     // 닫으면(언마운트) 대기 중 조회를 끊는다 — 다시 열어도 옛·새 요청이 겹치지 않게. 로그인 세션이 끝나도 끊김. 늦게 온 옛 답은 live 로 버림
     let live = true, timer = 0;
@@ -88,6 +90,11 @@ function Installer({ cancel, phone }: Cancel & { phone: boolean }) {
     load();
     return () => { live = false; clearTimeout(timer); stop.abort(); cancel?.removeEventListener('abort', off); };
   }, []);
+  return { items, fail };
+}
+
+function Installer({ cancel, phone }: Cancel & { phone: boolean }) {
+  const { items, fail } = useInstallers(cancel), mine = myOs();
   const rows = [...(items ?? [])].sort((a, b) => Number(b.platform === mine) - Number(a.platform === mine));
   return <div className="fh-form" role="group" aria-label="설치 파일 받기" data-installer style={phone ? { padding: 8, borderRadius: 8, border: '1px solid var(--line)' } : undefined}>
     <b>노트북에 연결 프로그램이 없나요?</b>
@@ -107,11 +114,15 @@ function Installer({ cancel, phone }: Cancel & { phone: boolean }) {
   </div>;
 }
 
-type Step = { at: 'code' } | { at: 'name'; p: PairingClaimed } | { at: 'done'; name: string; again: boolean };
+type Step = { at: 'code' } | { at: 'name'; p: PairingClaimed } | { at: 'done'; name: string; again: boolean; robot: Robot } | { at: 'scan'; robot: Robot };
+/** 단계 막대(U2-01): 코드 1 · 이름 2 · 끝 3(붙인 뒤 지도 스캔도 3). 지난 칸과 지금 칸을 채운다 */
+const STEP_N: Record<Step['at'], number> = { code: 1, name: 2, done: 3, scan: 3 };
+const Steps = ({ n }: { n: number }) => <span className="pair-steps" role="img" aria-label={`3 단계 중 ${n} 단계`} data-pair-steps>
+  {[1, 2, 3].map((i) => <i key={i} data-on={i <= n || undefined} />)}<b>{n} / 3</b></span>;
 
 /** 새 로봇 추가(운영 관리자). mine = 지금 내 로봇 id(확정 답의 id 가 이미 있으면 재연결).
  *  PC(넓은 화면·마우스)는 «설치 파일 받기 | 코드 넣기» 두 칸, 6자리 코드가 주 동작이고 QR(노트북 카메라)은 보조. 폰·앱은 한 줄로 QR 먼저(11-12) */
-export function AddRobot({ mine, close, refresh, cancel }: { mine: string[]; close: () => void; refresh: () => void } & Cancel) {
+export function AddRobot({ user, mine, close, refresh, cancel }: { user?: User; mine: string[]; close: () => void; refresh: () => void } & Cancel) {
   const [step, setStep] = useState<Step>({ at: 'code' }), [msg, setMsg] = useState(''), [busy, setBusy] = useState(false);
   const [scan, setScan] = useState(false), [code, setCode] = useState(''), [name, setName] = useState('');
   // 지금 확인 중인 코드 — 입력이 바뀌거나 화면이 닫히면 비워서, 늦게 온 옛 코드 답으로 이름 단계(바로 등록)에 가지 않게 한다
@@ -138,7 +149,7 @@ export function AddRobot({ mine, close, refresh, cancel }: { mine: string[]; clo
     setBusy(true); setMsg('');
     try {
       const r = await api.confirmPairing(p.pairing_id, n, cancel);   // 목록은 «내 로봇으로»에서 다시 받음 — 첫 로봇이면 목록 0→1 로 이 화면이 다시 그려져 안내가 사라짐
-      setStep({ at: 'done', name: r.name, again: mine.includes(r.id) });
+      setStep({ at: 'done', name: r.name, again: mine.includes(r.id), robot: toRobot(r) });
     } catch (err) {
       const f = err as ApiFail;
       if (f.code === 'CANCELED') return;
@@ -158,8 +169,15 @@ export function AddRobot({ mine, close, refresh, cancel }: { mine: string[]; clo
   </form>;
   const toMine = <button type="button" className="btn pri" onClick={() => { refresh(); close(); }}>내 로봇으로</button>;
   const again = <p className="lbl">이미 등록한 로봇을 노트북에 다시 설치했으면 같은 방법으로 다시 연결하세요 — 같은 로봇으로 이어지고 옛 연결 키는 바로 폐기됩니다.</p>;
+  // 붙이기 끝 → 지도 스캔: 새 로봇 추가 카드를 스캔 칸으로 바꾼다(닫기 = 내 로봇으로와 같이 목록 다시 받기)
+  if (step.at === 'scan' && user) return <ScanPanel user={user} robots={[step.robot]} close={() => { refresh(); close(); }} cancel={cancel} />;
+  // 폰 확인 · 완료 = 시안 u2_2 · u2_3 꼴(screens/phonepair.tsx). 흐름 · 요청 · 값은 아래 옛 카드와 같다(PC 와 코드 단계는 옛 카드 그대로)
+  if (phone && step.at === 'name') return <PairName serial={step.p.robot_serial} expires={step.p.expires_at} name={name} setName={setName} busy={busy} msg={msg}
+    submit={(e) => confirm(e, step.p)} restart={restart} close={close} />;
+  if (phone && step.at === 'done') return <PairDone name={step.name} again={step.again} robot={step.robot} user={user}
+    scan={() => setStep({ at: 'scan', robot: step.robot })} toMine={() => { refresh(); close(); }} close={close} />;
   return <section className={phone ? 'lv-card' : 'lv-card pair-pc'} style={{ flexBasis: '100%' }} aria-label="새 로봇 추가" data-pair={step.at}>
-    <div className="fh-row"><h2 className="fh-grow">새 로봇 추가</h2><button type="button" className="btn" onClick={close}>닫기</button></div>
+    <div className="fh-row"><h2>새 로봇 추가</h2><Steps n={STEP_N[step.at]} /><span className="fh-grow" /><button type="button" className="btn" onClick={close}>닫기</button></div>
     {step.at === 'code' && (phone ? <><Installer cancel={cancel} phone />{note}{qr}{form}{again}</>
       : <div className="pair-cols">
         <Installer cancel={cancel} phone={false} />
@@ -171,7 +189,12 @@ export function AddRobot({ mine, close, refresh, cancel }: { mine: string[]; clo
           {scan ? qr : <div className="fh-row">{qr}<span className="lbl">노트북 카메라로 QR 을 읽을 때</span></div>}{again}</div>
       </div>)}
     {step.at === 'name' && <form className="fh-form pair-one" noValidate onSubmit={(e) => confirm(e, step.p)}>
-      <span className="lbl">기체번호 <span className="mono" data-pair-serial>{step.p.robot_serial}</span> — 노트북 화면과 다르면 «처음으로»</span>
+      {/* 확인 칸(u2_2): claim 답에 있는 값만. 기종은 답에 없어 칸을 두지 않는다 */}
+      <dl className="pair-check" data-pair-check>
+        <div><dt>기체번호</dt><dd className="mono" data-pair-serial>{step.p.robot_serial}</dd></div>
+        <div><dt>담당</dt><dd>나 (등록하는 사람)</dd></div>
+      </dl>
+      <span className="lbl">노트북 화면의 기체번호와 같은지 보세요. 다르면 «처음으로».</span>
       <label className="fh-field"><span>로봇 이름</span><input className="inp" name="name" value={name} maxLength={128} autoComplete="off" onChange={(e) => setName(e.target.value)} /></label>
       <div className="fh-row"><button type="submit" className="btn pri" disabled={busy}>{busy ? '등록 중…' : '등록'}</button><button type="button" className="btn" onClick={restart}>처음으로</button></div>
       <span className="lbl">등록한 사람(나)이 이 로봇의 담당이 됩니다. 연결 키는 노트북 연결 프로그램이 받아 저장하며 화면에는 보이지 않습니다.</span>
@@ -181,6 +204,8 @@ export function AddRobot({ mine, close, refresh, cancel }: { mine: string[]; clo
         ? `${step.name} — 기존 로봇에 다시 연결했습니다. 옛 연결 키는 폐기됐고, 진행 중이던 조종은 정지·잠금됐습니다.`
         : `${step.name} 로봇을 등록했습니다.`} 노트북 화면에 «연결됨»이 뜨면 내 로봇에서 조종권을 잡으세요.</p>
       {phone ? toMine : <div className="fh-row">{toMine}</div>}
+      {/* 붙이기 끝(u2_3): 이 로봇으로 바로 지도 스캔. 권한은 PhoneScan 과 같은 makers() */}
+      {user && <ScanStart user={user} robots={[step.robot]} label="이 현장 지도 스캔하기" start={() => setStep({ at: 'scan', robot: step.robot })} />}
     </>}
     {msg && <p className="fh-msg" role="alert">{msg}</p>}
   </section>;
@@ -191,7 +216,7 @@ export function AddRobot({ mine, close, refresh, cancel }: { mine: string[]; clo
 /** 진행 중인 담당 넘기기: 로봇 id → 끝나면 풀리는 약속. 컴포넌트 밖에 두어 상세가 다시 그려져도(내 로봇 A→B→A) 같은 로봇의 두 번째 PATCH 를 막는다.
  *  로그인 세션이 끝나면 cancel 로 요청이 끊겨 finally 에서 풀린다 */
 const transferring = new Map<string, Promise<void>>();
-function TransferOwner({ r, refresh, cancel }: { r: Robot; refresh: () => void } & Cancel) {
+export function TransferOwner({ r, refresh, cancel }: { r: Robot; refresh: () => void } & Cancel) {
   const [open, setOpen] = useState(false), [list, setList] = useState<RobotOwnerCandidate[] | null>(null), [to, setTo] = useState('');
   const [ask, setAsk] = useState(false), [msg, setMsg] = useState<{ text: string; ok?: boolean } | null>(null), [busy, setBusy] = useState(false);
   const seq = useRef(0), askBox = useRef<HTMLDivElement>(null);
@@ -295,7 +320,7 @@ export function AssignOwner({ r, refresh, cancel }: { r: Robot; refresh: () => v
   return <div className="fh-form" role="group" aria-label="담당 지정" data-assign-owner>
     <OwnerSelect ops={ops} value={owner} onChange={(v) => { setOwner(v); setAsk(false); }} />
     <div className="fh-row"><button type="button" className="btn pri" disabled={busy || !owner} onClick={() => setAsk(true)}>담당 지정</button>
-      <span className="lbl">담당 없는 실기 로봇만 지정할 수 있습니다. 연결·조종은 담당 운영 관리자가 합니다.</span></div>
+      <span className="lbl">담당 없는 실기 로봇만 지정할 수 있습니다.</span></div>
     {ask && <div className="fh-row" role="group" aria-label="확인">
       <span>{`${r.name} 담당을 ${who}(으)로 지정할까요? 지정한 뒤에는 담당 운영 관리자만 바꿀 수 있습니다.`}</span>
       <button type="button" className="btn pri" onClick={save}>지정</button><button type="button" className="btn" onClick={() => setAsk(false)}>취소</button></div>}

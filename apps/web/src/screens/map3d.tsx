@@ -60,12 +60,13 @@ export function onBoard<R>(robots: R[], vid: string, where: (x: R) => Partial<Pi
 
 /** 2D 지도의 로봇 점과 같은 색 규칙(연결 끊김 = 흐림, 그 밖 = 상태 색) */
 const TONE_VAR: Record<Tone, string> = { ok: '--accent', warn: '--warn', bad: '--bad', off: '--muted' };
-const whereOf = (x: Robot) => (x.unknown === 'summary' ? null : rt.get(x.id).state?.location ?? x.location ?? null);
+export const whereOf = (x: Robot) => (x.unknown === 'summary' ? null : rt.get(x.id).state?.location ?? x.location ?? null);
 
 type Rig = { draw: () => void; marks: THREE.Group; z: number; view: (top: boolean) => void; dispose: () => void };
 
-/** missing(까닭) = 404: 모형 없음 · 판 없음. 부르는 쪽이 2D 로 돌아가 그 까닭을 한 줄로 */
-export function Map3D({ v, robots, missing }: { v: MapVersion; robots: Robot[]; missing: (why: string) => void }) {
+/** missing(까닭) = 404: 모형 없음 · 판 없음. 부르는 쪽이 2D 로 돌아가 그 까닭을 한 줄로.
+ *  still = 미리 보기(시안 u7_1): 시점 단추 · 범례 없음(기본 = 있음) */
+export function Map3D({ v, robots, missing, still }: { v: MapVersion; robots: Robot[]; missing: (why: string) => void; still?: boolean }) {
   const host = useRef<HTMLDivElement>(null), rig = useRef<Rig | null>(null);
   const [at, setAt] = useState<'wait' | 'ok' | 'bad' | 'nogl'>('wait'), [n, setN] = useState(0), [why, setWhy] = useState('');
   const [, light] = useTheme();
@@ -167,7 +168,7 @@ export function Map3D({ v, robots, missing }: { v: MapVersion; robots: Robot[]; 
 
   return <div className="vx" data-map3d data-floor-z={at === 'ok' && rig.current ? rig.current.z : undefined}>
     <div ref={host} className="vx-3d" tabIndex={0} role="application" aria-label="3D 실내 · 끌어 돌리기, 오른쪽 끌기 이동, 휠 확대, 칸을 누른 뒤 화살표로 옮기기">
-      {at === 'ok' && <div className="vx-tools" role="group" aria-label="3D 시점">
+      {at === 'ok' && !still && <div className="vx-tools" role="group" aria-label="3D 시점">
         <button type="button" className="btn" onClick={() => rig.current?.view(true)}>위에서 보기</button>
         <button type="button" className="btn" onClick={() => rig.current?.view(false)}>비스듬히</button></div>}
     </div>
@@ -177,6 +178,6 @@ export function Map3D({ v, robots, missing }: { v: MapVersion; robots: Robot[]; 
       {at === 'bad' && <div className="fh-row" data-map3d-bad><p className="fh-msg" role="alert">3D 모형을 불러오지 못했습니다. {why || '파일을 읽지 못했습니다.'} 다시 불러오세요.</p>
         <button type="button" className="btn" onClick={() => setN(n + 1)}>다시 불러오기</button></div>}
     </div>
-    {at === 'ok' && <div className="vx-legend" aria-label="3D 범례" data-map3d-legend><b>3D</b><span>로봇 = 둥근 표식(2D 와 같은 색)</span><span>점검 지점 = 기둥</span><span aria-hidden="true">· 끌어서 돌리기 · 휠로 확대</span></div>}
+    {at === 'ok' && !still && <div className="vx-legend" aria-label="3D 범례" data-map3d-legend><b>3D</b><span>로봇 = 둥근 표식(2D 와 같은 색)</span><span>점검 지점 = 기둥</span><span aria-hidden="true">· 끌어서 돌리기 · 휠로 확대</span></div>}
   </div>;
 }

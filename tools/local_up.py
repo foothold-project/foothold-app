@@ -16,7 +16,6 @@ import argparse
 import base64
 import hashlib
 import json
-import math
 import os
 from pathlib import Path
 import re
@@ -154,51 +153,19 @@ def private_file(path, text):
 
 
 def extra_sim_robot_id(org_id, number):
-    """Slots 2..8 (FH_SIM_SLOTS). The server creates the row on the first POST /simulation/robots."""
+    """Slots 2..4 (FH_SIM_SLOTS). The server creates the row on the first POST /simulation/robots."""
     return seed.uuid5(seed.NAMESPACE, f'{org_id}/sim-robot-{number}')
 
 
 # Read from the shell (or .env) only for --sim mujoco; never reaches the API server.
-POLICY_KEYS = ('FH_SIM_ORT_NODE', 'FH_SIM_START_MAP', 'FH_SIM_POLICY_DIR', 'FH_SIM_MAX_PER_OWNER', 'FH_SIM_STEP_STATS', 'FH_SIM_RUNTIME_SECONDS')
-
-
-def slot_spawns(path, robots, worlds):
-    """FH_SIM_SPAWNS file {world_id: {robot_id: {spawn_xyyaw: [x, y, yaw], name}}} -> {robot_id: {world_id: xyyaw}}
-    for this launch's worlds only. Unknown robot ids warn and are skipped; a malformed file or value stops here.
-    The map check (inside, free cell) is the simmgr launcher's, when the robot is added."""
-    if not path:
-        return {}
-    try:
-        data = json.loads(Path(path).expanduser().read_text())
-    except (OSError, ValueError) as error:
-        raise SystemExit(f'FH_SIM_SPAWNS={path} 를 읽지 못함: {error}')
-    if not isinstance(data, dict):
-        raise SystemExit('FH_SIM_SPAWNS 는 {world_id: {robot_id: {spawn_xyyaw}}} 꼴')
-    out = {}
-    for world in worlds:
-        for robot, row in (data.get(world) or {}).items():
-            value = row.get('spawn_xyyaw') if isinstance(row, dict) else None
-            if not (isinstance(value, list) and len(value) == 3
-                    and all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in value)):
-                raise SystemExit(f'FH_SIM_SPAWNS {world} {robot}: spawn_xyyaw 는 유한한 숫자 [x, y, yaw]')
-            if robot not in robots:
-                name = row.get('name', '')
-                print(f'경고: FH_SIM_SPAWNS {world} 의 로봇 {robot} {name} 은 이번 slot 에 없어 건너뜀', file=sys.stderr)
-                continue
-            out.setdefault(robot, {})[world] = [float(v) for v in value]
-    return out
-
-
-def catalog_slots(org, robots, spawns):
-    return [{'robot_id': robot, 'org_id': org, 'key_path': '/nonexistent/key', 'replay_path': '/nonexistent/replay',
-             'port': 9449 - i, **({'spawns': spawns[robot]} if robot in spawns else {})} for i, robot in enumerate(robots)]
+POLICY_KEYS = ('FH_SIM_ORT_NODE', 'FH_SIM_START_MAP', 'FH_SIM_POLICY_DIR')
 
 
 def sim_setup(repository, values, data):
     """Private files for simmgr with the local MuJoCo backend.
 
     Default: one slot = the seeded robot, world collapsed-house-v2. FH_SIM_WORLD names another
-    world (plant_a: the server sends its approved map bindings) and FH_SIM_SLOTS 1..8 adds slots."""
+    world (plant_a: the server sends its approved map bindings) and FH_SIM_SLOTS 1..4 adds slots."""
     if not (Path(repository) / 'apps/simmgr/mujoco_launcher.py').exists():
         raise SystemExit('--sim mujoco 는 simmgr 로컬 MuJoCo 백엔드 (#594) 가 들어간 저장소에서만 됩니다')
     if values.get('FH_SIM_SRC'):
@@ -212,8 +179,8 @@ def sim_setup(repository, values, data):
     folder.mkdir(mode=0o700, parents=True, exist_ok=True)
     org = values['FH_ORG_ID']
     count = os.environ.get('FH_SIM_SLOTS') or values.get('FH_SIM_SLOTS') or '1'
-    if not count.isdigit() or not 1 <= int(count) <= 8:
-        raise SystemExit('FH_SIM_SLOTS 는 1..8 (MuJoCo 로컬 로봇 수)')
+    if not count.isdigit() or not 1 <= int(count) <= 4:
+        raise SystemExit('FH_SIM_SLOTS 는 1..4 (MuJoCo 로컬 로봇 수)')
     world = os.environ.get('FH_SIM_WORLD') or values.get('FH_SIM_WORLD') or 'collapsed-house-v2'
     robots = [str(seed.sim_robot_id(UUID(org)))] + [str(extra_sim_robot_id(UUID(org), n))
                                                     for n in range(2, int(count) + 1)]
@@ -221,8 +188,8 @@ def sim_setup(repository, values, data):
     catalog = {'worlds': [{'id': item, 'name': '무너진 집 (MuJoCo)' if item == 'collapsed-house-v2' else item + ' (MuJoCo)',
                            'world_file': '/nonexistent/mujoco', 'map_file': '/nonexistent/mujoco'}
                           for item in world.split(',')],  # connected worlds: one key per spawn floor
-               'slots': catalog_slots(org, robots, slot_spawns(os.environ.get('FH_SIM_SPAWNS') or values.get('FH_SIM_SPAWNS'),
-                                                               robots, world.split(',')))}
+               'slots': [{'robot_id': robot, 'org_id': org, 'key_path': '/nonexistent/key',
+                          'replay_path': '/nonexistent/replay', 'port': 9449 - i} for i, robot in enumerate(robots)]}
     catalog_file = folder / 'catalog.json'
     if catalog_file.exists() and json.loads(catalog_file.read_text()) != catalog:
         catalog_file.unlink()  # organization/world/slots changed; derived, holds no secret

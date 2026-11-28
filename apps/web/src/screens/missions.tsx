@@ -7,7 +7,8 @@ import { createPortal } from 'react-dom';
 import type { Action, MapFloor, MapVersion, Terrain, Mission, MissionStep, MissionWrite, Scenario, ScenarioPoint, ScenarioPreview, ScenarioWaypoint, ScenarioWrite } from '../../../contracts/ts';
 import { ApiFail, api, type MapUpdate, type Plan } from '../api';
 import { idleSim, type Robot, type User } from '../fake';
-import { KIND as DEVICE, soon, type Ctx } from '../screens';
+import { KIND as DEVICE, type Ctx } from '../screens';
+import { RunCtl, useAssign } from './missionrun';
 import { rt, useRt } from '../rt';
 import { MapFrame, MapImage } from '../mapframe';
 import { Note, RUN, Shapes, canon, floorsOf, isVersion, purposeOf, reasonBad, shape, toPixel, useFit, useTree, type Msg, type Place, type Run } from './maps';
@@ -25,9 +26,9 @@ type P = [number, number];
 type AnyPlan = Mission | Scenario;
 type AnyWrite = MissionWrite | ScenarioWrite;
 const WHAT: Record<Plan, string> = { missions: '임무', scenarios: '시나리오' };
-const ACT: Record<MissionStep['action'], string> = { PHOTO: '사진 찍기', WAIT: '대기', OPERATOR_CONFIRM: '운영자 확인', SENSOR_LOG: '센서 값 기록' };   // 카탈로그를 못 받았을 때 이름
+export const ACT: Record<MissionStep['action'], string> = { PHOTO: '사진 찍기', WAIT: '대기', OPERATOR_CONFIRM: '운영자 확인', SENSOR_LOG: '센서 값 기록' };   // 카탈로그를 못 받았을 때 이름
 const VALUE: Record<string, string> = { rgb: '카메라', depth: '뎁스 카메라', lidar: '라이다', battery: '배터리' };
-const FINISH = { STAY: '마지막 지점에서 대기', RETURN_TO_START: '시작 지점으로 복귀', GO_TO: '지정 지점으로 이동' } as const;
+export const FINISH = { STAY: '마지막 지점에서 대기', RETURN_TO_START: '시작 지점으로 복귀', GO_TO: '지정 지점으로 이동' } as const;
 /** 장치 종류 이름(서버 이유 문구의 CAMERA_RGB 같은 말도 바꿈 — U5) */
 const devName = (k: string) => DEVICE[k as keyof typeof DEVICE] ?? k;
 const plain = (s: string | null) => (s ?? '').replace(/CAMERA_RGB|CAMERA_DEPTH|LIDAR|BATTERY/g, devName);
@@ -35,14 +36,14 @@ const devices = (l: string[]) => (l.length ? l.map(devName).join(', ') : '없음
 
 // 받은 값 모양 검사 — 어긋난 응답은 오류 한 줄로(지도 탭 shape 와 같은 방식)
 const str = (v: unknown) => typeof v === 'string', int = Number.isInteger, arr = Array.isArray;
-const isPlan = (x: AnyPlan) => !!x && str(x.id) && str(x.name) && int(x.version) && int(x.number) && int(x.latest_version) && str(x.created_by)
+export const isPlan = (x: AnyPlan) => !!x && str(x.id) && str(x.name) && int(x.version) && int(x.number) && int(x.latest_version) && str(x.created_by)
   && ('steps' in x ? arr(x.steps) : arr(x.waypoints) && !!x.finish && arr(x.floor_ids) && arr(x.required_devices));
 const isActs = (l: Action[]) => arr(l) && l.every((a) => !!a && str(a.key) && str(a.label) && typeof a.available === 'boolean' && arr(a.options) && !!a.params);
 const isPreview = (r: ScenarioPreview) => !!r && typeof r.reachable === 'boolean' && arr(r.points) && arr(r.segments) && Number.isFinite(r.est_distance_m) && arr(r.required_devices);
 const fit = <T,>(ok: (x: T) => boolean) => (x: T) => { if (!ok(x)) throw new ApiFail(0, 'BAD_SHAPE', '받은 임무·시나리오 형식이 맞지 않습니다. 잠시 뒤 다시 시도하세요.'); return x; };
 
 /** 편집 칸이 다루는 본문(저장 요청 모양) */
-function bodyOf(x: AnyPlan): AnyWrite {
+export function bodyOf(x: AnyPlan): AnyWrite {
   if ('steps' in x) return { name: x.name, steps: x.steps.map((s) => ({ action: s.action, params: { ...s.params } })) };
   return { name: x.name, waypoints: x.waypoints.map((w) => ({ ...w })), finish: { mode: x.finish?.mode ?? 'STAY', target: x.finish?.target ?? null }, notes: x.notes ?? '' };
 }
@@ -107,6 +108,7 @@ export function ScenarioPick({ robot, cancel }: Pick<Ctx, 'robot' | 'cancel'>) {
   }, [n]);
   const where = (x: Scenario) => real.find((p) => x.floor_ids.includes(p.floor.id));
   const list = t.tree && all ? all.filter((x) => (here ? x.floor_ids.includes(here.floor.id) : !!where(x))) : null, chosen = list?.find((x) => x.id === pick);
+  const assign = useAssign(robot.id, chosen?.id, cancel);
   return <>
     <h2>시나리오 고르기</h2>
     {t.tree && <p className="lv-note" data-scen-where>{here ? `${here.site.name} › ${here.building.name} › ${here.floor.name}의 시나리오입니다.` : '로봇이 있는 층을 아직 모릅니다 — 실기 장소의 시나리오를 모두 보여 줍니다. 로봇이 있는 층의 시나리오를 고르세요.'}</p>}
@@ -114,8 +116,8 @@ export function ScenarioPick({ robot, cancel }: Pick<Ctx, 'robot' | 'cancel'>) {
       return <li key={x.id}><button type="button" aria-pressed={pick === x.id} data-scen-pick={x.id} onClick={() => setPick(x.id)}>
         <b>{x.name}</b><span className="fh-grow" /><span className="lbl">{w ? `${w.building.name} ${w.floor.name} · ` : ''}지점 {x.waypoints.length}</span></button></li>; })}</ul>}
     {list && !list.length && <p className="lv-note">{here ? '이 층에는 시나리오가 없습니다.' : '실기 장소에 시나리오가 없습니다.'} 시나리오는 PC «시뮬» 탭에서 만듭니다.</p>}
-    <div className="fh-row"><button type="button" className="btn pri" aria-label={`${chosen ? chosen.name : '고른 시나리오'} 실행(준비 중)`} {...soon}>▶ 실행(준비 중)</button></div>
-    <p className="lv-note">실기 시나리오 실행은 준비 중입니다. 지금은 고르기만 됩니다.</p>
+    {/* 실행 · 일시정지 · 이어 가기 · 취소(05 §6.5 서버 길). 이 시트는 조종 화면 안이라 조종권은 조종 화면 것을 그대로 쓴다(watch 안 함) */}
+    {chosen ? <RunCtl robot={robot} scen={chosen} assign={assign} /> : list && !!list.length && <p className="lv-note" data-run-pick>시나리오를 고르면 실행할 수 있습니다.</p>}
     {!list && !err && !t.err && <p className="lv-note" role="status">시나리오를 불러오는 중…</p>}
     {(err || t.err) && <div className="fh-row"><p className="fh-msg" role="alert">시나리오를 받지 못했습니다. {err || t.err}</p>
       <button type="button" className="btn" onClick={() => { if (err) setN((x) => x + 1); if (t.err) t.again(); }}>다시 시도</button></div>}
@@ -218,10 +220,9 @@ const STALE = '지도가 바뀌었습니다. 지점은 그대로 두었습니다
 const LIST = { listStyle: 'none', margin: 0, padding: 0 } as const;
 const day = (at: string) => new Date(at).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' });
 
-/** 편집 칸 하나. id '' = 새로 만들기. 최신 판을 받아 편집하고, 판 목록에서 옛 판을 고르면 읽기 전용으로 보인다.
- *  done(x, m) = 저장(x)·보관(null) 뒤 목록 다시 받기 + 안내 */
-function Edit({ kind, sim, id, user, robots, cancel, places, treeAgain, done, slot, pick, top, floor, close }: { kind: Plan; sim?: boolean; id: string; user: User; robots: Robot[]; cancel?: AbortSignal; places: Place[]; treeAgain: () => void; done: (x: AnyPlan | null, m: Msg) => void;
-  slot?: HTMLElement | null; pick?: ReactNode; top?: ReactNode; floor?: string; close?: () => void }) {
+/** 편집 칸의 상태 · 손잡이(받기 · 저장 · 저장 확인 · 충돌 · 보관 · 되돌리기 · 판 고르기). 지도 탭 편집 칸(Edit)과 임무 탭 시안 편집기(missionsu6edit)가 같이 쓴다.
+ *  id '' = 새로 만들기. done(x, m) = 저장(x) · 보관(null) 뒤 */
+export function usePlanEdit(kind: Plan, id: string, user: User, cancel: AbortSignal | undefined, done: (x: AnyPlan | null, m: Msg) => void) {
   const key = `${kind}:${id}`, [kd] = useState(() => keptPlan.drafts[key] ?? null);
   const [latest, setLatest] = useState<AnyPlan | null>(null), [base, setBase] = useState<AnyPlan | null>(kd?.base ?? null), [body, setBody] = useState<AnyWrite | null>(kd?.body ?? (id ? null : empty(kind)));
   const [view, setView] = useState<AnyPlan | null>(null), [err, setErr] = useState<{ text: string; adopt: Adopt } | null>(null), [msg, setMsg] = useState<Msg>(kd ? { text: '저장하지 않은 편집을 이어서 씁니다.', ok: true } : null);
@@ -337,6 +338,14 @@ function Edit({ kind, sim, id, user, robots, cancel, places, treeAgain, done, sl
     api.plan(kind, id, n, cancel).then(fit(isPlan)).then((x) => live.current && setView(x), (e: ApiFail) => { if (live.current && e.code !== 'CANCELED') setMsg({ text: `${n}번째 저장 내용을 받지 못했습니다. ${e.message}` }); });
   };
 
+  return { again, archive, archived, ask, bad, base, block, body, busy, check, checking, conflict, dirty, drop, editable, err, failed, kd, keep, key, latest, live, load, lock, msg, pickVersion, recheck, restore, save, saved, scen, send, sending, setAgain, setAsk, setBad, setBase, setBlock, setBody, setBusy, setChecking, setConflict, setErr, setLatest, setMsg, setRecheck, setSrv, setUnsure, setView, snap, srv, unsure, view, what };
+}
+
+/** 편집 칸 하나. id '' = 새로 만들기. 최신 판을 받아 편집하고, 판 목록에서 옛 판을 고르면 읽기 전용으로 보인다.
+ *  done(x, m) = 저장(x)·보관(null) 뒤 목록 다시 받기 + 안내 */
+function Edit({ kind, sim, id, user, robots, cancel, places, treeAgain, done, slot, pick, top, floor, close }: { kind: Plan; sim?: boolean; id: string; user: User; robots: Robot[]; cancel?: AbortSignal; places: Place[]; treeAgain: () => void; done: (x: AnyPlan | null, m: Msg) => void;
+  slot?: HTMLElement | null; pick?: ReactNode; top?: ReactNode; floor?: string; close?: () => void }) {
+  const { again, archive, archived, ask, bad, base, block, body, busy, check, checking, conflict, dirty, drop, editable, err, failed, kd, keep, key, latest, live, load, lock, msg, pickVersion, recheck, restore, save, saved, scen, send, sending, setAgain, setAsk, setBad, setBase, setBlock, setBody, setBusy, setChecking, setConflict, setErr, setLatest, setMsg, setRecheck, setSrv, setUnsure, setView, snap, srv, unsure, view, what } = usePlanEdit(kind, id, user, cancel, done);
   const retry = err && <div className="fh-row"><p className="fh-msg" role="alert">{err.text}</p><button type="button" className="btn" onClick={() => { setErr(null); load(err.adopt); }}>다시 받기</button></div>;
   const [moreSlot, setMoreSlot] = useState<HTMLElement | null>(null);
   if (!body) return <div className="mx-body"><div className="mx-map"><div className="mx-over">{top}{retry}</div>{!retry && <div className="mx-center"><p className="lv-note" role="status">불러오는 중…</p></div>}</div></div>;

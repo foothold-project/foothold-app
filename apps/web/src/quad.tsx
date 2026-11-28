@@ -6,6 +6,7 @@
 // onLeave = 전체화면을 벗어나는 순간(단추·4분할·Esc·브라우저) — 조종 입력 0(RV-397 1). onShown = 지금 그려지는 칸 id(안 보이는 칸이 쓰는 구독을 놓게, RV-397 4).
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { feedText, useFeed, type Feed } from './media';
+import { sx, sy } from './stage';
 import './quad.css';
 
 export type QSize = 'grid' | 'big' | 'thumb';
@@ -91,8 +92,8 @@ export function Cloud3D({ small, big, feed: given, empty: none = '' }: { small: 
     };
     const t = setInterval(() => { if (cur.current.ver !== v.ver || el.clientWidth !== v.w || el.clientHeight !== v.h) draw(); }, 500);   // 갱신 2 Hz
     let d: null | { id: number; x: number; y: number; a: number; b: number } = null, raf = 0;
-    const down = (e: PointerEvent) => { if (small || d) return; d = { id: e.pointerId, x: e.clientX, y: e.clientY, a: v.a, b: v.b }; try { el.setPointerCapture(e.pointerId); } catch { /* 없음 */ } };
-    const move = (e: PointerEvent) => { if (!d || e.pointerId !== d.id) return; v.a = d.a + (e.clientX - d.x) * 0.01; v.b = Math.max(0, Math.min(1.5, d.b + (e.clientY - d.y) * 0.01)); raf ||= requestAnimationFrame(() => { raf = 0; draw(); }); };
+    const down = (e: PointerEvent) => { if (small || d) return; d = { id: e.pointerId, x: sx(e), y: sy(e), a: v.a, b: v.b }; try { el.setPointerCapture(e.pointerId); } catch { /* 없음 */ } };
+    const move = (e: PointerEvent) => { if (!d || e.pointerId !== d.id) return; v.a = d.a + (sx(e) - d.x) * 0.01; v.b = Math.max(0, Math.min(1.5, d.b + (sy(e) - d.y) * 0.01)); raf ||= requestAnimationFrame(() => { raf = 0; draw(); }); };
     const end = (e?: PointerEvent) => { if (d && (!e || e.pointerId === d.id)) d = null; };
     const vis = () => { if (document.hidden) end(); };
     el.addEventListener('pointerdown', down); el.addEventListener('pointermove', move);

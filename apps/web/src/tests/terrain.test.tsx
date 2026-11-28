@@ -266,8 +266,8 @@ describe('입구', () => {
   it('App: PC #/terrain 은 로봇 유무와 상관없이 열리고, 메뉴에 칸은 없다', () => {
     app(false, '#/terrain');
     expect($('[data-terrain]')).toBeTruthy();
-    expect($('.fh-nav').textContent).not.toMatch('지형');
-    expect($('.fh-nav [aria-current="page"]')!.textContent).toBe('지도');   // 지형 화면은 지도 탭 안(11-19)
+    expect($('[aria-label="주 메뉴"]').textContent).not.toMatch('지형');
+    expect($('[aria-label="주 메뉴"] [aria-current="page"]')!.textContent).toBe('지도');   // 지형 화면은 지도 탭 안(11-19)
     expect($('[data-terrain-back]')!.getAttribute('href')).toBe('#/map');
     act(() => root!.unmount()); box.remove();
     app(false, '#/terrain', []);
@@ -282,6 +282,7 @@ describe('입구', () => {
     expect($('[data-terrain-enter]')).toBeNull();
     act(() => root!.unmount()); box.remove();
     app(true, '#/drive', []);
+    act(() => { $('[data-sim-open]')!.click(); });   // 로봇 0대 폰 = 시안 u13_4 · 시뮬 띄우기 칸은 «시뮬 로봇 띄우기» 뒤
     expect($('[data-sim-app]')).toBeTruthy();
     expect($('[data-terrain-enter]')).toBeNull();
   });

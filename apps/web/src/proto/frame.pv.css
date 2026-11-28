@@ -1,0 +1,87 @@
+/* 시안 틀(.proto)에 앱을 꽂는 자리만. 시안 값(ui.proto.css · pc.proto.css)은 건드리지 않고, 시안에 없던 것(단추 기본값 · 펼침 차림 · 옛 화면 자리)만 둔다 */
+/* 시안 «모두 정지» 는 span 이지만 앱은 눌러야 해서 button: 브라우저 기본 테두리 · 글꼴만 지운다(값은 .allstop 그대로) */
+.proto .bar button.allstop{border:0;font-family:inherit;letter-spacing:inherit;line-height:inherit;cursor:pointer;touch-action:manipulation}
+.proto .bar .tabs span,.proto .bar .who{cursor:pointer;user-select:none}
+.proto .bar .ap-whobox{position:relative;display:flex}
+.proto .bar .ap-menu{position:absolute;right:0;top:calc(100% + 12px);z-index:30;min-height:0;display:flex;flex-direction:column;gap:8px;padding:12px;min-width:220px;border-radius:12px;background:var(--panel);border:1px solid var(--line2);box-shadow:var(--shadow);color:var(--text)}
+.proto .bar details.ap-bell{position:relative;display:flex}
+.proto .bar details.ap-bell>summary{list-style:none;display:flex;cursor:pointer}
+.proto .bar details.ap-bell>summary::-webkit-details-marker{display:none}
+.proto .bar details.ap-bell>.card{position:absolute;right:0;top:calc(100% + 12px);z-index:30;min-height:0;padding:12px;color:var(--text)}
+/* 머리줄 아래 앱 자리: STOP 결과 띠 · 정지 고르기는 모든 화면 위에, 아직 시안으로 옮기지 않은 탭은 옛 본문 */
+.proto>.fh.ap-in{position:absolute;left:0;right:0;top:64px;min-height:0;z-index:20}
+.proto>.fh.ap-in.old{bottom:0;z-index:1;background:var(--bg)}
+.proto>.fh.ap-in.old .fh-body{height:100%;min-height:0}
+.proto>.fh.ap-in.old .fh-main{overflow-y:auto}
+.proto .ap-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.proto .bar .tabs .ap-appr{align-self:center;height:22px;padding:0 8px;border-radius:11px;display:flex;align-items:center;font-size:11.5px;font-weight:800;color:var(--pr3);background:rgba(0,195,137,.16);cursor:pointer}
+.proto .bar .tabs .ap-appr[hidden]{display:none}
+/* 시안 화면 위의 정지 고르기 · 결과 띠 겹(.fh.ap-in, old 아님): 화면을 덮지 않음 · 띠와 고르기만 누를 수 있음 */
+.proto>.fh.ap-in:not(.old){min-height:0;height:auto;bottom:auto;background:transparent;pointer-events:none}
+.proto>.fh.ap-in:not(.old)>.fh-band>*,.proto>.fh.ap-in:not(.old)>.fh-pick{pointer-events:auto}
+.proto>.fh.ap-in:not(.old)>.fh-band:empty{display:none}
+.proto .bar details.ap-bell>summary::marker{content:""}
+/* «모두 정지» → 정지할 로봇 고르기: 시안 창 꼴(u11 .g.modal 600 · 밝은 유리 · .mbtn 52) 로 무대 가운데. 내용 · 동작은 그대로(정지 · 닫기 · 까닭 줄) */
+.proto>.fh.ap-in>.fh-pick{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:40;width:600px;max-height:900px;overflow:auto;box-sizing:border-box;padding:30px;border-radius:24px;display:flex;flex-wrap:wrap;align-items:center;gap:12px;color:#1f2421;
+  background:linear-gradient(180deg,rgba(255,255,255,.86),rgba(255,255,255,.7));backdrop-filter:blur(22px) saturate(1.8);-webkit-backdrop-filter:blur(22px) saturate(1.8);border:1px solid rgba(255,255,255,.85);
+  box-shadow:0 8px 24px rgba(20,30,50,.14),inset 0 1px 0 rgba(255,255,255,.95)}
+/* 고르기 창 뒤 = 시안 u11 .veil(머리줄 아래 · 어둡게 + 흐림). 머리줄 STOP 은 위에 그대로 · 누름은 지금처럼 창만 받음(pointer-events 그대로) */
+.proto>.fh.ap-in:has(>.fh-pick)::before{content:"";position:absolute;left:0;right:0;top:0;height:1016px;background:rgba(8,10,14,.45);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);z-index:39;pointer-events:none}
+.proto>.fh.ap-in>.fh-pick>span{order:0;flex:1 0 100%;font-size:20px;font-weight:800;letter-spacing:-.02em;color:#1f2421}
+.proto>.fh.ap-in>.fh-pick>span[style],.proto>.fh.ap-in>.fh-pick>span[data-cant-stop]{order:4;font-size:13px;font-weight:600;letter-spacing:0;line-height:1.5;color:#5e6662!important}
+.proto>.fh.ap-in>.fh-pick>select{order:1;flex:1 0 100%;height:52px;border-radius:14px;background:rgba(255,255,255,.8);border:1px solid rgba(0,0,0,.08);padding:0 14px;font:inherit;font-size:15px;font-weight:700;color:#1f2421}
+.proto>.fh.ap-in>.fh-pick>.btn{order:2;flex:1 1 0;height:52px;border-radius:14px;font:inherit;font-weight:800;font-size:15px;background:rgba(255,255,255,.75);border:1px solid rgba(0,0,0,.08);color:#1f2421;cursor:pointer}
+.proto>.fh.ap-in>.fh-pick>.fh-stop{order:3;flex:1 1 0;height:52px;border-radius:14px;border:0;font:inherit;font-weight:800;font-size:15px;color:#fff;background:linear-gradient(180deg,#ff4d4f,#e04a2f);box-shadow:0 8px 20px rgba(214,47,51,.35),inset 0 1px 0 rgba(255,255,255,.35);cursor:pointer}
+/* STOP 결과 · 연결 · 권한 띠: 시안 u11 화면 위 한 줄(.line1.err 56 · 16 둥근 · 빨강 유리) 꼴로 무대 아래 가운데에 쌓음(도구 줄 · 타일 머리를 가리지 않게). 내용은 그대로 */
+.proto>.fh.ap-in>.fh-band{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);width:760px;z-index:35;display:flex;flex-direction:column;gap:8px;padding:0;border:0;background:none}
+.proto>.fh.ap-in>.fh-band>*{display:flex;align-items:center;gap:12px;min-height:56px;box-sizing:border-box;padding:10px 12px 10px 18px;border-radius:16px;font-size:15px;font-weight:700;line-height:1.45;color:#fff;
+  background:linear-gradient(180deg,rgba(255,77,79,.3),rgba(255,77,79,.2)),rgba(12,15,20,.82);border:1px solid rgba(255,77,79,.5);box-shadow:0 10px 26px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.12);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.proto>.fh.ap-in>.fh-band .btn{margin-left:auto;flex:none;height:36px;padding:0 14px;border-radius:10px;font:inherit;font-size:13px;font-weight:800;background:rgba(255,255,255,.75);border:1px solid rgba(0,0,0,.08);color:#1f2421;cursor:pointer}
+/* 총괄 차림(시안에 없는 펼침): 시안 창과 같은 밝은 유리 · 어두운 글 */
+.proto .bar .ap-menu{background:linear-gradient(180deg,rgba(255,255,255,.86),rgba(255,255,255,.7));backdrop-filter:blur(22px) saturate(1.8);-webkit-backdrop-filter:blur(22px) saturate(1.8);border:1px solid rgba(255,255,255,.85);border-radius:16px;box-shadow:0 8px 24px rgba(20,30,50,.24),inset 0 1px 0 rgba(255,255,255,.95);color:#1f2421}
+.proto .bar .ap-menu .fh-me{font-size:14px;font-weight:800;color:#1f2421}
+.proto .bar .ap-menu .btn,.proto .bar .ap-menu .nav{height:40px;border-radius:10px;font:inherit;font-size:13px;font-weight:800;background:rgba(255,255,255,.75);border:1px solid rgba(0,0,0,.08);color:#1f2421;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px}
+/* 머리줄 펼침(종 · 차림)은 화면 위 도구 줄보다 위. 종 알림 창도 시안 창과 같은 밝은 유리 · 어두운 글 */
+.proto>.bar{z-index:45}
+.proto .bar details.ap-bell>.card{width:420px;max-height:640px;overflow:auto;border-radius:16px;background:linear-gradient(180deg,rgba(255,255,255,.9),rgba(255,255,255,.78));backdrop-filter:blur(22px) saturate(1.8);-webkit-backdrop-filter:blur(22px) saturate(1.8);border:1px solid rgba(255,255,255,.85);box-shadow:0 8px 24px rgba(20,30,50,.24),inset 0 1px 0 rgba(255,255,255,.95);color:#1f2421;--text:#1f2421;--muted:#5e6662;--mu:#5e6662;--mu2:#5e6662;--line:rgba(0,0,0,.08);--line2:rgba(0,0,0,.08);--panel:rgba(255,255,255,.6);--panel2:rgba(255,255,255,.6)}
+.proto .bar details.ap-bell>.card *{color:inherit}
+.proto .bar details.ap-bell>.card .btn{height:32px;padding:0 12px;border-radius:10px;font:inherit;font-size:12.5px;font-weight:800;background:rgba(255,255,255,.75);border:1px solid rgba(0,0,0,.08);color:#1f2421;cursor:pointer}
+/* 종 알림 칸 폭 = 시안 오른쪽 칸(최근 경고 · 378 px)과 같은 결: 한 줄 위 = 표 · 시각, 아래 = 제목 · 글을 칸 폭 그대로(좁은 세로 줄바꿈 없음) */
+.proto .bar details.ap-bell>.card{width:420px!important;max-height:640px!important;gap:10px!important}
+.proto .bar details.ap-bell>.card .fh-row{display:flex;align-items:center;justify-content:space-between;font-size:15px;font-weight:800}
+.proto .bar details.ap-bell>.card .fh-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.proto .bar details.ap-bell>.card li>button{display:grid;grid-template-columns:auto 1fr;grid-template-areas:"chip time" "text text";align-items:center;gap:6px 10px;width:100%;box-sizing:border-box;padding:12px 14px;border-radius:12px;text-align:left;font:inherit;background:rgba(255,255,255,.6);border:1px solid rgba(0,0,0,.06);cursor:pointer}
+.proto .bar details.ap-bell>.card li>button>.lv-chip{grid-area:chip;justify-self:start}
+.proto .bar details.ap-bell>.card li>button>.fh-grow{grid-area:text;font-size:13.5px;font-weight:600;line-height:1.5}
+.proto .bar details.ap-bell>.card li>button>.fh-grow b{font-weight:800;margin-right:4px}
+.proto .bar details.ap-bell>.card li>button>.lbl{grid-area:time;justify-self:end;font-size:12px;font-weight:700;color:#5e6662}
+/* 종 칸 바탕: 시안 u5 에는 종 펼침 화면이 없어 시안 창 유리(u11 .modal)에서 출발하되 뒤 글이 비치지 않게 거의 불투명 + 흐림 */
+.proto .bar details.ap-bell>.card{background:linear-gradient(180deg,rgba(250,251,250,.98),rgba(242,244,243,.97))!important;backdrop-filter:blur(30px) saturate(1.6)!important;-webkit-backdrop-filter:blur(30px) saturate(1.6)!important}
+.proto .bar details.ap-bell>.card li>button{background:#fff!important}
+/* 종 칸 스크롤 0(팀장 «어떤 모니터도 스크롤 0»): 최근 BELL_TOP 건 · 글은 두 줄까지 · 넘친 건수는 아래 「기록에서 모두 보기」 */
+.proto .bar details.ap-bell>.card{overflow:hidden!important}
+.proto .bar details.ap-bell>.card li>button>.fh-grow{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.proto .bar details.ap-bell>.card .ap-bell-all{align-self:center;font-size:12.5px;font-weight:800;color:#0E7F63;text-decoration:none;padding:6px 10px}
+/* 닫힌 알림 칸은 배치도 하지 않는다: 닫힌 details 안 카드가 605px 로 배치돼 세로 넘침 칸으로 잡히던 것(기록 · 임무 탭) */
+.proto .bar details.ap-bell:not([open])>.card{display:none!important}
+/* 시안 밖 · 새로 그림 (팀장 검토): 머리줄 펼침(종 알림 · 「나」 차림) 과 결과 띠를 같은 탭 시안 결로.
+   어둠 판 = 시안 u5 오른쪽 칸(.pane) 결을 화면 위에 띄움(뒤 글이 비치지 않게 짙은 바탕 + 흐림) · 밝은 판 = light.pv.css 의 .pane 값(흰 판 · #DCE0DE 선) */
+.proto .bar .ap-menu,.proto .bar details.ap-bell>.card{background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.03)),rgba(12,15,20,.95)!important;backdrop-filter:blur(22px) saturate(1.4)!important;-webkit-backdrop-filter:blur(22px) saturate(1.4)!important;border:1px solid rgba(255,255,255,.12);border-radius:20px;box-shadow:0 14px 34px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.06);color:#fff;--text:#fff;--muted:rgba(232,235,240,.7);--mu:rgba(232,235,240,.7);--mu2:rgba(232,235,240,.7);--line:rgba(255,255,255,.1);--line2:rgba(255,255,255,.1);--panel:rgba(255,255,255,.05);--panel2:rgba(255,255,255,.05)}
+.proto .bar .ap-menu{padding:14px;gap:10px}
+.proto .bar .ap-menu .fh-me{color:#fff;padding:2px 4px 4px}
+.proto .bar .ap-menu .btn,.proto .bar .ap-menu .nav,.proto .bar details.ap-bell>.card .btn{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#fff;font-weight:700}
+.proto .bar details.ap-bell>.card li>button{background:rgba(255,255,255,.04)!important;border:1px solid rgba(255,255,255,.08)}
+.proto .bar details.ap-bell>.card li>button>.lbl{color:rgba(232,235,240,.7)}
+.proto .bar details.ap-bell>.card .ap-bell-all{color:#00c389}
+.proto.light .bar .ap-menu,.proto.light .bar details.ap-bell>.card{background:#FFFFFF!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;border-color:#DCE0DE;box-shadow:0 14px 34px rgba(31,36,33,.14);color:#1F2421;--text:#1F2421;--muted:#5E6662;--mu:#5E6662;--mu2:#5E6662;--line:#DCE0DE;--line2:#DCE0DE;--panel:#F6F7F6;--panel2:#F6F7F6}
+.proto.light .bar .ap-menu .fh-me{color:#1F2421}
+.proto.light .bar .ap-menu .btn,.proto.light .bar .ap-menu .nav,.proto.light .bar details.ap-bell>.card .btn{background:#FFFFFF;border-color:#DCE0DE;color:#1F2421}
+.proto.light .bar details.ap-bell>.card li>button{background:#F6F7F6!important;border-color:#DCE0DE}
+.proto.light .bar details.ap-bell>.card li>button>.lbl{color:#5E6662}
+.proto.light .bar details.ap-bell>.card .ap-bell-all{color:#0E7F63}
+/* 결과 띠 밝은 판 = 시안 u11 .line1.err 밝은 값(light: rgba(224,74,47,.12) · #E04A2F 선 · 흑연 글자). 흰 바탕을 깔아 뒤 지도 위에서도 읽힘. 닫기 = .btns 밝은 값 */
+.proto.light>.fh.ap-in>.fh-band>*{color:#1F2421;background:linear-gradient(180deg,rgba(224,74,47,.12),rgba(224,74,47,.12)),#FFFFFF;border-color:#E04A2F;box-shadow:0 10px 26px rgba(31,36,33,.12)}
+.proto>.fh.ap-in>.fh-band .btn{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#fff;font-weight:700}
+.proto.light>.fh.ap-in>.fh-band .btn{background:#FFFFFF;border-color:#DCE0DE;color:#1F2421}
+.proto .bar details.ap-bell>.card .lv-chip{background:rgba(0,195,137,.14);border:0;color:#00c389;font-weight:800}
+.proto.light .bar details.ap-bell>.card .lv-chip{background:rgba(24,160,126,.12);color:#0E7F63}

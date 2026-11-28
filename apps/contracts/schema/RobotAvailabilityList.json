@@ -84,8 +84,7 @@
             "FREE",
             "BUSY",
             "CHARGING",
-            "OFFLINE",
-            "MAINTENANCE"
+            "OFFLINE"
           ],
           "title": "State",
           "type": "string"

@@ -51,7 +51,7 @@
     "remaining_s": {
       "anyOf": [
         {
-          "maximum": 86400,
+          "maximum": 3600,
           "minimum": 0,
           "type": "integer"
         },

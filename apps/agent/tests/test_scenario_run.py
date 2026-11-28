@@ -390,6 +390,36 @@ def test_map_context_invalid_never_submits_goal(r):
     assert not r.actions.goals
 
 
+def test_no_fresh_pose_at_plan_acceptance_is_nav_unavailable_not_map_mismatch(r):
+    """#640 K-01: a starved pose (actions not ready) was reported as MAP_VERSION_MISMATCH."""
+    assert r.send(r.peer, 'run.start', **r.start)['ok']
+    r.actions.available = False  # pose went stale while the plan was being prepared
+    r.hub.tick()
+    assert r.runs.snapshot()['fail_code'] == 'NAV_UNAVAILABLE'
+    assert not r.actions.goals
+
+
+def test_sim_self_stop_pauses_as_sim_self_stop_and_person_stop_stays_stopped_by_user(r):
+    """#640 K-02: the sim reported STOP while the app was unlocked (bridge hold on stale state)."""
+    start(r)
+    r.state(True)  # core.on_state robot_stop relock, no person STOP
+    r.hub.tick()
+    snap = r.runs.snapshot()
+    assert (snap['status'], snap['wait_reason']) == ('PAUSED', 'SIM_SELF_STOP')
+    from apps.contracts.models import RunSnapshot
+    RunSnapshot.model_validate({k: v for k, v in snap.items() if k in RunSnapshot.model_fields})
+    core = r.hub.session.core
+    core.stop('server STOP')  # a later STOP while latched keeps the first cause
+    assert core.latch_cause == 'robot_stop'
+
+
+def test_person_stop_while_running_stays_stopped_by_user(r):
+    start(r)
+    r.hub.session.core.stop('server STOP')  # the same latch path as K-02, but a person/server STOP
+    r.hub.tick()
+    assert r.runs.snapshot()['wait_reason'] == 'STOPPED_BY_USER'
+
+
 def test_goal_success_with_stale_pose_or_wrong_floor_is_not_arrival(r):
     binding = start(r)
     r.runs.nav.feedback(binding, 'SUCCEEDED')

@@ -98,6 +98,15 @@ describe('누름 나누기', () => {
     expect(got).toEqual(['pointerdown:1', 'pointermove:1', 'pointerdown:2']);   // 끌기·사각형은 부른 쪽이 취소로 지운다
     expect(vb()).toEqual([0, 0, 100, 80]);
   });
+  it('축척 막대: 보통은 하나, noScale(그림에 축척이 박힌 시안 공장 판)이면 우리 막대 없음', () => {
+    const g = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 400, height: 320, right: 400, bottom: 320, x: 0, y: 0, toJSON() {} } as DOMRect);
+    box = document.createElement('div'); document.body.append(box); root = createRoot(box);
+    act(() => root!.render(<MapFrame full={[0, 0, 100, 80]} res={0.05} />));
+    expect(box.querySelectorAll('[data-scale]').length).toBe(1);
+    act(() => root!.render(<MapFrame full={[0, 0, 100, 80]} res={0.05} noScale />));
+    expect(box.querySelector('[data-scale]')).toBeNull();
+    g.mockRestore();
+  });
   it('보기: 왼쪽 끌기 = 이동(부른 쪽에 안 넘김), 휠 = 확대', () => {
     const { svg, got, vb } = mount(false);
     fire(svg, { type: 'pointerdown', x: 200, y: 160 }); fire(svg, { type: 'pointermove', x: 160, y: 160 }); fire(svg, { type: 'pointerup', x: 160, y: 160 });

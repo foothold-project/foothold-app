@@ -14,7 +14,7 @@ def digest(value):
 
 
 # Mirror of apps/contracts SIM_WORLD_FLOORS (the runtime has no Pydantic); a test pins equality.
-WORLD_FLOORS = {'v5_building': ('l1', 'l2'), 'plant_a': ('l1', 'l2', 'l3'), 'warehouse': ('f1',), 'factory_site': ('f1',)}
+WORLD_FLOORS = {'v5_building': ('l1', 'l2'), 'plant_a': ('l1', 'l2', 'l3'), 'warehouse': ('f1',)}
 
 
 class FloorBindings:

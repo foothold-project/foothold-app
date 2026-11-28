@@ -77,7 +77,7 @@ const launch = async () => { act(() => { void sim.start(sim.get().catalog!.world
 /** 마지막 cmd(50 ms 박자) — 다음 박자까지 기다린 뒤 */
 const lastCmd = async () => { await sleep(60); const c = agent().of('cmd'); return c[c.length - 1]; };
 
-/** 띄우기 → 직결 → 조종 시작 → 잠금 해제 → 움직일 수 있음 */
+/** 띄우기 → 직결 → 조종 → 다시 시작 → 확인 창 일어서기 → 움직일 수 있음 */
 async function ready(w = welcome(), more: typeof routes = {}) {
   serve(more); await mount();
   await launch();
@@ -86,25 +86,51 @@ async function ready(w = welcome(), more: typeof routes = {}) {
   await recv(a, w);
   await recv(a, phoneState());
   if (!w.simulation) return a;
-  await click(btn('조종 시작'));
+  await click(btn('조종'));
   await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true }));
-  await click(btn('잠금 해제'));
+  await click(btn('다시 시작'));
+  expect(a.of('unlock')).toHaveLength(0);                                // PC 시뮬 탭도 확인 창(u4_10)을 거쳐야 unlock(21:08 결정)
+  expect(box.querySelector('[data-restart-ask]')?.textContent).toContain('을 일으킬까요?');
+  await click(box.querySelector('[data-restart-go]'));
+  expect(a.of('unlock')).toHaveLength(1);
   expect(a.of('unlock')[0]).toMatchObject({ lease_id: LEASE, stop_gen: 1 });
   await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: false }));
   return a;
 }
 
 describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
-  it('UIUX-1101 키 통일: ←/→ = 옆걸음, A/D = 제자리 회전(실기 서버 경유와 같은 배치)', async () => {
+  it('키(11-28 17:25): A/D = 제자리 회전(wz, 옆걸음 아님), ←/→ = 옆걸음(vy) · 로봇 한계가 vy 를 허락할 때 · Q · E 없음', async () => {
     await ready(welcome({ limits: { ...LIMITS, vy_min: -0.3, vy_max: 0.3, experimental: ['reverse', 'lateral', 'turn_in_place'] } }));
-    await key('keydown', 'ArrowLeft');
-    let c = await lastCmd(); expect(c.vy).toBeGreaterThan(0); expect(c.wz).toBe(0);
+    expect($('[data-sim-keys]')!.textContent).toContain('← / → 옆걸음');
+    expect([...box.querySelectorAll('[data-sim-keys] [data-key-off]')].some((x) => x.textContent!.includes('옆걸음'))).toBe(false);
+    await key('keydown', 'KeyA');
+    let c = await lastCmd(); expect(c.vy).toBe(0); expect(c.wz).toBeGreaterThan(0);
+    await key('keyup', 'KeyA'); await key('keydown', 'KeyD');
+    c = await lastCmd(); expect(c.vy).toBe(0); expect(c.wz).toBeLessThan(0);
+    await key('keyup', 'KeyD'); await key('keydown', 'ArrowLeft');
+    c = await lastCmd(); expect(c.vy).toBeGreaterThan(0); expect(c.wz).toBe(0);
     await key('keyup', 'ArrowLeft'); await key('keydown', 'ArrowRight');
     c = await lastCmd(); expect(c.vy).toBeLessThan(0); expect(c.wz).toBe(0);
-    await key('keyup', 'ArrowRight'); await key('keydown', 'KeyD');
-    c = await lastCmd(); expect(c.vy).toBe(0); expect(c.wz).toBeLessThan(0);
-    await key('keyup', 'KeyD');
-    expect(Object.keys(KEYS)).not.toContain('KeyQ'); expect(Object.keys(KEYS)).not.toContain('KeyE');   // Q/E 는 뺐다(실기에 없는 키)
+    await key('keyup', 'ArrowRight'); await key('keydown', 'PadRotL');   // 조이스틱 Pad 키도 같은 표
+    c = await lastCmd(); expect(c.vy).toBe(0); expect(c.wz).toBeGreaterThan(0);
+    await key('keyup', 'PadRotL'); await key('keydown', 'PadLeft');
+    c = await lastCmd(); expect(c.vy).toBeGreaterThan(0); expect(c.wz).toBe(0);
+    await key('keyup', 'PadLeft'); await key('keydown', 'ArrowRight');
+    await key('keydown', 'ArrowLeft');   // ← 와 → 를 함께 = 0
+    expect(await lastCmd()).toMatchObject({ vx: 0, vy: 0 });
+    await key('keyup', 'ArrowLeft'); await key('keyup', 'ArrowRight');
+    await key('keydown', 'ArrowLeft');
+    expect((await lastCmd()).vy).toBeGreaterThan(0);
+    act(() => { window.dispatchEvent(new Event('blur')); });   // ← 를 누른 채 창 밖 = 0, 반복은 새 누름 아님
+    expect(await lastCmd()).toMatchObject({ vx: 0, vy: 0 });
+    await key('keydown', 'ArrowLeft', { repeat: true });
+    expect(await lastCmd()).toMatchObject({ vx: 0, vy: 0 });
+    await key('keyup', 'ArrowLeft');
+    const input = document.createElement('input'); document.body.append(input); input.focus();   // 글 입력칸이면 ←/→ 무시
+    await key('keydown', 'ArrowRight', { target: input });
+    expect(await lastCmd()).toMatchObject({ vx: 0, vy: 0 });
+    expect(KEYS).toMatchObject({ KeyA: [1, 1], KeyD: [1, -1], ArrowLeft: [2, 1], ArrowRight: [2, -1] });
+    expect(KEYS).not.toHaveProperty('KeyQ'); expect(KEYS).not.toHaveProperty('KeyE');   // Q · E 는 뺌
   });
   it('에이전트 시뮬 limits(protocol.py SIMULATION_LIMITS)면 후진·옆걸음·제자리 회전 모두 열림 — 막힘 안내 없음, 명령 0 아님', () => {
     const w = welcome({ limits: { ...LIMITS, vy_min: -0.3, vy_max: 0.3, experimental: ['reverse', 'lateral', 'turn_in_place'] } }) as unknown as Parameters<typeof velocity>[1];
@@ -162,7 +188,7 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
     expect(FakeWS.all.some((w) => w.url.includes(':9481'))).toBe(false);
   });
 
-  it('키를 누르는 동안만: W = 전진 0.6 m/s, 떼면 바로 0 · A 회전 · S 후진 · 막힌 ←(옆걸음) 안내', async () => {
+  it('키를 누르는 동안만: W = 전진 0.6 m/s, 떼면 바로 0 · A 회전 · S 후진 · ← 회전 · 막힌 Q(옆걸음) 안내', async () => {
     const a = await ready();
     expect($('[data-sim-keys]')!.textContent).toContain('키를 누르는 동안만 움직입니다');
     expect((await lastCmd())).toMatchObject({ vx: 0, vy: 0, wz: 0 });
@@ -178,11 +204,17 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
     await key('keydown', 'ArrowDown');
     expect((await lastCmd()).vx).toBeCloseTo(-0.3, 5);
     await key('keyup', 'ArrowDown');
-    // 실기 서버 경유와 같은 배치(UIUX-1101): ← = 옆걸음(여기선 막힘 — 회전 아님), Q/E 는 키 아님
-    await key('keydown', 'ArrowLeft');
+    // 배치(11-28 17:25): A = 제자리 회전, ← = 옆걸음(여기선 로봇 한계 vy 0 이라 막힘, 0 + 까닭 한 줄, 칩은 회색 + 까닭)
+    await key('keydown', 'KeyA');
+    expect(await lastCmd()).toMatchObject({ vx: 0, vy: 0, wz: 0.5 });
+    await key('keyup', 'KeyA'); await key('keydown', 'ArrowLeft');
     const side = await lastCmd(); expect(side).toMatchObject({ vx: 0, vy: 0 }); expect(Math.abs(side.wz as number)).toBeLessThan(0.01);   // NUDGE(문턱 아래) — 돌지 않음
-    expect(box.textContent).toContain('옆걸음은 아직 지원하지 않습니다');
-    expect($('[data-key-off]')!.textContent).toContain('←/→ 옆걸음');
+    expect(box.textContent).toContain('옆걸음은 아직 지원하지 않습니다. 시뮬에서 아직 확인 안 됨');
+    expect($('[data-sim-keys]')!.textContent).toContain('MuJoCo(«시뮬 열기»)만 · 이 시뮬은 키 · 시나리오로');
+    expect($('[data-sim-gait]')!.textContent).toBe('걷기 모드 바꾸기(Shift+1~4)는 실기 조종 화면만. 이 시뮬은 정책 go2-flat 하나로 걷습니다.');   // u03: 시뮬은 gait 경로 없음
+    expect(box.textContent).not.toContain('\u2014');   // 시뮬 안내 글에 긴 줄표 없음
+    const off = [...box.querySelectorAll('[data-sim-keys] [data-key-off]')].find((x) => x.textContent!.includes('옆걸음'))!;
+    expect(off.textContent).toContain('← / → 옆걸음(막힘 · 로봇 한계 옆 0 m/s)');
     await key('keyup', 'ArrowLeft');
     // Ctrl 같이 누름(브라우저 단축키)은 조종 아님
     await key('keydown', 'KeyW', { ctrlKey: true });
@@ -242,8 +274,8 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
     await sleep(60);
     expect(a.of('cmd').slice(n).every((m) => m.vx === 0 && m.wz === 0)).toBe(true);
     await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: true, stop_gen: 2 }));
-    expect(btn('잠금 해제')).toBeTruthy();
-    await click(btn('잠금 해제'));
+    expect(btn('다시 시작')).toBeTruthy();
+    { const b = btn('다시 시작')!; await click(b); if (!b.disabled) await click(box.querySelector('[data-restart-go]')); }   // 옛 「잠금 해제」 한 번 누름과 같게(막혀 있으면 아무 일 없음)
     await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: false, stop_gen: 2 }));
     await key('keydown', 'KeyW', { repeat: true });   // 정지 전부터 누르던 W — 다시 눌러야 움직임
     expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0 });
@@ -424,7 +456,7 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
   it('에이전트가 simulation 이 아니라고 알리면 키보드 조종·조종 시작 없음', async () => {
     const a = await ready(welcome({ simulation: false }));
     expect($('[data-sim-keys]')).toBeNull();
-    expect(btn('조종 시작')).toBeUndefined();
+    expect(btn('조종')).toBeUndefined();
     await key('keydown', 'KeyW');
     await sleep(60);
     expect(a.of('lease.take')).toHaveLength(0);

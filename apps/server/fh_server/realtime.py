@@ -1708,6 +1708,11 @@ class Realtime:
         peer = self.agents.get(rid)
         link_rtt_ms = (peer.link_rtt_ms if online and self.clock()-peer.link_rtt_at < 3 else None)
         media = getattr(self, 'drive_media', None)
+        # The agent echoes the server STOP it applied; a gate-close latch
+        # reports 0 or an older ref, so it never reads as this STOP applied.
+        sent = getattr(getattr(self.arbiter, 'robots', {}).get(rid), 'stop_ref', None)
+        reported = state.get('stop_ref')
+        stop_applied = None if reported is None or not sent else reported == sent
         return C.ScreenState(robot=rid, connection='ONLINE' if online else 'OFFLINE',
             slam_pose=media.slam_pose(rid) if media else None,
             robot_info=state.get('robot_info'),
@@ -1720,7 +1725,7 @@ class Realtime:
             status=state.get('status'), battery=state.get('battery'), location=state.get('location'),
             devices=state.get('devices', []), speed=state.get('speed'), latency_ms=link_rtt_ms,
             latched=state.get('latched'), safety_reason=state.get('safety_reason'),
-            field_gate=state.get('field_gate'), unlock_refused=state.get('unlock_refused'), stop_gen=state.get('stop_gen'),
+            field_gate=state.get('field_gate'), stop_applied=stop_applied, unlock_refused=state.get('unlock_refused'), stop_gen=state.get('stop_gen'),
             applied=state.get('applied')).model_dump(mode='json')
 
     def send_action(self, rid, actor, msg):
@@ -2514,7 +2519,7 @@ class Realtime:
         if self.owner_uncertain or self.clock() - peer.auth_checked > 0.5:
             return False
         data = msg.model_dump(mode='json')
-        peer.state.update({k: data[k] for k in ('speed', 'latched', 'safety_reason', 'field_gate', 'unlock_refused', 'stop_gen', 'applied')})
+        peer.state.update({k: data[k] for k in ('speed', 'latched', 'safety_reason', 'field_gate', 'unlock_refused', 'stop_gen', 'stop_ref', 'applied')})
         peer.state['robot_info'] = data.get('robot_info')
         peer.state['posture'] = data.get('posture')
         peer.state['posture_result'] = data.get('posture_result')
@@ -2524,7 +2529,7 @@ class Realtime:
         peer.state['action_result'] = data.get('action_result')
         peer.state['control'] = data.get('control')
         peer.state['response_health'] = data.get('response_health')
-        peer.state['battery'] = C.Battery(soc=msg.battery.soc, updated_at=now(), minutes_left=msg.battery.minutes_left).model_dump(mode='json') if msg.battery.soc is not None else None
+        peer.state['battery'] = C.Battery(soc=msg.battery.soc, updated_at=now()).model_dump(mode='json') if msg.battery.soc is not None else None
         pose = data['pose']
         context = pose.get('floor_context')
         stale_floor = False

@@ -1,6 +1,6 @@
 // 화면 자료 모양 + 아직 가짜인 묶음. USERS·ROBOTS 는 처음 비어 있고 로그인하면 서버 값(/me·/robots)으로 채운다(setServerData).
 // 로봇 상태·조종권은 실시간 연결(rt.ts)이 얹는다. 폰 시나리오 카드는 아직 가짜(임무 탭 목록·편집은 /missions·/scenarios — screens/missions.tsx, 사건은 서버 /events — screens/history.tsx, 장소·지도는 /sites — screens/maps.tsx, 결재는 /approvals — screens/approvals.tsx).
-import type { Device, Go2RobotInfo, Location, PhoneRelayState, RobotSummary } from '../../contracts/ts';
+import type { CurrentRun, Device, Go2RobotInfo, Location, PhoneRelayState, RobotSummary } from '../../contracts/ts';
 export type Role = 'ORG_ADMIN' | 'OPERATOR';
 export type User = { id: string; name: string; role: Role };
 /** 로봇 요약 상태(02 §4 «로봇 요약 상태와 실행 상태»). 끊긴 로봇이면 마지막 확인 값 */
@@ -12,6 +12,14 @@ export type Status = 'STOP_LATCHED' | 'ERROR' | 'TELEOP' | 'PAUSED' | 'RUNNING' 
  *  sim = 시뮬 로봇(서버 RobotSummary.simulation — «시뮬» 표시는 이 값만 쓴다, 05 §13.9) */
 export type Holder = { type: 'USER' | 'RUN'; id: string | null; name: string };
 export type Robot = { id: string; name: string; owner: string; ownerName?: string; battery: number | null; online: boolean; seenAt: string; status: Status | null; mission?: string;
+  /** 서버 요약 current_run 그대로(임무 이름 · 진행) · 없으면 null */
+  run?: CurrentRun | null;
+  /** 서버 status_since(그 status 를 서버가 처음 받은 시각 · ISO)와 그 값이 붙은 status. 서버가 안 주면(null · 칸 없음) null */
+  statusSince?: { status: Status | null; at: string } | null;
+  /** 서버 latch_reason(잠금 까닭 코드 · 잠기지 않으면 null). 서버가 안 주면 null */
+  latchReason?: string | null;
+  /** 서버 목록의 demo(데모 로봇 = 실기처럼 다룸 · 정지 대상). 서버가 안 주면 undefined = 모름 → 정지 쪽으로 */
+  demo?: boolean;
   unknown?: 'link' | 'wait' | 'summary'; holder?: Holder | null; listedAt?: string; location?: Location | null; devices?: Device[]; sim?: boolean;
   phoneRelay?: PhoneRelayState | null; phoneRelayAt?: number;
   /** 실기 Go2 직접 값(서버 robot_info — 자세·상태 번호·넘어짐 추정, 표시만). 구독 로봇은 실시간 state 가 덮음 */
@@ -53,15 +61,26 @@ export function robotStatus(r: Robot): { tone: Tone; text: string } {
   return { tone: r.status === 'IDLE' ? 'off' : 'ok', text: STATUS_NAME[r.status] };
 }
 
-/** 총괄은 실기 로봇을 조종·STOP 하지 않는다(10-25 결정 — 실기는 운영자 폰, 서버도 403 ADMIN_NO_REAL_CONTROL). 시뮬 로봇은 총괄도 */
-export const ADMIN_REAL = '총괄 계정은 실기 로봇을 조종하지 않습니다.';
-export const adminReal = (u: Pick<User, 'role'>, r: Pick<Robot, 'sim'>) => u.role === 'ORG_ADMIN' && !r.sim;
+/** 총괄 = 모든 권한(팀장 11/28 · 서버 #544 1 차): 실기 조종 · STOP · 조종권 · 자세 · 로봇 붙이기도 된다. 남 담당 실기의 이름 · 지우기 · 끊기 · 키 재발급 · 담당 바꾸기는
+ *  서버 2 차 전이라 아직 담당 운영 관리자만 · 그 자리에 이 한 줄 */
+export const ADMIN_LATER = '남이 담당하는 실기 로봇의 이름 · 지우기 · 연결 끊기 · 키 재발급 · 담당 바꾸기는 아직 담당 운영 관리자만 합니다 (서버 준비 중).';
 /** 쉬는 시뮬 슬롯: 서버는 끝낸(IDLE) 슬롯을 담당을 비운 채 /robots 에 남긴다(설계). 화면의 로봇(PC·폰 목록, 그래서 STOP 후보도)에서 뺀다. 담당 없는 실기는 그대로(총괄이 봐야 함) */
-export const idleSim = (r: Pick<Robot, 'sim' | 'owner'>) => !!r.sim && !r.owner;
+/** 이름 뒤 은/는: 끝 글자가 한글이면 받침, 숫자 · 영문이면 읽는 소리의 받침(1 일 · 3 삼 · 6 육 · 7 칠 · 8 팔 · 0 영 · L 엘 · M 엠 · N 엔 · R 알 = 은) */
+export const eunNeun = (name: string) => {
+  const ch = name.trim().slice(-1), c = ch.charCodeAt(0) - 0xac00;
+  if (c >= 0 && c <= 11171) return c % 28 ? '은' : '는';
+  return /[013678lmnr]/i.test(ch) ? '은' : '는';
+};
+/** 끝난 run 상태(서버 TERMINAL_RUNS 와 같음 · ABORTED 는 계약 열거 밖이지만 서버가 씀) */
+export const RUN_END = new Set<string>(['COMPLETED', 'FAILED', 'CANCELED', 'ABORTED']);
+/** 임무 중 = 받은 state 가 있으면 그 run, 없으면(요약만 · 첫 state 전) 목록 current_run. 끝난 상태만 임무 없음(PAUSED 는 임무 중).
+ *  관제 걷기(D1) · 정지 대상 · 끝낸 시뮬 슬롯이 같은 판정을 쓴다(서버 스케줄러는 담당 없는 로봇으로도 임무를 돌린다 · app-lx 22:06) */
+export const runOn = (r: Pick<Robot, 'run'>, s?: { run?: { status: string } | null } | null) => { const rs = s ? s.run ?? null : r.run ?? null; return !!rs && !RUN_END.has(rs.status); };
+/** 끝낸 시뮬 슬롯 = 담당 없는 사용자 시뮬 · 데모 아님 · 임무 없음. s = 받은 state(있으면) */
+export const idleSim = (r: Pick<Robot, 'sim' | 'owner' | 'demo' | 'run'>, s?: { run?: { status: string } | null } | null) => !!r.sim && !r.owner && !r.demo && !runOn(r, s);
 
-/** 조종할 수 없으면 이유(02 기능 §10: 운영자는 남의 로봇 조종 ×, 총괄은 실기 ×). 할 수 있으면 null */
+/** 조종할 수 없으면 이유(02 기능 §10: 운영자는 남의 로봇 조종 ×, 총괄은 모든 로봇 · 11/28). 할 수 있으면 null. 서버 관문(스위치 · 연결 확인 · 조종권)은 서버가 답한다 */
 export function driveBlock(u: User, r: Robot): string | null {
-  if (adminReal(u, r)) return ADMIN_REAL;
   if (u.role !== 'ORG_ADMIN' && r.owner !== u.id) return `${r.owner ? `${ownerName(r)}님의 로봇입니다` : '담당자가 없는 로봇입니다'}. 내 로봇만 조종할 수 있습니다.`;
   if (r.unknown === 'link') return '서버 연결이 끊겨 조종할 수 없습니다. 네트워크를 확인하세요.';
   if (r.unknown) return '로봇 상태를 확인하는 중입니다. 잠시 뒤 다시 누르세요.';
@@ -73,7 +92,7 @@ export function driveBlock(u: User, r: Robot): string | null {
 export const listScope = (u: Pick<User, 'role'>): 'mine' | 'all' => (u.role === 'ORG_ADMIN' ? 'all' : 'mine');
 /** PC 관제 고르기(02 기능 §1.1): 받은 목록 그대로. 운영자 목록은 서버가 내 로봇만 주지만, 담당이 바뀌는 사이 남은 남의 로봇은 뒤로(보는 중) */
 export const robotsFor = (u: User, list = ROBOTS) => (u.role === 'ORG_ADMIN' ? list : [...myRobots(u, list), ...list.filter((r) => r.owner !== u.id)]);
-/** 폰·내 로봇 범위(02 기능 §1.2): 운영자는 담당 로봇만, 총괄은 전체(폰 조종 고르기는 App 이 실기를 뺀다 — adminReal) */
+/** 폰·내 로봇 범위(02 기능 §1.2): 운영자는 담당 로봇만, 총괄은 전체(실기 포함 · 11/28) */
 export const myRobots = (u: User, list = ROBOTS) => (u.role === 'ORG_ADMIN' ? list : list.filter((r) => r.owner === u.id));
 const clock = (at?: string) => (at ? new Date(at).toTimeString().slice(0, 8) : '');   // 13:40:05(브라우저마다 같은 꼴)
 /** 시뮬 로봇 화면 이름 «시뮬 로봇 N» — 서버 기본 이름 «시뮬 <id 앞 8자리>»의 16진 id 는 본문에 쓰지 않는다(U5). id = 로봇 id 또는 그 앞 8자리.
@@ -88,14 +107,18 @@ export const robotName = (r: Pick<RobotSummary, 'id' | 'name' | 'simulation'>, s
 export const toRobot = (r: RobotSummary, sims: string[] = []): Robot => ({
   id: r.id, name: robotName(r, sims), owner: r.owner?.id ?? '', ownerName: r.owner?.display_name,
   battery: r.battery?.soc ?? null, online: r.connection === 'ONLINE', seenAt: clock(r.location?.updated_at ?? r.battery?.updated_at), status: r.status,
-  mission: r.current_run ? `${r.current_run.scenario_name} ${r.current_run.progress.done}/${r.current_run.progress.total}` : undefined,
+  mission: r.current_run ? `${r.current_run.scenario_name} ${r.current_run.progress.done}/${r.current_run.progress.total}` : undefined, run: r.current_run ?? null,
   holder: r.lease && { type: r.lease.holder_type === 'RUN' ? 'RUN' : 'USER', id: r.lease.user?.id ?? null, name: r.lease.user?.display_name ?? '' },
   listedAt: clock(new Date().toISOString()), location: r.location, devices: r.devices, sim: r.simulation,
   phoneRelay: r.phone_relay ?? null, phoneRelayAt: performance.now(), robotInfo: r.robot_info ?? null,
   serverDrive: r.server_drive_allowed === true,
   serverDriveBlocked: r.server_drive_blocked,
   approvalUntil: r.field_approval_expires_at ?? null, serial: r.robot_serial ?? null, attention: r.attention,
+  statusSince: sinceOf(r), latchReason: (r as RobotSummary & { latch_reason?: string | null }).latch_reason ?? null,
+  demo: (r as RobotSummary & { demo?: boolean }).demo,
 });
+// status_since: 서버 RobotSummary 의 선택 칸(계약 생성물에 오기 전이라 여기서 선택 칸으로 읽음)
+const sinceOf = (r: RobotSummary & { status_since?: string | null }) => (typeof r.status_since === 'string' && r.status_since ? { status: r.status, at: r.status_since } : null);
 export const toRobots = (l: RobotSummary[]) => { const sims = l.filter((r) => r.simulation).map((r) => r.id); return l.map((r) => toRobot(r, sims)); };
 
 /** 로그인 뒤 서버 값으로 바꿔 끼움 */

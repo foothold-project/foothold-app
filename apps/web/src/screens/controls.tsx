@@ -4,12 +4,12 @@
 /** [보이는 키, 하는 일, 물리 키(e.code)]. controls.test 가 simdrive KEYS 와 맞춘다 */
 export const KEY_GUIDE: [string, string, string[]][] = [
   ['W · S · ↑ · ↓', '앞 · 뒤', ['KeyW', 'KeyS', 'ArrowUp', 'ArrowDown']],
-  ['A · D', '돌기', ['KeyA', 'KeyD']],
   ['← · →', '옆걸음', ['ArrowLeft', 'ArrowRight']],
+  ['A · D', '돌기', ['KeyA', 'KeyD']],
   ['Space', '정지 (모든 화면 · 글 입력 칸에서는 띄어쓰기)', ['Space']],
 ];
-/** 실기 폰 조종(drive.tsx 174)은 전후를 0 아래로 내리지 않고, 뒤로 밀면 «후진은 아직 지원하지 않습니다»(298) 를 보인다 */
-export const PHONE_BASIS = '시뮬 조종 기준입니다. 실기는 지금 뒤로 가지 않고, 막힌 동작은 조종 화면에 까닭이 나옵니다.';
+/** 실기 폰 조종(drive.tsx)은 PC 로봇 탭과 같은 명령표(robotact stickTok · serverdrive permitted): 조직 속도 상한 안에서만 앞 · 뒤 · 옆, 밖이면 0 + 까닭 */
+export const PHONE_BASIS = '시뮬 조종 기준입니다. 실기는 조직 속도 상한 안에서 앞 · 뒤 · 옆으로 가고, 막힌 동작은 조종 화면에 까닭이 나옵니다.';
 export const NO_SAVE = '켜고 끄기 · 감도를 저장할 서버 값이 아직 없어 지금 배치만 보여 줍니다. 속도 값은 아래 시뮬 값에서 바꿉니다.';
 
 const Row = ({ k, what }: { k: string; what: string }) => <div className="st-row"><span>{what}</span><b className="mono">{k}</b></div>;

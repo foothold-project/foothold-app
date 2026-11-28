@@ -22,10 +22,10 @@ a.btn{color:inherit;text-decoration:none;box-sizing:border-box}
 .fh a.btn.pri{color:var(--on-accent)}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:10px}
 .lbl{font-size:12px;color:var(--muted)}
-.nav{display:flex;flex-direction:column;align-items:center;gap:4px;width:64px;padding:10px 0;border-radius:8px;font-size:11px;color:var(--muted);text-decoration:none}
-.nav:hover{color:var(--text);background:var(--panel2)}
-.nav.cur{color:var(--text);background:var(--acc-bg)}
-.nav.cur svg{color:var(--accent)}
+.fh-nav .nav{display:flex;flex-direction:column;align-items:center;gap:4px;width:64px;padding:10px 0;border-radius:8px;font-size:11px;color:var(--muted);text-decoration:none}
+.fh-nav .nav:hover{color:var(--text);background:var(--panel2)}
+.fh-nav .nav.cur{color:var(--text);background:var(--acc-bg)}
+.fh-nav .nav.cur svg{color:var(--accent)}
 button.nav{border:0;background:none;font-family:inherit;white-space:nowrap;cursor:pointer}   /* PC 메뉴 «화면 밝기» 단추(11-02)를 링크와 같은 모양으로 */
 .tabb{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;height:52px;font-size:11px;color:var(--muted);text-decoration:none}
 .tabb.cur{color:var(--accent);font-weight:600}
@@ -265,3 +265,13 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .fh-empty>h2{margin:4px 0 0;font-size:18px}
 .fh-empty>.lv-note{margin:0;max-width:48ch;text-wrap:balance;word-break:keep-all}
 .fh-empty>.fh-row{justify-content:center;margin-top:6px}
+/* 붙이기 단계 막대(U2-01): 세 칸 중 지난 · 지금 칸을 채움 + «n / 3» */
+.pair-steps{display:inline-flex;align-items:center;gap:4px;margin-left:10px}
+.pair-steps i{width:22px;height:4px;border-radius:2px;background:var(--line)}
+.pair-steps i[data-on]{background:var(--accent)}
+.pair-steps b{margin-left:6px;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+/* 확인 칸(u2_2): 이름 · 값 두 줄 */
+.pair-check{display:grid;gap:6px;margin:0}
+.pair-check>div{display:flex;gap:12px;align-items:baseline}
+.pair-check dt{min-width:5em;color:var(--muted);font-size:13px}
+.pair-check dd{margin:0;font-weight:700;overflow-wrap:anywhere}

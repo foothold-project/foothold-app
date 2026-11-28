@@ -53,3 +53,18 @@ describe('알림 창 닫힘', () => {
     expect(location.hash).toBe('#/history');
   });
 });
+
+describe('PC 머리줄 종 칸 스크롤 0', () => {
+  it('최근 5 건만 · 넘치면 「기록에서 모두 보기」(#/history) · 폰 꼴(face 없음)은 전부', async () => {
+    const many = Array.from({ length: 8 }, (_, i) => ({ ...NOTE, id: `n${i}`, title: `알림 ${i}` }));
+    vi.spyOn(api, 'notifications').mockResolvedValue({ items: many, unread_count: 8, next_cursor: null } as never);
+    act(() => root?.unmount());
+    await act(async () => { root = createRoot(box); root.render(<Bell face={(n) => <b>{n}</b>} />); });
+    expect([...box.querySelectorAll('[aria-label="알림 목록"] li b')].map((b) => b.textContent)).toEqual(['알림 0', '알림 1', '알림 2', '알림 3', '알림 4']);
+    expect(box.querySelector<HTMLAnchorElement>('[data-bell-all]')!.getAttribute('href')).toBe('#/history');
+    act(() => root?.unmount());
+    await act(async () => { root = createRoot(box); root.render(<Bell />); });
+    expect(box.querySelectorAll('[aria-label="알림 목록"] li')).toHaveLength(8);
+    expect(box.querySelector('[data-bell-all]')).toBeNull();
+  });
+});

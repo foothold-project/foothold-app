@@ -1,0 +1,75 @@
+/* 시안 u2 (폰 로봇 연결) 의 src/u2/ui.css · common.css · 화면 <style> 을 .u2 로 감싼 사본(기계 생성). 값은 원본 그대로, body · :root 는 .u2 자체. 손으로 고치지 않는다 */
+.u2,.u2 *{box-sizing:border-box;margin:0;padding:0}
+.u2{width:100vw;height:100vh;overflow:hidden;font-family:Pretendard,"Noto Sans CJK KR",sans-serif;-webkit-font-smoothing:antialiased;letter-spacing:-.01em;position:relative}
+.u2{--pr:#12b886;--pr2:#0ca678;--ink:#16191f;--mu:#5d6573;--red:#e5383b}
+.u2 .ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.u2 .g{position:absolute;border-radius:18px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.48));
+ backdrop-filter:blur(22px) saturate(1.8);-webkit-backdrop-filter:blur(22px) saturate(1.8);
+ border:1px solid rgba(255,255,255,.85);box-shadow:0 8px 24px rgba(20,30,50,.14),inset 0 1px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(0,0,0,.04);color:var(--ink)}
+.u2 .g.dk{background:linear-gradient(180deg,rgba(28,32,40,.52),rgba(18,20,26,.38));border:1px solid rgba(255,255,255,.22);
+ box-shadow:0 10px 28px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.28);color:#fff}
+.u2 .row{display:flex;align-items:center}
+.u2 .dot{width:7px;height:7px;border-radius:50%;background:var(--pr);box-shadow:0 0 0 3px rgba(18,184,134,.18)}
+.u2 .btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:10.5px;font-weight:600}
+.u2 .stop{position:absolute;border-radius:18px;background:linear-gradient(180deg,#f2575a,#d62f33);color:#fff;font-weight:800;font-size:14px;
+ display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;box-shadow:0 10px 24px rgba(214,47,51,.42),inset 0 1px 0 rgba(255,255,255,.35)}
+.u2 .chipnum{font-weight:800;font-size:15px;letter-spacing:-.02em}
+.u2 .bat{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:700}
+.u2 .bat i{display:inline-block;width:22px;height:11px;border:1.6px solid currentColor;border-radius:3px;position:relative}
+.u2 .bat i::before{content:"";position:absolute;left:1.5px;top:1.5px;bottom:1.5px;width:68%;background:var(--pr);border-radius:1px}
+.u2 .bat i::after{content:"";position:absolute;right:-4px;top:3px;width:2px;height:4px;background:currentColor;border-radius:1px}
+.u2 .bgcam{position:absolute;inset:-20px;background:url(/proto-assets/src/u2/cam.jpg) center 60%/cover;filter:blur(2px) brightness(.55)}
+.u2 .bgmap{position:absolute;inset:-30px;background:url(/proto-assets/src/u2/map.jpg) center/cover;filter:blur(3px) saturate(.9) brightness(1.04)}
+.u2 .top{position:absolute;left:12px;top:12px;height:44px;display:flex;align-items:center;gap:10px;padding:0 14px 0 6px;border-radius:999px}
+.u2 .top .bk{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+.u2 .top b{font-size:15px;font-weight:800}
+.u2 .steps{display:flex;gap:4px;margin-left:6px}
+.u2 .steps i{width:18px;height:4px;border-radius:2px;background:currentColor;opacity:.25}
+.u2 .steps i.on{opacity:1}
+.u2 .h{font-size:19px;font-weight:800;letter-spacing:-.02em}
+.u2 .sub{font-size:12px;font-weight:600;opacity:.7;margin-top:4px;line-height:1.45}
+.u2 .prim{position:absolute;border-radius:16px;background:linear-gradient(180deg,#2fd39a,#0ca678);color:#fff;font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 10px 24px rgba(12,166,120,.40),inset 0 1px 0 rgba(255,255,255,.40)}
+.u2 .code{display:flex;gap:7px;margin-top:14px}
+.u2 .code span{width:36px;height:46px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:21px;font-weight:800}
+.u2 .dk .code span{background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.22)}
+.u2 .code span.cur{border:1.5px solid #5ef0bf;box-shadow:0 0 0 3px rgba(94,240,191,.18)}
+.u2 .kv{display:grid;grid-template-columns:72px 1fr;row-gap:9px;font-size:13px;margin-top:14px}
+.u2 .kv dt{opacity:.6;font-weight:600}
+.u2 .kv dd{font-weight:700}
+.u2 .field{height:40px;border-radius:11px;display:flex;align-items:center;padding:0 12px;font-size:15px;font-weight:800;background:rgba(255,255,255,.75);border:1.5px solid var(--pr)}
+.u2 .chk{display:flex;flex-direction:column;gap:2px}
+.u2 .chk div{display:flex;align-items:center;gap:10px;height:31px;padding:0 10px;border-radius:10px;font-size:12.5px;font-weight:700}
+.u2 .chk div small{margin-left:auto;font-size:11px;font-weight:600;color:var(--mu)}
+.u2 .chk .ok svg{color:var(--pr)}
+.u2 .chk .bad{background:rgba(229,56,59,.10);color:#b3262a}
+.u2 .chk .bad small{color:#b3262a}
+.u2 .chk .wait{opacity:.38}
+.u2{word-break:keep-all}
+.u2{font-variant-numeric:tabular-nums}
+.u2 .kv2{display:flex;flex-direction:column}
+.u2 .kv2 div{display:flex;align-items:center;gap:10px;flex:1;min-height:36px;font-size:12.5px;font-weight:700}
+.u2 .kv2 div+div{border-top:1px solid rgba(20,30,50,.07)}
+.u2 .kv2 span{width:56px;color:var(--mu);font-weight:600;font-size:11.5px}
+.u2 .kv2 em{font-style:normal;margin-left:auto;color:var(--mu);font-weight:600;font-size:11.5px}
+.u2 .kv2 .okd{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--pr);box-shadow:0 0 0 3px rgba(24,160,126,.18)}
+.u2 .sec{position:absolute;border-radius:16px;display:flex;align-items:center;justify-content:center;gap:6px;font-size:13px;font-weight:800;background:rgba(255,255,255,.7);border:1px solid rgba(0,0,0,.06);color:var(--ink)}
+.u2 .pill{position:absolute;height:34px;display:flex;align-items:center;gap:7px;padding:0 13px 0 9px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap}
+.u2 .pill small{font-size:11px;font-weight:600;opacity:.7}
+.u2 .field2{height:40px;border-radius:11px;display:flex;align-items:center;gap:8px;padding:0 10px 0 12px;font-size:13.5px;font-weight:800;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.22);margin-top:6px}
+.u2 .lab{font-size:11px;font-weight:700;opacity:.6;margin-top:14px}
+.u2 .digits{display:flex;gap:5px;margin-top:6px}
+.u2 .digits b{width:30px;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.22)}
+.u2 .digits i{width:8px}
+.u2 .stp{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:800}
+.u2 .stp i{width:20px;height:20px;border-radius:50%;background:var(--pr);color:#fff;font-style:normal;font-size:11.5px;display:flex;align-items:center;justify-content:center}
+.u2 .stp em{font-style:normal;margin-left:auto;font-size:10.5px;font-weight:600;opacity:.6}
+.u2 .howto{position:relative;height:98px;margin-top:8px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,.16),rgba(255,255,255,.07));border:1px solid rgba(255,255,255,.14);overflow:hidden}
+.u2 .howto .ph{position:absolute;left:12px;top:22px;width:74px;height:40px}
+.u2 .howto .beam{position:absolute;left:92px;top:42px;width:44px;border-top:2px dashed rgba(0,195,137,.9)}
+.u2 .howto .beam span{position:absolute;left:50%;top:-22px;transform:translateX(-50%);font-size:10.5px;font-weight:800;color:#5fe0b7;white-space:nowrap}
+.u2 .howto .bot{position:absolute;left:132px;top:10px;width:92px;height:78px}
+.u2 .howto .bot img{width:100%;height:100%;object-fit:contain}
+.u2 .howto .cam{position:absolute;left:10px;top:15px;width:14px;height:14px;border-radius:50%;border:2px solid #00c389;box-shadow:0 0 0 5px rgba(0,195,137,.25)}
+.u2 .howto .wait{position:absolute;right:12px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:9px;font-size:13px;font-weight:800}
+.u2 .howto .wait small{display:block;font-size:10.5px;font-weight:600;opacity:.6;margin-top:2px}
+.u2 [data-go]{cursor:pointer}

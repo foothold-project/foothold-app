@@ -52,14 +52,16 @@ describe('설정 › 조작 설명 칸 (u9_7)', () => {
     expect(KEY_GUIDE.flatMap(([, , c]) => c).filter((c) => c !== 'Space').sort()).toEqual(Object.keys(KEYS).sort());
   });
 
-  it('폰 칸도 기준을 밝힘: 시뮬 기준 · 실기는 뒤로 가지 않음 (REVIEW-PR573 P1)', async () => {
+  it('폰 칸도 기준을 밝힘: 시뮬 기준 · 실기는 조직 상한 안에서 뒤로도 감 (REVIEW-PR573 P1 · 11-28 17:33)', async () => {
     const ph = (await open()).querySelector<HTMLElement>('[aria-label="모바일 (폰 터치)"]')!;
     expect(ph.querySelector('[data-ctl-basis]')!.textContent).toBe(PHONE_BASIS);
     expect(PHONE_BASIS).toContain('시뮬 조종 기준');
-    expect(PHONE_BASIS).toContain('뒤로 가지 않');
+    expect(PHONE_BASIS).toContain('조직 속도 상한 안에서 앞 · 뒤 · 옆');
     expect(PHONE_BASIS).not.toContain('—');
-    // 실기 폰 조종(drive.tsx)이 전후를 0 아래로 내리지 않는 동안만 참
-    expect(driveSrc).toContain("Math.max(0, clamp(+held(k, 'f') + stick[0]))");
+    // 실기 폰 조종(drive.tsx)이 PC 와 같은 손잡이 규칙 · 상한 검사를 쓰는 동안만 참
+    expect(driveSrc).toContain("stickTok('L', -x, -y)");
+    expect(driveSrc).toContain('(demo ? demoPermitted : permitted)(a, settingsRef.current)');   // 실기 = PC 와 같은 permitted · 데모만 웹 상한(시뮬 값)
+    expect(driveSrc).toContain('allow(cmd) ? cmd : TABLE[\'\']');
   });
 
   it('시뮬 속도 값이 비면 0.00 이 아니라 「값을 받지 못했습니다」 (REVIEW-PR573 P2)', async () => {

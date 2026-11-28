@@ -149,40 +149,13 @@
     },
     "MapZone": {
       "additionalProperties": false,
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "const": "NO_GO"
-              }
-            }
-          },
-          "then": {
-            "not": {
-              "required": [
-                "max_speed_mps"
-              ]
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "const": "AREA"
-              }
-            }
-          },
-          "then": {
-            "not": {
-              "required": [
-                "max_speed_mps"
-              ]
-            }
+      "if": {
+        "properties": {
+          "type": {
+            "const": "NO_GO"
           }
         }
-      ],
+      },
       "properties": {
         "id": {
           "maxLength": 128,
@@ -234,8 +207,7 @@
         "type": {
           "enum": [
             "NO_GO",
-            "SLOW",
-            "AREA"
+            "SLOW"
           ],
           "title": "Type",
           "type": "string"
@@ -247,6 +219,13 @@
         "name",
         "polygon"
       ],
+      "then": {
+        "not": {
+          "required": [
+            "max_speed_mps"
+          ]
+        }
+      },
       "title": "MapZone",
       "type": "object"
     }

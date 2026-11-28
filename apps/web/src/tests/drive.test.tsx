@@ -3,6 +3,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
+import { pcBoard } from '../pcboard';
 import type { ScreenState } from '../../../contracts/ts';
 import { App, PHONE_Q } from '../App';
 import { ROBOTS, USERS, type Robot } from './fixtures';
@@ -12,17 +13,28 @@ import { api, onAuthLost as setAuthLost } from '../api';
 import { COOLDOWN_S, FAIL_TEXT, FREE_TEXT, REQUEST_S, STOP_HTTP_MS, STOP_WS_MS, rt } from '../rt';
 import { FakeWS, fail, lease, state } from './fakeWs';
 import { STALLED } from '../simdrive';
-import { ADMIN_REAL, driveBlock } from '../fake';
-import { MAX_TURN_RATE } from '../serverdrive';
+import { driveBlock } from '../fake';
+import { COMBO_BLOCK, MAX_TURN_RATE, SIDE_BLOCK, stopLine } from '../serverdrive';
 import { simTune } from '../phone';
-import { REAL_STICK, REAL_WAIT } from '../drive';
+import { CAP_BLOCK, DEMO_RULE, REAL_STICK, REAL_WAIT, REAL_WAIT_PILL, demoCaps } from '../drive';
+import { shape } from '../robotact';
+import { ACTS, STANDUP_WHY, actWhy } from '../robotact';
 import driveCss from '../drive.css?raw';
 import frameCss from '../frame.css?raw';
+import u1AppCss from '../screens/u1.app.css?raw';
+import u1dCss from '../screens/u1d.css?raw';
+import u135Css from '../screens/u135.css?raw';
+import u135AppCss from '../screens/u135.app.css?raw';
+import u142Css from '../screens/u142.css?raw';
+import u142AppCss from '../screens/u142.app.css?raw';
+// 옛 PC 관제 부품(관제 요약 · 상세 서랍 · 연결 상태 · 조종 준비) 시험: PC 로봇 탭은 시안 u4 라 부품을 앱 맥락 안에 직접 그린다 → W1 u5
+beforeEach(() => { pcBoard.on = true; });
+afterEach(() => { pcBoard.on = false; });
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let root: Root | null = null, box: HTMLDivElement;
-/** 10-25: 총괄은 실기 조종·STOP 이 없다. 예전 «총괄 김OO가 아무 로봇이나 조종» 시험은 세 로봇을 모두 맡은 운영 관리자 김OO 로 그대로 본다(이름·id 같음).
+/** 예전 «총괄 김OO가 아무 로봇이나 조종» 시험은 세 로봇을 모두 맡은 운영 관리자 김OO 로 그대로 본다(이름·id 같음, 10-25 때 나눔 · 11/28 총괄도 실기 조종).
  *  진짜 총괄은 ADMIN */
 const ADMIN = 'admin';
 const as = (user: string, robots: Robot[] = ROBOTS) => {
@@ -96,11 +108,18 @@ const end = <T,>(a: T[]) => a[a.length - 1];
 const lastAxes = () => end(cmds())?.axes;
 const ask = (from = KIM, role = 'ORG_ADMIN') => ({ t: 'lease.requested', robot: 'r7', request_id: 'q1', requester: { display_name: from.name, role }, expires_at: new Date(Date.now() + REQUEST_S * 1000).toISOString() });
 /** 조종권 받고 잠금 해제·중립까지(움직일 수 있음) */
+/** 「다시 시작」(시안 u1_3 자리 · 잠금 해제) → 확인 창(u4_10 과 같은 글) 「일어서기」 = unlock 한 번 */
+function unlock() {
+  click(btn('다시 시작'));
+  const go = $('[data-restart-ask] button.dpri');
+  expect(go.textContent).toBe('일어서기');
+  click(go);
+}
 function ready() {
-  click(btn('조종 시작'));
-  click(btn('잠금 해제'));
+  click(btn('조종'));
+  unlock();
   tick(100);
-  expect(text()).toContain('움직일 수 있음');
+  expect($('.u1-chip .u1-st')!.textContent).toBe('조종 중');
 }
 
 describe('조종 화면', () => {
@@ -121,21 +140,21 @@ describe('조종 화면', () => {
     expect($('.dv-mini [data-map-none]')!.textContent).toBe('지도 없음');
     click(btn('지도'));
     expect($('.dv-stage > [data-map-none]')!.textContent).toBe('지도·라이다 자료 없음 · 기능 준비 중');
-    expect($('.dv-stage circle')).toBeNull();
+    expect([...box.querySelectorAll('.dv-stage circle')].filter((x) => !x.closest('svg.ic'))).toHaveLength(0);   // 단추 그림(svg.ic) 말고는 원(라이다 점) 없음
     click(btn('RGB'));
-    click(btn('조종 시작'));
+    click(btn('조종'));
     expect(w.of('lease.take')).toMatchObject([{ robot: 'r7', proto: 'fh-rt/1' }]);
     expect(text()).toContain('조종 중(나)');
-    expect(text()).toContain('정지 잠금');
+    expect($('.u1-chip .u1-st')!.textContent).toBe('정지됨');   // 로봇이 잠금을 알림 = 시안 u1_3 「정지됨」
     expect(text()).toContain('조종권을 받았습니다');   // 내 take 의 ACCEPTED 를 «넘겼습니다»로 읽지 않음
     expect(text()).not.toContain('넘겼습니다');
     tick(200);
     expect(cmds().length).toBeGreaterThan(0);
     expect(cmds().every((m) => String(m.axes) === '0,0,0')).toBe(true);   // 잠금 중은 0
-    click(btn('잠금 해제'));
+    unlock();
     expect(w.of('unlock')).toMatchObject([{ robot: 'r7', lease_id: cmds()[0].lease_id, stop_gen: 1 }]);
     tick(100);
-    expect(text()).toContain('움직일 수 있음');
+    expect($('.u1-chip .u1-st')!.textContent).toBe('조종 중');
     key('keydown', 'KeyW'); key('keydown', 'KeyA');   // 동시 입력 두 곳
     const n = cmds().length;
     tick(1000);
@@ -155,20 +174,20 @@ describe('조종 화면', () => {
   it('잠금 사유 OUTPUT_STALLED 면 출력 지연 안내(사유만 바뀌어도 다시 그림), 사유 없음·해제면 기존 그대로(잠금 해제·STOP 그대로)', () => {
     mount(true, 'u-kim', '#/drive/r7');
     serve(KIM, 'r3', 'r7', 'r1');
-    click(btn('조종 시작'));
+    click(btn('조종'));
     act(() => push('r7', { safety_reason: 'OUTPUT_STALLED' }));   // 잠금(latched)은 그대로, 사유만 옴
     expect(text()).toContain(STALLED);
     expect(text()).toContain('조종권을 받았습니다');   // 기존 안내도 그대로
-    expect(btn('잠금 해제')).toBeTruthy();
+    expect(btn('다시 시작')).toBeTruthy();
     expect($('[data-stop]')).toBeTruthy();
     act(() => push('r7', { safety_reason: null }));
     expect(text()).not.toContain(STALLED);
     act(() => push('r7', { safety_reason: 'OUTPUT_STALLED' }));
-    click(btn('잠금 해제'));
+    unlock();
     expect(w.of('unlock')).toMatchObject([{ robot: 'r7', stop_gen: 1 }]);
     tick(100);
     expect(text()).not.toContain(STALLED);   // 풀리면 사유가 남아도 안내 0
-    expect(text()).toContain('움직일 수 있음');
+    expect($('.u1-chip .u1-st')!.textContent).toBe('조종 중');
   });
 
   it('폰 #/drive = 로봇 연결: 로봇 카드(상태·배터리·조종권자) → [연결]', () => {
@@ -181,22 +200,37 @@ describe('조종 화면', () => {
     expect(location.hash).toBe('#/drive/r3');
   });
 
-  it('잠금 해제 전 입력은 0, 키를 누른 채 해제하면 떼야(중립) 움직임, 후진은 막음', () => {
+  it('잠금 해제 전 입력은 0, 키를 누른 채 해제하면 떼야(중립) 움직임, 후진은 조직 뒤 상한 안에서 표 값(11-28 17:33 「다 지원」)', () => {
     mount(true, 'u-park', '#/drive/r7');
     serve(PARK, 'r7');
-    click(btn('조종 시작'));
+    click(btn('조종'));
     key('keydown', 'ArrowUp'); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);
-    click(btn('잠금 해제')); tick(200);
+    unlock(); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);
     expect(text()).toContain('중립 확인 중');
     key('keyup', 'ArrowUp'); tick(100);
-    expect(text()).toContain('움직일 수 있음');
+    expect($('.u1-chip .u1-st')!.textContent).toBe('조종 중');
     key('keydown', 'ArrowUp'); tick(100);
     expect(lastAxes()).toEqual([1.5, 0, 0]);
     key('keyup', 'ArrowUp'); key('keydown', 'KeyS'); tick(100);
+    expect(lastAxes()).toEqual([-1.5, 0, 0]);
+    expect(text()).not.toContain('후진은 아직 지원하지 않습니다');
+  });
+
+  it('조이스틱(Pad 키)도 같은 길: 잠금 해제 전 0 · 해제 뒤 떼고 밀면 전진 · 뒤는 상한 안에서 뒤로', () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    click(btn('조종'));
+    key('keydown', 'PadUp'); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);
-    expect(text()).toContain('후진은 아직 지원하지 않습니다');
+    unlock(); tick(200);
+    expect(lastAxes()).toEqual([0, 0, 0]);
+    key('keyup', 'PadUp'); tick(100);
+    key('keydown', 'PadUp'); tick(100);
+    expect(lastAxes()).toEqual([1.5, 0, 0]);
+    key('keyup', 'PadUp'); key('keydown', 'PadDown'); tick(100);
+    expect(lastAxes()).toEqual([-1.5, 0, 0]);
   });
 
   it('lease 가 바뀌면 이전 입력은 버리고 새 중립부터(누른 채여도 0)', () => {
@@ -269,10 +303,10 @@ describe('조종 화면', () => {
     click($('[data-stop]'));
     tick(100);
     act(() => push('r7', { speed: 0.6 }));   // STOP 뒤 첫 state 가 아직 안 잠김
-    expect(band()).toContain('Go2-7 정지 요청됨 — 로봇이 아직 잠금을 알리지 않았습니다.');
+    expect(band()).toContain('▲ 명령이 닿지 않았습니다 · 0 초 지남');   // 폰 실기 조종 = 시안 u1_7 글(PC 는 «정지 요청됨 — 로봇이 아직 잠금을…» 그대로)
     act(() => push('r7', { latched: true, stop_gen: 2, applied: [0, 0, 0], speed: 0 }));
     expect(band()).toContain('Go2-7 정지 잠금 · 로봇이 잠금과 멈춤 출력을 알렸습니다.');
-    click(btn('잠금 해제'));
+    unlock();
     act(() => push('r7', { latched: false, applied: [0.6, 0, 0], speed: 0.6 }));
     expect(rt.get('r7').stop).toBeNull();
     expect(band()).not.toContain('정지');
@@ -300,7 +334,7 @@ describe('조종 화면', () => {
     expect(cmds().length).toBe(n);
     delete (document as { visibilityState?: string }).visibilityState;
     key('keyup', 'KeyW');
-    click(btn('조종 시작'));
+    click(btn('조종'));
     expect(text()).toContain('조종 중(나)');
     click(btn('기록'));                                    // ⋯ 기록 — 조종 화면을 떠남
     expect(location.hash).toBe('#/history');
@@ -317,7 +351,7 @@ describe('조종 화면', () => {
     hide();
     expect(w.of('hidden')).toHaveLength(1);
     expect(text()).not.toContain('계속 조종합니다');
-    expect(btn('조종 시작')).toBeTruthy();
+    expect(btn('조종')).toBeTruthy();
   });
 
   it('요청 창: Enter·Space·키보드 click 은 넘기기를 누르지 않고, Space 는 STOP, 방향키는 조종 — 마우스로만 넘김', () => {
@@ -325,7 +359,10 @@ describe('조종 화면', () => {
     serve(PARK, 'r7');
     ready();
     recv(ask());
-    expect($('[role="dialog"]').textContent).toContain('총괄 김OO님이 Go2-7 조종권을 요청했습니다. 넘겨주시겠습니까?');
+    // 시안 u13_5 글: 제목 「역할 이름 님이 로봇 조종권을 요청했습니다」 + 「넘겨주시겠습니까? N 초 안에 …」(N = 서버 expires_at 으로 센 남은 초)
+    expect($('#dv-ask-t').textContent).toBe('총괄 김OO 님이 Go2-7 조종권을 요청했습니다');
+    expect($('[role="dialog"]').className).toBe('proto pv u135');   // 시안 u13_5 요청 칸 · 옛 .dv-ask 창 아님
+    expect($('[data-takeover-left]').textContent).toBe(`넘겨주시겠습니까? ${REQUEST_S} 초 안에 답하지 않으면 조종권을 넘기지 않습니다`);
     const give = $('[data-ask="give"]');
     give.focus();
     key('keydown', 'ArrowUp', give); tick(100);
@@ -352,7 +389,7 @@ describe('조종 화면', () => {
     tick(300);
     expect(cmds().length).toBeGreaterThan(n);
     expect(cmds().slice(n).every((m) => String(m.axes) === '0,0,0')).toBe(true);
-    expect($('.lv-chip').textContent).toContain('정지 확인 중');
+    expect($('.u1d .u1-chip .u1-st').textContent).toContain('정지 확인 중');
     recv(lease('r7', null));                               // 서버: 옛 조종권 회수 → 정지 확인 → 새 조종권자
     expect(text()).toContain('조종권 넘기는 중');
     recv(lease('r7', KIM));
@@ -367,7 +404,7 @@ describe('조종 화면', () => {
   it(`내게 온 요청 창은 ${REQUEST_S} s 에 닫힘(벽시계를 돌려도 경과 시간으로), 거절은 respond false`, () => {
     mount(true, 'u-park', '#/drive/r7');
     serve(PARK, 'r7');
-    click(btn('조종 시작'));
+    click(btn('조종'));
     recv(ask());
     vi.setSystemTime(Date.now() + 60_000);                 // 벽시계 점프 — 창은 그대로
     tick(REQUEST_S * 1000 - 200);
@@ -385,11 +422,11 @@ describe('조종 화면', () => {
     mount(true, 'u-kim', '#/drive/r7');
     serve(KIM, 'r3', 'r7', 'r1');
     recv(lease('r7', PARK));
-    click(btn('조종 시작'));
+    click(btn('조종'));
     expect(w.of('lease.request')).toMatchObject([{ robot: 'r7' }]);   // 남이 조종 중이면 요청
     expect(w.of('lease.take')).toHaveLength(0);
     expect(text()).toContain('박OO님에게 요청했습니다. (10초)');
-    expect(btn('조종 시작').disabled).toBe(true);
+    expect(btn('조종').disabled).toBe(true);
     tick(3000);
     expect(text()).toContain('(7초)');
     tick(7000);
@@ -397,11 +434,11 @@ describe('조종 화면', () => {
     expect(text()).toContain('응답이 없어 요청이 끝났습니다.');
     expect(text()).toContain('30초 뒤 다시 요청할 수 있습니다.');
     tick(29_000);
-    expect(btn('조종 시작').disabled).toBe(true);
+    expect(btn('조종').disabled).toBe(true);
     tick(1000);
-    expect(btn('조종 시작').disabled).toBe(false);
+    expect(btn('조종').disabled).toBe(false);
     w.auto = (m) => (m.t === 'lease.request' ? fail('LEASE_REQUEST_COOLDOWN', 'cooldown') : { ok: true });
-    click(btn('조종 시작'));
+    click(btn('조종'));
     expect(text()).toContain('요청이 거절·시간 초과·취소로 끝난 뒤 30초 안에는 다시 요청할 수 없습니다. 잠시 뒤 다시 누르세요.');
     expect(text()).not.toContain('cooldown');
   });
@@ -411,15 +448,15 @@ describe('조종 화면', () => {
     serve(KIM, 'r3', 'r7', 'r1');
     act(() => push('r7', { latched: false }));
     recv(lease('r7', PARK));
-    click(btn('조종 시작'));
+    click(btn('조종'));
     recv(lease('r7', null));
     expect(text()).toContain('로봇 정지를 확인한 뒤 조종권을 받습니다.');
     act(() => push('r7', { latched: true, stop_gen: 2 }));
     recv(lease('r7', KIM, 'L-kim'));
     recv({ t: 'lease.result', robot: 'r7', request_id: 'q1', result: 'ACCEPTED' });
     expect(text()).toContain('조종권을 받았습니다. 잠금 해제 후 조종하세요.');
-    expect($('.lv-chip').textContent).toContain('정지 잠금');
-    click(btn('잠금 해제'));
+    expect($('.u1d .u1-chip .u1-st').textContent).toBe('정지됨');
+    unlock();
     expect(w.of('unlock')).toMatchObject([{ lease_id: 'L-kim', stop_gen: 2 }]);
   });
 
@@ -428,23 +465,23 @@ describe('조종 화면', () => {
     serve(KIM, 'r3', 'r7', 'r1');
     act(() => push('r7', { latched: false }));
     recv(lease('r7', PARK));
-    click(btn('조종 시작'));
+    click(btn('조종'));
     recv(lease('r7', null));
     recv({ t: 'lease.result', robot: 'r7', request_id: 'q1', result: 'CANCELED', error: 'STOP_CONFIRM_FAILED' });
-    expect($('.lv-chip').textContent).toContain('정지 확인 실패');
+    expect($('.u1d .u1-chip .u1-st').textContent).toContain('정지 확인 실패');
     expect(text()).toContain(FAIL_TEXT);
-    expect(btn('조종 시작').disabled).toBe(false);
+    expect(btn('조종').disabled).toBe(false);
   });
 
   it('조종권 비워짐 알림이 요청자 화면에', () => {
     mount(true, 'u-kim', '#/drive/r7');
     serve(KIM, 'r3', 'r7', 'r1');
     recv(lease('r7', PARK));
-    click(btn('조종 시작'));
+    click(btn('조종'));
     recv(lease('r7', null));
     recv({ t: 'lease.result', robot: 'r7', request_id: 'q1', result: 'CANCELED' });
     expect(text()).toContain(FREE_TEXT);
-    expect(btn('조종 시작').disabled).toBe(false);
+    expect(btn('조종').disabled).toBe(false);
   });
 
   it('운영 관리자가 PC 로봇 탭에서 남의 로봇: 구독 안 함 + 조종 단추 없음(실시간 조종은 폰만), STOP 은 서버로 간다', () => {
@@ -468,7 +505,7 @@ describe('조종 화면', () => {
     expect(text()).toContain('시나리오: 2층 순찰 3/5');
     expect($('.dv-run [data-run-stop]')!.textContent).toBe('멈추려면 STOP');   // 누를 수 없는 일시정지·중단 단추 대신 멈추는 길만(critique 11-10)
     expect($('.dv-run button')).toBeNull();
-    click(btn('조종 시작'));
+    click(btn('조종'));
     expect(w.of('lease.take')).toHaveLength(0);
     expect($('[role="dialog"]').textContent).toContain('시나리오가 일시정지됩니다');
     click(btn('일시정지하고 조종'));
@@ -478,11 +515,11 @@ describe('조종 화면', () => {
   it('폰 조종 화면: 왼쪽 전후·오른쪽 회전 조이스틱, STOP 64px 머리줄 오른쪽 끝', () => {
     mount(true, 'u-park', '#/drive/r7');
     serve(PARK, 'r7');
-    expect($('header').lastElementChild).toBe($('[data-stop]'));
+    expect($('header, .bar .rt').lastElementChild).toBe($('[data-stop]'));
     expect(parseInt($('[data-stop]').style.minHeight)).toBeGreaterThanOrEqual(64);
     ready();
-    const fwd = $('[aria-label="전후 조이스틱"]'), turn = $('[aria-label="회전 조이스틱"]');
-    expect([fwd.className, turn.className]).toEqual(['dv-stick v', 'dv-stick h']);
+    const fwd = $('[aria-label="이동 조이스틱"]'), turn = $('[aria-label="회전 조이스틱"]');
+    expect([fwd.className, turn.className]).toEqual(['dv-stick v stick', 'dv-stick h stick']);   // 시안 u1 .stick 꼴
     for (const el of [fwd, turn]) el.getBoundingClientRect = () => ({ top: 0, left: 0, width: 120, height: 120 }) as DOMRect;
     act(() => { fwd.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 60, clientY: 20 })); });
     act(() => { turn.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 0, clientY: 60 })); });
@@ -533,10 +570,10 @@ describe('실시간 연결(05 §9)', () => {
     serve(KIM, 'r3', 'r7', 'r1');
     w.auto = null;                                         // 서버가 말이 없어짐
     tick(2750);
-    expect($('header [data-link]')).toBeNull();
+    expect($('header [data-link], .bar [data-link]')).toBeNull();
     expect(w.of('ping').length).toBe(2);
     tick(250);
-    expect($('header [data-link]').textContent).toContain('연결 끊김');
+    expect($('header [data-link], .bar [data-link]').textContent).toContain('연결 끊김');
     expect(band()).toContain('서버 연결이 끊겼습니다. 로봇 상태를 알 수 없습니다.');
     expect($('[aria-label="내 로봇"]').textContent).toContain('상태 모름');
     expect(card('Go2-3').querySelector('button')!.textContent).toBe('보기만');
@@ -549,7 +586,7 @@ describe('실시간 연결(05 §9)', () => {
     mount(false, 'u-kim', '#/fleet');
     serve(KIM, 'r3', 'r7', 'r1');
     act(() => w.drop(4403));
-    expect($('header [data-link]').textContent).toContain('연결 거부');
+    expect($('header [data-link], .bar [data-link]').textContent).toContain('연결 거부');
     expect(band()).toContain('서버가 실시간 연결을 거부했습니다(권한 없음)');
     tick(60_000);
     expect(FakeWS.all).toHaveLength(1);
@@ -563,14 +600,14 @@ describe('실시간 연결(05 §9)', () => {
     act(() => w.drop(1006));
     tick(1000);
     act(() => FakeWS.last.drop(code));                     // 열리기 전에 또 끊김 — 1006 이면 2 s 지만 1013·1012 는 1 s
-    expect($('header [data-link]').textContent).toContain('연결 끊김');
+    expect($('header [data-link], .bar [data-link]').textContent).toContain('연결 끊김');
     tick(999);
     expect(FakeWS.all).toHaveLength(2);
     tick(1);
     expect(FakeWS.all).toHaveLength(3);
     serve(KIM, 'r3', 'r7', 'r1');
     expect(w.of('sub')).toHaveLength(1);
-    expect($('header [data-link]')).toBeNull();
+    expect($('header [data-link], .bar [data-link]')).toBeNull();
   });
 
   it('그 밖의 끊김은 1·2 s… 늘려 다시 연결', () => {
@@ -593,7 +630,7 @@ describe('실시간 연결(05 §9)', () => {
     key('keydown', 'KeyW'); tick(100);
     act(() => w.drop(1006));
     expect(text()).not.toContain('조종 중(나)');
-    expect(btn('조종 시작').disabled).toBe(true);
+    expect(btn('조종').disabled).toBe(true);
     const n = cmds().length;
     tick(500);
     expect(cmds().length).toBe(n);
@@ -655,7 +692,7 @@ describe('화면 안전 규칙', () => {
     mount(true, 'u-kim', '#/drive/r7');
     serve(KIM, 'r3', 'r7', 'r1');
     recv(lease('r7', PARK));
-    click(btn('조종 시작'));
+    click(btn('조종'));
     hide();
     recv(lease('r7', null));
     recv(lease('r7', KIM, 'L-late'));
@@ -667,7 +704,7 @@ describe('화면 안전 규칙', () => {
     mount(true, 'u-kim', '#/drive/r7');
     serve(KIM, 'r3', 'r7', 'r1');
     recv(lease('r7', PARK));
-    click(btn('조종 시작'));
+    click(btn('조종'));
     click(btn('끝내기'));
     expect(location.hash).toBe('#/drive');
     recv(lease('r7', KIM, 'L-late'));
@@ -770,6 +807,71 @@ describe('PR #12 검토 1차', () => {
     expect(band()).toContain('Go2-7 정지 요청됨 — 서버가 받았습니다.');
     expect(band()).not.toMatch(/보내지 못했습니다|확인하지 못했습니다/);
   });
+  // Codex #536 M1 (11-28): 서버가 delivered=false(붙은 에이전트에 넣지 못함)를 돌려주면 «접수»와 같게 보이지 않는다. delivered 칸이 없는 옛 답은 그대로
+  const NO_WAY = '지금 로봇으로 보낼 길이 없습니다. 리모컨이나 현장에서 멈추세요.';
+  const NOT_SENT = '연결이 끊겨 정지를 보내지 못했습니다. 다시 연결되면 로봇은 잠긴 상태로 시작합니다. 지금 멈춰야 하면 리모컨이나 현장에서 멈추세요.';
+  it('[M1] WS 접수 delivered=false · 로봇 ONLINE → «보낼 길 없음» 한 줄, 접수 문구 없음', async () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    w.auto = (m) => (m.t === 'ping' ? { ok: true } : undefined);
+    click($('[data-stop]'));
+    recv({ t: 'reply', id: w.of('stop')[0].id, ok: true, delivered: false });
+    await settle();
+    expect(band()).toContain(`▲ Go2-7 ${NO_WAY}`);
+    expect(band()).not.toContain('서버가 받았습니다');
+  });
+  it('[M1] WS 접수 delivered=false · 에이전트 끊김(OFFLINE) → 정한 «보내지 못했습니다» 문구', async () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    w.auto = (m) => (m.t === 'ping' ? { ok: true } : undefined);
+    recv(state('r7', { connection: 'OFFLINE', status: null, battery: null, latched: null, stop_gen: null, applied: null }));
+    click($('[data-stop]'));
+    recv({ t: 'reply', id: w.of('stop')[0].id, ok: true, delivered: false });
+    await settle();
+    expect(band()).toContain(`▲ Go2-7 ${NOT_SENT}`);
+  });
+  it('[M1] HTTP 대체 경로 202 본문 delivered=false → 같은 «보낼 길 없음», delivered=true 는 지금 그대로(대체 경로)', async () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ requested: true, delivered: false }), { status: 202 })));
+    w.auto = (m) => (m.t === 'ping' ? { ok: true } : undefined);
+    click($('[data-stop]'));
+    tick(STOP_WS_MS); await settle();
+    expect(band()).toContain(`▲ Go2-7 ${NO_WAY}`);
+    expect(band()).not.toContain('정지 요청됨(대체 경로)');
+  });
+  it('[M1] delivered=false 뒤 이 STOP 뒤 세대의 잠금을 로봇이 알리면 «보낼 길 없음» 을 내리고 로봇 보고를 따른다', async () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    w.auto = (m) => (m.t === 'ping' ? { ok: true } : undefined);
+    click($('[data-stop]'));
+    recv({ t: 'reply', id: w.of('stop')[0].id, ok: true, delivered: false });
+    await settle();
+    expect(band()).toContain(NO_WAY);
+    tick(100);
+    recv(state('r7', { latched: true, stop_gen: 9, applied: [0, 0, 0] }));
+    await settle();
+    expect(band()).not.toContain(NO_WAY);
+    expect(band()).toContain('Go2-7 정지 잠금');
+  });
+  it('[M1] HTTP 대체 경로 delivered=true 는 지금 문구 그대로', async () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ requested: true, delivered: true }), { status: 202 })));
+    w.auto = (m) => (m.t === 'ping' ? { ok: true } : undefined);
+    click($('[data-stop]'));
+    tick(STOP_WS_MS); await settle();
+    expect(band()).toContain('정지 요청됨(대체 경로)');
+    expect(band()).not.toContain(NO_WAY);
+  });
+  it('[M1] 조종 패널 stopLine: delivered=false 면 «보낼 길 없음»(끊김이면 정한 문구), 없으면 지금 그대로', () => {
+    const base = { phase: 'sent' as const, at: 1, n: 1, g0: 1, conn: 1, rev: 0 };
+    const on = state('r7', {}) as ScreenState, off = state('r7', { connection: 'OFFLINE', latched: null, stop_gen: null, applied: null }) as ScreenState;
+    expect(stopLine({ stop: { ...base, delivered: false }, state: on })).toEqual({ tone: 'bad', text: NO_WAY });
+    expect(stopLine({ stop: { ...base, delivered: false }, state: off })).toEqual({ tone: 'bad', text: NOT_SENT });
+    expect(stopLine({ stop: { ...base, phase: 'fallback', delivered: false }, state: on })).toEqual({ tone: 'bad', text: NO_WAY });
+    expect(stopLine({ stop: base, state: on })!.text).toContain('정지 요청 접수');
+  });
   it('[N2] 대체 경로로 넘어간 뒤 늦게 온 WS 거절은 무시(HTTP 결과를 따름)', async () => {
     mount(true, 'u-park', '#/drive/r7');
     serve(PARK, 'r7');
@@ -817,7 +919,7 @@ describe('PR #12 검토 1차', () => {
     act(() => FakeWS.last.drop(1006));                     // 열리기 전에 닫힘 = 브라우저가 HTTP 401/403 을 알리는 방식
     await settle();
     expect(lost).toHaveBeenCalled();
-    expect($('header [data-link]').textContent).toContain('연결 거부');
+    expect($('header [data-link], .bar [data-link]').textContent).toContain('연결 거부');
     tick(60_000);
     expect(FakeWS.all).toHaveLength(1);
     setAuthLost(() => {});
@@ -827,7 +929,7 @@ describe('PR #12 검토 1차', () => {
     mount(false, 'u-kim', '#/fleet');
     for (let i = 0; i < 6; i++) { act(() => FakeWS.last.drop(1006)); await settle(); tick(Math.min(10, 2 ** i) * 1000); }
     expect(FakeWS.all).toHaveLength(7);
-    expect($('header [data-link]').textContent).toContain('연결 끊김');
+    expect($('header [data-link], .bar [data-link]').textContent).toContain('연결 끊김');
     expect(band()).toContain('연결 재시도 중입니다');
     expect(band()).not.toContain('거부');
   });
@@ -835,7 +937,7 @@ describe('PR #12 검토 1차', () => {
     vi.stubGlobal('fetch', me(403));
     mount(false, 'u-kim', '#/fleet');
     act(() => FakeWS.last.drop(1006)); await settle();
-    expect($('header [data-link]').textContent).toContain('연결 거부');
+    expect($('header [data-link], .bar [data-link]').textContent).toContain('연결 거부');
     tick(60_000);
     expect(FakeWS.all).toHaveLength(1);
   });
@@ -844,7 +946,7 @@ describe('PR #12 검토 1차', () => {
     mount(false, 'u-kim', '#/fleet');
     tick(60_000);
     expect((f.mock.calls as unknown as [string][]).filter(([u]) => !/\/(dashboard|robots\/|notifications|events|sites)/.test(String(u)))).toEqual([]);   // 관제 요약·상세·알림·최근 사건·지도 칸 층 목록 말고 인증 확인(REST)은 0
-    expect($('header [data-link]').textContent).toContain('연결 끊김');
+    expect($('header [data-link], .bar [data-link]').textContent).toContain('연결 끊김');
     expect(FakeWS.all.length).toBeGreaterThan(3);
   });
   it('[B2] 수락 전 끊김이라도 REST 도 안 닿으면(서버·네트워크) 계속 다시 연결, 열린 뒤 끊김은 REST 확인 안 함', async () => {
@@ -869,7 +971,7 @@ describe('PR #12 검토 1차', () => {
     expect([a.readyState, b.readyState, c.readyState]).toEqual([3, 3, 0]);
     expect(a.onopen ?? b.onmessage ?? b.onclose).toBeNull();
     act(() => { a.open(); b.open(); });
-    expect($('header [data-link]').textContent).toContain('연결 끊김');   // 버린 소켓이 열려도 연결로 치지 않음
+    expect($('header [data-link], .bar [data-link]').textContent).toContain('연결 끊김');   // 버린 소켓이 열려도 연결로 치지 않음
     act(() => root?.unmount()); root = null;
     expect(FakeWS.all.every((x) => x.readyState === 3)).toBe(true);
   });
@@ -925,12 +1027,12 @@ describe('PR #12 검토 1차', () => {
     mount(true, 'u-park', '#/drive/r7');
     serve(PARK, 'r7');
     ready();
-    const shown = () => $('[aria-label="조종"] h2')?.textContent;
+    const shown = () => $('[aria-label="조종"] .u1-chip .chipnum')?.textContent;
     expect(shown()).toBe('Go2-7');
     act(() => root!.render(<App user={USERS.find((u) => u.id === 'u-park')} robots={[{ ...ROBOTS[2], owner: 'u-park' }, ...ROBOTS.slice(0, 2)]} />));
     expect(shown()).toBe('Go2-7');
     expect(w.of('hidden')).toHaveLength(0);
-    expect(text()).toContain('움직일 수 있음');
+    expect($('.u1-chip .u1-st')!.textContent).toBe('조종 중');
     act(() => root!.render(<App user={USERS.find((u) => u.id === 'u-park')} robots={[{ ...ROBOTS[2], owner: 'u-park' }, ROBOTS[0]]} />));   // r7 이 범위에서 빠지면 조종 화면을 닫고 로봇 연결로
     expect(location.hash).toBe('#/drive');
     expect($('[aria-label="조종"]')).toBeNull();
@@ -986,8 +1088,8 @@ describe('PR #12 검토 1차', () => {
     expect(card('Go2-7').textContent).toContain('로봇 상태를 확인하는 중입니다');
     act(() => push('r7'));
     click(card('Go2-7').querySelector('button')!);
-    expect(btn('조종 시작').disabled).toBe(false);
-    click(btn('조종 시작'));
+    expect(btn('조종').disabled).toBe(false);
+    click(btn('조종'));
     expect(text()).toContain('조종 중(나)');
     act(() => root!.render(<App user={USERS.find((u) => u.id === 'u-lee')} robots={ROBOTS} />));   // 다시 남의 로봇
     expect(end(w.of('sub'))).toMatchObject({ robots: ['r3', 'r1'] });
@@ -1021,10 +1123,10 @@ describe('PR #12 검토 1차', () => {
       if (m.t === 'lease.take') w.recv({ t: 'lease.result', robot: 'r7', request_id: null, result: 'CANCELED', error: 'STOP_REF_EXHAUSTED' });
       return { ok: true };
     };
-    click(btn('조종 시작'));
+    click(btn('조종'));
     expect(text()).toContain('로봇을 다시 연결해야 조종권을 줄 수 있습니다');
     expect(text()).not.toContain('조종권 넘기는 중');
-    expect(btn('조종 시작').disabled).toBe(false);
+    expect(btn('조종').disabled).toBe(false);
   });
 });
 
@@ -1036,7 +1138,7 @@ describe('S0 서버 후속(apps/server README «S0»)', () => {
     serve(KIM, 'r3', 'r7', 'r1');
     recv(lease('r7', PARK));
     w.auto = (m) => (m.t === 'lease.request' ? undefined : { ok: true });   // 요청의 답이 아직 안 옴
-    click(btn('조종 시작'));
+    click(btn('조종'));
     expect(text()).toContain('박OO님에게 요청했습니다.');
     click(btn('요청 취소'));
     expect(w.of('lease.cancel')).toMatchObject([{ robot: 'r7' }]);
@@ -1047,9 +1149,9 @@ describe('S0 서버 후속(apps/server README «S0»)', () => {
     expect(btn('요청 취소')).toBeUndefined();
     expect(text()).toContain('요청을 취소했습니다.');
     expect(text()).not.toContain('초 뒤 다시 요청할 수 있습니다');
-    expect(btn('조종 시작').disabled).toBe(false);
+    expect(btn('조종').disabled).toBe(false);
     w.auto = (m) => (m.t === 'lease.request' ? fail('LEASE_REQUEST_COOLDOWN', '30초 뒤 다시 요청하세요.') : { ok: true });
-    click(btn('조종 시작'));
+    click(btn('조종'));
     expect(text()).toContain('요청이 거절·시간 초과·취소로 끝난 뒤 30초 안에는 다시 요청할 수 없습니다.');
     expect(btn('요청 취소')).toBeUndefined();
     stopOn();
@@ -1064,7 +1166,7 @@ describe('S0 서버 후속(apps/server README «S0»)', () => {
     recv({ t: 'lease.result', robot: 'r7', request_id: 'q1', result: 'CANCELED' });
     expect(box.querySelector('[role="dialog"]')).toBeNull();
     expect(text()).toContain('요청이 취소되었습니다. 계속 조종합니다.');
-    expect(text()).toContain('움직일 수 있음');
+    expect($('.u1-chip .u1-st')!.textContent).toBe('조종 중');
     stopOn();
   });
 
@@ -1073,7 +1175,7 @@ describe('S0 서버 후속(apps/server README «S0»)', () => {
     serve(KIM, 'r3', 'r7', 'r1');
     recv(lease('r7', PARK));
     w.auto = (m) => (m.t === 'lease.cancel' ? fail('LEASE_REQUEST_STALE', '현재 연결의 요청이 끝났습니다.') : { ok: true });
-    click(btn('조종 시작'));
+    click(btn('조종'));
     click(btn('요청 취소'));
     expect(text()).toContain('요청이 이미 끝났습니다(넘겨받는 중이거나 거절·시간 초과). 지금 조종권 상태를 확인하세요.');
     expect(text()).not.toContain('LEASE_REQUEST_STALE');
@@ -1089,7 +1191,7 @@ describe('S0 서버 후속(apps/server README «S0»)', () => {
     expect(lastAxes()).toEqual([1.5, 0, 0]);
     w.auto = null;                                         // 서버가 말이 없어짐(ping·state 없음)
     let waited = 0;
-    while (!box.querySelector('header [data-link]') && waited < 4000) { tick(50); waited += 50; }
+    while (!box.querySelector('header [data-link], .bar [data-link]') && waited < 4000) { tick(50); waited += 50; }
     expect(waited).toBeGreaterThanOrEqual(2900);           // 3 s(0.25 s 간격 확인) 전에는 끊김으로 보지 않음
     expect(waited).toBeLessThanOrEqual(3300);
     expect(cmds().slice(-2).map((m) => String(m.axes))).toEqual(['1.5,0,0', '0,0,0']);   // 끊김 직전까지 조종, 끊으며 0
@@ -1097,7 +1199,7 @@ describe('S0 서버 후속(apps/server README «S0»)', () => {
     tick(2000);
     expect(cmds().length).toBe(n);                         // 그 뒤 cmd 0건(새 소켓에도)
     expect(FakeWS.all.slice(1).every((s) => s.of('cmd').length === 0)).toBe(true);
-    expect($('header [data-link]').textContent).toContain('연결 끊김');
+    expect($('header [data-link], .bar [data-link]').textContent).toContain('연결 끊김');
     stopOn();
   });
 
@@ -1106,7 +1208,7 @@ describe('S0 서버 후속(apps/server README «S0»)', () => {
     serve(KIM, 'r3', 'r7', 'r1');
     w.auto = null;
     for (let i = 0; i < 10; i++) { tick(1000); recv({ t: 'ping', t_server: new Date().toISOString() }); }
-    expect(box.querySelector('header [data-link]')).toBeNull();
+    expect(box.querySelector('header [data-link], .bar [data-link]')).toBeNull();
     expect(FakeWS.all).toHaveLength(1);
   });
 
@@ -1152,7 +1254,7 @@ describe('S0 서버 후속(apps/server README «S0»)', () => {
     mount(true, 'u-kim', '#/drive/r7');
     serve(KIM, 'r3', 'r7', 'r1');
     recv(lease('r7', PARK));
-    click(btn('조종 시작'));
+    click(btn('조종'));
     recv(lease('r7', null));                               // 조종권자가 넘기기 → 정지 확인 중
     expect(text()).toContain('로봇 정지를 확인한 뒤 조종권을 받습니다.');
     expect(btn('요청 취소').disabled).toBe(false);
@@ -1175,7 +1277,7 @@ describe('S0 서버 후속(apps/server README «S0»)', () => {
     recv({ t: 'lease.result', robot: 'r7', request_id: 'q1', result: 'CANCELED' });
     expect(text()).toContain(`요청자가 넘김을 취소했습니다. ${FREE_TEXT}`);
     expect(text()).not.toContain('계속 조종합니다');
-    expect(btn('조종 시작').disabled).toBe(false);
+    expect(btn('조종').disabled).toBe(false);
     stopOn();
   });
 
@@ -1183,7 +1285,7 @@ describe('S0 서버 후속(apps/server README «S0»)', () => {
     mount(true, 'u-kim', '#/drive/r7');
     serve(KIM, 'r3', 'r7', 'r1');
     recv(lease('r7', PARK));
-    click(btn('조종 시작'));
+    click(btn('조종'));
     recv(lease('r7', null));
     w.auto = (m) => (m.t === 'lease.cancel' ? undefined : { ok: true });
     click(btn('요청 취소'));
@@ -1200,7 +1302,7 @@ describe('S0 서버 후속(apps/server README «S0»)', () => {
     mount(true, 'u-kim', '#/drive/r7');
     serve(KIM, 'r3', 'r7', 'r1');
     w.auto = (m) => (m.t === 'lease.take' ? fail('SUBSCRIPTION_REQUIRED', '로봇 화면을 다시 열어 주세요.') : { ok: true });
-    click(btn('조종 시작'));
+    click(btn('조종'));
     expect(text()).toContain('목록을 새로 받은 뒤 로봇 화면을 다시 열어 주세요.');
     expect(text()).not.toContain('SUBSCRIPTION_REQUIRED');
     stopOn();
@@ -1288,7 +1390,7 @@ describe('Space 와 글 입력칸', () => {
     mount(true, 'u-lee', '#/drive/r3');
     serve(LEE, 'r3', 'r1');
     recv(lease('r3', { id: null, name: '', type: 'RUN' }));
-    click(btn('조종 시작'));
+    click(btn('조종'));
     const go = btn('일시정지하고 조종'); go.focus();
     key('keydown', 'Space', go);
     expect([w.of('stop').length, w.of('lease.take').length]).toEqual([1, 0]);   // 확인창 단추는 눌리지 않음
@@ -1307,12 +1409,12 @@ describe('Space 와 글 입력칸', () => {
 
 // ADR-002 §3 폰 조종 앱 틀(시안 A): 로봇 연결 → 조종 → 시트 → 끝내기. STOP 은 어느 화면·시트에서도 머리줄 맨 오른쪽
 describe('폰 조종 앱 틀', () => {
-  const SHEETS = ['자세', '시나리오', '지도·목표', '정책'];
+  const SHEETS = ['시나리오', '지도·목표', '정책'];   // 「자세」 시트는 아래 동작 일곱(시안 u1 .act)이 대신함
   const stopBtn = () => $<HTMLButtonElement>('[data-stop]');
   /** STOP: 머리줄 맨 끝, 시트 밖, 누를 수 있음, 64 px 이상 */
   const stopReachable = () => {
     expect(stopBtn().parentElement!.tagName).toBe('HEADER');
-    expect($('header').lastElementChild).toBe(stopBtn());
+    expect($('header, .bar .rt').lastElementChild).toBe(stopBtn());
     expect(stopBtn().closest('[data-sheet]')).toBeNull();
     expect(stopBtn().disabled).toBe(false);
     expect(parseInt(stopBtn().style.minHeight)).toBeGreaterThanOrEqual(64);
@@ -1346,7 +1448,7 @@ describe('폰 조종 앱 틀', () => {
   });
   /** 전후 조이스틱(120 px 상자): 위 6.6 px = 스틱 0.89(실기 표 값 1.5). 포인터 잡기·놓기를 기록한다 */
   const grip = () => {
-    const el = $('[aria-label="전후 조이스틱"]'), held = new Set<number>();
+    const el = $('[aria-label="이동 조이스틱"]'), held = new Set<number>();
     el.getBoundingClientRect = () => ({ top: 0, left: 0, width: 120, height: 120 }) as DOMRect;
     Object.assign(el, { setPointerCapture: (i: number) => held.add(i), hasPointerCapture: (i: number) => held.has(i), releasePointerCapture: (i: number) => held.delete(i) });
     return { el, held };
@@ -1354,9 +1456,9 @@ describe('폰 조종 앱 틀', () => {
   const FWD = 1.5;   // 0.89 는 문턱(0.5) 위 → 실기 표 값 1.5
   // [B1] 시트·⋯ 가 조이스틱을 가리는 네 경우: 열기·전환·닫기·⋯ 열기
   for (const [name, before, act_] of [
-    ['시트 열기', () => {}, () => click(btn('자세'))],
-    ['시트 전환', () => click(btn('자세')), () => click(btn('시나리오'))],
-    ['시트 닫기', () => click(btn('자세')), () => click(btn('닫기'))],
+    ['시트 열기', () => {}, () => click(btn('지도·목표'))],
+    ['시트 전환', () => click(btn('지도·목표')), () => click(btn('시나리오'))],
+    ['시트 닫기', () => click(btn('지도·목표')), () => click(btn('닫기'))],
     ['⋯ 열기', () => {}, () => { click($('summary[aria-label="더 보기"]')); tick(0); }],
   ] as const) it(`조이스틱·키를 누른 채 ${name} → 바로 입력 0, 옛 포인터·키를 모두 떼고 새로 누르기 전까지 0(RB-DRIVE-FRESH-PRESS)`, () => {
     mount(true, 'u-kim', '#/drive/r7');
@@ -1395,7 +1497,7 @@ describe('폰 조종 앱 틀', () => {
 
   // [r2 Y3] 시트를 연 같은 틀(다시 그리기·effect 전)에 옛 포인터가 움직여도 입력은 0
   for (const [name, open] of [
-    ['시트 열기', () => btn('자세').click()],
+    ['시트 열기', () => btn('지도·목표').click()],
     ['⋯ 열기', () => { const d = $<HTMLDetailsElement>('details.fh-more'); d.open = true; d.dispatchEvent(new Event('toggle')); }],
   ] as const) it(`${name}와 같은 틀에 옛 포인터 move → 다음 입력도 0`, () => {
     mount(true, 'u-kim', '#/drive/r7');
@@ -1530,10 +1632,10 @@ describe('폰 조종 앱 틀', () => {
     click(c().querySelector('button.pri')!);                // [연결] → 조종 화면
     expect($('main').getAttribute('aria-label')).toBe('조종');
     expect($('[data-end-fail]')).not.toBeNull();            // 조종 화면에서도 경고가 이어짐
-    expect(btn('조종 시작').disabled).toBe(true);
+    expect(btn('조종').disabled).toBe(true);
     expect($('[data-why]').textContent).toBe('반납 확인 못함 — [다시 시도]');   // [r3 R11] 머리줄과 같은 말, 짧게
     const took = w.of('lease.take').length;
-    click(btn('조종 시작'));
+    click(btn('조종'));
     expect(w.of('lease.request')).toHaveLength(0);
     expect(w.of('lease.take')).toHaveLength(took);
     toConnect();
@@ -1543,7 +1645,7 @@ describe('폰 조종 앱 틀', () => {
     expect(c().querySelector('[data-releasing]')).toBeNull();
     expect(c().textContent).toContain('조종하는 사람 없음');
     click(c().querySelector('button.pri')!);
-    click(btn('조종 시작'));
+    click(btn('조종'));
     expect(w.of('lease.take')).toHaveLength(took + 1);
   });
 
@@ -1619,9 +1721,9 @@ describe('폰 조종 앱 틀', () => {
     expect(card('Go2-7').querySelector('[data-releasing]')).not.toBeNull();
     expect(card('Go2-7').textContent).toContain('이 창 — 반납 확인 중');
     click([...card('Go2-7').querySelectorAll('button')].pop()!);
-    expect(btn('조종 시작').disabled).toBe(true);
+    expect(btn('조종').disabled).toBe(true);
     const took = w.of('lease.take').length;
-    click(btn('조종 시작'));
+    click(btn('조종'));
     expect(w.of('lease.request')).toHaveLength(0);
     expect(w.of('lease.take')).toHaveLength(took);
     srv.answer();                                           // 서버가 반납을 확인하면 그때 풀림
@@ -1641,7 +1743,7 @@ describe('폰 조종 앱 틀', () => {
     recv(lease('r7', null));                                // A: 서버 만료 → 반납 완료
     expect(location.hash).toBe('#/drive');
     click([...card('Go2-7').querySelectorAll('button')].pop()!);
-    click(btn('조종 시작'));                                  // 같은 로봇의 새 lease B(잠금은 이미 풀려 있음)
+    click(btn('조종'));                                  // 같은 로봇의 새 lease B(잠금은 이미 풀려 있음)
     const b = rt.get('r7').lease!;
     expect(b).toBeTruthy();
     expect(b).not.toBe(la);
@@ -1654,7 +1756,7 @@ describe('폰 조종 앱 틀', () => {
     tick(3000);
     recv({ t: 'reply', id: a, ok: true });
     expect($('[data-end-fail]')).not.toBeNull();
-    expect(btn('조종 시작').disabled).toBe(true);
+    expect(btn('조종').disabled).toBe(true);
     recv({ t: 'reply', id: pending[1], ok: true });         // B 확인
     expect(location.hash).toBe('#/drive');
     expect(rt.get('r7').releasing).toBeNull();
@@ -1670,7 +1772,7 @@ describe('폰 조종 앱 틀', () => {
     tick(3000);
     recv(lease('r7', null));                                // A: 서버 만료 → 반납 완료
     click([...card('Go2-7').querySelectorAll('button')].pop()!);
-    click(btn('조종 시작'));                                  // 새 lease B
+    click(btn('조종'));                                  // 새 lease B
     const b = rt.get('r7').lease!;
     click(endBtn());
     const mismatch = { t: 'reply', id: a, ...fail('LEASE_MISMATCH', '현재 연결의 조종권이 아닙니다.') };
@@ -1681,7 +1783,7 @@ describe('폰 조종 앱 틀', () => {
     tick(3000);
     recv(mismatch);
     expect($('[data-end-fail]')).not.toBeNull();
-    expect(btn('조종 시작').disabled).toBe(true);
+    expect(btn('조종').disabled).toBe(true);
     recv({ t: 'reply', id: pending[1], ok: true });         // B 확인
     expect(location.hash).toBe('#/drive');
     expect(rt.get('r7').releasing).toBeNull();
@@ -1746,6 +1848,7 @@ describe('폰 조종 앱 틀', () => {
       expect(sheet.parentElement!.classList.contains('dv-stage')).toBe(true);
       expect(btn(s).getAttribute('aria-expanded')).toBe('true');
       if (s === '시나리오') expect(sheet.textContent).toContain('시나리오 고르기');   // 이 층 시나리오 고르기(screens/missions ScenarioPick — 목록·실행 비활성은 scenpick.test)
+      else if (s === '정책') expect(sheet.querySelectorAll('[data-gait]')).toHaveLength(4);   // 걷기 모드 칸(u03 · gait.test)
       else expect(sheet.textContent).toContain('준비 중');
       stopReachable();
     }
@@ -1763,12 +1866,14 @@ describe('폰 조종 앱 틀', () => {
   it('배치(시안 A): 시트·조이스틱은 영상 칸 안 절대 위치, 왼쪽 = 전후·오른쪽 = 회전, 머리줄은 위에 붙고 시트보다 위', () => {
     mount(true, 'u-kim', '#/drive/r7');
     serve(KIM, 'r7');
-    click(btn('조종 시작'));
+    click(btn('조종'));
     const stage = $('.dv-stage');
-    expect(stage.querySelector('.dv-stick.v')!.getAttribute('aria-label')).toBe('전후 조이스틱');
+    expect(stage.querySelector('.dv-stick.v')!.getAttribute('aria-label')).toBe('이동 조이스틱');
     expect(stage.querySelector('.dv-stick.h')!.getAttribute('aria-label')).toBe('회전 조이스틱');
-    expect(stage.querySelector('.dv-hud')).not.toBeNull();
-    expect(stage.querySelector('.dv-sheets')!.querySelectorAll('button')).toHaveLength(4);
+    expect(stage.querySelector('.proto.u1d')).not.toBeNull();   // 폰 실기 조종 화면 상태 판 = 시안 u1 겹(옛 .dv-hud 대신)
+    expect(stage.querySelector('.dv-stick.v')!.closest('.u1d')).not.toBeNull();
+    expect([...stage.querySelector('.dv-sheets')!.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['시나리오', '지도·목표', '정책']);   // 「자세」 는 아래 동작 일곱이 대신
+    expect(stage.querySelectorAll('.u1d .act button')).toHaveLength(7);
     const rule = (css: string, sel: string) => css.match(new RegExp(`(?:^|[}\\n])${sel.replace(/[.()]/g, '\\$&')}\\{([^}]*)\\}`))?.[1] ?? '';
     expect(rule(driveCss, '.dv-stage')).toMatch(/position:relative;.*overflow:hidden/);
     expect(rule(driveCss, '.fh-sheet')).toMatch(/^position:absolute;/);
@@ -1848,7 +1953,7 @@ describe('폰 조종 앱 틀', () => {
       if (link === '연결 끊김') { w.auto = null; tick(3000); } else act(() => w.drop(4403));
     }
     const dot = $('header .fh-dot');
-    expect(dot.querySelector('i')!.getAttribute('aria-hidden')).toBe('true');
+    expect(dot.querySelector('i, svg')!.getAttribute('aria-hidden')).toBe('true');
     expect(dot.querySelector('.fh-dot-t')!.textContent).toBe(link);   // 화면 읽기는 그대로 «연결 끊김»
     expect(dot.title).toBe(link);
     stopReachable();
@@ -1868,23 +1973,25 @@ describe('폰 조종 앱 틀', () => {
   });
 });
 
-// 10-25 결정: 총괄 = 대시보드·지도·시나리오·시뮬. 실기 로봇은 조종·STOP 하지 않는다(실기 STOP 은 운영 관리자 폰, 서버도 403 ADMIN_NO_REAL_CONTROL). 시뮬 로봇은 총괄도
-describe('총괄 — 실기 조종·STOP 없음, 시뮬은 그대로', () => {
+// 11/28 결정(팀장 · 서버 #544 1 차): 총괄 = 모든 권한. 실기도 조종·STOP 한다(예전 10-25 «총괄은 실기 조종·STOP 없음»을 대체). 시뮬 판정(내가 띄운 시뮬만)은 그대로.
+// 서버 관문(PHONE_DIRECT_REQUIRED · 연결 확인 · 조종권 하나 · 잠금)은 화면이 우회하지 않는다 · 서버 문구 그대로(tests/admin.test.tsx)
+describe('총괄 · 실기도 조종·STOP(11/28), 시뮬은 그대로', () => {
   // 떠 있는 시뮬 = 서버가 담당을 띄운 사람(총괄 김OO)으로 둔다. 담당 없는 IDLE 슬롯은 PC STOP 후보가 아니다(simtab.test)
   const SIM: Robot = { id: 's1', name: '시뮬 로봇 1', owner: 'u-kim', battery: 90, online: true, seenAt: '14:05:20', status: 'IDLE', sim: true };
   const MIX = [ROBOTS[1], SIM];
-  const NO = '총괄 계정은 실기 로봇을 조종할 수 없습니다.';   // 서버 문구(화면이 바꾸지 않고 그대로 보임)
+  const NO = '실기 조종·STOP은 현장 폰에서 직접 하세요.';   // 서버 PHONE_DIRECT_REQUIRED 문구(화면이 바꾸지 않고 그대로 보임)
   const space = () => { key('keydown', 'Space', document.body); key('keyup', 'Space', document.body); };
   const again = (phone: boolean, hash: string, robots: Robot[]) => { act(() => root?.unmount()); box.remove(); mount(phone, ADMIN, hash, robots); serve(KIM, ...robots.map((r) => r.id)); };
 
-  it('조종 이유: 총괄 + 실기 = 총괄 문구, 총괄 + 시뮬 = 조종 가능, 운영 관리자는 그대로', () => {
-    expect(driveBlock(USERS[0], ROBOTS[1])).toBe(ADMIN_REAL);
+  it('조종 이유: 총괄 + 실기 = 조종 가능, 총괄 + 시뮬 = 조종 가능, 운영 관리자는 그대로', () => {
+    expect(driveBlock(USERS[0], ROBOTS[1])).toBeNull();
     expect(driveBlock(USERS[0], SIM)).toBeNull();
     expect(driveBlock(USERS[2], ROBOTS[1])).toBeNull();   // 박OO 의 Go2-7
+    expect(driveBlock(USERS[1], ROBOTS[1])).not.toBeNull();   // 이OO 는 남의 로봇
   });
 
-  // TAB-SPLIT(11-10): 로봇 탭 = 실기만 — 시뮬 행이 없어 총괄은 이 탭에서 STOP 없음, 시뮬 STOP 은 다른 탭 고르기(아래)·시뮬 탭
-  it('PC 로봇 탭: 실기를 고르면 STOP 단추·Space 없음, 대시보드 값은 그대로. 시뮬 행은 없음', () => {
+  // TAB-SPLIT(11-10): 로봇 탭 = 실기만 · 시뮬 행 없음. 11/28: 실기를 고르면 머리줄 STOP·Space = 그 실기
+  it('PC 로봇 탭: 실기를 고르면 STOP·Space = 그 실기, 대시보드 값은 그대로. 시뮬 행은 없음, 서버가 허용하지 않은 실기는 조종 시작 없음', () => {
     mount(false, ADMIN, '#/fleet', MIX);
     serve(KIM, 'r7', 's1');
     expect(row('Go2-7').getAttribute('aria-pressed')).toBe('true');
@@ -1892,16 +1999,17 @@ describe('총괄 — 실기 조종·STOP 없음, 시뮬은 그대로', () => {
     expect($('[aria-label="로봇 상세"]')).toBeNull();   // 총괄: 상세는 행을 누르면 여는 서랍(03 §5.1)
     click(row('Go2-7'));
     expect($('[aria-label="로봇 상세"]').textContent).toContain('박OO');
-    expect(box.querySelector('[data-stop]')).toBeNull();
-    expect(btn('조종 시작')).toBeUndefined();
+    click($('[data-stop]'));
+    expect(w.of('stop').map((m) => m.robot)).toEqual(['r7']);
+    expect(btn('조종')).toBeUndefined();   // serverDrive 없음 = 서버가 아직 허용하지 않음
     space();
-    expect(w.of('stop')).toHaveLength(0);
+    expect(w.of('stop').map((m) => m.robot)).toEqual(['r7', 'r7']);
     expect(row('시뮬 로봇 1')).toBeUndefined();
     expect(w.of('lease.take')).toHaveLength(0);
   });
 
   // REVIEW-315 1(P1): 로봇 탭은 실기만 보여도 총괄이 고른 자기 시뮬(직결 없음 — sim.live() 아님)은 고른 채로 둔다 — 머리줄 STOP·Space = 그 시뮬(ed3af3e 와 같은 대상)
-  it('PC 총괄 + 실기 + 자기 시뮬(직결 없음): 시뮬을 고른 채 기록 → 로봇 탭이면 STOP·Space = 그 시뮬, 실기 행을 누르면 STOP 없음', () => {
+  it('PC 총괄 + 실기 + 자기 시뮬(직결 없음): 시뮬을 고른 채 기록 → 로봇 탭이면 STOP·Space = 그 시뮬, 실기 행을 누르면 STOP = 그 실기', () => {
     mount(false, ADMIN, '#/history', [SIM, ROBOTS[1]]);   // 첫 로봇 = 시뮬 → App 의 고른 로봇
     serve(KIM, 's1', 'r7');
     act(() => { location.hash = '#/fleet'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
@@ -1912,40 +2020,47 @@ describe('총괄 — 실기 조종·STOP 없음, 시뮬은 그대로', () => {
     expect(w.of('stop').map((m) => m.robot)).toEqual(['s1']);
     space();
     expect(w.of('stop').map((m) => m.robot)).toEqual(['s1', 's1']);
-    click(row('Go2-7'));   // 실기를 고르면 총괄은 STOP 없음(10-25, 기존 그대로)
-    expect(box.querySelector('[data-stop]')).toBeNull();
+    click(row('Go2-7'));   // 11/28: 실기를 고르면 총괄도 STOP = 그 실기
     space();
-    expect(w.of('stop')).toHaveLength(2);
+    expect(w.of('stop').map((m) => m.robot)).toEqual(['s1', 's1', 'r7']);
     expect(w.of('lease.take')).toHaveLength(0);
   });
 
-  it('PC 다른 탭: STOP 고르기는 시뮬 로봇만, 시뮬이 없으면 STOP·Space 없음', () => {
-    mount(false, ADMIN, '#/mission', MIX);
-    serve(KIM, 'r7', 's1');
+  // #547 검토 5: 실기와 남이 띄운 시뮬이 함께 있으면 실기만 후보(남의 시뮬은 빠짐) · PC · 폰 같음
+  for (const phone of [false, true]) it(`${phone ? '폰' : 'PC'} 총괄 + 실기 둘 + 남이 띄운 시뮬: STOP 고르기는 실기만, 남의 시뮬로 정지 안 보냄`, () => {
+    const OTHER: Robot = { ...SIM, id: 's9', name: '남의 시뮬', owner: 'u-lee', demo: false };   // 사용자 시뮬(데모 아님 · 22:04)
+    mount(phone, ADMIN, phone ? '#/drive' : '#/mission', [ROBOTS[0], ROBOTS[1], OTHER]);
+    serve(KIM, 'r3', 'r7', 's9');
     click($('[data-stop]'));
     const pick = $<HTMLSelectElement>('select[aria-label="정지할 로봇"]');
-    expect([...pick.options].map((o) => o.value)).toEqual(['', 's1']);
-    again(false, '#/mission', [ROBOTS[0], ROBOTS[1]]);
-    expect(box.querySelector('[data-stop]')).toBeNull();
-    space();
-    expect(w.of('stop')).toHaveLength(0);
+    expect([...pick.options].map((o) => o.value)).toEqual(['', 'r3', 'r7']);
+    expect(w.of('stop').map((m) => m.robot)).not.toContain('s9');
   });
 
-  // PR #94 B1: 고르기를 연 채 유일한 시뮬이 목록에서 빠지거나(지움) 실기로 바뀌면 고르기·«정지» 도 사라진다(STOP 경로 0)
-  for (const [how, after] of [['지움', [ROBOTS[1]]], ['실기로 바뀜', [ROBOTS[1], { ...SIM, sim: false }]]] as const) it(`[PR #94 B1] PC 고르기 연 채 유일한 시뮬이 ${how} → 고르기·정지 단추 없음`, () => {
+  it('PC 다른 탭: STOP 고르기는 실기 + 내 시뮬, 실기만 있어도 STOP', () => {
     mount(false, ADMIN, '#/mission', MIX);
     serve(KIM, 'r7', 's1');
     click($('[data-stop]'));
     const pick = $<HTMLSelectElement>('select[aria-label="정지할 로봇"]');
-    act(() => { pick.value = 's1'; pick.dispatchEvent(new Event('change', { bubbles: true })); });
-    act(() => root!.render(<App {...as(ADMIN, [...after])} />));
-    expect(box.querySelector('[aria-label="정지할 로봇 고르기"]')).toBeNull();
-    expect(box.querySelector('[data-stop]')).toBeNull();
-    space();
-    expect(w.of('stop')).toHaveLength(0);
-    act(() => root!.render(<App {...as(ADMIN, MIX)} />));   // 시뮬이 돌아와도 닫힌 고르기가 저절로 열리지 않음
-    expect(box.querySelector('[aria-label="정지할 로봇 고르기"]')).toBeNull();
+    expect([...pick.options].map((o) => o.value)).toEqual(['', 'r7', 's1']);
+    again(false, '#/mission', [ROBOTS[0], ROBOTS[1]]);
     expect(box.querySelector('[data-stop]')).not.toBeNull();
+  });
+
+  // PR #94 B1: 고르기를 연 채 고른 시뮬이 목록에서 빠지면 그 시뮬로 정지를 보내지 않는다. 11/28: 남은 실기는 총괄도 STOP 후보
+  it('[PR #94 B1] PC 고르기에서 시뮬을 고른 채 그 시뮬이 지워짐 → 그 시뮬로 정지 안 보냄, 남은 실기는 정지', () => {
+    mount(false, ADMIN, '#/mission', MIX);
+    serve(KIM, 'r7', 's1');
+    click($('[data-stop]'));
+    const pick = () => $<HTMLSelectElement>('select[aria-label="정지할 로봇"]');
+    act(() => { pick().value = 's1'; pick().dispatchEvent(new Event('change', { bubbles: true })); });
+    act(() => root!.render(<App {...as(ADMIN, [ROBOTS[1]])} />));
+    space();
+    expect(w.of('stop')).toHaveLength(0);   // 고른 시뮬이 없어져 고르기 전으로(운영 관리자와 같음)
+    expect([pick().value, ...[...pick().options].map((o) => o.value)]).toEqual(['', '', 'r7']);
+    act(() => { pick().value = 'r7'; pick().dispatchEvent(new Event('change', { bubbles: true })); });
+    click(btn('정지'));
+    expect(w.of('stop').map((m) => m.robot)).toEqual(['r7']);
   });
 
   it('[PR #94 B1] 운영 관리자는 같은 상황에서 STOP 그대로: 분류가 바뀌어도 고른 로봇 정지, 고른 로봇이 지워지면 고르기 전으로·다른 로봇 정지', () => {
@@ -1968,27 +2083,28 @@ describe('총괄 — 실기 조종·STOP 없음, 시뮬은 그대로', () => {
     expect(w.of('stop').map((m) => m.robot)).toEqual(['s1', 'r3']);
   });
 
-  it('폰 로봇 연결: 실기 카드 없음(시뮬만), 실기 주소는 열지 않고 이유, 조종권 요청 없음', () => {
+  it('폰 로봇 연결: 실기 카드도 «연결», 실기 조종 화면에서 조종 시작 = 조종권 요청(서버 답 전에는 조종 중 아님)', () => {
     mount(true, ADMIN, '#/drive', MIX);
     serve(KIM, 'r7', 's1');
-    expect([...box.querySelectorAll('.dv-card b')].map((b) => b.textContent)).toEqual(['시뮬 로봇 1']);
-    expect(box.querySelector('[data-stop]')).not.toBeNull();   // 시뮬 한 대 = STOP 대상
+    expect([...box.querySelectorAll('.dv-card b')].map((b) => b.textContent)).toEqual(['Go2-7', '시뮬 로봇 1']);
+    expect(box.querySelector('[data-stop]')).not.toBeNull();
     again(true, '#/drive/r7', MIX);
-    expect(band()).toContain(ADMIN_REAL);
-    expect(location.hash).toBe('#/drive');
-    expect(btn('조종 시작')).toBeUndefined();
+    expect(location.hash).toBe('#/drive/r7');
+    w.auto = () => {};   // 서버 답 없음
+    click(btn('조종'));
+    expect(w.of('lease.take').map((m) => m.robot)).toEqual(['r7']);
+    expect(text()).not.toContain('조종 중(나)');
     again(true, '#/drive', [ROBOTS[1]]);
-    expect(text()).toContain(`${ADMIN_REAL} 시뮬 로봇은 아래 «시뮬 로봇 띄우기»에서 조종합니다.`);
-    expect(box.querySelector('[data-stop]')).toBeNull();
+    expect(box.querySelector('[data-stop]')).not.toBeNull();
     space();
-    expect([w.of('stop').length, w.of('lease.take').length]).toEqual([0, 0]);
+    expect(w.of('stop').map((m) => m.robot)).toEqual(['r7']);
   });
 
-  // PR #99: 폰 총괄도 PC 와 같은 판정 — 담당 없는 IDLE 슬롯·남이 띄운 시뮬은 STOP 후보가 아니다(한 대면 대상, 여러 대면 고르기 둘 다). 운영자 STOP 은 늘
+  // PR #99: 폰 총괄도 PC 와 같은 판정 · 담당 없는 IDLE 슬롯·남이 띄운 시뮬은 STOP 후보가 아니다. 11/28: 실기가 있으면 총괄도 STOP(시뮬 판정만 보려고 실기 없이)
   it('폰 총괄 + IDLE 시뮬 슬롯만 → STOP·Space 없음, 내가 띄운 시뮬이면 STOP, 운영자는 늘 STOP', () => {
     const IDLE = { ...SIM, owner: '' };
     mount(true, ADMIN, '#/drive', MIX);
-    for (const robots of [[ROBOTS[1], IDLE], [IDLE, { ...IDLE, id: 's2', name: '시뮬 로봇 2', owner: 'u-lee' }]]) {
+    for (const robots of [[IDLE], [IDLE, { ...IDLE, id: 's2', name: '시뮬 로봇 2', owner: 'u-lee', demo: false }]]) {
       again(true, '#/drive', robots);
       expect(box.querySelector('[data-stop]')).toBeNull();
       space();
@@ -2003,17 +2119,17 @@ describe('총괄 — 실기 조종·STOP 없음, 시뮬은 그대로', () => {
     expect(w.of('stop').map((m) => m.robot)).toEqual(['r7']);
   });
 
-  // PR #99: 폰 «내 로봇»도 같은 판정 — 끝낸 시뮬 슬롯(담당 없음)은 빼고 내가 띄운 시뮬은 보인다
-  it('폰 총괄 «내 로봇»: IDLE 시뮬 슬롯은 없음, 내가 띄운 시뮬은 보임', () => {
+  // PR #99: 폰 «내 로봇»도 같은 판정 · 끝낸 시뮬 슬롯(담당 없음)은 빼고 내가 띄운 시뮬은 보인다. 11/28: 실기도 보인다
+  it('폰 총괄 «내 로봇»: IDLE 시뮬 슬롯은 없음, 실기와 내가 띄운 시뮬은 보임', () => {
     mount(true, ADMIN, '#/drive', [ROBOTS[1], { ...SIM, id: 's2', name: '시뮬 로봇 2', owner: '' }, SIM]);
-    expect([...box.querySelectorAll('.dv-card b')].map((b) => b.textContent)).toEqual(['시뮬 로봇 1']);
+    expect([...box.querySelectorAll('.dv-card b')].map((b) => b.textContent)).toEqual(['Go2-7', '시뮬 로봇 1']);
   });
 
-  it('서버 403 ADMIN_NO_REAL_CONTROL: STOP(실시간) 은 서버 문구로 «보내지 못함», 대체 경로로 다시 보내지 않음. 조종권도 한 번만', () => {
+  it('서버 403 PHONE_DIRECT_REQUIRED: STOP(실시간) 은 서버 문구로 «보내지 못함», 대체 경로로 다시 보내지 않음. 조종권도 한 번만', () => {
     const f = vi.fn((_u: RequestInfo | URL) => new Promise<Response>(() => {})); vi.stubGlobal('fetch', f);   // 답 없음 — 대체 경로로 STOP 을 보내는지만 셈
     mount(false, ADMIN, '#/fleet', [SIM]);
     serve(KIM, 's1');
-    w.auto = (m) => (m.t === 'stop' || m.t === 'lease.take' ? fail('ADMIN_NO_REAL_CONTROL', NO) : { ok: true });
+    w.auto = (m) => (m.t === 'stop' || m.t === 'lease.take' ? fail('PHONE_DIRECT_REQUIRED', NO) : { ok: true });
     click($('[data-stop]'));
     tick(STOP_WS_MS + STOP_HTTP_MS);
     expect(band()).toContain(`시뮬 로봇 1 정지 요청을 보내지 못했습니다. ${NO}`);
@@ -2024,8 +2140,8 @@ describe('총괄 — 실기 조종·STOP 없음, 시뮬은 그대로', () => {
     expect(w.of('lease.take')).toHaveLength(1);
   });
 
-  it('서버 403 ADMIN_NO_REAL_CONTROL(대체 경로 HTTP): 서버 문구로 «보내지 못함», 다시 보내지 않음', async () => {
-    const f = vi.fn(async (_u: RequestInfo | URL) => new Response(JSON.stringify({ error: { code: 'ADMIN_NO_REAL_CONTROL', message: NO, detail: {} } }), { status: 403 }));
+  it('서버 403 PHONE_DIRECT_REQUIRED(대체 경로 HTTP): 서버 문구로 «보내지 못함», 다시 보내지 않음', async () => {
+    const f = vi.fn(async (_u: RequestInfo | URL) => new Response(JSON.stringify({ error: { code: 'PHONE_DIRECT_REQUIRED', message: NO, detail: {} } }), { status: 403 }));
     vi.stubGlobal('fetch', f);
     mount(false, ADMIN, '#/fleet', [SIM]);
     serve(KIM, 's1');
@@ -2079,7 +2195,7 @@ describe('전체화면(⋯ 메뉴)', () => {
     tick(100);
     expect(lastAxes()).toEqual([1.5, 0, 0]);
     expect([w.of('lease.release'), w.of('hidden'), w.of('stop')].map((a) => a.length)).toEqual([0, 0, 0]);
-    expect($('header').lastElementChild).toBe($('[data-stop]'));
+    expect($('header, .bar .rt').lastElementChild).toBe($('[data-stop]'));
     click($('[data-stop]'));
     expect(w.of('stop')).toHaveLength(1);
   });
@@ -2096,7 +2212,7 @@ describe('전체화면(⋯ 메뉴)', () => {
     act(() => push('r7', { speed: 0.1 }));
     expect($('[data-full-tip]')).toBeNull();
     expect($('[data-layout]').hasAttribute('data-drive')).toBe(true);
-    expect($('header').lastElementChild).toBe($('[data-stop]'));
+    expect($('header, .bar .rt').lastElementChild).toBe($('[data-stop]'));
   });
 
   it('아이폰(요소 전체화면 없음): 단추 없이 «홈 화면에 추가» 안내, 홈 화면 앱으로 열렸으면 안내도 없음 — STOP 그대로', () => {
@@ -2108,7 +2224,7 @@ describe('전체화면(⋯ 메뉴)', () => {
     act(() => push('r7', { speed: 0.1 }));
     expect($('[data-full]')).toBeNull();
     expect($('[data-full-tip]').textContent).toContain('홈 화면에 추가');
-    expect($('header').lastElementChild).toBe($('[data-stop]'));
+    expect($('header, .bar .rt').lastElementChild).toBe($('[data-stop]'));
   });
 
   it('좁은 창(768 미만): 마우스 쓰는 총괄은 PC 틀(지도 탭 그대로), 손가락 입력 총괄·운영자는 폰 틀 (11-11 현민님)', () => {
@@ -2131,32 +2247,103 @@ describe('폰 실기 조종 = 서버 명령표', () => {
   afterEach(() => { act(() => simTune(null)); });
   const SD = ROBOTS.map((r) => (r.id === 'r7' ? { ...r, serverDrive: true } : r));
   const sticks = () => {
-    const fwd = $('[aria-label="전후 조이스틱"]'), turn = $('[aria-label="회전 조이스틱"]');
+    const fwd = $('[aria-label="이동 조이스틱"]'), turn = $('[aria-label="회전 조이스틱"]');
     for (const el of [fwd, turn]) el.getBoundingClientRect = () => ({ top: 0, left: 0, width: 120, height: 120 }) as DOMRect;
     return { fwd, turn };
   };
   const ptr = (el: Element, type: string, x = 60, y = 60) => act(() => { el.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y })); });
-  /** 전후 스틱 y(-1..1, 위 +)·회전 스틱 x(-1..1, 왼쪽 +) 로 누름 */
-  const fwdAt = (el: Element, y: number) => ptr(el, 'pointerdown', 60, 60 - y * 60);
+  /** 이동 손잡이 위치(x 오른쪽 + · y 위 +, -1..1) · 회전 손잡이 x(-1..1, 왼쪽 +) */
+  const moveTo = (el: Element, x: number, y: number, type = 'pointermove') => ptr(el, type, 60 + x * 60, 60 - y * 60);
+  const fwdAt = (el: Element, y: number) => moveTo(el, 0, y, 'pointerdown');
   const turnAt = (el: Element, x: number) => ptr(el, 'pointerdown', 60 - x * 60, 60);
   const open = (robots = SD) => { mount(true, 'u-park', '#/drive/r7', robots); serve(PARK, 'r7'); ready(); return sticks(); };
 
-  it('중간·최대 전진 → 1.5, 문턱 아래 → 0, 회전만 → ±MAX_TURN_RATE, 조합 → 표 값, 후진은 막음', () => {
+  it('손잡이(팀장 11-28 17:33 · PC 로봇 탭과 같은 stickTok): 왼쪽 = 앞 · 뒤 · 옆, 오른쪽 = 돌기, 큰 축 하나 · 문턱 0.3, 표 값만', () => {
     const { fwd, turn } = open();
     expect(text()).toContain(REAL_STICK);
     fwdAt(fwd, 0.6); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);
-    ptr(fwd, 'pointermove', 60, 0); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);
-    ptr(fwd, 'pointermove', 60, 60 - 0.3 * 60); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
-    ptr(fwd, 'pointerup'); turnAt(turn, 1); tick(100); expect(lastAxes()).toEqual([0, 0, MAX_TURN_RATE]);
+    moveTo(fwd, 0, 1); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);
+    moveTo(fwd, 0, 0.2); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);          // 문턱 0.3 아래 = 0
+    moveTo(fwd, 0, 0.4); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);
+    moveTo(fwd, 0, -1); tick(100); expect(lastAxes()).toEqual([-1.5, 0, 0]);        // 뒤(조직 뒤 상한 안)
+    expect(text()).not.toContain('후진은 아직 지원하지 않습니다');
+    moveTo(fwd, -1, 0); tick(100); expect(lastAxes()).toEqual([0, 1, 0]);          // 왼쪽 옆걸음
+    moveTo(fwd, 1, 0); tick(100); expect(lastAxes()).toEqual([0, -1, 0]);
+    moveTo(fwd, -0.5, 0.8); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);    // 대각 = 큰 축 하나
+    moveTo(fwd, -0.8, 0.5); tick(100); expect(lastAxes()).toEqual([0, 1, 0]);
+    ptr(fwd, 'pointerup'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    turnAt(turn, 1); tick(100); expect(lastAxes()).toEqual([0, 0, MAX_TURN_RATE]);
     ptr(turn, 'pointermove', 120, 60); tick(100); expect(lastAxes()).toEqual([0, 0, -MAX_TURN_RATE]);
-    fwdAt(fwd, 1); tick(100); expect(lastAxes()).toEqual([1.5, 0, -MAX_TURN_RATE]);
-    ptr(turn, 'pointermove', 0, 60); tick(100); expect(lastAxes()).toEqual([1.5, 0, MAX_TURN_RATE]);
+    ptr(turn, 'pointermove', 60, 0); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);   // 오른쪽은 가로만
+    ptr(turn, 'pointermove', 0, 60);
+    fwdAt(fwd, 1); tick(100); expect(lastAxes()).toEqual([1.5, 0, MAX_TURN_RATE]);   // 앞 + 돌기 = 표 조합
+    moveTo(fwd, -1, 0); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);         // 옆 + 돌기 = 표 밖 → 0 + 까닭
+    expect(text()).toContain(COMBO_BLOCK);
     ptr(fwd, 'pointerup'); ptr(turn, 'pointerup'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
-    fwdAt(fwd, -1); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
-    expect(text()).toContain('후진은 아직 지원하지 않습니다');
-    ptr(fwd, 'pointerup');
+    expect(text()).not.toContain(COMBO_BLOCK);
+    act(() => simTune({ ...ORG, real_max_vy: 0 }));
+    moveTo(fwd, -1, 0, 'pointerdown'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    expect(text()).toContain(SIDE_BLOCK);
+    ptr(fwd, 'pointerup'); tick(100); expect(text()).not.toContain(SIDE_BLOCK);
+    act(() => simTune({ ...ORG, real_max_vx_back: 0 }));
+    moveTo(fwd, 0, -1, 'pointerdown'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    expect(text()).toContain(CAP_BLOCK);
+    ptr(fwd, 'pointerup'); tick(100); expect(text()).not.toContain(CAP_BLOCK);
+    key('keydown', 'KeyS'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);   // 키 S · ↓ 도 같은 규칙: 뒤 상한 0 이면 0 + 까닭
+    expect(text()).toContain(CAP_BLOCK);
+    key('keyup', 'KeyS'); tick(100); expect(text()).not.toContain(CAP_BLOCK);
+    act(() => simTune(ORG));
+    key('keydown', 'ArrowDown'); tick(100); expect(lastAxes()).toEqual([-1.5, 0, 0]);   // 상한 안이면 뒤로(팀장 11-28 17:33 「다 지원」)
+    expect(text()).not.toContain(CAP_BLOCK);
+    key('keyup', 'ArrowDown');
     key('keydown', 'KeyW'); key('keydown', 'KeyD'); tick(100); expect(lastAxes()).toEqual([1.5, 0, -MAX_TURN_RATE]);   // 키도 같은 표
     key('keyup', 'KeyW'); key('keyup', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+  });
+
+  it('키(11-28 17:25): A / D = 회전, ← / → = 옆걸음 표 값 ±1(조직 옆 상한이 허락할 때), Q · E 없음, ←+→·창 밖 = 0, 옆 상한 0 이면 0 + 까닭', () => {
+    open();
+    key('keydown', 'KeyA'); tick(100); expect(lastAxes()).toEqual([0, 0, MAX_TURN_RATE]);
+    key('keyup', 'KeyA'); key('keydown', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, -MAX_TURN_RATE]);
+    key('keyup', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    key('keydown', 'KeyQ'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]); key('keyup', 'KeyQ');   // Q · E 는 뺌
+    key('keydown', 'KeyE'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]); key('keyup', 'KeyE');
+    key('keydown', 'ArrowLeft'); tick(100); expect(lastAxes()).toEqual([0, 1, 0]);
+    key('keyup', 'ArrowLeft'); key('keydown', 'ArrowRight'); tick(100); expect(lastAxes()).toEqual([0, -1, 0]);
+    key('keydown', 'ArrowLeft'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);   // 함께 누름 = 0
+    key('keyup', 'ArrowLeft'); key('keyup', 'ArrowRight'); key('keydown', 'ArrowLeft'); tick(100); expect(lastAxes()).toEqual([0, 1, 0]);
+    act(() => { window.dispatchEvent(new Event('blur')); }); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    key('keyup', 'ArrowLeft');
+    act(() => simTune({ ...ORG, real_max_vy: 0 }));
+    key('keydown', 'ArrowLeft'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    expect(text()).toContain(SIDE_BLOCK);
+    key('keyup', 'ArrowLeft'); tick(100); expect(text()).not.toContain(SIDE_BLOCK);
+  });
+
+  it('글 입력칸에 초점이면 조종 키(←·W)는 명령 0 · 글자는 막지 않음, 입력칸에서 누른 키는 뗄 때까지 0', () => {
+    open();
+    const input = document.createElement('input'); input.setAttribute('data-go2-ip', ''); document.body.append(input); input.focus();
+    for (const c of ['ArrowLeft', 'KeyW']) {
+      const e = new KeyboardEvent('keydown', { code: c, bubbles: true, cancelable: true });
+      act(() => { input.dispatchEvent(e); }); tick(100);
+      expect(e.defaultPrevented).toBe(false);
+      expect(lastAxes()).toEqual([0, 0, 0]);
+    }
+    key('keydown', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);   // 입력칸에서 누른 ←·W 가 남아 있는 동안 0
+    key('keyup', 'ArrowLeft', input); key('keyup', 'KeyW', input); key('keyup', 'KeyD'); input.remove();
+    key('keydown', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, -MAX_TURN_RATE]);
+    key('keyup', 'KeyD');
+  });
+  it('표에 없는 키 조합(W+← · A+← · A+D)은 0 + 까닭 한 줄, 떼면 사라짐', () => {
+    open();
+    for (const [a, b] of [['KeyW', 'ArrowLeft'], ['KeyA', 'ArrowLeft'], ['KeyA', 'KeyD']]) {
+      key('keydown', a); key('keydown', b); tick(100);
+      expect(lastAxes()).toEqual([0, 0, 0]);
+      expect(text()).toContain(COMBO_BLOCK);
+      key('keyup', b); key('keyup', a); tick(100);
+      expect(text()).not.toContain(COMBO_BLOCK);
+    }
+    key('keydown', 'KeyW'); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]); expect(text()).not.toContain(COMBO_BLOCK);
+    key('keyup', 'KeyW');
   });
 
   it('조직 상한·빠른 조종 끔이면 0, 표 값 밖 비례 값은 보내지 않음', () => {
@@ -2174,11 +2361,11 @@ describe('폰 실기 조종 = 서버 명령표', () => {
 
   it('잠금 해제 뒤 새 중립 전에는 0, 시트를 열면 0 이고 다시 눌러야 움직임', () => {
     mount(true, 'u-park', '#/drive/r7', SD); serve(PARK, 'r7');
-    click(btn('조종 시작'));
+    click(btn('조종'));
     key('keydown', 'KeyW'); tick(200); expect(lastAxes()).toEqual([0, 0, 0]);
-    click(btn('잠금 해제')); tick(200); expect(lastAxes()).toEqual([0, 0, 0]);
+    unlock(); tick(200); expect(lastAxes()).toEqual([0, 0, 0]);
     expect(text()).toContain('중립 확인 중');
-    key('keyup', 'KeyW'); tick(100); expect(text()).toContain('움직일 수 있음');
+    key('keyup', 'KeyW'); tick(100); expect($('.u1-chip .u1-st')!.textContent).toBe('조종 중');
     const { fwd } = sticks();
     fwdAt(fwd, 1); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);
     click($('.dv-sheets button')); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
@@ -2191,16 +2378,304 @@ describe('폰 실기 조종 = 서버 명령표', () => {
   it('서버 경유 허용이 확인 안 된 로봇은 0 + 안내', () => {
     const { fwd, turn } = open(ROBOTS);
     expect(text()).not.toContain(REAL_STICK);
-    expect(text()).toContain(REAL_WAIT);
+    expect(text()).not.toContain(REAL_WAIT);                // 평소 숨김(시안 u1 에 없는 띠)
     fwdAt(fwd, 0.5); turnAt(turn, 1); tick(100);
     expect(lastAxes()).toEqual([0, 0, 0]);
+    expect($('[data-real-wait-pill]')!.textContent).toBe(REAL_WAIT_PILL);   // 입력이 0 이 되는 순간만 작은 알약
+  });
+});
+
+// 임무 부품을 u1 조종 화면에(시안 u1_1 · u1_15 자리 · app-lead 11-28 22:58): 보이기만. 임무(state.run · 끝나지 않음)이고 내 조종이 아닐 때 바탕 지도 · 왼쪽 아래 카드 · 칩 글
+describe('폰 u1 임무 화면(보이기만)', () => {
+  const RUN = { run_id: 'run-2', status: 'MOVING' as const, step: 1, progress: { done: 1, total: 4 }, wait_reason: null, fail_code: null };
+  const at = (min: number) => new Date(Date.now() + min * 60000).toISOString();
+  const SLOT = { id: 's2', robot_id: 'r7', scenario_id: 'sc-a', scenario_version: 3, gait: null, start: at(-10), end: at(20), kind: 'CONFIRMED', assignment_id: null, memo: '', created_by: 'u', created_at: at(-60), run_state: 'STARTED', run_id: 'run-2', run_code: null, confirmed_by: null };
+  const wp = (name: string, x: number, y: number) => ({ floor_id: 'f1', map_version_id: 'mv-x', x, y, mission_id: 'm', mission_version: 1, name });
+  const SC = { id: 'sc-a', name: '공정 순찰 A', version: 3, map_version_ids: ['mv-x'], waypoints: [wp('입구', 1, 1), wp('게이지 읽기', 2, 1), wp('밸브', 2, 3), wp('복귀', 1, 3)] };
+  const MV = { id: 'mv-x', width: 200, height: 100, resolution: 0.1, origin: [0, 0, 0] };
+  const apis = (mv: object | null = MV) => {
+    vi.spyOn(api, 'schedule').mockImplementation(() => Promise.resolve({ slots: [SLOT] }) as never);
+    vi.spyOn(api, 'plan').mockImplementation(() => Promise.resolve(SC) as never);
+    vi.spyOn(api, 'version').mockImplementation(() => (mv ? Promise.resolve(mv) : Promise.reject(new Error('x'))) as never);
+  };
+  const open = async (run: object | null, mv: object | null = MV) => {
+    apis(mv);
+    mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7');
+    if (run) { recv(lease('r7', { id: null, name: '', type: 'RUN' })); act(() => push('r7', { run } as never)); }
+    await act(async () => {});
+    await act(async () => {});
+  };
+
+  it('임무가 있을 때: 바탕 지도 · 카드 「오늘 1 / 1 공정 순찰 A」 · 칩 「순찰 중」 · 작은 지도 칸 없음', async () => {
+    await open(RUN);
+    expect($('.u1d')!.hasAttribute('data-mission')).toBe(true);
+    expect($('.u1d svg.u1-mmap')).not.toBeNull();
+    expect($('.u1d .u1-mission .mn')!.textContent).toBe('오늘 1 / 1');
+    expect($('.u1d .u1-mission b')!.textContent).toBe('공정 순찰 A');
+    expect($('.u1-chip .u1-st')!.textContent).toBe('순찰 중');
+    expect($('.u1d .dv-mini')).toBeNull();
+    expect(u1AppCss).toMatch(/\.u1d\[data-mission\] \.act\{display:none\}/);   // 시안 u1_1 에는 동작 줄이 없다
+  });
+
+  it('임무가 없을 때: 시안 빈 상태 그대로(지도 · 카드 없음 · 작은 지도 칸 · 일정 받지 않음)', async () => {
+    await open(null);
+    expect($('.u1d')!.hasAttribute('data-mission')).toBe(false);
+    expect($('.u1d svg.u1-mmap')).toBeNull();
+    expect($('.u1d .u1-mission')).toBeNull();
+    expect($('.u1d .dv-mini')).not.toBeNull();
+    expect(api.schedule).not.toHaveBeenCalled();
+  });
+
+  it('판을 못 받을 때: 지도 없음 · 카드는 그대로', async () => {
+    await open(RUN, null);
+    expect($('.u1d svg.u1-mmap')).toBeNull();
+    expect($('.u1d .u1-mission b')!.textContent).toBe('공정 순찰 A');
+  });
+});
+
+// 폰 데모 로봇(목록 sim · demo true · app-lead 11-28 22:40 · reviewer 코드 전 판정 22:47): 데모 = 실기 → 서버 경유 u1 조종 화면.
+// 내 시뮬 슬롯(demo false)과 모름(undefined)은 지금처럼 simdrive 직결 길. 속도는 웹 상한(OrgSettings sim_* · 서버는 시뮬 cmd 상한을 검사하지 않는다)
+describe('폰 데모 로봇 = 서버 경유 u1 조종 화면', () => {
+  const R7 = ROBOTS.find((r) => r.id === 'r7')!;
+  const robots = (demo: boolean | undefined) => ROBOTS.map((r) => (r.id === 'r7' ? { ...R7, sim: true, demo, serverDrive: false } : r));
+  const open = (demo: boolean | undefined, org: object = ORG) => {
+    settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok(org); } }) as never);
+    mount(true, 'u-park', '#/drive/r7', robots(demo)); serve(PARK, 'r7');
+  };
+  const press = (code: string) => { key('keydown', code); tick(200); const a = lastAxes(); key('keyup', code); tick(100); return a; };
+
+  it('demo true 면 #/drive/r7 이 u1 조종 화면 · 「시뮬」 꼬리표 없음', () => {
+    open(true);
+    expect($('.u1d')).not.toBeNull();
+    expect(location.hash).toBe('#/drive/r7');
+    expect($('.u1-chip .tag')).toBeNull();
+  });
+
+  it('demo false(내 시뮬) · undefined(모름)는 지금처럼 조종 화면을 열지 않음 · 카드는 직결 안내', () => {
+    for (const d of [false, undefined]) {
+      open(d);
+      expect($('.u1d')).toBeNull();
+      expect($('[data-sim-card]')).not.toBeNull();
+      act(() => root!.unmount()); root = null; box.remove();
+    }
+  });
+
+  it('로봇 연결 카드: 데모는 「연결」 단추 · 「시뮬」 칩 없음', () => {
+    settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok(ORG); } }) as never);
+    mount(true, 'u-park', '#/drive', robots(true)); serve(PARK, 'r7');
+    const card = [...box.querySelectorAll('.dv-card')].find((c) => c.textContent!.includes('Go2-7'))!;
+    expect(card.querySelector('[data-sim-card]')).toBeNull();
+    expect([...card.querySelectorAll('button')].some((b) => b.textContent === '연결')).toBe(true);
+    expect(card.textContent).not.toContain('시뮬');
+  });
+
+  // 웹 상한(app-lx 11-28 22:59): 축마다 min(조직 sim_* , 시뮬 에이전트 한계 vx -0.3~1.5 · vy ±0.3 · wz ±0.5). 서버는 시뮬 cmd 상한을 검사하지 않는다
+  const sticks = () => {
+    const fwd = $('[aria-label="이동 조이스틱"]'), turn = $('[aria-label="회전 조이스틱"]');
+    for (const el of [fwd, turn]) el.getBoundingClientRect = () => ({ top: 0, left: 0, width: 120, height: 120 }) as DOMRect;
+    return { fwd, turn };
+  };
+  const ptr = (el: Element, type: string, x = 60, y = 60) => act(() => { el.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y })); });
+  /** 이동 손잡이: f = 앞 +(위), s = 왼쪽 + · 회전 손잡이: t = 왼쪽 + */
+  const lstick = (el: Element, f: number, s = 0) => { ptr(el, 'pointerdown', 60 - s * 60, 60 - f * 60); tick(200); const a = lastAxes() as number[]; ptr(el, 'pointerup'); tick(100); return a; };
+  const rstick = (el: Element, t: number) => { ptr(el, 'pointerdown', 60 - t * 60, 60); tick(200); const a = lastAxes() as number[]; ptr(el, 'pointerup'); tick(100); return a; };
+
+  it('웹 상한 축마다 min(조직 · 로봇 한계): 키 앞 1.5 · 돌기 0.5 · 옆 0.3 · 뒤 -0.3 — 실기 상한(real_*)은 쓰지 않음', () => {
+    open(true, { ...ORG, real_max_vx: 0.5, real_max_wz: 0.3, real_max_vy: 0 });
+    ready();
+    expect(press('KeyW')).toEqual([1.5, 0, 0]);
+    expect(press('KeyA')).toEqual([0, 0, 0.5]);
+    expect(press('KeyD')).toEqual([0, 0, -0.5]);
+    expect(press('ArrowLeft')).toEqual([0, 0.3, 0]);
+    expect(press('KeyS')).toEqual([-0.3, 0, 0]);
+  });
+
+  it('웹 상한: 조직 값이 로봇 한계보다 작으면 조직 값(sim_max_vx · sim_max_wz · sim_max_vy) · 키는 손잡이 끝까지와 같은 입력(sim_key_vx 안 씀)', () => {
+    open(true, { ...ORG, sim_max_vx: 1.0, sim_key_vx: 0.8, sim_max_wz: 0.3, sim_max_vy: 0.2 });
+    ready();
+    expect(press('KeyW')).toEqual([1.0, 0, 0]);
+    expect(lstick(sticks().fwd, 1)).toEqual([1.0, 0, 0]);
+    expect(press('KeyA')).toEqual([0, 0, 0.3]);
+    expect(press('ArrowRight')).toEqual([0, -0.2, 0]);
+    act(() => root!.unmount()); root = null; box.remove();
+    open(true, { ...ORG, sim_max_vx: 0.6 });
+    ready();
+    expect(press('KeyW')).toEqual([0.6, 0, 0]);
+  });
+
+  it('웹 상한 · 손잡이 비례: 앞은 [0.2, 상한] · 0 < vx < 0.2 는 나가지 않음 · 뒤는 [-0.3, -0.2] · 문턱 0.1', () => {
+    open(true);
+    ready();
+    const { fwd, turn } = sticks();
+    expect(lstick(fwd, 0.05)).toEqual([0, 0, 0]);                      // 문턱 0.1 안
+    const a = lstick(fwd, 0.12)!;
+    expect(a[0]).toBeGreaterThanOrEqual(0.2); expect(a[0]).toBeLessThan(0.3);
+    expect(lstick(fwd, 1)).toEqual([1.5, 0, 0]);
+    const mid = lstick(fwd, 0.55)!;
+    expect(mid[0]).toBeCloseTo(0.2 + (0.45 / 0.9) * 1.3, 5);
+    for (const f of [0.02, 0.05, 0.09, 0.11, 0.2, 0.4, 0.7]) { const v = lstick(fwd, f)![0]; expect(v === 0 || v >= 0.2).toBe(true); }
+    const b = lstick(fwd, -0.12)!;
+    expect(b[0]).toBeLessThanOrEqual(-0.2); expect(b[0]).toBeGreaterThanOrEqual(-0.3);
+    expect(lstick(fwd, -1)).toEqual([-0.3, 0, 0]);
+    expect(cmds().every((m) => (m.axes as number[])[0] >= -0.3)).toBe(true);
+    expect(lstick(fwd, 0, 1)).toEqual([0, 0.3, 0]);
+    expect(rstick(turn, -1)).toEqual([0, 0, -0.5]);
+  });
+
+  it('웹 상한 · 문턱은 조직 stick_deadzone(없으면 0.1)', () => {
+    open(true, { ...ORG, stick_deadzone: 0.2 });
+    ready();
+    const { fwd } = sticks();
+    expect(lstick(fwd, 0.15)).toEqual([0, 0, 0]);
+    expect(lstick(fwd, 0.25)![0]).toBeGreaterThanOrEqual(0.2);
+  });
+
+  it('후진 · 옆걸음은 「시험 기능」 표시', () => {
+    open(true);
+    ready();
+    key('keydown', 'KeyS'); tick(200);
+    expect($('[data-demo-exp]')!.textContent).toContain('시험 기능');
+    key('keyup', 'KeyS'); tick(200);
+    expect($('[data-demo-exp]')).toBeNull();
+    key('keydown', 'ArrowLeft'); tick(200);
+    expect($('[data-demo-exp]')).not.toBeNull();
+    key('keyup', 'ArrowLeft');
+  });
+
+  it('실기 값은 그대로(같은 문턱 · 최소값 함수): 손잡이 0.25 는 0 · 0.35 는 표 1.5 · 키는 표 값', () => {
+    settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok(ORG); } }) as never);
+    mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7'); ready();
+    const { fwd, turn } = sticks();
+    expect(lstick(fwd, 0.25)).toEqual([0, 0, 0]);
+    expect(lstick(fwd, 0.35)).toEqual([1.5, 0, 0]);
+    expect(lstick(fwd, 1)).toEqual([1.5, 0, 0]);
+    expect(rstick(turn, 0.5)).toEqual([0, 0, MAX_TURN_RATE]);
+    expect(press('KeyW')).toEqual([1.5, 0, 0]);
+  });
+
+  it('웹 상한 · 0.2 아래 앞 입력은 0: 손잡이 앞은 0 아니면 0.2 이상', () => {
+    open(true);
+    ready();
+    const { fwd } = sticks();
+    for (const f of [0.101, 0.105, 0.11, 0.15]) { const v = lstick(fwd, f)[0]; expect(v === 0 || v >= 0.2).toBe(true); }
+    expect(cmds().every((m) => { const v = (m.axes as number[])[0]; return v <= 0 || v >= 0.2; })).toBe(true);
+  });
+
+  it('웹 상한 · 후진 -0.3 은 로봇 한계로 잘림 — 조직 설정에는 시뮬 뒤 상한 칸이 없고 실기 real_max_vx_back 은 데모에 쓰지 않음', () => {
+    open(true, { ...ORG, real_max_vx_back: 0.1, sim_max_vx: 1.5 });
+    ready();
+    expect(press('KeyS')).toEqual([-0.3, 0, 0]);
+    const { fwd } = sticks();
+    expect(lstick(fwd, -1)).toEqual([-0.3, 0, 0]);
+    expect(cmds().every((m) => (m.axes as number[])[0] >= -0.3)).toBe(true);
+  });
+
+  it('웹 상한 합친 뒤에도 실기는 real_* 로 잡힘: real_max_vx 1 · real_max_wz 1 · real_max_vx_back 0 이면 표 값이 막혀 0', () => {
+    settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok({ ...ORG, real_max_vx: 1, real_max_wz: 1, real_max_vx_back: 0 }); } }) as never);
+    mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7'); ready();
+    const { fwd, turn } = sticks();
+    expect(lstick(fwd, 1)).toEqual([0, 0, 0]);
+    expect(rstick(turn, 1)).toEqual([0, 0, 0]);
+    expect(press('KeyW')).toEqual([0, 0, 0]);
+    expect(press('KeyS')).toEqual([0, 0, 0]);
+    expect(press('KeyA')).toEqual([0, 0, 0]);
+  });
+
+  it('데모만 있는 조직: 「연결 없음」 으로 보지 않음(+ 로봇 연결하기 가 목록 아래 · 주 단추 아님)', () => {
+    settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok(ORG); } }) as never);
+    const only = robots(true).filter((r) => r.id === 'r7').map((r) => ({ ...r, online: true }));
+    mount(true, 'u-park', '#/drive', only); serve(PARK, 'r7');
+    const add = $('[data-robot-connect]')!;
+    expect(add.classList.contains('pri')).toBe(false);
+    expect(add.compareDocumentPosition($('.dv-cards')!) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  });
+
+  it('키를 누르면 화면 손잡이도 같은 자리로 움직임(보이기만) · 떼면 가운데', () => {
+    open(true);
+    ready();
+    const knob = (label: string) => ($(`[aria-label="${label} 조이스틱"] i`) as HTMLElement).style.transform;
+    key('keydown', 'KeyW'); tick(100);
+    expect(knob('이동')).toBe('translate(0px, -36px)');
+    key('keydown', 'KeyA'); tick(100);
+    expect(knob('회전')).toBe('translate(-36px, 0px)');
+    key('keyup', 'KeyW'); key('keyup', 'KeyA'); tick(100);
+    expect(knob('이동')).toBe('translate(0px, 0px)');
+    expect(knob('회전')).toBe('translate(0px, 0px)');
+  });
+
+  it('상한 표 출처 · 「시험 기능」 은 상수 한 곳(DEMO_RULE)에서 바뀜: 기본 = min(조직, 로봇 한계) · 후진 -0.3 · 표시 / org = 조직 값만 · 후진도 sim_max_vx', () => {
+    expect(DEMO_RULE).toEqual({ caps: 'min', mark: true });
+    expect(demoCaps(ORG as never)).toMatchObject({ fwd: 1.5, back: 0.3, side: 0.3, turn: 0.5 });
+    expect(demoCaps({ ...ORG, sim_max_vx: 1.2 } as never, { caps: 'org', mark: false })).toMatchObject({ fwd: 1.2, back: 1.2, side: 0.5, turn: 1.2 });
+  });
+
+  it('곡선은 인자: 같은 문턱 · 최소값에 곡선만 바꿔 끼움(기본 직선)', () => {
+    expect(shape(0.55, 0.1, 0.2, 1.5)).toBeCloseTo(0.2 + 0.5 * 1.3, 6);
+    expect(shape(0.55, 0.1, 0.2, 1.5, (a) => a * a)).toBeCloseTo(0.2 + 0.25 * 1.3, 6);
+    expect(shape(0.05, 0.1, 0.2, 1.5, (a) => a * a)).toBe(0);
+  });
+
+  it('데모 STOP 은 서버로(noServerStop 은 데모를 서버 정지 대상으로 봄)', () => {
+    open(true);
+    ready();
+    const n = w.of('stop').length;
+    click($('.fh-head .fh-stop')!);
+    expect(w.of('stop').length).toBe(n + 1);
+  });
+});
+
+// 설정 확인 알약(app-lead 11-28 22:26 · 시안 밖 · 새로 그림): 평소 숨김 · 입력이 0 이 되는 순간만 동작 줄 위 가운데 · 10 초 넘게 모르면 위 띠
+describe('설정 확인 중 알약', () => {
+  const fwdEl = () => {
+    const fwd = $('[aria-label="이동 조이스틱"]');
+    fwd.getBoundingClientRect = () => ({ top: 0, left: 0, width: 120, height: 120 }) as DOMRect;
+    return fwd;
+  };
+  const press = (el: Element) => act(() => { el.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 60, clientY: 0 })); });
+  const lift = (el: Element) => act(() => { el.dispatchEvent(new MouseEvent('pointerup', { bubbles: true })); });
+  const later = () => settingsMock.mockImplementation(() => new Promise(() => {}) as never);
+  const pill = () => $('[data-real-wait-pill]');
+
+  it('설정을 모르는 동안 평소엔 위 띠도 알약도 없음 · 누르면 알약(시안 밖 표시) · 떼면 사라짐', () => {
+    later(); mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7'); ready();
+    expect($('[data-real-wait]')).toBeNull();
+    expect(pill()).toBeNull();
+    const fwd = fwdEl(); press(fwd); tick(200);
+    expect(lastAxes()).toEqual([0, 0, 0]);
+    expect(pill()!.textContent).toBe('설정 확인 중 · 입력 0');
+    expect(pill()!.getAttribute('data-off-proto')).toBe('settings-pill');
+    expect($('[data-real-wait]')).toBeNull();
+    lift(fwd); tick(200);
+    expect(pill()).toBeNull();
+  });
+
+  it('키 W 로도 알약 · 10 초 넘게 모르면 알약 대신 위 띠(REAL_WAIT)', () => {
+    later(); mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7'); ready();
+    key('keydown', 'KeyW'); tick(200);
+    expect(pill()).not.toBeNull();
+    tick(9500); expect($('[data-real-wait]')).toBeNull();
+    tick(600);
+    expect($('[data-real-wait]')!.textContent).toBe(REAL_WAIT);
+    expect(pill()).toBeNull();
+    key('keyup', 'KeyW');
+  });
+
+  it('설정을 받으면 알약 없음 · 표 값', () => {
+    mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7'); ready();
+    const fwd = fwdEl(); press(fwd); tick(200);
+    expect(pill()).toBeNull();
+    expect(lastAxes()).toEqual([1.5, 0, 0]);
+  });
+
+  it('알약 자리: 동작 줄 위 가운데 · 11.5px 한 줄', () => {
+    expect(u1AppCss).toMatch(/\.u1d \.u1-pill\{position:absolute;left:50%;bottom:84px;transform:translateX\(-50%\);[^}]*font-size:11\.5px;[^}]*white-space:nowrap/);
   });
 });
 
 // RV-420 막는 것 3건(RB-PHONE-REAL-TABLE-FIX) — 가짜 WS 순서 그대로
 describe('RV-420: 실기인지·설정·중립을 모를 때 0', () => {
   const sticks = () => {
-    const fwd = $('[aria-label="전후 조이스틱"]');
+    const fwd = $('[aria-label="이동 조이스틱"]');
     fwd.getBoundingClientRect = () => ({ top: 0, left: 0, width: 120, height: 120 }) as DOMRect;
     return fwd;
   };
@@ -2216,7 +2691,7 @@ describe('RV-420: 실기인지·설정·중립을 모를 때 0', () => {
     fwdAt(fwd, 0.6); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);
     expect(cmds().some((m) => (m.axes as number[]).some((v) => v !== 0))).toBe(false);
-    expect(text()).toContain(REAL_WAIT);
+    expect($('[data-real-wait-pill]')!.textContent).toBe(REAL_WAIT_PILL);
     act(() => root!.render(<App user={USERS.find((u) => u.id === 'u-park')} robots={off.map((r) => (r.id === 'r7' ? { ...r, serverDrive: true, serverDriveBlocked: [] } : r))} />));   // 목록 갱신
     tick(100);
     expect(lastAxes()).toEqual([0, 0, 0]);                  // 설정을 받아 입력 세대가 바뀜 — 갱신 전에 누른 손가락은 떼고 다시
@@ -2236,7 +2711,7 @@ describe('RV-420: 실기인지·설정·중립을 모를 때 0', () => {
     const fwd = sticks();
     fwdAt(fwd, 1); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);
-    expect(text()).toContain(REAL_WAIT);
+    expect($('[data-real-wait-pill]')!.textContent).toBe(REAL_WAIT_PILL);
     await act(async () => { answer({ ...ORG, real_no_fast_server_drive: true }); });
     tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);                  // 빠른 조종 끔: 전진은 상한 밖
@@ -2248,16 +2723,16 @@ describe('RV-420: 실기인지·설정·중립을 모를 때 0', () => {
     settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok({ ...ORG, real_no_fast_server_drive: true }); } }) as never);
     mount(true, 'u-park', '#/drive/r7');
     serve(PARK, 'r7');
-    click(btn('조종 시작'));
+    click(btn('조종'));
     key('keydown', 'KeyW'); key('keydown', 'KeyA'); tick(200);
-    click(btn('잠금 해제')); tick(200);
+    unlock(); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);
     expect(text()).toContain('중립 확인 중');
     key('keyup', 'KeyW'); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [0, 0, 2.5]
     expect(text()).toContain('중립 확인 중');
     key('keyup', 'KeyA'); tick(100);
-    expect(text()).toContain('움직일 수 있음');              // 실제로 손을 뗀 뒤에만 새 중립
+    expect($('.u1-chip .u1-st')!.textContent).toBe('조종 중');              // 실제로 손을 뗀 뒤에만 새 중립
     key('keydown', 'KeyA'); tick(100);
     expect(lastAxes()).toEqual([0, 0, MAX_TURN_RATE]);
   });
@@ -2265,32 +2740,32 @@ describe('RV-420: 실기인지·설정·중립을 모를 때 0', () => {
   it('[4] RV-423: A+D 를 누른 채 잠금 해제 → 서로 상쇄된 0 도 새 중립이 아님, D 만 떼도 회전 안 나감', () => {
     mount(true, 'u-park', '#/drive/r7');
     serve(PARK, 'r7');
-    click(btn('조종 시작'));
+    click(btn('조종'));
     key('keydown', 'KeyA'); key('keydown', 'KeyD'); tick(200);
-    click(btn('잠금 해제')); tick(200);
+    unlock(); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);
     expect(text()).toContain('중립 확인 중');
     key('keyup', 'KeyD'); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [0, 0, 2.5]
     expect(text()).toContain('중립 확인 중');
     key('keyup', 'KeyA'); tick(100);
-    expect(text()).toContain('움직일 수 있음');
+    expect($('.u1-chip .u1-st')!.textContent).toBe('조종 중');
   });
 
   it('[5] RV-424: W+↑ 를 누른 채 잠금 해제 → ↑ 만 떼도 W 가 남아 새 중립이 아님, A 회전 안 나감', () => {
     settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok({ ...ORG, real_no_fast_server_drive: true }); } }) as never);
     mount(true, 'u-park', '#/drive/r7');
     serve(PARK, 'r7');
-    click(btn('조종 시작'));
+    click(btn('조종'));
     key('keydown', 'KeyW'); key('keydown', 'ArrowUp'); tick(200);
-    click(btn('잠금 해제')); tick(200);
+    unlock(); tick(200);
     expect(text()).toContain('중립 확인 중');
     key('keyup', 'ArrowUp'); tick(200);
     expect(text()).toContain('중립 확인 중');                // 고치기 전: 움직일 수 있음
     key('keydown', 'KeyA'); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [0, 0, 2.5]
     key('keyup', 'KeyA'); key('keyup', 'KeyW'); tick(100);
-    expect(text()).toContain('움직일 수 있음');
+    expect($('.u1-chip .u1-st')!.textContent).toBe('조종 중');
   });
 
   it('[6] RV-424: 조직 설정이 본문 없는 200·객체 아님이면 받음이 아님 — 0 + 안내', async () => {
@@ -2302,7 +2777,7 @@ describe('RV-420: 실기인지·설정·중립을 모를 때 0', () => {
       await act(async () => {});
       key('keydown', 'ArrowUp'); tick(200);
       expect(lastAxes()).toEqual([0, 0, 0]);                // 고치기 전: [1.5, 0, 0]
-      expect(text()).toContain(REAL_WAIT);
+      expect($('[data-real-wait-pill]')!.textContent).toBe(REAL_WAIT_PILL);   // 22:26 부터 위 띠 대신 알약(10 초 넘으면 위 띠)
       key('keyup', 'ArrowUp');
       act(() => root!.unmount()); root = null; box.remove();
     }
@@ -2312,7 +2787,7 @@ describe('RV-420: 실기인지·설정·중립을 모를 때 0', () => {
 // RV-425(RB-DRIVE-FRESH-PRESS): «잠금 해제 뒤 새로 누른 입력만» — 입력 세대. 가짜 WS 순서 그대로, 고치기 전 값은 주석
 describe('RV-425: 앞 세대에 누른 키·손가락은 떼고 다시 눌러야', () => {
   const stick = () => {
-    const el = $('[aria-label="전후 조이스틱"]');
+    const el = $('[aria-label="이동 조이스틱"]');
     el.getBoundingClientRect = () => ({ top: 0, left: 0, width: 120, height: 120 }) as DOMRect;
     return el;
   };
@@ -2323,7 +2798,7 @@ describe('RV-425: 앞 세대에 누른 키·손가락은 떼고 다시 눌러야
     el.dispatchEvent(e);
   });
   /** 서버가 잠금(stop_gen +1)을 보내고 → 잠금 해제 */
-  const relock = () => { act(() => push('r7', { latched: true, stop_gen: st.r7.stop_gen! + 1 })); tick(100); click(btn('잠금 해제')); tick(100); };
+  const relock = () => { act(() => push('r7', { latched: true, stop_gen: st.r7.stop_gen! + 1 })); tick(100); unlock(); tick(100); };
   const go = (settings: object = ORG) => {
     settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok(settings); } }) as never);
     mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7'); ready();
@@ -2332,7 +2807,7 @@ describe('RV-425: 앞 세대에 누른 키·손가락은 떼고 다시 눌러야
   it('[1] W 유지 중 시트·⋯ 뒤 Ctrl+↑ 로 시작 → A 회전 안 나감', () => {   // blur 는 RV-426 ⑦(적은 키를 지움) — 아래 시험
     go();
     key('keydown', 'KeyW'); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);
-    click(btn('자세')); click(btn('닫기'));
+    click(btn('지도·목표')); click(btn('닫기'));
     key('keydown', 'ArrowUp', window, true); key('keydown', 'KeyA'); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [0, 0, 2.5]
     key('keyup', 'KeyW'); key('keyup', 'ArrowUp'); key('keyup', 'KeyA'); tick(100);
@@ -2350,12 +2825,12 @@ describe('RV-425: 앞 세대에 누른 키·손가락은 떼고 다시 눌러야
     pe('pointerup', el, 0.9); tick(100);
     act(() => push('r7', { latched: true, stop_gen: st.r7.stop_gen! + 1 })); tick(100);
     pe('pointerdown', el, 0.9, 2);                          // 잠긴 동안 비중앙
-    click(btn('잠금 해제')); tick(200);
+    unlock(); tick(200);
     expect(text()).toContain('중립 확인 중');                // 고치기 전: 움직일 수 있음
     pe('pointermove', el, 0.9, 2); tick(100);
     expect(lastAxes()).toEqual([0, 0, 0]);
     pe('pointerup', el, 0.9, 2); tick(100);
-    expect(text()).toContain('움직일 수 있음');
+    expect($('.u1-chip .u1-st')!.textContent).toBe('조종 중');
     pe('pointerdown', el, 0.9, 3); tick(100);
     expect(lastAxes()).toEqual([1.5, 0, 0]);               // 새로 누르면 표 값
   });
@@ -2417,7 +2892,7 @@ describe('RV-425: 앞 세대에 누른 키·손가락은 떼고 다시 눌러야
     go({ ...ORG, real_max_vx: '0' });
     key('keydown', 'ArrowUp'); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [1.5, 0, 0]
-    expect(text()).toContain(REAL_WAIT);
+    expect($('[data-real-wait-pill]')!.textContent).toBe(REAL_WAIT_PILL);
   });
 
   it('[9] 빠른 조종 금지 확인 뒤 공용 설정이 simTune(null) 로 비면 받음도 풀림 → 0', () => {
@@ -2427,13 +2902,13 @@ describe('RV-425: 앞 세대에 누른 키·손가락은 떼고 다시 눌러야
     act(() => simTune(null)); tick(100);
     key('keydown', 'KeyW'); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [1.5, 0, 0]
-    expect(text()).toContain(REAL_WAIT);
+    expect($('[data-real-wait-pill]')!.textContent).toBe(REAL_WAIT_PILL);
   });
 });
 
 // RV-426(RB-DRIVE-FRESH-PRESS2): 폰 — 가짜 WS 순서 그대로, 고치기 전 값은 주석
 describe('RV-426: 폰 입력 세대 마무리', () => {
-  const stick = (label = '전후') => {
+  const stick = (label = '이동') => {
     const el = $(`[aria-label="${label} 조이스틱"]`);
     el.getBoundingClientRect = () => ({ top: 0, left: 0, width: 120, height: 120 }) as DOMRect;
     return el;
@@ -2457,7 +2932,7 @@ describe('RV-426: 폰 입력 세대 마무리', () => {
     expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [1.5, 0, 0]
     act(() => push('r7', { latched: true, stop_gen: st.r7.stop_gen! + 1 })); tick(100);
     expect(lastAxes()).toEqual([0, 0, 0]);
-    click(btn('잠금 해제')); tick(100);
+    unlock(); tick(100);
     key('keyup', 'KeyW'); key('keydown', 'KeyW'); tick(100);
     expect(lastAxes()).toEqual([1.5, 0, 0]);
   });
@@ -2467,9 +2942,9 @@ describe('RV-426: 폰 입력 세대 마무리', () => {
     const el = stick();
     pe('pointerdown', el, 0.9); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);
     recv(lease('r7', null)); tick(100);                    // 조종권 잃음(스틱이 사라짐, 손가락은 그대로)
-    click(btn('조종 시작')); tick(200);
+    click(btn('조종')); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);
-    expect(text()).toContain('움직일 수 있음');              // 고치기 전: 중립 확인 중(부모 축 0.9 가 남아 계속 대기)
+    expect($('.u1-chip .u1-st')!.textContent).toBe('조종 중');              // 고치기 전: 중립 확인 중(부모 축 0.9 가 남아 계속 대기)
     key('keydown', 'KeyW'); tick(100);
     expect(lastAxes()).toEqual([1.5, 0, 0]);               // 고치기 전: [0, 0, 0]
   });
@@ -2486,10 +2961,10 @@ describe('RV-426: 폰 입력 세대 마무리', () => {
   it('⑧ 해제 직후 첫 중립 틱 전에 새로 누른 W → 바로 표 값(계속 대기 아님)', () => {
     go();
     act(() => push('r7', { latched: true, stop_gen: st.r7.stop_gen! + 1 })); tick(100);
-    click(btn('잠금 해제'));                                 // 서버가 바로 latched=false — 틱 전에
+    unlock();                                 // 서버가 바로 latched=false — 틱 전에
     key('keydown', 'KeyW'); tick(200);
     expect(lastAxes()).toEqual([1.5, 0, 0]);               // 고치기 전: [0, 0, 0](중립 확인 중 그대로)
-    expect(text()).toContain('움직일 수 있음');
+    expect($('.u1-chip .u1-st')!.textContent).toBe('조종 중');
   });
 
   it('⑨ 키 뗌·스틱 놓음·blur 는 다음 틱이 아니라 그 자리에서 0 을 한 번 보냄', () => {
@@ -2545,5 +3020,387 @@ describe('RV-426: 폰 입력 세대 마무리', () => {
     mk('keyup', 'MetaLeft', { key: 'Meta' }); tick(200); expect(lastAxes()).toEqual([0, 0, 0]);
     key('keydown', 'KeyW'); tick(60); expect(lastAxes()).toEqual([1.5, 0, 0]);
     key('keyup', 'KeyW'); expect(lastAxes()).toEqual([0, 0, 0]);
+  });
+});
+
+// 시안 u1: 폰 실기 조종 화면은 머리줄 없이 정지가 화면 오른쪽 아래(.stop · 92 × 68). 같은 Stop 부품(같은 onStop · 누름 처리 · Space · 결과 띠)을 자리만 옮긴다.
+// 어느 상태(조종권 요청 창 · 스캔 겹 · 시나리오 시작 확인 · 끊김 · 반납 중)에서도 보이고 · 맨 위(z)이고 · 눌린다. jsdom 은 배치를 계산하지 않아 구조 · css 규칙을 보고, 실제 자리는 Chrome 사진
+describe('폰 실기 조종 화면 정지 자리 (시안 u1)', () => {
+  const stopBtn = () => $<HTMLButtonElement>('[data-stop]');
+  const head = () => $('header.fh-head');
+  /** 화면 안 정지: 머리줄 겹(data-u1) 안 마지막 · 조종 판(.dv-stage) · 시트 · 창 밖 · 누를 수 있음 · 글 「정지」 */
+  const inScreen = () => {
+    expect(head().hasAttribute('data-u1')).toBe(true);
+    expect(stopBtn().parentElement).toBe(head());
+    expect(head().lastElementChild).toBe(stopBtn());
+    expect(stopBtn().closest('.dv-stage, [data-sheet], [role="dialog"]')).toBeNull();
+    expect(stopBtn().disabled).toBe(false);
+    expect(stopBtn().dataset.place).toBe('screen');
+    expect(stopBtn().textContent).toBe('정지');
+    expect(stopBtn().getAttribute('aria-label')).toBe('비상 정지');
+  };
+  const press = (robot: string) => { const n = w.of('stop').length; click(stopBtn()); expect(w.of('stop').slice(n).map((m) => m.robot)).toEqual([robot]); };
+
+  it('css: 머리줄 겹은 화면 전체 · 손가락은 제 칸만 · z 는 조종 판 안 모든 층(작은 지도 펼침 60 · 창 · 스캔 겹)보다 위, 정지는 오른쪽 아래 92 × 68', () => {
+    const headRule = /\.fh\.phone \.fh-head\[data-u1\]\{[^}]*\}/;
+    const z = Number(u1AppCss.match(headRule)![0].match(/z-index:(\d+)/)![1]);
+    expect(z).toBeGreaterThanOrEqual(80);
+    // 조종 판 안에 깔리는 모든 겹(조종 판 · 시안 u1 겹 · 정지 결과 띠 · 고르기 79 · 조종권 요청 창 u13_5 · 스캔 겹 u14_2 · 작은 지도 펼침 60)의 z 보다 위
+    const zs = [driveCss, u1AppCss.replace(headRule, ''), u1dCss, u135Css, u135AppCss, u142Css, u142AppCss].flatMap((c) => [...c.matchAll(/z-index:(\d+)/g)].map((m) => Number(m[1])));
+    expect(zs.length).toBeGreaterThan(10);
+    expect(zs).toContain(79);
+    expect(z).toBeGreaterThan(Math.max(...zs));
+    expect(u1AppCss).toMatch(/\.fh\.phone \.fh-head\[data-u1\]\{[^}]*position:absolute;inset:0;[^}]*pointer-events:none/);
+    // 화면 전체를 덮는 머리줄이 shell.css 폰 머리줄의 backdrop-filter(blur 20px)를 받으면 조종 판 전체가 흐려진다(미리보기 5195 사진)
+    expect(u1AppCss).toMatch(/\.fh\.phone \.fh-head\[data-u1\]\{[^}]*backdrop-filter:none;-webkit-backdrop-filter:none/);
+    expect(u1AppCss).toMatch(/\.u1d \.pane \.u1-sheets\{position:static;transform:none;/);   // 칩 펼침 시트 줄이 drive.css .dv-sheets 절대 위치로 「걷기」 줄을 덮지 않게(사진)
+    // 정지 칸: 오른쪽 아래 92 × 68 · 오른쪽 위 줄처럼 safe-area 만큼 안쪽(가로 노치 · 홈 막대)
+    expect(u1AppCss).toMatch(/\.fh-head\[data-u1\] \.fh-stop\{[^}]*pointer-events:auto;[^}]*right:calc\(12px \+ env\(safe-area-inset-right,0px\)\);bottom:calc\(12px \+ env\(safe-area-inset-bottom,0px\)\);width:92px;height:68px/);
+    expect(u1AppCss).toMatch(/\.fh-head\[data-u1\] \.u1-top\{[^}]*right:calc\(12px \+ env\(safe-area-inset-right,0px\)\)/);
+  });
+
+  it('조종 전 · 조종 중 · 시트 · 시나리오 시작 확인 · 조종권 요청 창: 정지는 화면 안 그 자리 · 누르면 이 로봇 정지', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    inScreen();
+    ready();
+    inScreen();
+    click(btn('지도·목표')); inScreen(); click(btn('지도·목표'));
+    recv(ask());
+    expect($('[data-takeover]')).toBeTruthy();
+    inScreen();
+    press('r7');
+  });
+
+  it('시나리오가 쥔 로봇 «조종 시작» 확인 창 위에서도', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    recv(lease('r7', { id: null, name: '', type: 'RUN' }));
+    click(btn('조종'));
+    expect($('.dv-ask[role="dialog"]')).toBeTruthy();
+    inScreen();
+    press('r7');
+  });
+
+  it('⋯ 지도 스캔 겹 위에서도', () => {
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: '없음', detail: {} } }), { status: 404, headers: { 'Content-Type': 'application/json' } }));
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    click(btn('지도 스캔'));
+    expect($('.dv-stage [data-scan-panel].u142-over')).toBeTruthy();
+    inScreen();
+    press('r7');
+  });
+
+  it('시안 u1_7: 정지 뒤 잠금 보고 전이면 가운데 띠 「명령이 닿지 않았습니다 · N 초 지남」 + 정지 「다시 누르기」, 잠기면 둘 다 돌아감', () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    ready();
+    w.auto = () => ({ ok: true });
+    click(stopBtn());
+    tick(100);
+    act(() => push('r7', { speed: 0.6 }));   // 정지 뒤 첫 state 가 아직 안 잠김
+    expect(band()).toContain('▲ 명령이 닿지 않았습니다 · 0 초 지남');
+    expect(band()).not.toContain('정지 요청됨');
+    expect(stopBtn().textContent).toBe('정지다시 누르기');
+    expect(stopBtn().dataset.again).toBe('');
+    tick(2000);
+    expect(band()).toContain('▲ 명령이 닿지 않았습니다 · 2 초 지남');
+    act(() => push('r7', { latched: true, stop_gen: 2, applied: [0, 0, 0], speed: 0 }));
+    expect(band()).not.toContain('명령이 닿지 않았습니다');
+    expect(stopBtn().textContent).toBe('정지');
+    expect(stopBtn().dataset.again).toBeUndefined();
+  });
+
+  it('PC 는 u1_7 글로 바꾸지 않음: «정지 요청됨 — 로봇이 아직 잠금을 알리지 않았습니다.» · 정지 단추 글 그대로', () => {
+    mount(false, 'u-lee', '#/fleet');
+    serve(LEE, 'r3', 'r1');
+    click(row('Go2-7'));
+    w.auto = () => ({ ok: true });
+    click($('[data-stop]'));
+    tick(100);
+    act(() => push('r7', { speed: 0.6, latched: false }));
+    expect(band()).toContain('Go2-7 정지 요청됨 — 로봇이 아직 잠금을 알리지 않았습니다.');
+    expect(band()).not.toContain('명령이 닿지 않았습니다');
+    expect($('[data-stop]').hasAttribute('data-again')).toBe(false);
+  });
+
+  it('css: 정지 결과 띠는 상태 칩(왼쪽 위 ~272)과 오른쪽 위 줄을 덮지 않게 가운데 · 글 폭만큼 (시안 u1_7 · 사진에서 칩을 가림)', () => {
+    expect(u1AppCss).toMatch(/\.fh\.phone:has\(\.fh-head\[data-u1\]\) \.fh-band\{left:50%;right:auto;transform:translateX\(-50%\);width:max-content;max-width:calc\(100% - 560px\)/);
+  });
+
+  it('서버 끊김 · 조종권 반납 중에도 그 자리(누름은 기존 길 그대로)', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    ready();
+    w.auto = (m) => (m.t === 'lease.release' ? undefined : { ok: true });
+    click(btn('끝내기'));
+    expect($('[data-ending]')).toBeTruthy();
+    inScreen();
+    act(() => w.drop(1006));
+    inScreen();
+  });
+
+  it('반납 중 누름 = 실시간 stop(이 로봇) · 끊김(1006) 뒤 누름 = 대체 경로 HTTP POST(이 로봇), 실시간 stop 은 안 나감 (지금 동작 고정)', async () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    ready();
+    w.auto = (m) => (m.t === 'lease.release' ? undefined : { ok: true });
+    click(btn('끝내기'));
+    expect($('[data-ending]')).toBeTruthy();
+    inScreen();
+    press('r7');
+    const f = vi.fn(async (_u: string, _i?: RequestInit) => new Response(null, { status: 202 }));
+    vi.stubGlobal('fetch', f);
+    act(() => w.drop(1006));
+    inScreen();
+    const n = w.of('stop').length;
+    click(stopBtn());
+    await act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); });
+    expect(w.of('stop').length).toBe(n);
+    expect(f).toHaveBeenCalledWith('/api/v1/robots/r7/stop', expect.objectContaining({ method: 'POST' }));
+    expect(f.mock.calls.filter(([u]) => /\/stop$/.test(String(u)))).toHaveLength(1);
+  });
+
+  it('조종 판 「조종 끝내기」 는 반납 확인 중 눌리지 않음(⋯ 끝내기와 같은 규칙) · 정지는 그대로', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    ready();
+    w.auto = (m) => (m.t === 'lease.release' ? undefined : { ok: true });
+    expect(btn('조종 끝내기').disabled).toBe(false);
+    click(btn('조종 끝내기'));
+    expect(w.of('lease.release')).toHaveLength(1);
+    expect($('[data-ending]')).toBeTruthy();
+    // 반납을 보내면 이 화면 조종권은 놓은 것으로 그린다: 조종 판 「조종 끝내기」 는 없고(있어도 disabled), 「조종 시작」 은 반납 확인 전엔 막힘
+    const end = btn('조종 끝내기');
+    if (end) expect(end.disabled).toBe(true);
+    expect(btn('조종').disabled).toBe(true);
+    expect($(`#why-r7`).textContent).toBe('반납 확인 중');
+    click(btn('조종'));
+    expect(w.of('lease.release')).toHaveLength(1);
+    expect(btn('끝내기').disabled).toBe(true);
+    inScreen();
+    press('r7');
+  });
+
+  it('조종 화면 밖(로봇 연결 · 기록)은 머리줄 STOP 그대로', () => {
+    mount(true, 'u-kim', '#/drive');
+    serve(KIM, 'r3', 'r7', 'r1');
+    expect(head().hasAttribute('data-u1')).toBe(false);
+    expect(stopBtn().textContent).toBe('STOP');
+  });
+});
+
+// 19:57 결정: 시안 u1 동작 7 · 「다시 시작」 확인 창 = PC 로봇 탭(robotu4)과 같은 규칙 · 같은 서버 길(rt.action · rt.unlock)
+describe('폰 실기 조종 동작 일곱 · 다시 시작 (시안 u1 · PC 로봇 탭과 같은 규칙)', () => {
+  const acts = () => [...box.querySelectorAll<HTMLButtonElement>('.u1d .act button')];
+  const actBtn = (t: string) => acts().find((b) => b.dataset.act === t)!;
+  const says = () => $('.u1d [data-act-msg]')?.textContent ?? '';
+
+  it('아래 줄 = 시안 순서 일곱(앉기 … 인사) · 「순정 확인 전」 은 흐리게(na) 표지 · 시트 단추 줄은 칩 펼침 안', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r7');
+    expect(acts().map((b) => b.textContent)).toEqual(ACTS.map(([n, t]) => t + (actWhy(n, false) ? '순정 확인 전' : '')));
+    expect(acts().map((b) => b.dataset.act)).toEqual(ACTS.map(([n]) => n));
+    expect(actBtn('Greet').classList.contains('na')).toBe(true);
+    expect(actBtn('Sit').classList.contains('na')).toBe(false);
+  });
+
+  it('조종권 없으면 보내지 않고 까닭 · 조종 중이면 rt.action 한 번(confirmed false) · 입력 0 · 결과는 로봇 보고로', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r7');
+    click(actBtn('Sit'));
+    expect(w.of('action')).toHaveLength(0);
+    expect(says()).toBe('조종 시작 후 사용할 수 있습니다.');
+    ready();
+    key('keydown', 'KeyW'); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);
+    click(actBtn('Sit'));
+    expect(w.of('action')).toMatchObject([{ robot: 'r7', action: 'Sit', params: {}, confirmed: false }]);
+    tick(100); expect(lastAxes()).toEqual([0, 0, 0]);                    // 누르던 키는 떼고 다시 눌러야
+    expect(says()).toBe('서버 접수 · 로봇의 결과를 기다리고 있습니다.');
+    key('keyup', 'KeyW');
+  });
+
+  it('「순정 확인 전」(Greet) · 저수준 중 일어서기는 보내지 않고 PC 와 같은 까닭', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r7');
+    ready();
+    click(actBtn('Greet'));
+    expect(w.of('action')).toHaveLength(0);
+    expect(says()).toBe(actWhy('Greet', false));
+    act(() => push('r7', { control: 'LOWLEVEL' } as Partial<ScreenState>));
+    expect(actBtn('StandUp').classList.contains('na')).toBe(true);
+    click(actBtn('StandUp'));
+    expect(w.of('action')).toHaveLength(0);
+    expect(says()).toBe(STANDUP_WHY);
+    click(actBtn('Greet'));                                              // 저수준 표에는 있음
+    expect(w.of('action')).toMatchObject([{ action: 'Greet' }]);
+  });
+
+  it('로봇 연결이 끊기면 보내지 않음', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r7');
+    ready();
+    act(() => push('r7', { connection: 'OFFLINE' } as Partial<ScreenState>));
+    click(actBtn('Sit'));
+    expect(w.of('action')).toHaveLength(0);
+    expect(says()).toBe('로봇과 서버 연결을 확인하세요.');
+  });
+
+  it('「다시 시작」 은 확인 창을 거쳐야 잠금 해제 · 취소면 아무것도 안 보냄 · 정지는 창 위에서도 그 자리', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r7');
+    click(btn('조종'));
+    click(btn('다시 시작'));
+    expect(w.of('unlock')).toHaveLength(0);
+    const ask = $('.u1d [data-restart-ask]');
+    expect(ask.getAttribute('role')).toBe('dialog');
+    expect(ask.textContent).toContain('Go2-7 을 일으킬까요?');
+    expect(ask.textContent).toContain('주변에 사람이 없는지 보세요');
+    expect($('[data-stop]').closest('.u1d')).toBeNull();
+    click(btn('취소'));
+    expect($('.u1d [data-restart-ask]')).toBeNull();
+    expect(w.of('unlock')).toHaveLength(0);
+    click(btn('다시 시작'));
+    click($('[data-restart-ask] button.dpri'));
+    expect(w.of('unlock')).toHaveLength(1);
+    expect($('.u1d [data-restart-ask]')).toBeNull();
+    expect(btn('다시 시작')).toBeUndefined();                            // 풀린 뒤 단추 없음
+  });
+
+  // reviewer H1 (REVIEW-web-u4-simdrive-restart): 창 열림 상태는 연 때의 stop_gen 에 묶인다. 잠금 풀림 · stop_gen 바뀜 · 조종권 잃음이면 열림 자체를 닫음
+  it('[H1] 창을 연 뒤 다른 곳에서 풀림 → 새 STOP(stop_gen 2→3): 누르지 않았는데 창이 다시 뜨지 않고 unlock 0', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r7');
+    click(btn('조종'));
+    act(() => push('r7', { latched: true, stop_gen: 2 }));
+    click(btn('다시 시작'));
+    expect($('.u1d [data-restart-ask]')).not.toBeNull();
+    act(() => push('r7', { latched: false }));                          // 다른 곳(PC · 다른 창)에서 풀림
+    expect($('.u1d [data-restart-ask]')).toBeNull();
+    act(() => push('r7', { latched: true, stop_gen: 3 }));              // 새 STOP
+    expect($('.u1d [data-restart-ask]')).toBeNull();
+    expect(w.of('unlock')).toHaveLength(0);
+  });
+
+  it('[H1] 창이 열린 채 잠금이 그대로여도 stop_gen 이 바뀌면 창을 닫음 · 조종권을 잃었다 다시 받아도 창은 닫힌 채', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r7');
+    click(btn('조종'));
+    click(btn('다시 시작'));
+    act(() => push('r7', { latched: true, stop_gen: 5 }));
+    expect($('.u1d [data-restart-ask]')).toBeNull();
+    expect(w.of('unlock')).toHaveLength(0);
+    click(btn('다시 시작'));
+    recv(lease('r7', null));                                            // 조종권 잃음
+    recv(lease('r7', KIM, 'L9'));                                       // 다시 받음
+    expect($('.u1d [data-restart-ask]')).toBeNull();
+    expect(w.of('unlock')).toHaveLength(0);
+    click(btn('다시 시작'));
+    click($('[data-restart-ask] button.dpri'));
+    expect(w.of('unlock')).toMatchObject([{ robot: 'r7', stop_gen: 5 }]);   // 연 때와 같은 세대일 때만 한 번
+  });
+
+  it('[H1 · L1] 같은 계정이 다른 기기에서 조종권을 가져가 lease id 만 바뀜(L→L10, 빈 조종권을 거치지 않음): 창이 닫히고 unlock 0', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r7');
+    click(btn('조종'));
+    click(btn('다시 시작'));
+    expect($('.u1d [data-restart-ask]')).not.toBeNull();
+    recv(lease('r7', KIM, 'L10'));
+    expect($('.u1d [data-restart-ask]')).toBeNull();
+    expect(w.of('unlock')).toHaveLength(0);
+  });
+});
+
+describe('시안 u1_2 조종 중 글 · 꼴 (21:48 결정 2)', () => {
+  it('상태 칩은 「조종 중」, 걷기 칸 둘째 줄은 지금 걷기 모드 설명(START = 험지 기본 · 모르면 「걷기 모드」)', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    ready();
+    expect($('.u1-chip .u1-st')!.textContent).toBe('조종 중');
+    expect($('.u1-mode')!.textContent).toBe('모름걷기 모드');
+    act(() => push('r7', { gait: { gait: 'start', available: ['classic', 'start'] } }));
+    expect($('.u1-mode')!.textContent).toBe('START험지 기본');
+    act(() => push('r7', { gait: { gait: 'classic', available: ['classic', 'start'] } }));
+    expect($('.u1-mode')!.textContent).toBe('Classic평지 기본');
+  });
+
+  it('지금 하는 동작(로봇 보고 action_result RUNNING)만 초록 테(.run) · 끝나면 지움', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    ready();
+    const run = () => [...box.querySelectorAll('.act button.run')].map((b) => (b as HTMLElement).dataset.act);
+    expect(run()).toEqual([]);
+    const res = (status: 'RUNNING' | 'SUCCEEDED') => ({ action_result: { request_id: 'q1', action: 'Stretch' as const, status, code: 'OK', sdk_code: null, mode: null, enabled: null } });
+    act(() => push('r7', res('RUNNING')));
+    expect(run()).toEqual(['Stretch']);
+    act(() => push('r7', res('SUCCEEDED')));
+    expect(run()).toEqual([]);
+  });
+
+  it('css: 정지 글은 시안 .stop 14px · 작은 글 9.5px, 동작 줄 까닭 글(em)은 줄 높이에 안 들어가게(시안보다 12px 올라가던 것)', () => {
+    expect(u1AppCss).toMatch(/\.fh-head\[data-u1\] \.fh-stop-t>span\{font-size:14px;letter-spacing:normal\}/);
+    expect(u1AppCss).toMatch(/\.fh-head\[data-u1\] \.fh-stop\[data-again\] small\{[^}]*font-size:9\.5px/);
+    expect(u1AppCss).toMatch(/\.u1d \.act button\{[^}]*position:relative/);
+    expect(u1AppCss).toMatch(/\.u1d \.act em\{position:absolute;top:100%/);
+  });
+});
+
+describe('시안 u1_3 정지됨 (21:48 결정 3 · Damping 은 따로)', () => {
+  it('로봇이 잠금을 알리면 상태 칩 「정지됨」 · 조이스틱 · 동작 줄 숨김 · 키 · 손가락 · 동작으로 0 아닌 명령이 나가지 않음', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    ready();
+    expect($('[data-u1d]')!.hasAttribute('data-stop-held')).toBe(false);
+    act(() => push('r7', { latched: true, stop_gen: 2 }));
+    expect($('.u1-chip .u1-st')!.textContent).toBe('정지됨');
+    // 숨김은 css(visibility) · 부품은 붙어 있음(누른 손가락 세대 판정 RV-425 그대로)
+    expect($('[data-u1d]')!.hasAttribute('data-stop-held')).toBe(true);
+    expect(u1AppCss).toMatch(/\.u1d\[data-stop-held\] :is\(\.stick,\.act\)\{visibility:hidden\}/);
+    const moves = () => w.of('cmd').filter((m) => (m.axes as number[]).some((v) => v !== 0)).length;
+    const n = moves(), acts = w.of('action').length;
+    key('keydown', 'KeyW'); tick(300); key('keyup', 'KeyW'); tick(100);
+    expect(moves()).toBe(n);
+    expect(w.of('action').length).toBe(acts);
+  });
+
+  it('잠금을 모르면(latched null) 「정지됨」 이라 쓰지 않음(확인 안 된 정지됨 금지) · 「정지 잠금」', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    ready();
+    act(() => push('r7', { latched: null }));
+    expect($('.u1-chip .u1-st')!.textContent).toBe('정지 잠금');
+  });
+});
+
+describe('시안 u1_8 서버 끊김 (21:48 결정 4)', () => {
+  const down = () => { mount(true, 'u-kim', '#/drive/r7'); serve(KIM, 'r3', 'r7', 'r1'); ready(); act(() => w.drop(1006)); tick(100); };
+  it('상태 칩 「리모컨만」 · 띠는 「서버 연결 안 됨 · 다시 연결」 하나 · 연결 점 자리 구름 빗금 · App 띠 연결 줄 없음 · 정지는 그대로 빨강', () => {
+    down();
+    expect($('.u1-chip .u1-st')!.textContent).toBe('리모컨만');
+    const bans = [...box.querySelectorAll('.u1-says .ban')];
+    expect(bans.map((b) => b.textContent)).toEqual(['서버 연결 안 됨 다시 연결']);   // 시안 「서버 연결 안 됨 [점검]」 꼴
+    expect($('.u1-says')!.textContent).not.toMatch(/조종권자 확인 안 됨|로봇 상태를 확인하는 중/);
+    expect($('[data-band] [data-link-band]')).toBeNull();
+    expect($('.u1-top [data-cloud-off]')).toBeTruthy();
+    const s = $<HTMLButtonElement>('[data-stop]')!;
+    expect(s.disabled).toBe(false);
+    expect(s.dataset.place).toBe('screen');
+  });
+
+  it('「다시 연결」(시안 「점검」 · 망 점검 화면이 없어 시안 밖 · 새로 그림) = 실시간 다시 열기', () => {
+    down();
+    const b = $<HTMLButtonElement>('.u1-says [data-off-proto="reconnect"]')!;
+    expect(b.textContent).toBe('다시 연결');
+    const n = FakeWS.all.length;
+    click(b);
+    expect(FakeWS.all.length).toBe(n + 1);
+  });
+
+  it('연결이 열려 있으면 그대로(리모컨만 · 구름 빗금 없음)', () => {
+    mount(true, 'u-kim', '#/drive/r7'); serve(KIM, 'r3', 'r7', 'r1'); ready();
+    expect($('.u1-chip .u1-st')!.textContent).toBe('조종 중');
+    expect($('.u1-top [data-cloud-off]')).toBeNull();
   });
 });

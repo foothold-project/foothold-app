@@ -20,6 +20,10 @@
 [data-real-drive] [data-l3-follow]{left:50% !important;top:56px;bottom:auto !important;transform:translateX(-50%);min-height:40px;background:rgba(8,11,14,.66);border-color:rgba(230,235,239,.45);color:#E6EBEF}
 /* 위 얇은 줄: «<»(8 + 44) 와 STOP(오른쪽 114 + 8) 사이 가운데 */
 [data-real-drive] .dv-top{left:60px;right:130px;width:fit-content;max-width:calc(100% - 190px);margin-inline:auto;transform:none;min-height:30px;font-size:12px}
+/* 「다시 시작」 창: 상태 알약(정지 잠금 · 미검증)을 가리지 않게 알약 아래끝(8 + 30) + 8 · 안전 카드(z 1)와는 겹쳐도 창(z 2)이 위 */
+[data-real-drive] .dv-ask{top:46px}
+/* 세로(좁은 폭): 창이 STOP(App 머리줄 top 8 + 64) 오른쪽 위와 겹치므로 STOP 아래끝 + 8 */
+@media (orientation:portrait){[data-real-drive] .dv-ask{top:80px}}
 /* 안내 카드: 오른쪽, STOP(64) 아래 ~ 오른쪽 조이스틱 위. 안전 글·미검증은 늘 보임, 실효 상한만 접힘(맨 아래) */
 .rd-card{position:absolute;top:80px;right:8px;z-index:1;box-sizing:border-box;width:min(300px,calc(100% - 16px));max-height:calc(100% - 80px - 148px);overflow-y:auto;display:flex;flex-direction:column;gap:2px;padding:2px 4px 4px;border:1px solid rgba(230,235,239,.3);border-radius:12px;background:rgba(8,11,14,.55);color:#E6EBEF}
 .rd-card .dv-note{padding:4px 8px;font-size:12px;line-height:1.4;background:none;color:#E6EBEF;word-break:keep-all}
@@ -35,12 +39,16 @@
 [data-real-drive] .dv-stick>i{background:rgba(230,235,239,.7)}
 /* 가로 폰(낮은 높이 — 조이스틱 88): 카드·띠를 조이스틱 크기에 맞춤 */
 /* 카드는 넓혀 줄 수를 줄인다(844×390 에서 반납 실패 + 출입증 + 미검증이 겹쳐도 스크롤 없이 다 보이게) */
-@media (max-height:480px){.rd-card{width:min(360px,calc(100% - 16px));max-height:calc(100% - 80px - 104px)}.rd-band{bottom:10px;max-width:calc(100% - 216px)}}
+/* 큰 화면 가운데 글(영상 없음 · 라이다 사유 등, 11-28): 가로는 왼쪽 작은 창(8 + 창 너비 + 8) · 오른쪽 카드(카드 너비 + 16) · 아래 조이스틱(104)을 뺀 빈 자리 가운데 */
+@media (max-height:480px){.rd-card{width:min(360px,calc(100% - 16px));max-height:calc(100% - 80px - 104px)}.rd-band{bottom:10px;max-width:calc(100% - 216px)}
+  .rd-view.big .dv-video,.rd-view.big>.qd-empty{box-sizing:border-box;padding:60px calc(min(360px,100% - 16px) + 16px) 104px calc(clamp(120px,24vw,220px) + 16px)}}
 /* 세로: 위 = 큰 화면, 아래 = 띠 + 조이스틱 두 개(어두운 판) */
 @media (orientation:portrait){
   .rd-view.big{bottom:200px}
+  /* 가운데 글은 큰 화면 아래쪽 56px 띠(바닥 위 32px). 카드는 그 위에서 끝난다(최대 높이에서 56px 뺌) */
+  .rd-view.big .dv-video,.rd-view.big>.qd-empty{box-sizing:border-box;align-items:end;padding:0 16px 32px}
   .rd-view.pip{width:clamp(110px,32vw,160px)}
-  .rd-card{left:auto;width:calc(100% - 16px - clamp(110px,32vw,160px) - 8px);max-height:calc(100% - 80px - 212px)}
+  .rd-card{left:auto;width:calc(100% - 16px - clamp(110px,32vw,160px) - 8px);max-height:calc(100% - 80px - 268px)}
   .rd-band{bottom:144px;max-width:calc(100% - 16px)}
 }
-@media (orientation:portrait) and (max-height:700px){.rd-view.big{bottom:160px}.rd-band{bottom:104px}.rd-card{max-height:calc(100% - 80px - 172px)}}
+@media (orientation:portrait) and (max-height:700px){.rd-view.big{bottom:160px}.rd-band{bottom:104px}.rd-card{max-height:calc(100% - 80px - 228px)}}

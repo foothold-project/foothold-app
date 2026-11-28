@@ -1,10 +1,9 @@
-// 폰 기록 탭 = 사건 타일(U3-04 · u3_3_list): 등급 색으로 옅게 물든 칸 + 1 px 테 · 분류 아이콘 · 문장 · 등급 · 분류 · 로봇 · 오른쪽 시각. PC 는 표 그대로.
+// 폰 기록 탭 = 시안 u3_3 알림 목록 타일(U3-04): 등급 색으로 옅게 물든 칸 + 1 px 테 · 분류 아이콘 · 문장 · 로봇·사람 · 분류 · 오른쪽 시각, 고른 타일은 오른쪽 칸. PC 는 시안 u8_1 줄(historyframe 시험).
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Event as Ev, RobotSummary, User } from '../../../contracts/ts';
 import { Root } from '../session';
-import { stamp, when } from '../screens/history';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -53,7 +52,7 @@ describe('폰 기록 = 타일', () => {
     await open(true);
     expect(tiles()).toHaveLength(4);
     expect(box.querySelector('[aria-label="기록"] table')).toBeNull();
-    expect(box.querySelector('[aria-label="사건"]')!.tagName).toBe('UL');
+    expect(box.querySelector('[aria-label="사건"]')!.className).toBe('g list');   // 시안 .g.list
   });
   it('등급 색: 위험 · 주의 · 정보, 정보로 저장된 실패 코드는 주의 (줄 알약과 같은 기준)', async () => {
     serve();
@@ -67,31 +66,36 @@ describe('폰 기록 = 타일', () => {
     expect(tiles().map((t) => t.querySelector('[data-tile-icon]')!.getAttribute('data-tile-icon'))).toEqual(['SAFETY', 'ROUTE', 'LINK', 'RUN']);
     expect(tiles().every((t) => t.querySelector('[data-tile-icon] svg')?.getAttribute('aria-hidden') === 'true')).toBe(true);
     expect(a.querySelector('[data-tile-title]')!.textContent).toBe('사건 1 문장');
-    expect(a.querySelector('[data-tile-title]')!.tagName).toBe('DIV');   // 문장 칸(Said)은 접힌 상세(details · 블록)를 품을 수 있어 b 같은 글자 요소로 감싸지 않음(#575 reviewer)
+    expect(a.querySelector('[data-tile-title]')!.tagName).toBe('B');   // 시안 .tile b · 문장은 글만(코드 원문 접힌 상세는 표에만)
     expect(b.querySelector('[data-tile-title]')!.textContent).toBe('길을 못 찾았습니다.');
-    expect(a.querySelector('[data-tile-sub]')!.textContent).toBe('■위험 · 안전 · Go2-A');
-    expect(c.querySelector('[data-tile-sub]')!.textContent).toBe('▲주의 · 연결 · Go2-A · 이운영');
-    expect(a.querySelector('[data-tile-time]')!.textContent).toBe(when(stamp(ITEMS[0])));
-    expect(c.querySelector('[data-tile-time]')!.textContent).toBe(when(ITEMS[2].robot_at!));   // 늦게 온 로봇 사건은 로봇 발생 시각(표와 같은 stamp)
+    expect(a.querySelector('[data-tile-sub]')!.textContent).toBe('Go2-A · 안전');   // 시안 아래 줄: 로봇 · 내용(등급은 타일 색 · 오른쪽 칸 표지)
+    expect(c.querySelector('[data-tile-sub]')!.textContent).toBe('Go2-A · 이운영 · 연결');
+    const hm = (iso: string) => (new Date(iso).toDateString() === new Date().toDateString() ? new Date(iso).toTimeString().slice(0, 5) : `${new Date(iso).getMonth() + 1}/${new Date(iso).getDate()}`);
+    expect(a.querySelector('[data-tile-time]')!.textContent).toBe(hm(ITEMS[0].at));   // 오늘이면 시안처럼 HH:MM, 아니면 M/D
+    expect(c.querySelector('[data-tile-time]')!.textContent).toBe(hm(ITEMS[2].robot_at!));   // 늦게 온 로봇 사건은 로봇 발생 시각(표와 같은 stamp)
     const icon = (t: HTMLElement) => t.querySelector('[data-tile-icon]')!.innerHTML;
     expect(new Set(tiles().map(icon)).size).toBe(4);   // 분류마다 다른 아이콘
   });
-  it('run_id 있는 타일에만 「실행 기록 보기」 → 보고서, 닫으면 초점은 그 단추로', async () => {
+  it('run_id 있는 알림을 고르면 오른쪽 칸에만 「실행 기록 보기」 → 보고서, 닫으면 초점은 그 단추로', async () => {
     serve();
     await open(true);
-    expect(tiles().map((t) => !!btn('실행 기록 보기', t))).toEqual([false, false, false, true]);
-    act(() => btn('실행 기록 보기', tiles()[3])!.click());
+    const det = () => box.querySelector<HTMLElement>('.u33 .g.det')!;
+    const has = [];
+    for (const t of tiles()) { act(() => t.click()); await flush(); has.push(!!btn('실행 기록 보기', det())); }
+    expect(has).toEqual([false, false, false, true]);
+    expect(tiles().some((t) => btn('실행 기록 보기', t))).toBe(false);
+    act(() => btn('실행 기록 보기', det())!.click());
     await flush();
     const rep = box.querySelector('[role="region"][aria-label="실행 기록"]')!;
     expect(rep.textContent).toContain('공정 순찰 A');
     act(() => btn('닫기', rep)!.click());
     await flush();
-    expect(document.activeElement).toBe(btn('실행 기록 보기', tiles()[3]));
+    expect(document.activeElement).toBe(btn('실행 기록 보기', det()));
   });
-  it('PC 는 표 그대로(타일 없음)', async () => {
+  it('PC 는 시안 u8_1 줄(타일 없음)', async () => {
     serve();
     await open(false);
     expect(tiles()).toHaveLength(0);
-    expect(box.querySelectorAll('[aria-label="사건"] tbody tr')).toHaveLength(4);
+    expect(box.querySelectorAll('[aria-label="사건"] .ev')).toHaveLength(4);
   });
 });

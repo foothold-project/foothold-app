@@ -122,9 +122,9 @@ describe('실기 연결 흐름', () => {
     expect($('[data-real-range]')?.textContent).toContain('후진 없음');
     expect($('[data-stop]')).toBeTruthy();   // STOP 늘 보임
     act(() => a.recv(st())); await flush();
-    await click(btn('조종 시작'));
+    await click(btn('조종'));
     act(() => a.recv(st({ lease_id: LEASE, controller: 'u-lee', controller_connected: true }))); await flush();
-    await click(btn('잠금 해제'));
+    await click(btn('다시 시작')); await click($('[data-restart-go]'));
     act(() => a.recv(st({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: false }))); await flush();
     // 회전만(제자리) = wz 0, 앞 끝까지 = 1.5
     sim.axes([0, 1]); await wait(120);
@@ -169,6 +169,11 @@ describe('실기 연결 흐름', () => {
     await pick();
     await relay({ port: 40123 });
     expect($('[data-real-why]')?.textContent).toContain('출입증 열쇠');
+    act(() => root?.unmount()); root = null; box.remove(); sim.clear();
+    serve({ status: 429, body: { error: { code: 'PASS_RATE_LIMIT', message: '요청이 많습니다.', detail: { retry_after: 30 } } } });   // 429 = retry_after 초 안내
+    await pick();
+    await relay({ port: 40123 });
+    expect($('[data-real-why]')?.textContent).toBe('요청이 많습니다. 30초 뒤 다시 연결하세요.');
   });
 
   it('앱이 Wi-Fi 문제를 알리면 그 이유, 연결 전 STOP 은 «보낼 길 없음»(정리 DELETE 0)', async () => {
@@ -297,9 +302,9 @@ describe('실기 직결 조종 — 새로 누른 입력만', () => {
     serve();
     const a = await connected();
     act(() => a.recv(st())); await flush();
-    await click(btn('조종 시작'));
+    await click(btn('조종'));
     act(() => a.recv(st(ST))); await flush();
-    await click(btn('잠금 해제'));
+    await click(btn('다시 시작')); await click($('[data-restart-go]'));
     act(() => a.recv(st({ ...ST, latched: false }))); await flush();
     return a;
   }
@@ -345,7 +350,7 @@ describe('서버 끊긴 폰의 STOP(d2)', () => {
   const server = () => FakeWS.all.filter((w) => !w.url.startsWith('ws://127.0.0.1:40123/'));
   /** 서버 실시간을 열었다가 끊음(연결 끊김 띠까지) */
   const cut = async () => { for (const w of server()) { act(() => w.open()); } await flush(); for (const w of server()) act(() => w.drop(1006)); await flush();
-    expect($('[data-link-band]')).toBeTruthy(); };
+    expect($('[data-link-band]') ?? $('[data-off-proto="reconnect"]')).toBeTruthy(); };   // 폰 실기 조종(u1)은 조종 판 띠 「서버 연결 안 됨 · 다시 연결」(시안 u1_8)
   const greyStops = () => [...box.querySelectorAll<HTMLButtonElement>('.fh-stop')].filter((b) => b.disabled);
   /** 직결 없이 폰 로봇 연결 화면 */
   async function home(robots = ROBOTS, hash = '#/drive') {
@@ -549,7 +554,7 @@ describe('서버 끊긴 폰의 STOP(d2)', () => {
   it('M6: 총괄 폰 · 남의 시뮬이 섞인 목록 → 서버 끊김 STOP 은 정지 가능한(내) 로봇에만', async () => {
     serve();
     const mine = { id: 'sa', name: '시뮬 A', owner: 'u-kim', ownerName: '김OO', battery: null, online: true, seenAt: '', status: 'IDLE', sim: true } as unknown as (typeof ROBOTS)[number];
-    const other = { ...mine, id: 'sb', name: '시뮬 B', owner: 'u-lee', ownerName: '이OO' };
+    const other = { ...mine, id: 'sb', name: '시뮬 B', owner: 'u-lee', ownerName: '이OO', demo: false };   // 사용자 시뮬(데모 아님 · 22:04)
     window.matchMedia = ((q: string) => ({ matches: true, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
     vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14; wv) FootholdApp/1.2.5-dev');
     location.hash = '#/drive';
@@ -638,8 +643,8 @@ describe('서버 끊긴 폰의 STOP(d2)', () => {
     await cut();
     await click($('[data-stop]'));
     expect($('[data-stop-none]')).toBeTruthy();
-    // 같은 화면에서 주변 로봇 직결
-    await click(btn('+ 로봇 연결하기'));
+    // 같은 화면에서 주변 로봇 직결(로봇 0대 폰 = 시안 u13_4 «로봇 연결», 같은 data-robot-connect · 같은 길)
+    await click($('[data-robot-connect]'));
     await click(btn('주변 로봇 찾기'));
     const seq = $('[data-nearby-scan]')!.getAttribute('data-nearby-scan');
     act(() => { window.dispatchEvent(new CustomEvent('fh-nearby', { detail: { seq, scanning: false, items: [found], problems: [] } })); });

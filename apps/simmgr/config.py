@@ -38,10 +38,6 @@ class Slot:
     key_path: str = field(repr=False)
     replay_path: str = field(repr=False)
     port: int
-    # Optional {world_id: [x, y, yaw]} (world m, rad) for the local MuJoCo child, used only when the robot is added
-    # to that world; otherwise the world's spawn. Checked against the repository map of that world (inside, free cell)
-    # by mujoco_launcher.spawn_arg. Written by tools/local_up.py from FH_SIM_SPAWNS.
-    spawns: dict | None = None
 
     @property
     def namespace(self):
@@ -70,9 +66,6 @@ class Settings:
     scenario_data_origin: str | None = field(default=None, repr=False)
     arrival_pose_max_age_s: float | None = None
     local_backend: str | None = None  # 'mujoco': mujoco_launcher.MujocoLauncher (local only, no Gazebo)
-    # Robots one person may own at once (SIM_OWNER_LIMIT). 1 everywhere; MuJoCo local demo may raise it
-    # (app-design-lx 11/28 12:41) up to the robot cap.
-    max_per_owner: int = 1
 
     @property
     def unit_runtime_seconds(self):
@@ -87,14 +80,12 @@ class Settings:
             import math
             if not math.isfinite(self.arrival_pose_max_age_s) or self.arrival_pose_max_age_s <= 0:
                 raise ValueError('arrival pose maximum age must be positive and finite')
-        # Local MuJoCo demo keeps robots up for a day (app-design-lx 11/28 13:32); everywhere else 3600.
-        runtime_cap = 86400 if self.local_backend == 'mujoco' else 3600
-        if type(self.runtime_seconds) is not int or not 5 <= self.runtime_seconds <= runtime_cap:
-            raise ValueError(f'simulation runtime must be 5..{runtime_cap} seconds')
+        if type(self.runtime_seconds) is not int or not 5 <= self.runtime_seconds <= 3600:
+            raise ValueError('simulation runtime must be 5..3600 seconds')
         # The 1..2 cap came with the native Gazebo/ROS first launch (P1-C, FIRST-LAUNCH.md: native 1 robot,
         # fake 2 for namespace/topic/port planning). A local MuJoCo agent is one Node + one Python process
         # per robot with no ROS graph; local integration allows 4 (demo-day 11/28, not a product decision).
-        robot_cap = 8 if self.local_backend == "mujoco" else 2
+        robot_cap = 4 if self.local_backend == "mujoco" else 2
         if self.local_backend not in (None, 'mujoco') or (self.local_backend and self.real):
             raise ValueError('local backend must be mujoco and never with the native launcher')
         if self.real and self.runtime_seconds < 300:
@@ -106,8 +97,6 @@ class Settings:
             raise ValueError('manager requires loopback and approved port range')
         if not 32 <= len(self.secret) <= 256 or not self.secret.isascii() or any(ord(c) < 33 for c in self.secret) or not 1 <= self.max_robots <= robot_cap:
             raise ValueError('private service credential and robot cap 1..2 required')
-        if type(self.max_per_owner) is not int or not 1 <= self.max_per_owner <= (robot_cap if self.local_backend == 'mujoco' else 1):
-            raise ValueError('max_per_owner is 1, or 1..robot cap for the local MuJoCo backend')
         if not self.worlds or not self.slots or len(self.slots) > robot_cap:
             raise ValueError('catalogue requires worlds and at most two provisioned slots')
         ports = [slot.port for slot in self.slots.values()]
@@ -162,5 +151,4 @@ class Settings:
                    scenario_data_origin=env.get('FOOTHOLD_SCENARIO_DATA_ORIGIN'),
                    arrival_pose_max_age_s=(float(env['FH_RUN_ARRIVAL_POSE_MAX_AGE_S'])
                        if 'FH_RUN_ARRIVAL_POSE_MAX_AGE_S' in env else None),
-                   local_backend=env.get('FH_SIM_LOCAL_BACKEND') or None,
-                   max_per_owner=int(env.get('FH_SIM_MAX_PER_OWNER', '1')))
+                   local_backend=env.get('FH_SIM_LOCAL_BACKEND') or None)

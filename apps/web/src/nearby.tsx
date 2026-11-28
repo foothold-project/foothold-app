@@ -7,6 +7,7 @@ import type { Robot } from './fake';
 import { Chip } from './screens';
 import { Go2View, manualUrl } from './go2status';
 import { UNVERIFIED, sim, useSim, type Real, type Sim } from './phone';
+import { HOT_STEPS, HOT_TOP } from './proto/u11';
 
 export type Found = { key: string; via: 'mdns' | 'addr' | 'ble'; name: string; host?: string; port?: number; model?: string; agent?: string; rid?: string; rssi?: number; mode?: 'discovery-only' | 'go2-readonly' };
 export type Scan = { scanning: boolean; items: Found[]; problems: string[] };
@@ -101,12 +102,6 @@ function status(f: Found, robots: Robot[]) {
 
 /** 망이 막혔을 때(폰이 로봇과 다른 망) «핫스팟으로 바꾸기» 안내. 웹은 폰 Wi-Fi 를 바꾸지 못하므로 사람이 할 단계만 보인다 */
 const NET_BLOCKED = ['wifi-off', 'other-subnet'];
-const HOT_STEPS = [
-  '로봇 전원을 켜고 핫스팟이 보일 때까지 기다립니다.',
-  '폰 설정 › Wi-Fi 에서 로봇 핫스팟을 고릅니다. 이름과 비밀번호는 로봇 설명서나 관리자에게 확인하세요. 에이전트를 돌리는 노트북도 같은 핫스팟에 붙여야 합니다.',
-  '핫스팟에는 인터넷이 없을 수 있어 그동안 서버 연결이 끊길 수 있습니다.',
-  '이 화면으로 돌아와 아래 «다시 찾기»를 누릅니다.',
-];
 
 /** «주변 로봇 찾기» 화면(«내 로봇» 카드 자리). 들어오면 바로 찾기, «다시 찾기» = 새 seq */
 export function Nearby({ robots, close }: { robots: Robot[]; close: () => void }) {
@@ -130,8 +125,8 @@ export function Nearby({ robots, close }: { robots: Robot[]; close: () => void }
     {scan?.problems.some((p) => NET_BLOCKED.includes(p)) && <>
       <button type="button" className="btn" aria-expanded={hot} aria-controls="nearby-hotspot" onClick={() => setHot(!hot)}>핫스팟으로 바꾸기 · 안내만</button>
       {hot && <div id="nearby-hotspot" className="lv-note" data-hotspot-guide>
-        <p>이 앱은 폰 Wi-Fi 를 바꾸지 못합니다 · 아래 순서대로 폰 설정에서 직접 바꾸세요.</p>
-        <ol>{HOT_STEPS.map((t) => <li key={t}>{t}</li>)}</ol>
+        <p>{HOT_TOP}</p>
+        <ol>{HOT_STEPS.map((t) => <li key={t}>{t}</li>)}<li>이 화면으로 돌아와 아래 «다시 찾기»를 누릅니다.</li></ol>
       </div>}</>}
     {items.length > 0 && <ul className="dv-cards">{items.map((f) => <li key={f.key} className="card dv-card">
       <button type="button" className="btn" style={{ textAlign: 'left', flexDirection: 'column', alignItems: 'flex-start' }} aria-expanded={open === f.key} onClick={() => setOpen(open === f.key ? null : f.key)}>

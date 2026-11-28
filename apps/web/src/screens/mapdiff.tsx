@@ -1,7 +1,7 @@
 // 판 비교·되돌리기(01 AP-08·MP-04, 02 F-MP-04, 03 §5.6·U10, 05 §5 — S3b /map-versions/{id}/diff·/rollback).
 // 서버는 비교 그림을 만들지 않는다 — 두 판 그림(<image>, 쿠키로 따로 받음)을 같은 지도 좌표로 겹치고, 요소 차이를 추가·삭제·바뀜 색으로 얹는다.
 // 되돌리기: 누구나 바로 새 승인 판(10-27 결재 없음 — 옛 결재는 결재 화면 screens/approvals.tsx 가 같은 Compare 로 전후를 보인다). 이 칸은 창 전체 키·포인터를 잡지 않는다 — STOP 단추·Space = STOP 은 App 그대로.
-import { startTransition, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { startTransition, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import type { MapConnector, MapDiff, MapEdit, MapFeatureChange, MapFeatures, MapVersion, MapWaypoint, MapZone } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import { MapFrame, MapImage, around, useWalls, type Box } from '../mapframe';
@@ -17,7 +17,7 @@ type Change = MapFeatureChange;
 const gather = (l: Change[]) => { const f: MapFeatures = { zones: [], waypoints: [], connectors: [], edits: [] }; for (const c of l) for (const x of [c.before, c.after]) if (x) (f[c.kind] as Item[]).push(x); return f; };
 const KINDS = ['zones', 'waypoints', 'connectors', 'edits'];
 /** 응답 모양: 두 판 + 차이마다 있어야 할 쪽(추가 = 뒤, 삭제 = 앞, 바뀜 = 둘 다). 어긋나면 그리지 않고 오류 한 줄 */
-const isDiff = (d: MapDiff) => !!d && isVersion(d.version) && (d.against === null || isVersion(d.against)) && typeof d.image_changed === 'boolean' && Array.isArray(d.changes)
+export const isDiff = (d: MapDiff) => !!d && isVersion(d.version) && (d.against === null || isVersion(d.against)) && typeof d.image_changed === 'boolean' && Array.isArray(d.changes)
   && d.changes.every((c) => !!c && KINDS.includes(c.kind) && ['added', 'removed', 'changed'].includes(c.change) && (c.change === 'added') === !c.before && (c.change === 'removed') === !c.after)
   && isVersion({ ...d.version, features: gather(d.changes) });
 
@@ -83,25 +83,52 @@ function frame(b: Geo, a: Geo | null): Box {
   return [x0, y0, Math.max(...xs) - x0, Math.max(...ys) - y0];
 }
 
+/** 비교 그림 하나: 두 판 그림을 같은 지도 좌표로 겹치고 차이를 색으로(기록 비교 · 지도 탭 버전 기록 u7_9 가 같이 씀). hi = 강조할 차이 */
+export function DiffPic({ d, img = 'both', hi = -1, name, style, tint }: { d: MapDiff; img?: Img; hi?: number; name: (x: Pick<MapVersion, 'id' | 'number'>) => string; style?: CSSProperties; tint?: string }) {
+  const [bad, setBad] = useState(false), [k, setK] = useState(0);
+  const a = d.against ?? null, b = d.version;
+  const shift = !!a && (a.resolution !== b.resolution || a.origin.some((o, i) => o !== b.origin[i])), two = !!a && (d.image_changed || shift);
+  const onErr = () => setBad(true);
+  // 처음 화면: 뒤 판 벽 범위 + 앞 판 벽 범위(뒤 판 픽셀로) + 두 판 요소. 뒤 판 벽을 모르면 전체
+  const wb = useWalls(b.id), wa = useWalls(two ? a!.id : undefined);
+  const look = useMemo(() => {
+    const full = frame(b, a), extra = wa && a ? corners(...wa).map(([x, y]) => via(a, b)(x, y)) : [];
+    return { full, fit: around(wb, [...extra, ...featPx(b, b.features), ...(a ? featPx(b, a.features) : [])], full, b.resolution), res: b.resolution };
+  }, [d, wa, wb]);
+  // 차이 표시는 응답이 올 때 한 번만 만든다 — 강조·그림 전환 때 수천 개를 다시 맞추지 않게(강조는 위에 한 벌 더, 나머지는 묶음째 흐리게)
+  const layer = useMemo(() => d.changes.map((c, i) => <One key={i} g={d.version} c={c} />), [d]);
+  return <>
+    <MapFrame {...look} photo={b} role="img" aria-label={`${a ? name(a) : '빈 지도'}와 ${name(b)} 비교`} data-diff style={style}>
+      {two && img !== 'after' && <MapImage key={`a${k}`} data-image="before" id={a!.id} width={a!.width} height={a!.height} transform={onto(a!, b)} tint={tint} onError={onErr} />}
+      {/* 겹쳐 보기 반투명은 묶음(g)에 — 그림 자체 투명도(사진 모드 --fh-map-a, MapImage)에 곱해진다. 그림 style 로 덮으면 «실제 모습» 사진이 가려진다 */}
+      {(!two || img !== 'before') && <g opacity={two && img === 'both' ? 0.5 : undefined}><MapImage key={`b${k}`} data-image="after" id={b.id} width={b.width} height={b.height} tint={tint} onError={onErr} /></g>}
+      <g opacity={0.3} aria-hidden="true"><Shapes v={b} f={b.features} /></g>
+      <g opacity={hi >= 0 ? 0.35 : 1}>{layer}</g>
+      {d.changes[hi] && <One g={b} c={d.changes[hi]} hi />}
+    </MapFrame>
+    {bad && <div className="fh-row"><p className="fh-msg" role="alert">지도 그림을 불러오지 못했습니다. 네트워크를 확인한 뒤 다시 불러오세요.</p>
+      <button type="button" className="btn" onClick={() => { setBad(false); setK(k + 1); }}>다시 불러오기</button></div>}
+  </>;
+}
+
 /** 비교 실패 = 무엇이 + 어떻게. 그 밖(네트워크·시간 초과 등)은 원인 문구 + 다시 시도 */
-function diffFail(e: ApiFail) {
+export function diffFail(e: ApiFail) {
   if (e.code === 'DIFF_TOO_LARGE') return '두 기록의 차이가 너무 커서 비교할 수 없습니다. 더 가까운 기록을 골라 비교하세요.';
   if (e.code === 'INVALID_FEATURES') return '지도 요소가 너무 많은 기록이 있어 비교할 수 없습니다. 다른 기록을 골라 비교하세요.';
   return `비교하지 못했습니다. ${e.message}`;
 }
 
 const PAGE = 200;   // 차이 목록은 이만큼씩 그린다(큰 차이에서 화면이 멈추지 않게) — 지도 위 표시는 모두
-type Img = 'both' | 'before' | 'after';
+export type Img = 'both' | 'before' | 'after';
 
 /** 두 판 비교(모두 볼 수 있음). v = 고른 판(뒤), list = 같은 층 판 목록(번호만 쓴다 — 결재 칸은 기준 판 하나만 넘긴다). 기본 비교 대상 = v 의 기준 판(첫 판이면 빈 지도).
  *  gone = 판·층을 찾을 수 없음(부른 쪽이 비교를 닫고 알린 뒤 목록·나무 다시 받기 — 다시 받는 동안 이 칸은 내려간다).
  *  name = 기록을 부르는 이름 — 지도 탭은 저장 시각·만든 사람, 옛 결재 화면은 기본값(판 번호) */
 export function Compare({ v, list, cancel, gone, name = (x) => `판 ${x.number}` }: { v: MapVersion; list: Pick<MapVersion, 'id' | 'number'>[]; cancel?: AbortSignal; gone: () => void; name?: (x: Pick<MapVersion, 'id' | 'number'>) => string }) {
   const [against, setAgainst] = useState(''), [n, setN] = useState(0), [d, setD] = useState<MapDiff | null>(null), [err, setErr] = useState('');
-  const [hi, setHi] = useState(-1), [show, setShow] = useState(PAGE), [img, setImg] = useState<Img>('both'), [bad, setBad] = useState(false), [k, setK] = useState(0);
   useEffect(() => {
     let live = true;   // 비교 대상을 바꾸면 지난 요청의 늦은 답은 버린다
-    setD(null); setErr(''); setHi(-1); setShow(PAGE); setImg('both'); setBad(false);
+    setD(null); setErr('');
     api.diff(v.id, against || null, cancel).then(shape(isDiff)).then((x) => { if (live) startTransition(() => setD(x)); }, (e: ApiFail) => {   // 큰 차이를 그리는 동안에도 STOP 누름이 끼어들게
       if (!live || e.code === 'CANCELED') return;
       if (e.status === 404) gone(); else setErr(diffFail(e));
@@ -109,50 +136,11 @@ export function Compare({ v, list, cancel, gone, name = (x) => `판 ${x.number}`
     return () => { live = false; };
   }, [against, n]);
   const base = list.find((x) => x.id === v.base_version_id);
-  const a = d?.against ?? null, b = d?.version;
-  // image_changed 는 그림 파일만 본다 — 같은 그림이라도 원점·해상도가 바뀌면 요소 자리가 달라지니 두 판 좌표로 겹친다
-  const shift = !!a && !!b && (a.resolution !== b.resolution || a.origin.some((o, i) => o !== b.origin[i])), two = !!a && (!!d?.image_changed || shift);
-  const count = (f: (c: Change) => boolean) => d?.changes.filter(f).length ?? 0;
-  const tally = [['추가', count((c) => c.change === 'added'), CH.added.color], ['삭제', count((c) => c.change === 'removed'), CH.removed.color],
-    ['바뀜', count((c) => c.change === 'changed' && !moved(c)), CH.changed.color], ['순서 바뀜', count(moved), CH.changed.color]] as const;
-  const onErr = () => setBad(true);
-  // 처음 화면: 뒤 판 벽 범위 + 앞 판 벽 범위(뒤 판 픽셀로) + 두 판 요소. 뒤 판 벽을 모르면 전체
-  const wb = useWalls(b?.id), wa = useWalls(two ? a!.id : undefined);
-  const look = useMemo(() => {
-    if (!b) return null;
-    const full = frame(b, a), extra = wa && a ? corners(...wa).map(([x, y]) => via(a, b)(x, y)) : [];
-    return { full, fit: around(wb, [...extra, ...featPx(b, b.features), ...(a ? featPx(b, a.features) : [])], full, b.resolution), res: b.resolution };
-  }, [d, wa, wb]);
-  // 차이 표시는 응답이 올 때 한 번만 만든다 — 강조·더 보기·그림 전환 때 수천 개를 다시 맞추지 않게(강조는 위에 한 벌 더, 나머지는 묶음째 흐리게)
-  const layer = useMemo(() => d && d.changes.map((c, i) => <One key={i} g={d.version} c={c} />), [d]);
   return <div className="fh-form" aria-label="기록 비교">
     <label className="fh-row"><span className="lbl">비교할 기록</span><select className="fh-user" aria-label="비교할 기록" value={against} onChange={(e) => setAgainst(e.target.value)}>
       <option value="">{!v.base_version_id ? '빈 지도 (첫 저장)' : base ? `${name(base)} (바로 앞 기록)` : '바로 앞 기록'}</option>
       {list.filter((x) => x.id !== v.id && x.id !== v.base_version_id).map((x) => <option key={x.id} value={x.id}>{name(x)}</option>)}</select></label>
-    {d && b && <>
-      <b>{a ? `${name(a)} → ${name(b)}` : `빈 지도 → ${name(b)}`}</b>
-      {!a ? <p className="lv-note">첫 저장이라 빈 지도와 비교합니다. 모든 요소가 추가로 보입니다.</p>
-        : two ? <div className="fh-row" role="group" aria-label="지도 그림"><span className="fh-grow">{!d.image_changed ? '같은 지도 그림인데 좌표 설정(원점·해상도)이 바뀌었습니다.' : shift ? '지도 그림과 좌표 설정(원점·해상도)이 바뀌었습니다.' : '지도 그림이 바뀌었습니다.'}</span>
-          {([['both', '겹쳐 보기'], ['before', name(a)], ['after', name(b)]] as [Img, string][]).map(([m, t]) =>
-            <button key={m} type="button" className="btn" aria-pressed={img === m} onClick={() => setImg(m)}>{t}</button>)}</div>
-        : <p className="lv-note">지도 그림은 같습니다.</p>}
-      <MapFrame {...look!} photo={b} role="img" aria-label={`${a ? name(a) : '빈 지도'}와 ${name(b)} 비교`} data-diff style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8 }}>
-        {two && img !== 'after' && <MapImage key={`a${k}`} data-image="before" id={a!.id} width={a!.width} height={a!.height} transform={onto(a!, b)} onError={onErr} />}
-        {/* 겹쳐 보기 반투명은 묶음(g)에 — 그림 자체 투명도(사진 모드 --fh-map-a, MapImage)에 곱해진다. 그림 style 로 덮으면 «실제 모습» 사진이 가려진다 */}
-        {(!two || img !== 'before') && <g opacity={two && img === 'both' ? 0.5 : undefined}><MapImage key={`b${k}`} data-image="after" id={b.id} width={b.width} height={b.height} onError={onErr} /></g>}
-        <g opacity={0.3} aria-hidden="true"><Shapes v={b} f={b.features} /></g>
-        <g opacity={hi >= 0 ? 0.35 : 1}>{layer}</g>
-        {d.changes[hi] && <One g={b} c={d.changes[hi]} hi />}
-      </MapFrame>
-      {bad && <div className="fh-row"><p className="fh-msg" role="alert">지도 그림을 불러오지 못했습니다. 네트워크를 확인한 뒤 다시 불러오세요.</p>
-        <button type="button" className="btn" onClick={() => { setBad(false); setK(k + 1); }}>다시 불러오기</button></div>}
-      <div className="fh-row" aria-label="차이 수">{tally.filter(([, c]) => c).map(([t, c, col]) => <span key={t}><span aria-hidden="true" style={{ color: col }}>■</span> {t} {c}</span>)}</div>
-      {d.changes.length ? <ul className="fh-list" aria-label="차이 목록">{d.changes.slice(0, show).map((c, i) => <li key={i} className="fh-row">
-          <button type="button" aria-pressed={hi === i} style={{ flex: 1, textAlign: 'left' }} onClick={() => setHi(hi === i ? -1 : i)}>
-            <span aria-hidden="true" style={{ color: CH[c.change].color }}>■</span> {says(c)}</button></li>)}</ul>
-        : <p className="lv-note">구역·지점·연결점·지우개·벽 선은 바뀐 것이 없습니다.</p>}
-      {d.changes.length > show && <button type="button" className="btn" onClick={() => setShow(show + PAGE)}>더 보기 (남은 {d.changes.length - show}개)</button>}
-    </>}
+    {d && <DiffDetail key={`${d.version.id}:${d.against?.id ?? ''}`} d={d} name={name} />}
     {err && <div className="fh-row"><p className="fh-msg" role="alert">{err}</p><button type="button" className="btn" onClick={() => setN(n + 1)}>다시 시도</button></div>}
     {!d && !err && <p className="lv-note" role="status">두 기록을 비교하는 중…</p>}
   </div>;
@@ -204,4 +192,44 @@ export function Rollback({ v, now, name, cancel, done, reload, close }: { v: Map
     {busy && <p className="lv-note" role="status">되돌리는 중…</p>}
     <Note m={msg} />
   </form>;
+}
+
+/** 비교 내용(그림 겹쳐 보기 · 전/후 · 차이 수 · 차이 목록 200줄씩): 옛 기록 비교와 지도 탭 시안 u7_9 가 같이 씀.
+ *  u7 = 시안 칸을 그림으로 꽉 채우고, 그림 고르기 · 차이 수 · 목록은 그림 위 유리 칸으로 띄운다 */
+export function DiffDetail({ d, name, u7 }: { d: MapDiff; name: (x: Pick<MapVersion, 'id' | 'number'> & Partial<MapVersion>) => string; u7?: boolean }) {
+  const [hi, setHi] = useState(-1), [show, setShow] = useState(PAGE), [img, setImg] = useState<Img>('both'), [open, setOpen] = useState(!u7);   // u7_9: 목록은 시안 밖 칸이라 접어 두고 지도를 가리지 않음
+  const a = d?.against ?? null, b = d?.version;
+  // image_changed 는 그림 파일만 본다. 같은 그림이라도 원점·해상도가 바뀌면 요소 자리가 달라지니 두 판 좌표로 겹친다
+  const shift = !!a && !!b && (a.resolution !== b.resolution || a.origin.some((o, i) => o !== b.origin[i])), two = !!a && (!!d?.image_changed || shift);
+  const count = (f: (c: Change) => boolean) => d?.changes.filter(f).length ?? 0;
+  const tally = [['추가', count((c) => c.change === 'added'), CH.added.color], ['삭제', count((c) => c.change === 'removed'), CH.removed.color],
+    ['바뀜', count((c) => c.change === 'changed' && !moved(c)), CH.changed.color], ['순서 바뀜', count(moved), CH.changed.color]] as const;
+  const pick = a && two && <div className={u7 ? 'g dk tl fh-row' : 'fh-row'} role="group" aria-label="지도 그림" style={u7 ? { right: '20px', top: '20px', padding: '6px 10px', borderRadius: '12px', gap: '6px', fontSize: '12.5px', maxWidth: '60%', flexWrap: 'wrap' } : undefined}>
+    <span className="fh-grow">{!d.image_changed ? '같은 지도 그림인데 좌표 설정(원점·해상도)이 바뀌었습니다.' : shift ? '지도 그림과 좌표 설정(원점·해상도)이 바뀌었습니다.' : '지도 그림이 바뀌었습니다.'}</span>
+    {([['both', '겹쳐 보기'], ['before', name(a)], ['after', name(b!)]] as [Img, string][]).map(([m, t]) =>
+      <button key={m} type="button" className="btn" aria-pressed={img === m} onClick={() => setImg(m)}>{t}</button>)}</div>;
+  const tallyRow = <div className="fh-row" aria-label="차이 수">{tally.filter(([, c]) => c).map(([t, c, col]) => <span key={t}><span aria-hidden="true" style={{ color: col }}>■</span> {t} {c}</span>)}
+</div>;
+  const toggle = d.changes.length > 0 && <button type="button" className={u7 ? 'u7-link' : 'btn'} aria-expanded={open} data-diff-list-toggle onClick={() => setOpen(!open)}>{open ? '목록 닫기' : '차이 목록 보기'}</button>;
+  const listEl = (open || !d.changes.length) && <>{d.changes.length ? <ul className="fh-list" aria-label="차이 목록">{d.changes.slice(0, show).map((c, i) => <li key={i} className="fh-row">
+      <button type="button" aria-pressed={hi === i} style={{ flex: 1, textAlign: 'left' }} onClick={() => setHi(hi === i ? -1 : i)}>
+        <span aria-hidden="true" style={{ color: CH[c.change].color }}>■</span> {says(c)}</button></li>)}</ul>
+    : <p className="lv-note">구역·지점·연결점·지우개·벽 선은 바뀐 것이 없습니다.</p>}
+    {d.changes.length > show && <button type="button" className="btn" onClick={() => setShow(show + PAGE)}>더 보기 (남은 {d.changes.length - show}개)</button>}</>;
+  if (u7) return <>
+    {/* 시안 u7_9: 바뀌지 않은 벽은 「같음」 회색 한 가지(판 글자색으로 칠하면 어둠 판 흰 덩어리 · 밝은 판 남색 덩어리로 뒤집혀 보임) */}
+    <DiffPic d={d} img={img} hi={hi} name={name} tint="var(--u7-same)" style={{ display: 'block', width: '100%', height: '100%' }} />
+    {pick}
+    {/* 시안 밖 · 새로 그림: 차이 수 · 차이 목록(누르면 그 요소 강조) = 기능 있음 → 같은 유리 칸 · 처음엔 접힘 */}
+    <div className="g dk tl" style={{ left: '20px', bottom: '20px', maxWidth: '46%', maxHeight: '60%', overflow: 'auto', padding: '10px 14px', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12.5px' }} data-diff-float data-off-proto>
+      {!a && <p className="lv-note">첫 저장이라 빈 지도와 비교합니다. 모든 요소가 추가로 보입니다.</p>}
+      {a && !two && <p className="lv-note">지도 그림은 같습니다.</p>}
+      {tallyRow}{toggle}{listEl}</div>
+  </>;
+  return <>
+    <b>{a ? `${name(a)} → ${name(b!)}` : `빈 지도 → ${name(b!)}`}</b>
+    {!a ? <p className="lv-note">첫 저장이라 빈 지도와 비교합니다. 모든 요소가 추가로 보입니다.</p> : two ? pick : <p className="lv-note">지도 그림은 같습니다.</p>}
+    <DiffPic d={d} img={img} hi={hi} name={name} style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8 }} />
+    {tallyRow}{listEl}
+  </>;
 }

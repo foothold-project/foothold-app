@@ -54,7 +54,7 @@ function empty(kind: string) {
   const why = e!.querySelectorAll('p');
   expect(why).toHaveLength(1);
   expect(why[0].textContent).not.toMatch(/—/);
-  return { e: e!, title: e!.querySelector('h2')!.textContent, why: why[0].textContent, acts: [...e!.querySelectorAll<HTMLElement>('a, button')].map((x) => x.textContent) };
+  return { e: e!, title: e!.querySelector('h2')!.textContent, why: why[0].textContent, acts: [...e!.querySelectorAll<HTMLElement>('a, button, [data-empty-act]')].map((x) => x.textContent) };
 }
 
 describe('로봇 0대', () => {
@@ -63,48 +63,61 @@ describe('로봇 0대', () => {
     const r = empty('robots');
     expect(r.title).toBe('등록된 로봇이 없습니다');
     expect(r.acts).toEqual(['시뮬 탭 열기']);
+    expect(r.why).toBe('운영 관리자가 실기 로봇을 연결하거나 «시뮬 탭 열기»에서 띄우면 여기에 보입니다.');   // 메뉴에 없는 «시뮬» 탭을 가리키지 않음(#542 U0-01 · #559 N2)
     expect(($('[data-empty="robots"] a') as HTMLAnchorElement).getAttribute('href')).toBe('#/sim');
   });
-  it('운영자: 아이콘 · 한 줄 까닭 · 다음 할 일은 «+ 새 로봇 추가» 하나(칸 안에 다른 단추 없음)', async () => {
+  it('운영자: 아이콘 · 한 줄 까닭 · 칠한 주 행동은 «+ 새 로봇 추가» 하나 + 칠하지 않은 보조 링크 «시뮬 탭 열기»(#542 U0-01 · #559 N2 · 08:27)', async () => {
     serve(LEE, []); await open('#/fleet');
     const r = empty('robots');
     expect(r.title).toBe('담당 로봇이 없습니다');
-    expect(r.acts).toEqual(['+ 새 로봇 추가']);
+    expect(r.acts).toEqual(['+ 새 로봇 추가', '시뮬 탭 열기']);
+    expect([...r.e.querySelectorAll('.btn.pri')].map((x) => x.textContent)).toEqual(['+ 새 로봇 추가']);   // 칠한 단추 하나
+    const sim = r.e.querySelector<HTMLAnchorElement>('a[href="#/sim"]')!;
+    expect(sim.textContent).toBe('시뮬 탭 열기');
+    expect(sim.className).toBe('btn');
+    expect(r.why).toBe('연결 코드로 실기를 등록하거나 총괄에게 담당 지정을 요청하세요. 시뮬 로봇은 «시뮬 탭 열기»에서 띄웁니다.');
     expect($('[data-pair-start]')).toBeTruthy();
   });
 });
 
 describe('지도 없음', () => {
-  it('지도(장소)가 하나도 없으면: 아이콘 · 한 줄 까닭 · 다음 할 일 하나(담당 실기 없음 = «+ 파일 올리기»)', async () => {
+  it('지도(장소)가 하나도 없으면: 시안 u11_7 그림 · 제목 · 글 · 「로봇 탭으로」 + 보조 단추(시안 밖 · 담당 실기 없음 = 「파일 올리기」)', async () => {
     serve(KIM, [RA], { 'GET /sites': ok(tree(false)) }); await open('#/map');
     const r = empty('map');
     expect(r.title).toBe('아직 지도가 없습니다');
-    expect(r.acts).toEqual(['+ 파일 올리기']);
+    expect(r.why).toBe('로봇을 조종해 한 바퀴 걸으면 지도가 만들어집니다.');
+    expect(r.acts).toEqual(['로봇 탭으로', '파일 올리기']);
+    expect(r.e.querySelector('a.btnp')!.getAttribute('href')).toBe('#/fleet');
+    expect(r.e.querySelector('[data-empty-act]')!.className).toBe('btns');   // 보조 단추는 칠하지 않음
+    expect(r.e.querySelector('svg.art')!.children.length).toBeGreaterThan(0);   // 시안 그림
   });
   // 칠한 단추는 STOP 말고 하나(검수 07:47): 지도 0 개면 빈 칸 단추와 같은 위 단추를 숨기고, 1 개 이상이면 위 단추 그대로
-  const filled = () => [...box.querySelectorAll<HTMLElement>('main .btn.pri')].map((b) => b.textContent);
+  const filled = () => [...box.querySelectorAll<HTMLElement>('main .btn.pri, [data-u7] .btnp')].map((b) => b.textContent);
   it('지도 0 개(담당 실기 없음): 위 «+ 파일 올리기» 없음 · 칠한 단추는 빈 칸 것 하나 · «+ 지형 만들기» 그대로', async () => {
     serve(KIM, [RA], { 'GET /sites': ok(tree(false)) }); await open('#/map');
     expect($('[data-make-file]')).toBeNull();
-    expect(filled()).toEqual(['+ 파일 올리기']);
-    expect($('[data-empty="map"] .btn.pri')!.textContent).toBe('+ 파일 올리기');
-    expect($('[data-terrain-enter]')).toBeTruthy();
+    expect(filled()).toEqual(['새 지도 만들기', '로봇 탭으로']);   // 시안 u7_1 머리 btnp(담당 실기 없음 = 까닭 한 줄) + 시안 u11_7 빈 칸 단추
+    expect($('[data-make-robot]')!.getAttribute('aria-disabled')).toBe('true');
+    expect($('[data-empty="map"] [data-empty-act]')!.textContent).toBe('파일 올리기');
   });
   it('지도 0 개(담당 실기 있음): 위 «+ 지도 만들기» 없음 · 위 «+ 파일 올리기»는 칠하지 않은 채 남음', async () => {
     serve({ ...LEE, robot_ids: ['r-a'] }, [RA], { 'GET /sites': ok(tree(false)) }); await open('#/map');
-    expect($('[data-make-robot]')).toBeNull();
-    expect($('[data-make-file]')!.classList.contains('pri')).toBe(false);
-    expect(filled()).toEqual(['+ 지도 만들기']);
+    expect($('[data-make-robot]')!.getAttribute('aria-disabled')).toBeNull();
+    expect($('[data-make-file]')).toBeNull();
+    expect(filled()).toEqual(['새 지도 만들기', '로봇 탭으로']);
+    expect($('[data-empty="map"] [data-empty-act]')!.textContent).toBe('지도 만들기');
   });
   it('지도 1 개 이상: 위 «+ 파일 올리기» 그대로(칠함) · 빈 칸 없음', async () => {
     serve(KIM, [RA]); await open('#/map');
     expect($('[data-empty="map"]')).toBeNull();
-    expect($('[data-make-file]')!.classList.contains('pri')).toBe(true);
+    expect($('[data-make-robot]')).toBeTruthy();   // 시안 u7_1: 머리 「새 지도 만들기」 · 파일 올리기는 관리 칸
+    expect(filled()).toEqual(['새 지도 만들기', '지도 열기']);   // 시안 u7_1 btnp 둘(머리 · 미리 보기)
   });
   it('고른 층에 지도가 없으면: 아이콘 · 한 줄 까닭 · «새 지도 올리기…» 하나(«지도 만들기»는 ··· 메뉴)', async () => {
     serve(KIM, [RA]); await open('#/map');
     const b = box.querySelector<HTMLButtonElement>('[aria-label="지도 고르기"] [data-building]');
     if (b) { act(() => b.click()); await flush(); }
+    { const o = box.querySelector<HTMLButtonElement>('[data-open-map]'); if (o) { act(() => o.click()); await flush(); } }   // 시안 u7_1: 건물 = 고르기, «지도 열기»로 연다
     const r = empty('floor');
     expect(r.title).toBe('이 층에 아직 지도가 없습니다');
     expect(r.acts).toEqual(['새 지도 올리기…']);
@@ -112,12 +125,15 @@ describe('지도 없음', () => {
 });
 
 describe('기록 없음', () => {
-  it('거른 조건 없이 0 건: 아이콘 · 한 줄 까닭 · «지도 탭에서 시나리오 실행» 하나', async () => {
+  it('PC 거른 조건 없이 0 건: 시안 u11_8 빈 기록(그림 · 제목 · 한 줄 까닭, 단추 없음 · 옛 Empty 아님)', async () => {
     serve(LEE, [RA]); await open('#/history');
-    const r = empty('records');
-    expect(r.title).toBe('아직 기록이 없습니다');
-    expect(r.acts).toEqual(['지도 탭에서 시나리오 실행']);
-    expect(($('[data-empty="records"] a') as HTMLAnchorElement).getAttribute('href')).toBe('#/map');
+    const e = $('[data-empty="log"]')!;
+    expect(e.classList.contains('pane')).toBe(true);
+    expect(e.querySelector('h2')!.textContent).toBe('아직 기록이 없습니다');
+    expect(e.querySelectorAll('p')).toHaveLength(1);
+    expect(e.querySelectorAll('svg.art')).toHaveLength(1);
+    expect(e.querySelector('img, canvas, a, button')).toBeNull();
+    expect($('[data-empty="records"]')).toBeNull();
   });
   it('폰(담당 로봇 0대): 지도 탭이 없어 다음 할 일은 «조종 화면으로» 하나', async () => {
     serve(LEE, []); await open('#/history', true);

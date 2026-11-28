@@ -80,6 +80,7 @@ async function open(pick = true) {
   await flush();
   const b = box.querySelector<HTMLButtonElement>('[aria-label="지도 고르기"] [data-building]');
   if (pick && b) { act(() => b.click()); await flush(); }
+  if (pick) { const o = box.querySelector<HTMLButtonElement>('[data-open-map]'); if (o) { act(() => o.click()); await flush(); } }   // 시안 u7_1: 건물 = 고르기, «지도 열기»로 연다
 }
 afterEach(() => { fake.on = false; fake.scene = null; fake.drawn = null; act(() => root?.unmount()); root = null; box?.remove(); kept.d = null; kept.job = null; clearPlans(); localStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); resetModels(); });
 
@@ -135,7 +136,7 @@ describe('지도 탭 층 지도판 «2D / 3D»', () => {
   it('있으면 단추 · 누르면 /model 한 번, 2D 로 갔다 다시 3D 여도 같은 sha 면 다시 받지 않음', async () => {
     serve(signedIn(KIM, 'v2', { 'GET /map-versions/v2/model': { status: 200, body: {} } })); await open();
     expect(pick('2D')!.getAttribute('aria-pressed')).toBe('true');
-    expect(models()).toHaveLength(0);
+    expect(models()).toHaveLength(1);   // 지도 탭 첫 화면 미리 보기(시안 u7_1 · 실제 현장 = 서버 모형)가 이미 받음 · 층 화면 3D 는 같은 sha 라 다시 받지 않음
     await click(pick('3D'));
     expect(pick('3D')!.getAttribute('aria-pressed')).toBe('true');
     expect($('[data-map3d]')).toBeTruthy();
@@ -211,8 +212,9 @@ describe('3D 모형 받기 · 실패 경로', () => {
     expect($('[data-map3d-bad]')!.textContent).toContain('3D 모형을 불러오지 못했습니다');
     expect($('[data-map3d-bad]')!.textContent).toContain('서버 오류입니다');
     expect($('[data-map3d-wait]')).toBeNull();
+    const n = models().length;   // 미리 보기 한 번 + 층 화면 한 번(실패는 기억하지 않음)
     await click([...box.querySelectorAll('[data-map3d-bad] button')].find((b) => b.textContent === '다시 불러오기')!);
-    expect(models()).toHaveLength(2);
+    expect(models()).toHaveLength(n + 1);
   });
   it('네트워크 끊김 → 연결 문구(500 과 다른 문구) · 2D 로 돌아가면 받던 요청을 거둠', async () => {
     serve(signedIn(KIM, 'v2', { 'GET /map-versions/v2/model': () => { throw new TypeError('down'); } })); await open();
@@ -233,9 +235,23 @@ describe('3D 모형 받기 · 실패 경로', () => {
     expect($('[data-map3d-bad]')).toBeTruthy();
   });
   it('401 → 로그인 화면으로(세션 만료 처리, «네트워크 확인» 아님)', async () => {
-    serve(signedIn(KIM, 'v2', { 'GET /map-versions/v2/model': err(401, 'UNAUTHENTICATED', '로그인이 필요합니다.') })); await open();
-    await click(pick('3D'));
+    serve(signedIn(KIM, 'v2', { 'GET /map-versions/v2/model': err(401, 'UNAUTHENTICATED', '로그인이 필요합니다.') })); await open(false);   // 미리 보기 3D 가 받다 401
     expect(box.querySelector('input[type="password"]')).toBeTruthy();
+  });
+  it('실제 현장 미리 보기(시안 u7_1 「3D 보기 · 미리 보기」) = 서버 모형 · still: 시점 단추 · 범례 없음, 층 화면 3D 는 그대로 있음', async () => {
+    fake.on = true; fake.scene = new THREE.Group();
+    serve(signedIn(KIM, 'v2', { 'GET /map-versions/v2/model': { status: 200, body: {} } })); await open(false);
+    const pv = box.querySelector('[aria-label="미리 보기"]')!;
+    expect(pv.querySelector('[data-map3d]')).not.toBeNull(); expect(pv.querySelector('canvas')).not.toBeNull();
+    expect([pv.querySelector('.vx-tools'), pv.querySelector('[data-map3d-legend]')]).toEqual([null, null]);
+    expect(pv.querySelector('[data-tag3d]')!.textContent).toBe('3D 보기 · 미리 보기');
+    await click($('[data-open-map]')); await click(pick('3D'));
+    expect($('[data-map3d] .vx-tools')).not.toBeNull(); expect($('[data-map3d-legend]')).not.toBeNull();
+  });
+  it('미리 보기 서버 모형이 404 면 그 판은 2D 그림', async () => {
+    serve(signedIn(KIM, 'v2', { 'GET /map-versions/v2/model': err(404, 'MODEL_NOT_FOUND', '모형이 없습니다.') })); await open(false);
+    const pv = box.querySelector('[aria-label="미리 보기"]')!;
+    expect(pv.querySelector('[data-map3d]')).toBeNull(); expect(pv.querySelector('[data-map]')).not.toBeNull();
   });
   it('3D 칸은 키 안내를 가진 보기(화살표로 옮기기)', async () => {
     serve(signedIn(KIM, 'v2', { 'GET /map-versions/v2/model': { status: 200, body: {} } })); await open();

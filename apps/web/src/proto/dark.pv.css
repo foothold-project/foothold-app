@@ -1,0 +1,7 @@
+/* 시안 공통(ui.pv.css · pc.pv.css) 에 없는 상태 표지의 어둠 판 값. 밝은 판은 light.pv.css 의 .proto.light 규칙이 덮는다.
+   값의 정본: foothold-brand app-tone-1126 DESIGN.md (경고 칸 · 예행). tests/protolight.test.js 가 맞춰 본다. */
+/* 경고 칸: 경고색 #FF4D4F 12 % 로 옅게 물들이고 1 px 경고색 테두리. 「과열」 표지 = #FF4D4F 바탕 검은 글자(흰 글자는 3.27 로 모자람) */
+.proto .warncell{background:rgba(255,77,79,.12);border:1px solid #FF4D4F}
+.proto .warntag{background:#FF4D4F;color:#000000}
+/* 예행(시뮬): 파랑 #4C9BFF 점선 */
+.proto .rehearse:not(.btnp){border:1px dashed #4C9BFF;color:#4C9BFF}

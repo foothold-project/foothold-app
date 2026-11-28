@@ -3,20 +3,6 @@
     "Battery": {
       "additionalProperties": false,
       "properties": {
-        "minutes_left": {
-          "anyOf": [
-            {
-              "maximum": 1440,
-              "minimum": 0,
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Minutes Left"
-        },
         "soc": {
           "maximum": 100,
           "minimum": 0,
@@ -324,8 +310,7 @@
           "enum": [
             "v5_building",
             "plant_a",
-            "warehouse",
-            "factory_site"
+            "warehouse"
           ],
           "title": "World Id",
           "type": "string"
@@ -1024,35 +1009,12 @@
         }
       ]
     },
-    "demo": {
-      "default": false,
-      "description": "하루 일과를 계속 도는 시연 로봇. 시뮬 로봇만 true 일 수 있고 실기는 늘 false.",
-      "title": "Demo",
-      "type": "boolean"
-    },
     "devices": {
       "items": {
         "$ref": "#/$defs/Device"
       },
       "title": "Devices",
       "type": "array"
-    },
-    "equipment_tier": {
-      "anyOf": [
-        {
-          "enum": [
-            "STANDARD",
-            "UPPER"
-          ],
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "description": "장비 등급 (11/28 15:04). 정하지 않으면 null.",
-      "title": "Equipment Tier"
     },
     "field_approval_expires_at": {
       "anyOf": [

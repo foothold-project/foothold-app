@@ -1,23 +1,30 @@
 // 시뮬 로봇 띄우기 → 지도(월드) 고르기 → 직결 조종 → 끝내기(09 ADR-002 §3.2·§6). 상태·요청은 phone.ts, 이 파일은 그림만.
 import { useEffect, useRef, useState, type HTMLAttributes, type PointerEvent } from 'react';
+import { sx, sy, stageRect, vh, vw } from './stage';
 import type { PhoneWelcome, SimProvision, SimRobot } from '../../contracts/ts';
 type SpawnFloor = NonNullable<SimProvision['spawn_floor_id']>;
-import { feedText, media, needsRelink, useFeed } from './media';
+import { feedText, media, needsRelink, reasonText, useFeed, type Feed, type MediaChannel } from './media';
 import { useOrbit, viewBlock } from './extview';
-import { DEAD, RUN_END, allowed, runMoving, sim, stopping, tuned, useSim, velocity, type Sim } from './phone';
+import { DEAD, HELD_RUN, RESULT, RUN_END, SAFE_NOTICE, allowed, runHolds, runMoving, sim, stopping, tuned, useSim, velocity, type Sim } from './phone';
 import { runView, startBlock, startFloor, useScenarios } from './run';
 import { Sheet, Stick } from './drive';
+import { RestartAskBox, useRestartAsk } from './robotact';
 import { inputGen, metaCut } from './rt';
 import { Chip, inApp } from './screens';
 import { typing, useStopPress } from './App';
 import { simName, type Tone } from './fake';
 import { SimMap, useFloorMap } from './simmap';
 import { SimPick } from './simstart';
+import { TakeoverAsk } from './screens/takeover';
+import { keyCode } from './padkeys';
 
-/** 키 → [축(0 전후·1 회전·2 옆), 방향]. 실기 서버 경유(serverdrive.tsx)·mobile/sim 과 같은 배치(UIUX-1101): W/↑ 전진, S/↓ 후진, ←/→ 옆걸음, A/D 제자리 회전.
- *  Q/E 는 뺐다(옛 시뮬 옆걸음 — 실기에 없는 키). e.code(자판 자리)라 한글 입력 상태에서도 같다 */
+/** 키 → [축(0 전후·1 회전·2 옆), 방향]. 모든 조종 화면 한 배치(d5 · 11-28): W/↑ 전진, S/↓ 후진, ← / → 옆걸음, A / D 제자리 회전, Space 정지(App). Q · E 는 없음(11-28 17:25).
+ *  실기 서버 경유(serverdrive.tsx·drive.tsx)와 같다. 옆걸음은 limits 가 vy 를 허락할 때만 나가고(phone.ts velocity), 아니면 0 + blockNote.
+ *  e.code(자판 자리)라 한글 입력 상태에서도 같다 */
 export const KEYS: Record<string, [0 | 1 | 2, number]> = { KeyW: [0, 1], ArrowUp: [0, 1], KeyS: [0, -1], ArrowDown: [0, -1],
   KeyA: [1, 1], KeyD: [1, -1], ArrowLeft: [2, 1], ArrowRight: [2, -1] };
+/** 옆걸음 키 칩이 막혔을 때 까닭(limits 의 vy 가 0) */
+export const SIDE_OFF = '로봇 한계 옆 0 m/s';
 /** F-TO-05 키보드 전진 기본 0.6 m/s(시뮬은 조직 값 sim_key_vx — phone.ts tuned): 연속 모드(시뮬)는 velocity 의 ramp 를 거꾸로 풀어 그 기울기, 그 밖·vx_max ≤ 키 속도면 끝까지(최종 자르기는 velocity·에이전트) */
 export const KEY_VX = 0.6;
 export function forward(w: PhoneWelcome) {
@@ -34,6 +41,51 @@ export function canDrive() {
 export const field = (t: EventTarget | null) => typing(t) || t instanceof HTMLSelectElement;   // 글 입력칸·고르기 칸에 초점이면 조종 키 무시
 
 /** on 인 동안 1 s 마다 다시 그림(경과·남은 시간) */
+/** 폰 알림 칸(PHONE-CLUTTER 11-28 1-2 · 1-4 · 결정 (가)): 안전 글(safe = 정지 · 반납 · 출입증 · 끊김 까닭 등 등급 1 · 2)은 모두 맨 위에 두고 접지 않는다.
+ *  임무 · 확인 · 힌트(rest = 등급 3~5)는 그 아래 한 칸, 나머지는 «+N» 을 눌러 펼친다. brief 에 든 글(확인)은 2 초 뒤 뺀다(사라졌다 다시 오면 처음부터) */
+/** run.tsx runView 의 «화면 연결이 끊겼습니다 …» 줄(실행 안내 중 등급 2) */
+const linkLost = (t: string) => t.startsWith('화면 연결이 끊겼습니다');
+export function useSlot(safe: string[], rest: string[], brief: string[] = []) {
+  const [gone, setGone] = useState<string[]>([]), [open, setOpen] = useState(false), timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const all = [...safe, ...rest], key = all.filter((t) => brief.includes(t)).join('\n');
+  useEffect(() => {
+    for (const t of all) if (brief.includes(t) && !timers.current.has(t)) timers.current.set(t, setTimeout(() => setGone((g) => [...g, t]), 2000));
+    for (const [t, id] of timers.current) if (!all.includes(t) || !brief.includes(t)) { clearTimeout(id); timers.current.delete(t); setGone((g) => g.filter((x) => x !== t)); }
+  }, [key]);
+  useEffect(() => () => { for (const id of timers.current.values()) clearTimeout(id); }, []);
+  const low = rest.filter((t) => !gone.includes(t));
+  return { show: [...safe.filter((t) => !gone.includes(t)), ...(open ? low : low.slice(0, 1))], more: low.length - 1, open, toggle: () => setOpen(!open) };
+}
+/** 힌트(PHONE-CLUTTER 1-4 등급 5): 이 화면에서 처음 한 번 3 초. 그 뒤 같은 글은 다시 띄우지 않는다 */
+export function useHint(text: string) {
+  const [done, setDone] = useState<string[]>([]), started = useRef(new Set<string>());
+  useEffect(() => {
+    if (!text || started.current.has(text)) return;
+    started.current.add(text);
+    setTimeout(() => setDone((d) => [...d, text]), 3000);
+  }, [text]);
+  return !!text && !done.includes(text);
+}
+/** 화면 글에서 내부 규약명(media/1)·영문 원문 괄호를 뺀다(RV-449 ⑤) — media.ts 문구는 그대로 두고 이 화면에서만 */
+export const plain = (t: string) => t.replace(/\s*\([A-Za-z][^)]*\)/g, '').replace(/media\/1\s*/g, '');
+/** 에이전트가 알린 사유 한 줄(RV-454 3·RV-455 3·RV-456 2). 알려진 사유(media reasonText «한국어 (원문)»)는 한국어 쪽만,
+ *  나머지는 plain 뒤 한글이 있고 영문·숫자·괄호(오류 코드 E_TIMEOUT·504·원문 괄호 등)가 하나도 없을 때만, 아니면 쉬운 말 한 줄. 빈 글만 빈 글(원문만인 사유를 빈 글로 넘기면 Video 가 원문을 낸다) */
+export const say = (t: string) => {
+  t = t.normalize('NFKC');   // 전각 숫자·괄호·영문(«（５０４）»)도 같은 검사로(RV-457 4)
+  const k = /^(.+?) \((.+)\)$/.exec(t);
+  if (k && reasonText(k[2]) === t) return k[1];
+  const p = plain(t);
+  return !t ? '' : /[가-힣]/.test(p) && !/[A-Za-z0-9()[\]]/.test(p) ? p : '로봇에서 영상을 받지 못하고 있습니다';
+};
+/** 이 화면의 영상·라이다 사유는 모두 여기를 지난다. 에이전트 글이 실리는 곳은 none(알림·사유)뿐 — 그 밖(끊김·만료·멈춤 «2초»·«10초·1회»)은 media.ts 의 앱 자체 글이라 plain 만 */
+export const why = (f: Feed, ch: MediaChannel, at?: number) => { const t = feedText(f, ch, at); return f.state === 'none' ? say(t) : plain(t); };
+/** 알림 칸 «+N»(접힌 등급 3~5 수) · 펼친 뒤 «접기» */
+export const More = ({ n, open, toggle }: { n: number; open: boolean; toggle: () => void }) => n > 0
+  ? <button type="button" className="dv-more" aria-expanded={open} aria-label={open ? '알림 접기' : `알림 ${n}개 더 보기`} data-notes-more onClick={toggle}>{open ? '접기' : `+${n} 더 보기`}</button> : null;
+/** 알림 칸 줄들: 마지막 줄 오른쪽 끝에 «+N 더 보기»(같은 줄 · 카드가 한 줄 짧아짐) */
+export const Notes = ({ slot }: { slot: ReturnType<typeof useSlot> }) => <>{slot.show.map((t, i) => i === slot.show.length - 1 && slot.more > 0
+  ? <div key={t} className="dv-note-row" data-notes-row><p className="dv-note" role="status">{t}</p><More n={slot.more} open={slot.open} toggle={slot.toggle} /></div>
+  : <p key={t} className="dv-note" role="status">{t}</p>)}</>;
 export function useTick(on: boolean) {
   const [, t] = useState(0);
   useEffect(() => { if (!on) return; const i = setInterval(() => t((n) => n + 1), 1000); return () => clearInterval(i); }, [on]);
@@ -67,8 +119,8 @@ function Arrows({ on }: { on: Partial<Record<keyof typeof ARROW, boolean>> }) {
 const blockedNames = (a: ReturnType<typeof allowed>) => [!a.back && '후진', !(a.left || a.right) && '옆걸음', !a.spin && '제자리 회전'].filter(Boolean).join('·');
 /** 막힌 방향 입력 안내(limits 가 0 으로 자른 이유 — 자르기는 phone.ts velocity). 폰 조이스틱·PC 키보드가 같이 쓴다 */
 export function blockNote([f, t, y]: [number, number, number], can: ReturnType<typeof allowed>, out: { vx: number; vy: number } | null, dead = DEAD) {
-  return f < -dead && !can.back ? '후진은 아직 지원하지 않습니다 — 시뮬에서 아직 확인 안 됨'
-    : (y > dead && !can.left) || (y < -dead && !can.right) ? '옆걸음은 아직 지원하지 않습니다 — 시뮬에서 아직 확인 안 됨'
+  return f < -dead && !can.back ? '후진은 아직 지원하지 않습니다. 시뮬에서 아직 확인 안 됨'
+    : (y > dead && !can.left) || (y < -dead && !can.right) ? '옆걸음은 아직 지원하지 않습니다. 시뮬에서 아직 확인 안 됨'
     : t !== 0 && !can.spin && (!out || (out.vx === 0 && out.vy === 0)) ? SPIN : '';
 }
 export const STATE: Record<SimRobot['state'], string> = { STARTING: '띄우는 중', PREPARED: '가짜 기동(연결할 로봇 없음)', RUNNING: '실행 중', STOPPING: '정리 중', ERROR: '오류' };
@@ -181,10 +233,11 @@ export const CAM = { wait: '영상 기다리는 중', none: '영상 없음 — �
 export type Cam = 'rgb' | 'external';
 const CAM_NAME: Record<Cam, string> = { rgb: 'RGB 영상', external: '외부 카메라 영상' };
 /** 영상 한 칸: RGB 는 로봇이 media/1 로 알리면 그것, 아니면 옛 카메라 경로(§13.8). 외부 카메라는 media/1 만 — 없으면 이유 글(RGB 로 바꿔 끼우지 않음).
- *  보이는 동안만 그 채널을 받는다. 받는 중·새것이 아니면 그림 대신 이유(지난 그림을 지금 것처럼 두지 않음). quiet = 이유 글 숨김(안내 줄과 겹칠 때·작은 칸) */
-export function Video({ ch, fit = 'contain', quiet, ...rest }: { ch: Cam; fit?: 'contain' | 'cover'; quiet?: boolean } & HTMLAttributes<HTMLElement>) {
+ *  보이는 동안만 그 채널을 받는다. 받는 중·새것이 아니면 그림 대신 이유(지난 그림을 지금 것처럼 두지 않음). quiet = 이유 글 숨김(안내 줄과 겹칠 때·작은 칸).
+ *  clean = 폰 조종 화면: 실기와 같은 거르기(why · 내부 규약명 media/1 · 영문 원문 괄호를 뺌, 11-28). PC 시뮬 탭은 그대로 */
+export function Video({ ch, fit = 'contain', quiet, clean, ...rest }: { ch: Cam; fit?: 'contain' | 'cover'; quiet?: boolean; clean?: boolean } & HTMLAttributes<HTMLElement>) {
   const l = useSim().link, f = useFeed(ch), old = ch === 'rgb' && !media.has('rgb');
-  const text = old ? CAM[l?.cam ?? 'wait'] : feedText(f, ch), img = old ? (l?.cam === 'frame' ? l.img : '') : text ? '' : f.img;
+  const text = old ? CAM[l?.cam ?? 'wait'] : clean ? why(f, ch) : feedText(f, ch), img = old ? (l?.cam === 'frame' ? l.img : '') : text ? '' : f.img;
   return img ? <img className="dv-video" draggable={false} src={img} alt={CAM_NAME[ch]} style={{ width: '100%', height: '100%', objectFit: fit }} data-cam={ch} {...rest} />
     : <div className="dv-video" role="img" aria-label={CAM_NAME[ch]} data-cam={ch} {...rest}>{!quiet && <span>{text}</span>}</div>;
 }
@@ -223,7 +276,7 @@ function ScenarioBar({ s, r, started }: { s: Sim; r: SimRobot; started: () => vo
   </div>;
 }
 
-export const EXP = '시뮬 시험용 — 후진·옆걸음·제자리 회전은 넘어질 수 있습니다';
+export const EXP = '시뮬 시험용 · 후진·옆걸음·제자리 회전은 넘어질 수 있습니다';
 const SPIN = '제자리 회전 — 시뮬에서 아직 확인 안 됨. 앞으로 밀면서 돌리세요.';
 /** 직결 조종 화면(10-26 사용자 «쓸데없는 거 다 빼줘» — 참고 Unitree 앱 구도): 영상이 화면 전체(cover). 영상 위에는 왼쪽 위 «<»(나가기), 위 가운데 상태 알약 하나,
  *  오른쪽 위 STOP(App 머리줄 — 시뮬 조종 중에는 STOP 만 남아 영상 위에 뜬다, 메뉴·띠·시트가 덮지 못함), 아래 두 구석 조이스틱, 왼쪽 조이스틱 옆 메뉴 단추 하나
@@ -233,6 +286,7 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
   const s = useSim(), l = s.link!, r = s.robot!, st = l.st, w = l.welcome;
   useDeadline(!!r.expires_at);
   const open = l.at === 'open', mine = !!l.lease, ready = open && mine && st?.latched === false;
+  const restart = useRestartAsk(() => { const k = sim.get().link; return { mine: k?.at === 'open' && !!k.lease, latched: k?.st?.latched, gen: k?.st?.stop_gen, lease: k?.lease }; });   // 「다시 시작」 확인 창(u4_10 · reviewer H1 묶음)
   const input = useRef<[number, number, number]>([0, 0, 0]);   // [전후, 회전, 옆]
   // 입력 세대(rt inputGen — 실기 drive.tsx 와 같은 규칙): 키(e.code)·스틱 손가락마다 누른 순간의 세대. 잠김·해제·조종권·stop_gen·연결·STOP·숨김·live 가 바뀌거나 blur 면 +1.
   // 앞 세대 입력이 아직 눌려 있으면 명령 전체 0 — 떼었다가 다시 눌러야 한다. sg = 스틱마다 잡은 손가락의 세대(없으면 null)
@@ -274,13 +328,13 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
     const apply = () => {
       if (!keyRef.current.live || !canDrive()) held.current.clear();
       const a: [number, number, number] = [0, 0, 0], k = sim.get().link?.welcome;
-      held.current.forEach((_, c) => { const [i, v] = KEYS[c]; a[i] = Math.max(-1, Math.min(1, a[i] + v)); });
+      held.current.forEach((_, c) => { const [i, v] = KEYS[keyCode(c)]; a[i] = Math.max(-1, Math.min(1, a[i] + v)); });
       if (a[0] > 0 && k) a[0] = forward(k);
       input.current[1] = a[1]; input.current[2] = a[2]; keyRef.current.put(0, a[0]);
     };
     const down = (e: KeyboardEvent) => {
       if (held.current.size && (metaCut(e) || e.key === 'Control' || e.key === 'Alt')) return zero();   // 단축키 시작 — macOS 는 Cmd 뒤 keyup 이 안 올 수 있음(RV-429 ③)
-      if (!(e.code in KEYS) || e.repeat || e.ctrlKey || e.metaKey || e.altKey || field(e.target) || !keyRef.current.live || !canDrive()) return;
+      if (!(keyCode(e.code) in KEYS) || e.repeat || e.ctrlKey || e.metaKey || e.altKey || field(e.target) || !keyRef.current.live || !canDrive()) return;
       e.preventDefault(); held.current.set(e.code, keyRef.current.sync()); apply();
     };
     const up = (e: KeyboardEvent) => { if (metaCut(e) && held.current.size) zero(); else if (held.current.delete(e.code)) apply(); };
@@ -311,31 +365,37 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
   const soc = st?.battery?.soc, wait = Math.max(0, Math.ceil((s.retryAt - performance.now()) / 1000)), stop = stopText(s);
   // OUTPUT_STALLED·시나리오 실행 안내가 뜰 때는 영상 자리 문구를 숨긴다(아래 안내 칸과 겹침). 실제 영상 장애(lost·none)는 안내 줄 아래로 옮겨 계속 보인다
   const stalled = open && !!st?.latched && st.safety_reason === 'OUTPUT_STALLED', hideCam = stalled || run.notes.length > 0;
-  const notes = [   // 카드 첫 줄 = 맨 앞(안전·연결 먼저)
+  const safe = [   // 카드 첫 줄 = 맨 앞(안전·연결 먼저 · 등급 1 · 2 는 모두)
     stop,
     stalled && STALLED,
     leaving === 'wait' && '조종권을 반납하고 나가는 중입니다…',
     leaving === 'fail' && '조종권 반납을 확인하지 못했습니다 — 입력은 0 입니다. 다시 반납하거나 STOP 을 누르세요.',
     l.at === 'closed' && l.why,
-    ...run.notes,
-    r.state === 'STOPPING' && '시뮬을 정리하는 중…',
-    r.state === 'STARTING' && '시뮬을 띄우는 중…',
+    open && left < 60 && (moving ? `출입증 ${Math.max(0, left)}초 남음 — 만료되면 실행이 일시정지됩니다. 다시 연결한 뒤 이 화면에서 «이어서»를 누르세요.`
+      : `출입증 ${Math.max(0, left)}초 남음 — 만료되면 로봇이 멈추고 조종권이 비워집니다. 새 출입증으로 다시 연결하세요.`),
+    // 영상 자리 글을 안내 줄로 옮긴 것(알림 아님) · 영상 칸처럼 늘 보임
+    hideCam && (cam === 'rgb' && !media.has('rgb') ? (l.cam === 'lost' || l.cam === 'none') && CAM[l.cam] : relink(cam) && why(media.get()[cam], cam)),
+    ...run.notes.filter(linkLost),   // 실행 중 화면 연결 끊김(등급 2 · 다시 연결하는 동안 끊겼다는 유일한 안내 · 검수 #548 R1)
+    SAFE_NOTICE.includes(l.notice) && l.notice,
+  ].filter(Boolean) as string[];
+  const rest = [   // 임무 · 확인 · 힌트(등급 3~5) = 한 칸
+    ...run.notes.filter((t) => !linkLost(t)),
     timeNotice(runtimeLeft),
-    l.notice,
+    !SAFE_NOTICE.includes(l.notice) && l.notice,
     unsupported,
     fm.notice,
     !unsupported && mine && clipNote && `명령 범위 조정 — 허용 범위로 잘랐습니다.${smooth || !can.spin ? '' : ' 끝까지 밀어야 움직입니다.'}`,
-    open && left < 60 && (moving ? `출입증 ${Math.max(0, left)}초 남음 — 만료되면 실행이 일시정지됩니다. 다시 연결한 뒤 이 화면에서 «이어서»를 누르세요.`
-      : `출입증 ${Math.max(0, left)}초 남음 — 만료되면 로봇이 멈추고 조종권이 비워집니다. 새 출입증으로 다시 연결하세요.`),
-    hideCam && (cam === 'rgb' && !media.has('rgb') ? (l.cam === 'lost' || l.cam === 'none') && CAM[l.cam] : relink(cam) && feedText(media.get()[cam], cam)),
   ].filter(Boolean) as string[];
+  const notes = [...safe, ...rest];
   const said = notes.length > 0 && notes.every((t) => shut.includes(t));   // 닫을 때 보이던 안내뿐이면 숨김(새 안내가 하나라도 생기면 다시 보임)
+  const slot = useSlot(safe, rest, Object.values(RESULT).includes(l.notice) ? [l.notice] : []);   // 조종권 넘김 결과 = 확인 2 초
+  const hint = useHint(cam === 'external' ? orbitWhy || orbitNote : '');
   const acts = leaving ? leaving === 'fail' && [
     <button key="rel" type="button" className="btn pri" onClick={leave}>다시 반납</button>,
     l.at === 'closed' && <button key="re" type="button" className="btn" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>,
   ].filter(Boolean) : [
-    open && !mine && <button key="take" type="button" className="btn pri" disabled={l.busy === 'take'} onClick={() => sim.take()}>조종 시작</button>,
-    open && mine && st?.latched !== false && <button key="unlock" type="button" className="btn pri" disabled={l.busy === 'unlock'} onClick={() => sim.unlock()}>잠금 해제</button>,
+    open && !mine && <button key="take" type="button" className="btn pri" disabled={l.busy === 'take' || runHolds(l)} onClick={() => sim.take()}>조종</button>,
+    open && mine && st?.latched !== false && <button key="unlock" type="button" className="btn pri" disabled={l.busy === 'unlock'} onClick={restart.open}>다시 시작</button>,
     l.at === 'closed' && <button key="re" type="button" className="btn pri" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>,
     open && left < 60 && <button key="pass" type="button" className="btn" onClick={() => sim.connect()}>{moving ? '새 출입증으로 다시 연결(실행 일시정지)' : '새 출입증으로 다시 연결'}</button>,
     open && !mine && !(left < 60) && relink(cam) && <button key="media" type="button" className="btn" data-media-again onClick={() => sim.connect()}>영상 다시 받기</button>,   // 조종 중이면 다시 연결이 조종을 끊으므로 내지 않음
@@ -347,7 +407,7 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
   const state = r.state !== 'RUNNING' ? STATE[r.state] : lock.tone !== 'ok' ? lock.text : runText(l);
   const toggle = () => { if (menu || bar) { setMenu(''); setBar(false); } else setMenu('menu'); };
   // 큰 화면 끌기 = 외부 카메라 시점(드래그 yaw·pitch, 핀치 거리) — 조이스틱은 다른 요소라 그 누름은 여기 오지 않고, 이 끌기는 sim.axes 를 부르지 않는다
-  const video = (small: boolean) => small ? <Video ch={cam} quiet /> : <Video ch={cam} fit="cover" quiet={hideCam} {...drag} data-orbit={orbitWhy ? undefined : ''} />;
+  const video = (small: boolean) => small ? <Video ch={cam} quiet /> : <Video ch={cam} fit="cover" clean quiet={hideCam} {...drag} data-orbit={orbitWhy ? undefined : ''} />;
   return <section className="dv ph" style={{ flexBasis: '100%' }} aria-label="조종" data-sim-drive onContextMenu={(e) => e.preventDefault()}>
     <div className="dv-body"><div className="dv-stage rgb">
       {big && hasMap && mini ? <SimMap m={fm} big /> : video(false)}
@@ -357,7 +417,7 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
       <div className="dv-cams" role="group" aria-label="영상 고르기">
         {(['external', 'rgb'] as const).map((c) => <button key={c} type="button" aria-pressed={cam === c} data-cam-pick={c} onClick={() => setCam(c)}>{c === 'external' ? '외부' : 'RGB'}</button>)}
       </div>
-      {cam === 'external' && (orbitWhy || orbitNote) && !hideCam && !(big && hasMap && mini) && <p className="dv-orbit-why" data-orbit-why>{orbitWhy || orbitNote}</p>}
+      {cam === 'external' && (orbitWhy || orbitNote) && hint && !hideCam && !(big && hasMap && mini) && <p className="dv-orbit-why" data-orbit-why>{orbitWhy || orbitNote}</p>}
       <div className="dv-top" aria-label="상태" data-tone={r.state === 'RUNNING' ? lock.tone : 'off'} data-sim-pill>
         시뮬 · {state && <>{state} · </>}<span className="mono" data-sim-vx>{(live ? vx : 0).toFixed(2)} m/s</span>
       </div>
@@ -397,17 +457,18 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
         {run.dev}
       </Sheet>}
       {(notes.length > 0 && !said || !!acts && acts.length > 0) && <div className="dv-act" data-sim-card data-bare={said || notes.length === 0 || undefined}>
-        {notes.length > 0 && !said && <div className="dv-act-head"><div className="dv-act-t">{notes.map((t) => <p key={t} className="dv-note" role="status">{t}</p>)}</div>
+        {notes.length > 0 && !said && <div className="dv-act-head"><div className="dv-act-t"><Notes slot={slot} /></div>
           <button type="button" className="dv-x" aria-label="안내 닫기" data-sim-card-close onClick={() => setShut(notes)}>{ICON.close}</button></div>}
         {acts && acts.length > 0 && <div className="fh-row">{acts}</div>}
+        <HeldRun />
       </div>}
-      {l.ask && mine && <div className="dv-ask" role="dialog" aria-labelledby="sim-ask-t" aria-live="assertive">
-        <b id="sim-ask-t">조종권 요청</b><p>다른 사람이 이 시뮬 로봇의 조종권을 요청했습니다. 넘겨주시겠습니까?</p>
-        <div className="fh-row"><button type="button" className="btn" onClick={() => sim.respond(true)}>넘기기</button><button type="button" className="btn" onClick={() => sim.respond(false)}>계속 조종</button></div></div>}
+      {restart.live && <RestartAskBox name={short(r.robot_id)} cancel={restart.close} go={() => restart.go(() => sim.unlock())} />}
+      {l.ask && mine && <TakeoverAsk id="sim-ask-t" title="다른 사람이 이 시뮬 로봇의 조종권을 요청했습니다" give={() => sim.respond(true)} keep={() => sim.respond(false)} />}
       {mine && open && <><Stick label="전후" both on={live} epoch={+live} gen={gen} press={sync} grip={(o) => { sg.current[0] = o; }} lift={push} set={(v, y) => { put(2, y); put(0, v); }}>
           <Arrows on={{ up: true, down: can.back, left: can.left, right: can.right }} /></Stick>
         <Stick label="회전" on={live} epoch={+live} gen={gen} press={sync} grip={(o) => { sg.current[1] = o; }} lift={push} set={(v) => put(1, v)}><Arrows on={{ left: true, right: true }} /></Stick>
-        <p className="dv-keys" data-sim-keys>W/↑ S/↓ 앞뒤 · A/D 회전{(can.left || can.right) && ' · ←/→ 옆'}</p></>}
+        <p className="dv-keys" data-sim-keys>W/↑ S/↓ 앞뒤 · A D 회전 · <span data-key-off={can.left || can.right ? undefined : ''} style={can.left || can.right ? undefined : { opacity: .55 }}
+          title={can.left || can.right ? undefined : SIDE_OFF}>← → 옆{can.left || can.right ? '' : '(막힘)'}</span></p></>}
       </div>
     </div></div>
   </section>;
@@ -422,10 +483,10 @@ export function SimPip({ cam, big, held }: { cam: Cam; big: () => void; held?: b
   const stopPress = useStopPress(() => sim.stop());   // pointerdown 즉시 — 실기 스틱을 쥔 채 눌러도(RV-456 1)
   if (!l || !r) return null;
   const lock = lockOf(l), text = r.state !== 'RUNNING' ? STATE[r.state] : lock.tone === 'bad' || !l.st ? lock.text : runText(l) || lock.text;
-  const down = (e: PointerEvent<HTMLElement>) => { const b = e.currentTarget.parentElement!.getBoundingClientRect(); grab.current = [e.clientX - b.left, e.clientY - b.top]; e.currentTarget.setPointerCapture?.(e.pointerId); };
+  const down = (e: PointerEvent<HTMLElement>) => { const b = stageRect(e.currentTarget.parentElement!); grab.current = [sx(e) - b.left, sy(e) - b.top]; e.currentTarget.setPointerCapture?.(e.pointerId); };
   const move = (e: PointerEvent<HTMLElement>) => {
     const g = grab.current, w = e.currentTarget.parentElement!; if (!g) return;
-    setAt([Math.max(0, Math.min(innerWidth - w.offsetWidth, e.clientX - g[0])), Math.max(0, Math.min(innerHeight - w.offsetHeight, e.clientY - g[1]))]);
+    setAt([Math.max(0, Math.min(vw() - w.offsetWidth, sx(e) - g[0])), Math.max(0, Math.min(vh() - w.offsetHeight, sy(e) - g[1]))]);
   };
   return <aside className="dv-pip" aria-label="시뮬 작은 창" data-sim-pip style={at ? { left: at[0], top: at[1], bottom: 'auto' } : undefined}>
     <div className="dv-pip-v"><Video ch={cam} /></div>
@@ -438,4 +499,12 @@ export function SimPip({ cam, big, held }: { cam: Cam; big: () => void; held?: b
       <button type="button" className="btn" data-sim-pip-close onClick={() => sim.reset()}>닫기</button>
     </div>
   </aside>;
+}
+
+/** 예약 임무(RUN)가 Hub 를 쥐어 «조종 시작» 이 회색인 까닭 한 줄(08:14). 일시정지를 못 하는 것은 실행 칸(runView) 한 곳에만 쓴다.
+ *  LEASE_HELD + RUN 답이 같은 말을 이미 띄웠거나 이 화면이 건 실행이면 없음. 주인 일시정지 계약(app-lx)이 오면 시험 먼저 쓰고 실행 칸에서 켠다 */
+export function HeldRun() {
+  const l = useSim().link;
+  if (!l || !runHolds(l) || l.notice === HELD_RUN || sim.runMine(l.run)) return null;
+  return <p className="lv-note" role="status" data-held-run data-run-say>{HELD_RUN}</p>;
 }

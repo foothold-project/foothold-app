@@ -320,8 +320,7 @@ def test_sim_world_slots_and_policy_env_from_env(checkout, tmp_path, monkeypatch
     sim_checkout(checkout)
     monkeypatch.setenv('FH_SIM_WORLD', 'plant_a')
     monkeypatch.setenv('FH_SIM_SLOTS', '4')
-    for key, value in (('FH_SIM_ORT_NODE', '/x/ort/index.js'), ('FH_SIM_START_MAP', 'off'), ('FH_SIM_POLICY_DIR', '/x/m15500'),
-                       ('FH_SIM_MAX_PER_OWNER', '3'), ('FH_SIM_RUNTIME_SECONDS', '86400')):
+    for key, value in (('FH_SIM_ORT_NODE', '/x/ort/index.js'), ('FH_SIM_START_MAP', 'off'), ('FH_SIM_POLICY_DIR', '/x/m15500')):
         monkeypatch.setenv(key, value)
     values, _ = local_up.prepare(checkout, tmp_path / 'accounts.env', docker=False, check=False)
     data = tmp_path / 'data'
@@ -336,8 +335,6 @@ def test_sim_world_slots_and_policy_env_from_env(checkout, tmp_path, monkeypatch
     manager = local_up.simmgr_env(checkout, values, sim)
     assert manager['FH_SIM_MAX_ROBOTS'] == '4'
     assert (manager['FH_SIM_ORT_NODE'], manager['FH_SIM_START_MAP'], manager['FH_SIM_POLICY_DIR']) == ('/x/ort/index.js', 'off', '/x/m15500')
-    assert manager['FH_SIM_MAX_PER_OWNER'] == '3'
-    assert manager['FH_SIM_RUNTIME_SECONDS'] == '86400'
     # back to the default: one slot, collapsed house (the pass-key file follows the slots)
     monkeypatch.delenv('FH_SIM_WORLD')
     monkeypatch.delenv('FH_SIM_SLOTS')
@@ -350,7 +347,7 @@ def test_sim_world_slots_and_policy_env_from_env(checkout, tmp_path, monkeypatch
     assert local_up.simmgr_env(checkout, values, sim)['FH_SIM_MAX_ROBOTS'] == '1'
 
 
-@pytest.mark.parametrize('slots', ['0', '9', 'two'])
+@pytest.mark.parametrize('slots', ['0', '5', 'two'])
 def test_sim_slots_out_of_range_refused(checkout, tmp_path, monkeypatch, slots):
     sim_checkout(checkout)
     monkeypatch.setenv('FH_SIM_SLOTS', slots)
@@ -377,13 +374,3 @@ def test_sim_world_list_for_connected_floors(checkout, tmp_path, monkeypatch):
     values, _ = local_up.prepare(checkout, tmp_path / 'accounts.env', docker=False, check=False)
     catalog = json.loads(Path(local_up.sim_setup(checkout, values, tmp_path / 'data')['FH_SIM_CATALOG']).read_text())
     assert [w['id'] for w in catalog['worlds']] == ['plant_a/l1', 'plant_a/l2', 'plant_a/l3']
-
-
-def test_sim_eight_slots(checkout, tmp_path, monkeypatch):
-    sim_checkout(checkout)
-    monkeypatch.setenv('FH_SIM_SLOTS', '8')
-    values, _ = local_up.prepare(checkout, tmp_path / 'accounts.env', docker=False, check=False)
-    sim = local_up.sim_setup(checkout, values, tmp_path / 'data')
-    catalog = json.loads(Path(sim['FH_SIM_CATALOG']).read_text())
-    assert len(catalog['slots']) == 8 and len({s['port'] for s in catalog['slots']}) == 8
-    assert local_up.simmgr_env(checkout, values, sim)['FH_SIM_MAX_ROBOTS'] == '8'

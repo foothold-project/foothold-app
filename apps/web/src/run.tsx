@@ -34,6 +34,7 @@ const nextText = (code: string | null) => code && code in RUN_NEXT ? RUN_NEXT[co
 /** 일시정지 이유(wait_reason) */
 export const RUN_WAIT: Record<string, string> = {
   LINK_LOST: '화면 연결이 끊겨 멈췄습니다(로봇 정지·잠금).', STOPPED_BY_USER: 'STOP 으로 멈췄습니다(잠금 유지).',
+  SIM_SELF_STOP: '시뮬 로봇이 스스로 멈췄습니다(잠금 유지) · 잠금을 풀고 «이어서»를 누르세요.',
   RECORDING_UNAVAILABLE: `실행 기록을 저장하지 못해 멈췄습니다 · 이어갈 수 없습니다. «취소»하세요. ${SIM_RESTART}`, '': '일시정지했습니다(로봇 정지·잠금).',
 };
 const mmss = (s: number) => `${Math.floor(s / 60)}분 ${(s % 60).toString().padStart(2, '0')}초`;
@@ -63,13 +64,13 @@ export function startBlock(s: Sim, sc: Scenario | undefined, floors: SimWorldFlo
   const f = floors.find((x) => x.floor_id === sc.floor_ids[0]);
   if (sc.floor_ids.length !== 1) return '한 층 시나리오만 실행할 수 있습니다.';
   if (!f || sc.map_version_ids.length !== 1 || sc.map_version_ids[0] !== f.map_version_id) return '시나리오 지도 판이 이 월드 지도와 달라 실행할 수 없습니다.';
-  if (!l.lease) return '먼저 «조종 시작»을 누르세요.';
-  if (l.st?.latched !== false) return '먼저 «잠금 해제»를 누르세요.';
+  if (!l.lease) return '먼저 «조종»을 누르세요.';
+  if (l.st?.latched !== false) return '먼저 «다시 시작»을 누르세요.';
   return '';
 }
 export const startFloor = (sc: Scenario, floors: SimWorldFloor[]) => floors.find((x) => x.floor_id === sc.floor_ids[0])!;
 
-/** 실행 안내 줄·진행 막대·단추·개발자 정보. 화면마다 자기 틀(폰 dv-act·PC 실행 칸)에 넣는다. pc = PC «시뮬» 탭(멈춤 단추 이름이 «시뮬 정지») */
+/** 실행 안내 줄·진행 막대·단추·개발자 정보. 화면마다 자기 틀(폰 dv-act·PC 실행 칸)에 넣는다. pc = PC «시뮬» 탭(멈춤 단추 이름이 «시뮬 정지», ADR-003) */
 export function runView(s: Sim, pc = false): { notes: string[]; acts: JSX.Element[]; bar: JSX.Element | null; dev: JSX.Element | null; label: string } {
   const l = s.link, r = l?.run;
   if (!l || !r || sim.dismissed(r.run_id)) return { notes: [], acts: [], bar: null, dev: null, label: '' };
@@ -88,12 +89,13 @@ export function runView(s: Sim, pc = false): { notes: string[]; acts: JSX.Elemen
     !open && !end && `화면 연결이 끊겼습니다 · 로봇은 스스로 멈추고 실행은 일시정지됩니다.${mine ? ' 다시 연결한 뒤 이 화면에서 이어갈 수 있습니다.' : ''}`,
     open && paused && RUN_WAIT[r.wait_reason ?? ''],
     open && paused && left !== null && `약 ${mmss(left)} 뒤 자동으로 취소됩니다.`,
-    // 이어가는 단계는 지금 할 하나만(조종 시작 → 잠금 해제 → 이어서 — 다음 단추가 나타나며 안내도 바뀐다)
-    open && paused && mine && !record && (!l.lease ? '이어가려면 «조종 시작»을 누르세요.'
-      : l.st?.latched !== false ? '이어가려면 STOP 을 확인한 뒤 «잠금 해제»를 누르세요.' : '손을 뗀 채 «이어서»를 누르면 남은 지점부터 다시 갑니다.'),
+    // 이어가는 단계는 지금 할 하나만(조종 → 다시 시작 → 이어서 — 다음 단추가 나타나며 안내도 바뀐다)
+    open && paused && mine && !record && (!l.lease ? '이어가려면 «조종»을 누르세요.'
+      : l.st?.latched !== false ? '이어가려면 STOP 을 확인한 뒤 «다시 시작»을 누르세요.' : '손을 뗀 채 «이어서»를 누르면 남은 지점부터 다시 갑니다.'),
     open && paused && !mine && '다른 화면에서 건 실행입니다 · 이어서는 그 화면에서만 할 수 있습니다. 취소는 로봇 담당자·총괄만 됩니다.',
-    open && runMoving(r) && (mine ? '실행 중에는 수동 조종이 막혀 있습니다. 수동으로 바꾸려면 «일시정지» → 로봇이 멈춘 뒤 «조종 시작» → «잠금 해제».'
-      : `다른 화면에서 실행 중입니다 · 멈추려면 ${pc ? '«시뮬 정지»' : 'STOP'}.`),
+    open && runMoving(r) && (mine ? '실행 중에는 수동 조종이 막혀 있습니다. 수동으로 바꾸려면 «일시정지» → 로봇이 멈춘 뒤 «조종» → «다시 시작».'
+      : `${l.st?.holder_type === 'RUN' ? '예약 임무가 실행 중입니다 · 이 화면에서는 일시정지할 수 없습니다'
+        : `다른 화면${l.st?.holder_name?.trim() ? ` (${l.st.holder_name.trim()})` : ''}에서 실행 중입니다 · 일시정지는 조종권을 가진 그 화면에서`} · 바로 멈추려면 ${pc ? '«시뮬 정지»' : 'STOP'}.`),   // R4(08:14): 주인(#537 state.holder_type · holder_name) 별 한 줄
   ].filter(Boolean) as string[];
   const acts = !open ? [] : end ? [b('close', '닫기', () => sim.dismiss(r.run_id), false, false)]
     : paused ? [mine && !record && l.lease && l.st?.latched === false && b('resume', '이어서', () => sim.runControl('resume'), true), b('abort', '취소', () => sim.runControl('abort'))].filter(Boolean) as JSX.Element[]
