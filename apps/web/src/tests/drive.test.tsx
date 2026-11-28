@@ -2401,7 +2401,7 @@ describe('폰 u1 임무 화면(보이기만)', () => {
   const open = async (run: object | null, mv: object | null = MV) => {
     apis(mv);
     mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7');
-    if (run) { recv(lease('r7', { id: null, name: '', type: 'RUN' })); act(() => push('r7', { run } as never)); }
+    if (run) { recv(lease('r7', { id: null, name: '', type: 'RUN' })); act(() => push('r7', { run, latched: false } as never)); }   // 임무가 도는 로봇 = 정지 잠금 풀림(잠김은 안전 표시 시험이 따로)
     await act(async () => {});
     await act(async () => {});
   };
@@ -2415,6 +2415,21 @@ describe('폰 u1 임무 화면(보이기만)', () => {
     expect($('.u1-chip .u1-st')!.textContent).toBe('순찰 중');
     expect($('.u1d .dv-mini')).toBeNull();
     expect(u1AppCss).toMatch(/\.u1d\[data-mission\] \.act\{display:none\}/);   // 시안 u1_1 에는 동작 줄이 없다
+  });
+
+  it('안전 표시: 정지 잠금이면 임무가 남아 있어도 칩 · 카드에 잠금 글이 먼저(잠김 + run PAUSED → 「정지 잠금」 · 「정지됨」)', async () => {
+    const P = { ...RUN, status: 'PAUSED' as const };
+    await open(P);
+    act(() => push('r7', { latched: null, run: P } as never));
+    expect($('.u1-chip .u1-st')!.textContent).toBe('정지 잠금');
+    expect($('.u1-chip .u1-st')!.className).toContain('bad');
+    expect($('.u1d .u1-mission .ml')!.textContent).toBe('정지 잠금');
+    act(() => push('r7', { latched: true, run: P } as never));
+    expect($('.u1-chip .u1-st')!.textContent).toBe('정지됨');
+    expect($('.u1d .u1-mission .ml')!.textContent).toBe('정지됨');
+    expect($('.u1d .u1-mission b')!.textContent).toBe('공정 순찰 A');   // 카드는 남는다 · 줄 글만 잠금
+    act(() => push('r7', { latched: false, run: P } as never));
+    expect($('.u1-chip .u1-st')!.textContent).toBe('일시정지됨');   // 잠금이 풀리면 임무 글로
   });
 
   it('임무가 없을 때: 시안 빈 상태 그대로(지도 · 카드 없음 · 작은 지도 칸 · 일정 받지 않음)', async () => {

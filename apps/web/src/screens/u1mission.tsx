@@ -65,12 +65,13 @@ function Card({ head, title, right, total, done, line, pz, dots }: { head?: stri
 }
 
 /** 왼쪽 아래 임무 카드(시안 u1_1 · u1_11) */
-export function MissionCard({ m, run, dots }: { m: Mission | null; run: RunSnapshot; dots?: ReactNode }) {
+export function MissionCard({ m, run, dots, hold }: { m: Mission | null; run: RunSnapshot; dots?: ReactNode; hold?: string }) {
   const { done, total } = run.progress, at = Math.min(run.step + 1, total), wp = m?.wps[run.step]?.name || '', paused = run.status === 'PAUSED';
-  const line = !total ? missionChip(run).text
+  const line = hold ? hold   // 정지 잠금 등 안전 글이 임무 줄보다 먼저(drive.tsx lockFirst)
+    : !total ? missionChip(run).text
     : paused ? `${wp || `${at} / ${total} 지점`} 가기 전에 서 있음`
     : `${at} / ${total}${wp ? ` ${wp}` : ''}`;
-  return <Card head={m ? `오늘 ${m.n} / ${m.of}` : undefined} title={m?.name || '임무'} right={m ? `예정 끝 ${hhmm(m.slot.end)}` : undefined} total={total} done={done} line={line} pz={paused} dots={dots} />;
+  return <Card head={m ? `오늘 ${m.n} / ${m.of}` : undefined} title={m?.name || '임무'} right={m ? `예정 끝 ${hhmm(m.slot.end)}` : undefined} total={total} done={done} line={line} pz={paused || !!hold} dots={dots} />;
 }
 
 /** 바탕 2D 지도(시안 u1_1 평면): 시나리오 판 그림 + 경로(지난 길 따로) + 지점 점 + 지금 지점 번호표 + 로봇 점(같은 판일 때만) */
@@ -123,9 +124,9 @@ export function NextCard({ m, dots }: { m: Mission | null; dots?: ReactNode }) {
 }
 
 /** 왼쪽 아래 카드 자리(시안 u1_1 · u1_15): 지금 임무 ↔ 다음 일. 다음 칸이 있을 때만 넘기기 점(시안 .row 점 · 시안은 세 장, 앞 일 카드는 자료가 없어 두 장) */
-export function MissionCards({ robot, m, run }: { robot: string; m: Mission | null; run: RunSnapshot }) {
+export function MissionCards({ robot, m, run, hold }: { robot: string; m: Mission | null; run: RunSnapshot; hold?: string }) {
   const next = useNext(robot), [page, setPage] = useState(0), at = next ? page : 0;
   const dots = next ? <span className="row dots" role="group" aria-label="카드 넘기기">{['지금 임무', '다음 일'].map((t, i) =>
     <button key={t} type="button" aria-label={t} aria-pressed={at === i} className={at === i ? 'on' : undefined} onClick={() => setPage(i)} />)}</span> : undefined;
-  return at === 1 ? <NextCard m={next} dots={dots} /> : <MissionCard m={m} run={run} dots={dots} />;
+  return at === 1 ? <NextCard m={next} dots={dots} /> : <MissionCard m={m} run={run} dots={dots} hold={hold} />;
 }
