@@ -11,7 +11,7 @@ import { ROBOTS, USERS, type Robot } from './fixtures';
 import { fleetNames, fleetRow } from './fleetRow';
 import { FakeWS, fail, lease, state } from './fakeWs';
 import { simTune } from '../phone';
-import { isSettings, LYING_TEXT, POSE, POSE_LOST, POSE_WAIT_MS, POWER_HINT, poseWhy, REAL_WAIT, SD_NOTE, ServerDrive, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
+import { isSettings, LYING_TEXT, POSE, POSE_LOST, POSE_WAIT_MS, POWER_HINT, poseWhy, REAL_WAIT, SD_NOTE, SIDE_BLOCK, COMBO_BLOCK, ServerDrive, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
 import { api } from '../api';
 import { BODY_CHECK, BODY_FAULT, DEPTH_HINT, IDENTITY_FAULT_LABEL, NO_SIGNAL, RETRY_MS, useDriveFeed } from '../drivemedia';
 import { DriveView } from '../serverdrive';
@@ -105,22 +105,51 @@ describe('서버 경유 시험 조종 패널', () => {
     expect($('[data-server-drive]')).toBeNull();
   });
 
-  it('키: 화살표 = 이동, A/D = 제자리 회전, ↑+A/D — 표의 SI 값 그대로, 그 밖 조합·W 는 0', () => {
+  it('키(d5): W·↑ 전진 · S·↓ 후진 · A·← / D·→ 제자리 회전 · Q/E 옆걸음, ↑+A/D · 표의 SI 값 그대로, 그 밖 조합은 0', () => {
     ready();
     expect(document.body.textContent).toContain('누르고 있으면 2초에 걸쳐 최고 속도까지 올라가고, 떼면 바로(약 0.3초) 멈춥니다');   // 앞뒤·옆·회전 공통 안내(11-20)
-    expect(hold(['ArrowUp'])).toBe('1.5,0,0');
-    expect(hold(['ArrowDown'])).toBe('-1.5,0,0');
-    expect(hold(['ArrowLeft'])).toBe('0,1,0');
-    expect(hold(['ArrowRight'])).toBe('0,-1,0');
-    expect(hold(['KeyA'])).toBe('0,0,2.5');
-    expect(hold(['KeyD'])).toBe('0,0,-2.5');
+    for (const k of ['ArrowUp', 'KeyW']) expect(hold([k])).toBe('1.5,0,0');
+    for (const k of ['ArrowDown', 'KeyS']) expect(hold([k])).toBe('-1.5,0,0');
+    for (const k of ['KeyA', 'ArrowLeft']) expect(hold([k])).toBe('0,0,2.5');
+    for (const k of ['KeyD', 'ArrowRight']) expect(hold([k])).toBe('0,0,-2.5');
+    expect(hold(['KeyQ'])).toBe('0,1,0');
+    expect(hold(['KeyE'])).toBe('0,-1,0');
     expect(hold(['ArrowUp', 'KeyA'])).toBe('1.5,0,2.5');
+    expect(hold(['KeyW', 'ArrowLeft'])).toBe('1.5,0,2.5');
     expect(hold(['KeyD', 'ArrowUp'])).toBe('1.5,0,-2.5');
-    for (const k of [['ArrowDown', 'KeyA'], ['ArrowLeft', 'ArrowUp'], ['KeyA', 'KeyD'], ['KeyW'], ['KeyS'], ['KeyQ']]) expect(hold(k)).toBe('0,0,0');
+    for (const k of [['ArrowDown', 'KeyA'], ['KeyQ', 'ArrowUp'], ['KeyA', 'KeyD'], ['ArrowLeft', 'ArrowRight'], ['KeyQ', 'KeyE'], ['KeyZ']]) expect(hold(k)).toBe('0,0,0');
     expect(lastAxes()).toBe('0,0,0');
     expect(axes().every((a) => ALLOWED.has(a))).toBe(true);
   });
-
+  it('표에 없는 키 조합(W+Q · A+Q · W+S · Q+E)은 0 + 까닭 한 줄, 표에 있는 키를 새로 누르면 사라짐', () => {
+    ready();
+    for (const ks of [['KeyW', 'KeyQ'], ['KeyA', 'KeyQ'], ['KeyW', 'KeyS'], ['KeyQ', 'KeyE']]) {
+      ks.forEach((k) => key('keydown', k)); tick(60);
+      expect(lastAxes()).toBe('0,0,0');
+      expect($('[data-sd-why]')!.textContent).toBe('이 키 조합은 함께 보낼 수 없어 입력을 0으로 보냅니다.');   // 멈춤 확인 아님(입력 0 만)
+      [...ks].reverse().forEach((k) => key('keyup', k));
+    }
+    key('keydown', 'KeyW'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    expect($('[data-sd-why]')).toBeNull();
+    key('keyup', 'KeyW');
+  });
+  it('d5 옆걸음: 조직 옆 상한(real_max_vy)이 표 값 1 을 허락하지 않으면 Q/E = 0 + 까닭 한 줄, 단추는 흐림 · 글 입력칸·창 밖이면 0', () => {
+    ready(); view();
+    expect($('[data-sd-move="left"]')!.textContent).toContain('Q');
+    expect($('[data-sd-move="right"]')!.textContent).toContain('E');
+    key('keydown', 'KeyQ'); tick(60); expect(lastAxes()).toBe('0,1,0');
+    act(() => { window.dispatchEvent(new Event('blur')); }); tick(60); expect(lastAxes()).toBe('0,0,0');
+    key('keyup', 'KeyQ');
+    const input = document.createElement('input'); document.body.append(input); input.focus();
+    const typed = (type: string) => act(() => { input.dispatchEvent(new KeyboardEvent(type, { code: 'KeyE', bubbles: true, cancelable: true })); });
+    typed('keydown'); tick(60); expect(lastAxes()).toBe('0,0,0');
+    typed('keyup'); input.remove();
+    act(() => simTune({ ...ORG, real_max_vy: 0 }));
+    expect($('[data-sd-move="left"]')!.getAttribute('aria-disabled')).toBe('true');
+    key('keydown', 'KeyQ'); tick(60); expect(lastAxes()).toBe('0,0,0');
+    expect($('[data-sd-why]')!.textContent).toBe(SIDE_BLOCK);
+    key('keyup', 'KeyQ');
+  });
   it('조직 상한을 넘는 단추·키는 0, 저장으로 낮추면 즉시 0이며 올려도 자동 재개 없음', () => {
     ready(); view();
     expect($('[data-sd-move="left"]')!.getAttribute('aria-disabled')).toBe('false');
@@ -1229,5 +1258,58 @@ describe('RV-426: PC 입력 세대 마무리', () => {
     expect(lastAxes()).toBe('0,0,0');
     mk('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
     mk('keyup', 'ArrowUp');
+  });
+});
+
+describe('#533 검토 (11-28 Codex) · PC 서버 경유 키', () => {
+  const mod = (type: 'keydown' | 'keyup', code: string, m: KeyboardEventInit) => act(() => { window.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true, cancelable: true, ...m })); });
+  it('M4: W+Q 로 까닭 줄이 뜬 뒤 Q 만 떼면 전진이 다시 나가므로 까닭 줄도 사라짐 (남은 안내와 명령이 같게)', () => {
+    ready();
+    key('keydown', 'KeyW'); key('keydown', 'KeyQ'); tick(60);
+    expect(lastAxes()).toBe('0,0,0');
+    expect($('[data-sd-why]')!.textContent).toBe(COMBO_BLOCK);
+    key('keyup', 'KeyQ'); tick(60);
+    expect(lastAxes()).toBe('1.5,0,0');
+    expect($('[data-sd-why]')).toBeNull();
+    key('keydown', 'KeyQ'); tick(60); expect($('[data-sd-why]')!.textContent).toBe(COMBO_BLOCK);   // 다시 조합이면 다시 뜸
+    key('keyup', 'KeyQ'); key('keyup', 'KeyW'); tick(60);
+    expect(lastAxes()).toBe('0,0,0');
+    expect($('[data-sd-why]')).toBeNull();   // 다 떼어도 남지 않음
+  });
+  it('M4: 옆 상한에 막힌 Q 를 떼면 그 까닭 줄도 사라짐 (다른 안내 · 0 전송 안내는 그대로)', () => {
+    ready();
+    act(() => simTune({ ...ORG, real_max_vy: 0 }));
+    key('keydown', 'KeyQ'); tick(60);
+    expect($('[data-sd-why]')!.textContent).toBe(SIDE_BLOCK);
+    key('keyup', 'KeyQ'); tick(60);
+    expect($('[data-sd-why]')).toBeNull();
+    act(() => simTune({ ...ORG, real_max_vx: .5 }));
+    key('keydown', 'KeyW'); tick(60); expect($('[data-sd-why]')!.textContent).toBe('조직 속도 상한을 넘는 명령입니다.');
+    key('keydown', 'KeyQ'); tick(60); expect($('[data-sd-why]')!.textContent).toBe(COMBO_BLOCK);
+    key('keyup', 'KeyQ'); tick(60);
+    expect(lastAxes()).toBe('0,0,0');
+    expect($('[data-sd-why]')!.textContent).toBe('조직 속도 상한을 넘는 명령입니다.');   // 남은 W 는 여전히 상한 밖: 조합 까닭이 상한 까닭으로 바뀜(말없이 0 아님)
+    key('keyup', 'KeyW'); tick(60);
+    act(() => simTune({ ...ORG }));
+    key('keydown', 'KeyW'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    act(() => simTune({ ...ORG, real_max_wz: 2 }));   // 누른 채 설정이 바뀜: 0 + 안내
+    const note = $('[data-sd-why]')!.textContent;
+    expect(note).toContain('조직 속도 설정이 바뀌어');
+    key('keyup', 'KeyW'); tick(60);
+    expect($('[data-sd-why]')!.textContent).toBe(note);   // 다른 안내(설정 바뀜)는 키를 떼어도 남음
+  });
+  it('M5: Ctrl · Meta · Alt 와 같이 누른 키(Ctrl+S 저장 등)는 조종 입력이 아님 · 뗄 때까지 0, 브라우저 단축키는 막지 않음', () => {
+    ready();
+    for (const m of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }] as KeyboardEventInit[]) {
+      const e = new KeyboardEvent('keydown', { code: 'KeyS', bubbles: true, cancelable: true, ...m });
+      act(() => { window.dispatchEvent(e); }); tick(60);
+      expect(lastAxes()).toBe('0,0,0');
+      if (!m.metaKey) expect(e.defaultPrevented).toBe(false);
+      if (!m.metaKey) { key('keydown', 'KeyW'); tick(60); expect(lastAxes()).toBe('0,0,0'); }   // 단축키로 누른 S 가 남아 있는 동안 W 도 0 (Meta 는 기존대로 적은 키를 지우고 세대 +1, RV-429)
+      mod('keyup', 'KeyS', m); key('keyup', 'KeyW'); tick(60);
+    }
+    key('keydown', 'KeyS'); tick(60); expect(lastAxes()).toBe('-1.5,0,0');   // 그냥 S 는 그대로 후진
+    key('keyup', 'KeyS'); tick(60); expect(lastAxes()).toBe('0,0,0');
+    expect(axes().every((a) => ALLOWED.has(a))).toBe(true);
   });
 });

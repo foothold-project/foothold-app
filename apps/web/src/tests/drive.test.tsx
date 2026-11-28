@@ -13,7 +13,7 @@ import { COOLDOWN_S, FAIL_TEXT, FREE_TEXT, REQUEST_S, STOP_HTTP_MS, STOP_WS_MS, 
 import { FakeWS, fail, lease, state } from './fakeWs';
 import { STALLED } from '../simdrive';
 import { ADMIN_REAL, driveBlock } from '../fake';
-import { MAX_TURN_RATE } from '../serverdrive';
+import { COMBO_BLOCK, MAX_TURN_RATE, SIDE_BLOCK } from '../serverdrive';
 import { simTune } from '../phone';
 import { REAL_STICK, REAL_WAIT } from '../drive';
 import driveCss from '../drive.css?raw';
@@ -2159,6 +2159,87 @@ describe('폰 실기 조종 = 서버 명령표', () => {
     key('keyup', 'KeyW'); key('keyup', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
   });
 
+  it('d5 키: A·← / D·→ = 회전, Q/E = 옆걸음 표 값 ±1(조직 옆 상한이 허락할 때), Q+E·창 밖 = 0, 옆 상한 0 이면 0 + 까닭', () => {
+    open();
+    key('keydown', 'ArrowLeft'); tick(100); expect(lastAxes()).toEqual([0, 0, MAX_TURN_RATE]);
+    key('keyup', 'ArrowLeft'); key('keydown', 'ArrowRight'); tick(100); expect(lastAxes()).toEqual([0, 0, -MAX_TURN_RATE]);
+    key('keyup', 'ArrowRight'); key('keydown', 'KeyQ'); tick(100); expect(lastAxes()).toEqual([0, 1, 0]);
+    key('keyup', 'KeyQ'); key('keydown', 'KeyE'); tick(100); expect(lastAxes()).toEqual([0, -1, 0]);
+    key('keydown', 'KeyQ'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);   // 함께 누름 = 0
+    key('keyup', 'KeyQ'); key('keyup', 'KeyE'); key('keydown', 'KeyQ'); tick(100); expect(lastAxes()).toEqual([0, 1, 0]);
+    act(() => { window.dispatchEvent(new Event('blur')); }); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    key('keyup', 'KeyQ');
+    act(() => simTune({ ...ORG, real_max_vy: 0 }));
+    key('keydown', 'KeyQ'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    expect(text()).toContain(SIDE_BLOCK);
+    key('keyup', 'KeyQ'); tick(100); expect(text()).not.toContain(SIDE_BLOCK);
+  });
+
+  it('글 입력칸에 초점이면 조종 키(Q·W)는 명령 0 · 글자는 막지 않음, 입력칸에서 누른 키는 뗄 때까지 0', () => {
+    open();
+    const input = document.createElement('input'); input.setAttribute('data-go2-ip', ''); document.body.append(input); input.focus();
+    for (const c of ['KeyQ', 'KeyW']) {
+      const e = new KeyboardEvent('keydown', { code: c, bubbles: true, cancelable: true });
+      act(() => { input.dispatchEvent(e); }); tick(100);
+      expect(e.defaultPrevented).toBe(false);
+      expect(lastAxes()).toEqual([0, 0, 0]);
+    }
+    key('keydown', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);   // 입력칸에서 누른 Q·W 가 남아 있는 동안 0
+    key('keyup', 'KeyQ', input); key('keyup', 'KeyW', input); key('keyup', 'KeyD'); input.remove();
+    key('keydown', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, -MAX_TURN_RATE]);
+    key('keyup', 'KeyD');
+  });
+  it('#533 r2 2: Ctrl · Alt 와 같이 누른 Q · E(브라우저 단축키)는 옆걸음 아님 · 뗄 때까지 0, 단축키는 막지 않음', () => {
+    open();
+    for (const [c, m] of [['KeyQ', { ctrlKey: true }], ['KeyE', { altKey: true }], ['KeyW', { ctrlKey: true }]] as [string, KeyboardEventInit][]) {
+      const e = new KeyboardEvent('keydown', { code: c, bubbles: true, cancelable: true, ...m });
+      act(() => { window.dispatchEvent(e); }); tick(100);
+      expect(e.defaultPrevented).toBe(false);
+      expect(lastAxes()).toEqual([0, 0, 0]);
+      key('keydown', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);   // 단축키로 누른 키가 남아 있는 동안 새 키도 0
+      act(() => { window.dispatchEvent(new KeyboardEvent('keyup', { code: c, bubbles: true, cancelable: true, ...m })); }); key('keyup', 'KeyD'); tick(100);
+    }
+    key('keydown', 'KeyQ'); tick(100); expect(lastAxes()).toEqual([0, 1, 0]);   // 그냥 Q 는 그대로 옆걸음
+    key('keyup', 'KeyQ');
+  });
+  it('#533 r2 3: S 와 같이 누른 Q · E · W(S+Q · S+E · W+S)는 표 밖 조합 = 0 + 까닭 줄, S 만이면 0 + 후진 막음', () => {
+    open();
+    for (const ks of [['KeyS', 'KeyQ'], ['KeyS', 'KeyE'], ['KeyW', 'KeyS']]) {
+      ks.forEach((k) => key('keydown', k)); tick(100);
+      expect(lastAxes()).toEqual([0, 0, 0]);
+      tick(200); expect(lastAxes()).toEqual([0, 0, 0]);
+      expect(text()).toContain(COMBO_BLOCK);
+      [...ks].reverse().forEach((k) => key('keyup', k)); tick(100);
+    }
+    key('keydown', 'KeyS'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    expect(text()).toContain('후진은 아직 지원하지 않습니다'); expect(text()).not.toContain(COMBO_BLOCK);
+    key('keyup', 'KeyS');
+  });
+  it('#533 H3: 「입력 0」 까닭 줄이 뜬 조합(W+Q+E · W+A+D)은 실제로도 0 (Q·E 나 A·D 가 서로 지워 전진만 나가지 않음)', () => {
+    open();
+    for (const ks of [['KeyW', 'KeyQ', 'KeyE'], ['KeyW', 'KeyA', 'KeyD']]) {
+      ks.forEach((k) => key('keydown', k)); tick(100);
+      expect(text()).toContain(COMBO_BLOCK);
+      expect(lastAxes()).toEqual([0, 0, 0]);
+      tick(200); expect(lastAxes()).toEqual([0, 0, 0]);   // 틱마다도 0
+      [...ks].reverse().forEach((k) => key('keyup', k)); tick(100);
+    }
+    key('keydown', 'KeyW'); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]);
+    key('keyup', 'KeyW');
+  });
+  it('표에 없는 키 조합(W+Q · A+Q · A+D)은 0 + 까닭 한 줄, 떼면 사라짐', () => {
+    open();
+    for (const [a, b] of [['KeyW', 'KeyQ'], ['KeyA', 'KeyQ'], ['KeyA', 'KeyD']]) {
+      key('keydown', a); key('keydown', b); tick(100);
+      expect(lastAxes()).toEqual([0, 0, 0]);
+      expect(text()).toContain(COMBO_BLOCK);
+      key('keyup', b); key('keyup', a); tick(100);
+      expect(text()).not.toContain(COMBO_BLOCK);
+    }
+    key('keydown', 'KeyW'); tick(100); expect(lastAxes()).toEqual([1.5, 0, 0]); expect(text()).not.toContain(COMBO_BLOCK);
+    key('keyup', 'KeyW');
+  });
+
   it('조직 상한·빠른 조종 끔이면 0, 표 값 밖 비례 값은 보내지 않음', () => {
     const { fwd, turn } = open();
     act(() => simTune({ ...ORG, real_no_fast_server_drive: true }));
@@ -2336,7 +2417,9 @@ describe('RV-425: 앞 세대에 누른 키·손가락은 떼고 다시 눌러야
     key('keydown', 'ArrowUp', window, true); key('keydown', 'KeyA'); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [0, 0, 2.5]
     key('keyup', 'KeyW'); key('keyup', 'ArrowUp'); key('keyup', 'KeyA'); tick(100);
-    key('keydown', 'ArrowUp', window, true); tick(100);    // 새로 누른 Ctrl+↑ 도 같은 누름
+    key('keydown', 'ArrowUp', window, true); tick(100);    // 새로 누른 Ctrl+↑ 는 조종 아님(#533 r2 2 · 브라우저 단축키)
+    expect(lastAxes()).toEqual([0, 0, 0]);
+    key('keyup', 'ArrowUp'); key('keydown', 'ArrowUp'); tick(100);   // 수정키 없이 새로 누르면 표 값
     expect(lastAxes()).toEqual([1.5, 0, 0]);
   });
 

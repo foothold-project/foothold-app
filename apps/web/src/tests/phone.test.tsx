@@ -182,15 +182,23 @@ describe('시뮬 조종 화면 — 컴퓨터 키(10-29 «컴퓨터는 화살표,
     expect(driveCss).not.toMatch(/(^|\})\s*\.dv-stick\{display:none/);
   });
 
-  it('↑·W 전진(키 기본 0.6 m/s)·A/D 회전(UIUX-1101: ←/→ 는 실기처럼 옆걸음), 떼면 0 · 수정키·입력칸 무시', async () => {
+  it('↑·W 전진(키 기본 0.6 m/s)·A·← / D·→ 회전(d5 · 옆걸음은 Q/E), 떼면 0 · 수정키·입력칸 무시', async () => {
     const a = await launch({ ...welcome(), limits: CONT }); await drive(a);
     expect($('[data-sim-keys]')!.textContent).toContain('회전');
+    expect($('[data-sim-keys] [data-key-off]')!.textContent).toContain('Q/E 옆');   // 로봇 한계 vy 0 · 회색 + 까닭
     await key('keydown', 'ArrowUp');
     expect((await cmd()).vx).toBeCloseTo(0.6, 5);
     expect($('[data-sim-vx]')!.textContent).toBe('0.60 m/s');
     await key('keydown', 'KeyA');
     expect(await cmd()).toMatchObject({ wz: 0.5 });
-    await key('keyup', 'KeyA'); await key('keyup', 'ArrowUp');
+    await key('keyup', 'KeyA'); await key('keydown', 'ArrowLeft');
+    expect(await cmd()).toMatchObject({ vy: 0, wz: 0.5 });   // ← = 회전(옆걸음 아님)
+    await key('keyup', 'ArrowLeft'); await key('keydown', 'ArrowRight');
+    expect(await cmd()).toMatchObject({ vy: 0, wz: -0.5 });
+    await key('keyup', 'ArrowRight'); await key('keydown', 'KeyQ');
+    expect(await cmd()).toMatchObject({ vy: 0 });   // 옆 한계 0 이면 0
+    expect(box.textContent).toContain('옆걸음은 아직 지원하지 않습니다');
+    await key('keyup', 'KeyQ'); await key('keyup', 'ArrowUp');
     expect(await cmd()).toMatchObject({ vx: 0, vy: 0, wz: 0 });
     await key('keydown', 'KeyW', { ctrlKey: true });
     expect(await cmd()).toMatchObject({ vx: 0 });
@@ -305,7 +313,7 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
     const a = await launch({ ...welcome(), limits: EXP }); await drive(a);
     expect($('[data-sim-exp]')).toBeNull();   // 10-26: 영상 위에서 빼고 메뉴 안 한 줄
     await click($('[data-sim-menu]'));
-    const exp = $('[data-sim-exp]')!, full = '시뮬 시험용 — 후진·옆걸음·제자리 회전은 넘어질 수 있습니다';
+    const exp = $('[data-sim-exp]')!, full = '시뮬 시험용 · 후진·옆걸음·제자리 회전은 넘어질 수 있습니다';
     expect(exp.textContent).toBe('시험용 · 넘어질 수 있음');   // 긴 문장은 aria·설정 시트
     expect(exp.getAttribute('aria-label')).toBe(full);
     expect(exp.closest('.dv-menu')).toBeTruthy();
@@ -427,7 +435,7 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
     expect(arrows('전후')).toBe('up+ down- left- right-');
     const left = stick('전후');
     ptr(left, 'pointerdown', 0, 50); await wait(80);
-    expect(box.textContent).toContain('옆걸음은 아직 지원하지 않습니다 — 시뮬에서 아직 확인 안 됨');
+    expect(box.textContent).toContain('옆걸음은 아직 지원하지 않습니다. 시뮬에서 아직 확인 안 됨');
     expect(last(a.of('cmd'))).toMatchObject({ vx: 0, vy: 0, wz: 0 });
     ptr(left, 'pointermove', 100, 50); await wait(80);
     expect(last(a.of('cmd'))).toMatchObject({ vy: 0 });
@@ -746,7 +754,7 @@ describe('시뮬 직결 실패', () => {
     expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.path)).toEqual([`/simulation/robots/${S1}`]);
   });
 
-  it('띄우는 중 STOP → 서버 stop 0·다른 로봇(rt) stop 0, 문구 «연결 전 — 명령 없음», 201 이 오면 바로 DELETE 1·연결 0', async () => {
+  it('띄우는 중 STOP → 서버 stop 0·다른 로봇(rt) stop 0, 문구 «연결 전 · 명령 없음», 201 이 오면 바로 DELETE 1·연결 0', async () => {
     let answer!: (r: Reply) => void;
     serve({ 'POST /simulation/robots': () => new Promise<Reply>((f) => { answer = f; }) });
     await mount();
@@ -754,7 +762,7 @@ describe('시뮬 직결 실패', () => {
     expect($('[data-sim="starting"]')).toBeTruthy();
     const before = FakeWS.all.map((w) => w.sent.length);
     await click($('[data-stop]'));
-    expect($('[data-sim-stop]')!.textContent).toContain('로봇에 연결 전 — 명령 없음, 정리 중');
+    expect($('[data-sim-stop]')!.textContent).toContain('로봇에 연결 전 · 명령 없음, 정리 중');
     expect(FakeWS.all.every((w, i) => w.sent.length === (before[i] ?? 0))).toBe(true);   // rt 등 다른 연결로 stop 0
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false);   // 답 전에는 지울 대상이 확정되지 않음
     mine = [simRobot()];

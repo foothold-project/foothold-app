@@ -7,7 +7,7 @@ import { allowed, runMoving, sim, useSim, velocity, type Sim } from '../phone';
 import { inputGen, metaCut } from '../rt';
 import { runView, startBlock, startFloor, useScenarios } from '../run';
 import { useStopPress } from '../App';
-import { EXP, KEYS, STATE, SimLaunch, canDrive, field, forward, Video, blockNote, relink, remainingTime, short, stopText, timeNotice, useDeadline, useTick, worldName } from '../simdrive';
+import { EXP, KEYS, SIDE_OFF, STATE, SimLaunch, canDrive, field, forward, Video, blockNote, relink, remainingTime, short, stopText, timeNotice, useDeadline, useTick, worldName } from '../simdrive';
 import { SimMap, useFloorMap, type FloorMap } from '../simmap';
 import { needsRelink, useFeed } from '../media';
 import { Cloud3D, QEmpty, Quad, type QTile } from '../quad';
@@ -106,7 +106,7 @@ function SimView({ admin }: { admin: boolean }) {
   const run = runView(s, true), running = runMoving(l.run);
   const notes = [timeNotice(remainingTime(s.runtimeUntil)), l.at === 'closed' && l.why, l.notice, live && out.note, fm.notice, stopText(s)].filter(Boolean) as string[];
   const close = async () => { if (sim.get().link?.lease) await Promise.race([sim.release(), new Promise((f) => setTimeout(f, 2000))]); sim.reset(); };
-  const key = (k: string, t: string, on = true) => <span className="lbl" data-key-off={on ? undefined : ''} style={on ? undefined : { textDecoration: 'line-through' }}><b className="mono">{k}</b> {t}{on ? '' : '(막힘)'}</span>;
+  const key = (k: string, t: string, on = true, why = '') => <span className="lbl" data-key-off={on ? undefined : ''}><span style={on ? undefined : { textDecoration: 'line-through' }}><b className="mono">{k}</b> {t}</span>{on ? '' : `(막힘${why && ` · ${why}`})`}</span>;
   return <>
     <section className="lv-card" style={{ flexBasis: '100%', position: 'sticky', top: 0, zIndex: 1 }} aria-label="시뮬 로봇" data-sim-view>
       <div className="fh-row" style={{ flexWrap: 'wrap' }}>
@@ -145,11 +145,11 @@ function SimView({ admin }: { admin: boolean }) {
       {l.ask && mine && <div className="fh-row" role="dialog" aria-label="조종권 요청"><span>다른 사람이 이 시뮬 로봇의 조종권을 요청했습니다.</span>
         <button type="button" className="btn" onClick={() => sim.respond(true)}>넘기기</button><button type="button" className="btn" onClick={() => sim.respond(false)}>계속 조종</button></div>}
       {keys && <div className="fh-row" style={{ flexWrap: 'wrap' }} aria-label="키보드 조종" data-sim-keys>
-        <span>{running ? '실행 중 — 키 조종 막힘' : live ? '키를 누르는 동안만 움직입니다' : '조종 시작 → 잠금 해제 뒤 키보드로 움직입니다'}</span>
-        {key('W/↑', '전진', !running)}{key('S/↓', '후진', can.back && !running)}{key('←/→', '옆걸음', (can.left || can.right) && !running)}{key('A/D', '제자리 회전', !running)}{key('Space', '정지')}{/* Space = STOP — 실행 중에도 눌리므로 줄긋지 않는다 */}
+        <span>{running ? '실행 중 · 키 조종 막힘' : live ? '키를 누르는 동안만 움직입니다' : '조종 시작 → 잠금 해제 뒤 키보드로 움직입니다'}</span>
+        {key('W/↑', '전진', !running)}{key('S/↓', '후진', can.back && !running)}{key('A·← / D·→', '제자리 회전', !running)}{key('Q/E', '옆걸음', (can.left || can.right) && !running, running || can.left || can.right ? '' : SIDE_OFF)}{key('Space', '정지')}{/* Space = STOP — 실행 중에도 눌리므로 줄긋지 않는다 */}
         <span className="mono" data-sim-vx>{(live ? out.vx : 0).toFixed(2)} m/s</span>
         {can.experimental && <span className="lbl" data-sim-exp>{EXP}</span>}
-        <span className="lbl" data-sim-tapnote>지도 찍어서 이동은 MuJoCo(«시뮬 열기») 만 — 이 시뮬은 키·시나리오로</span>
+        <span className="lbl" data-sim-tapnote>지도 찍어서 이동은 MuJoCo(«시뮬 열기») 만. 이 시뮬은 키·시나리오로</span>
       </div>}
     </section>
     <SimQuad fm={fm} hasMap={hasMap} mine={mine} />

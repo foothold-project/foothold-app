@@ -377,6 +377,17 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
   });
   const P1 = [0.025, 2.025, 0.3], P2 = [-2.025, 0.025, 0.3, 0.025, -2.025, 0.3], P3 = [...P2, 1, 1, 0.3];
   const lidarN = () => $('[aria-label="조종 보기 4칸"] [data-tile="lidar"] [data-lidar-map]')?.getAttribute('data-lidar-map');
+  it('서버가 알린 알려진 영문 사유는 칸에 한국어 한 줄만 (원문 괄호 없음 · u4_1)', () => {
+    mount('u-park'); serve('r7');
+    const lid = FakeWS.all.filter((x) => x.url.endsWith('/drive-media/lidar') && x.readyState !== 3).pop()!;
+    act(() => { lid.open(); lid.recv({ t: 'media.status', version: 'media/1', channel: 'lidar', robot: 'r7', epoch: 0, episode_id: null, reason: 'No fresh source sample within 1 second' }); });
+    const t = $('[aria-label="조종 보기 4칸"] [data-tile="lidar"]')!.textContent!;
+    expect(t).toContain(`${NO_SIGNAL.lidar} · 1초 넘게 새 자료가 없습니다`);
+    expect(t).not.toMatch(/No fresh|\(/);
+    act(() => { lid.recv({ t: 'media.status', version: 'media/1', channel: 'lidar', robot: 'r7', epoch: 0, episode_id: null, reason: 'Some new agent reason' }); });
+    expect($('[aria-label="조종 보기 4칸"] [data-tile="lidar"]')!.textContent).toContain('Some new agent reason');   // 모르는 원문은 지금 규칙대로 그대로
+  });
+
   it('epoch 가 바뀐 뒤 늦게 온 옛 epoch 판은 지금 라이다 그림을 덮지 않는다(RV-443 ④)', () => {
     mount('u-park'); serve('r7');
     const lid = FakeWS.all.filter((x) => x.url.endsWith('/drive-media/lidar') && x.readyState !== 3).pop()!;
