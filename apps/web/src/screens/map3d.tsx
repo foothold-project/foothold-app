@@ -1,7 +1,7 @@
 // 지도 탭 실내 3D (W3 · MAP3D 11-28): 층 지도판에 3D 모형(MapVersion.model_sha256)이 있으면 «3D» 로 그 층 GLB 를 돌려 본다.
 // 좌표 = 지도 world 좌표(m, x 동 · y 북 · z 위). GLB 는 glTF 규약(+Y 위)이라 (x, y, z)gltf → (x, −z, y) 로 한 번 바꾼다.
 // 로봇 자리(실시간 위치, 2D 와 같은 값 · 같은 색 규칙)와 점검 지점(지도 요소 waypoints)을 같은 좌표로 얹는다. 3D 파일엔 조명이 없어 환경광 + 위 방향광.
-import { CLAY, CLAY_CAM, clayCam, hatch } from './u7/clay';
+import { CLAY_CAM, clayCam, clayCoat, clayBox, clayFocus, clayLight, clayShade, claySpan, withDraco } from '../clay3d';
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -26,15 +26,20 @@ export const worldGroup = () => { const g = new THREE.Group(); g.rotation.x = Ma
 
 /** 받은 모형 바이트: 같은 로그인 세션(authMark) · 판 · sha 마다 한 번, 최근 KEEP 개만. 세션이 바뀌면(로그아웃 · 만료 · 다른 계정) 다 버리고 서버에 다시 묻는다.
  *  받기 성공만 기억한다(실패 · 거둠은 다음에 다시 받음) */
-const KEEP = 3, models = new Map<string, ArrayBuffer>();
-export const resetModels = () => models.clear();
+const KEEP = 3, models = new Map<string, ArrayBuffer>(), going = new Map<string, Promise<ArrayBuffer>>();
+export const resetModels = () => { models.clear(); going.clear(); };
 onAuthEnd(resetModels);
 export async function modelBytes(id: string, sha: string, cancel?: AbortSignal) {
   const mark = authMark() ?? '', k = `${mark}\n${id}\n${sha}`;
   for (const x of [...models.keys()]) if (!x.startsWith(`${mark}\n`)) models.delete(x);
   const hit = models.get(k);
   if (hit) { models.delete(k); models.set(k, hit); return hit; }   // 최근 쓴 것을 뒤로
-  const buf = await api.model(id, cancel);
+  // 받는 중인 같은 모형(미리 보기 · 층 썸네일이 함께 열림)은 한 번만 받는다. 먼저 부른 쪽이 거두면(Abort) 기다리던 쪽이 다시 받음
+  const run = going.get(k);
+  if (run) { try { return await run; } catch (e) { if (cancel?.aborted || (e as Error)?.name !== 'AbortError') throw e; return modelBytes(id, sha, cancel); } }
+  const p = api.model(id, cancel); going.set(k, p);
+  let buf: ArrayBuffer;
+  try { buf = await p; } finally { if (going.get(k) === p) going.delete(k); }
   if ((authMark() ?? '') !== mark) return buf;   // 받는 사이 세션이 바뀜. 기억하지 않음
   models.set(k, buf);
   while (models.size > KEEP) models.delete(models.keys().next().value!);
@@ -63,7 +68,7 @@ export function onBoard<R>(robots: R[], vid: string, where: (x: R) => Partial<Pi
 const TONE_VAR: Record<Tone, string> = { ok: '--accent', warn: '--warn', bad: '--bad', off: '--muted' };
 export const whereOf = (x: Robot) => (x.unknown === 'summary' ? null : rt.get(x.id).state?.location ?? x.location ?? null);
 
-type Rig = { draw: () => void; marks: THREE.Group; z: number; view: (top: boolean) => void; dispose: () => void };
+type Rig = { draw: () => void; marks: THREE.Group; z: number; view: (top: boolean) => void; dispose: () => void; look?: (light: boolean) => void };
 
 /** missing(까닭) = 404: 모형 없음 · 판 없음. 부르는 쪽이 2D 로 돌아가 그 까닭을 한 줄로.
  *  still = 미리 보기(시안 u7_1): 시점 단추 · 범례 없음(기본 = 있음) */
@@ -94,7 +99,7 @@ export function Map3D({ v, robots, missing, still }: { v: MapVersion; robots: Ro
       const drop = () => { if (renderer) { renderer.dispose(); renderer.forceContextLoss(); } canvas?.remove(); };
       try {
         const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
-        const g = await new GLTFLoader().parseAsync(buf, '');
+        const g = await withDraco(new GLTFLoader()).parseAsync(buf, '');   // 판 모형(maps_v2)은 Draco 로 줄여 옴
         if (!live) return;
         try { renderer = new THREE.WebGLRenderer({ antialias: true }); } catch { setAt('nogl'); return; }
         if (still && renderer.shadowMap) { renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; }
@@ -108,23 +113,12 @@ export function Map3D({ v, robots, missing, still }: { v: MapVersion; robots: Ro
         const z = floorZ(g.scene, v);   // 무리에 넣기 전(glTF 좌표의 y = world z)
         const model = worldGroup(); model.add(g.scene); scene.add(model);
         // 미리 보기(시안 u7_1): 밝은 회색 무광 점토 · 부드러운 그림자 · 금지 구역 붉은 빗금. 층 화면 3D 는 모형 색 그대로
-        if (still) { const clay = new THREE.MeshStandardMaterial({ color: CLAY.top, roughness: 1, metalness: 0 });
-          g.scene.traverse((o) => { const m = o as THREE.Mesh; if (!m.isMesh) return; (Array.isArray(m.material) ? m.material : [m.material]).forEach((x) => x.dispose()); m.material = clay; m.castShadow = m.receiveShadow = true; }); }
-        const box = new THREE.Box3().setFromObject(model), c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
+        if (still) clayCoat(g.scene);
+        const box = still ? clayBox(model) : new THREE.Box3().setFromObject(model), c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
         const hemi = new THREE.HemisphereLight(0xffffff, 0x8a8580, 1.6), sun = new THREE.DirectionalLight(0xffffff, 1.4);
         sun.position.set(c.x - size.x * 0.3, c.y - size.y * 0.6, z + 30); sun.target.position.copy(c); scene.add(hemi, sun, sun.target);
-        if (still) {
-          const span = Math.hypot(size.x, size.y);
-          sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.radius = 4; sun.shadow.bias = -0.0005;
-          Object.assign(sun.shadow.camera, { left: -span / 2, right: span / 2, top: span / 2, bottom: -span / 2, near: 0.1, far: span * 3 + 60 });
-          const tex = hatch();
-          for (const zn of v.features.zones.filter((x) => x.type === 'NO_GO' && x.polygon.length >= 3)) {
-            const t = tex?.clone() ?? null; if (t) { t.needsUpdate = true; t.repeat.set(0.5, 0.5); }
-            const fill = new THREE.Mesh(new THREE.ShapeGeometry(new THREE.Shape(zn.polygon.map(([x, y]) => new THREE.Vector2(x, y)))), new THREE.MeshBasicMaterial(t ? { map: t, transparent: true, depthWrite: false } : { color: CLAY.nogo, transparent: true, opacity: 0.25, depthWrite: false }));
-            fill.position.z = z + 0.03; fill.renderOrder = 1; scene.add(fill);
-            scene.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(zn.polygon.map(([x, y]) => new THREE.Vector3(x, y, z + 0.05))), new THREE.LineBasicMaterial({ color: CLAY.nogo })));
-          }
-        }
+        const fc = still ? clayFocus(g.scene, box) : null;   // 미리 보기 초점 상자(glb extras.focus 가 먼저)
+        if (fc) { renderer.localClippingEnabled = true; clayShade(scene, sun, fc.size, z, v, fc.c); }
         const marks = new THREE.Group(); scene.add(marks);
         const orbit = new OrbitControls(cam, canvas);
         orbit.maxPolarAngle = Math.PI / 2 - 0.05; orbit.minDistance = 2; orbit.maxDistance = Math.max(size.x, size.y) * 3;   // 바닥 아래로 못 감
@@ -133,15 +127,16 @@ export function Map3D({ v, robots, missing, still }: { v: MapVersion; robots: Ro
         const view = (top: boolean) => {
           const d = Math.max(size.x, size.y, 6);
           if (top) cam.position.set(c.x, c.y - 0.01, z + d * 1.1);
-          else if (still) { cam.fov = CLAY_CAM.fov; cam.updateProjectionMatrix(); const p = clayCam(c, Math.hypot(size.x, size.y)); cam.position.set(p.x, p.y, z + p.z); }   // 시안 u7_1 시점
+          else if (fc) { cam.fov = CLAY_CAM.fov; cam.updateProjectionMatrix(); const p = clayCam(fc.c, claySpan(fc.size)); cam.position.set(p.x, p.y, z + p.z); }   // 시안 u7_1 시점
           else cam.position.set(c.x - d * 0.2, c.y - d * 0.8, z + d * 0.7);
-          orbit.target.set(c.x, c.y, z); orbit.update(); draw();
+          const t = fc && !top ? fc.c : c; orbit.target.set(t.x, t.y, z); orbit.update(); draw();
         };
         orbit.addEventListener('change', draw);
         const fit = () => { const w = el.clientWidth, h = el.clientHeight; if (!w || !h) return; gl.setSize(w, h); cam.aspect = w / h; cam.updateProjectionMatrix(); draw(); };
         const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit);
         ro?.observe(el);
-        rig0 = { draw, marks, z, view, dispose: () => {
+        const gl0 = gl;
+        rig0 = { draw, marks, z, view, look: fc ? (l) => clayLight(gl0, hemi, sun, g.scene, l) : undefined, dispose: () => {
           ro?.disconnect(); orbit.stopListenToKeyEvents(); orbit.dispose();
           scene.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.geometry.dispose(); (Array.isArray(m.material) ? m.material : [m.material]).forEach((x) => { Object.values(x).forEach((t) => (t as THREE.Texture)?.isTexture && (t as THREE.Texture).dispose()); x.dispose(); }); } });
           drop();
@@ -162,6 +157,7 @@ export function Map3D({ v, robots, missing, still }: { v: MapVersion; robots: Ro
   const key = here.map(({ x, l }) => `${x.id}:${l.x.toFixed(2)},${l.y.toFixed(2)},${l.yaw?.toFixed(2)}:${x.online ? robotStatus(x).tone : 'off'}`).join('|');
   useEffect(() => {
     const r = rig.current; if (!r || at !== 'ok') return;
+    r.look?.(light);   // 미리 보기 판 빛(밝음 · 어둠)
     r.marks.children.slice().forEach((o) => { r.marks.remove(o); const m = o as THREE.Mesh; m.geometry?.dispose(); (m.material as THREE.Material)?.dispose(); });
     const wp = color('--warn', '#E0A23A');
     for (const w of still ? [] : v.features.waypoints) {   // 미리 보기(시안 u7_1)는 점검 지점 기둥 없음

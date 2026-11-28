@@ -4,6 +4,8 @@
 // 큰 그림은 <image> 가 쿠키로 따로 받는다 — 불러오기·실패는 이 칸 안 글로만, 머리줄·STOP 은 경계(App Guard) 밖.
 import { keptMission } from './missiontab';
 import { Map3D, modelOf } from './map3d';
+import { clayStill } from './claystill';
+import { useTheme } from '../theme';
 import { DemoSite3D } from './u7/site3d';
 import { Empty } from '../empty';
 import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
@@ -398,13 +400,22 @@ export function SimPlaces({ user, robots }: { user: User; robots: Robot[] }) {
  *  판이 없거나 그림이 실패하면 같은 높이 회색 칸 «지도 없음»(판 받는 중은 빈 회색 칸) — 카드 높이는 CSS(.mx-thumb) 고정 */
 export function Thumb({ id, v, demo }: { id?: string | null; v?: MapVersion; demo?: boolean }) {
   const ref = useRef<HTMLSpanElement>(null), [near, setNear] = useState(typeof IntersectionObserver === 'undefined'), [bad, setBad] = useState(false), { fit } = useFit(near ? v : undefined);
+  // 판에 3D 모형이 있으면 hero 카메라로 그린 작은 정지 그림(claystill · 그리개 하나), 못 그리면 지금 평면도(팀장 00:14)
+  const [, light] = useTheme(), [shot, setShot] = useState<{ key: string; url: string } | null>(null), sk = v && modelOf(v) ? `${v.id}:${modelOf(v)}:${light}` : '';
+  useEffect(() => {
+    const el = ref.current; if (!sk || !near || !el || !v) return;
+    let live = true; const k = Math.min(2, devicePixelRatio || 1);
+    clayStill(v, (el.clientWidth || 150) * k, (el.clientHeight || 92) * k, light).then((url) => { if (live && url) setShot({ key: sk, url }); });
+    return () => { live = false; };
+  }, [sk, near]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (near || !ref.current) return;
     const o = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { setNear(true); o.disconnect(); } }, { rootMargin: '200px' });
     o.observe(ref.current); return () => o.disconnect();
   }, [near]);
-  return <span ref={ref} className="mx-thumb" data-thumb={id && !bad ? id : ''} aria-hidden="true">{!id || bad ? <small>지도 없음</small> : v && near && <svg viewBox={fit.join(' ')} preserveAspectRatio="xMidYMid meet">
-    <MapImage id={v.id} width={v.width} height={v.height} onError={() => setBad(true)} />{demo && <FactoryImage v={v} />}</svg>}</span>;
+  if (id && shot && shot.key === sk) return <span ref={ref} className="mx-thumb" data-thumb={id} data-thumb3d aria-hidden="true"><img src={shot.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} /></span>;
+  return <span ref={ref} className="mx-thumb" data-thumb={id && !bad ? id : ''} aria-hidden="true" data-plan-bg={!light && id && !bad ? '' : undefined}>{!id || bad ? <small>지도 없음</small> : v && near && <svg viewBox={fit.join(' ')} preserveAspectRatio="xMidYMid meet">
+    <MapImage id={v.id} width={v.width} height={v.height} plan={!light} onError={() => setBad(true)} />{demo && <FactoryImage v={v} />}</svg>}</span>;
 }
 /** 카드 그림 층: 1층, 그 층에 지도가 없으면 지도 있는 가장 낮은 층 */
 export const picFloor = (b: MapBuilding) => [firstFloor(b), ...byLevel(b.floors)].find((x) => x?.approved_version_id);

@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { FRONT_DIST, REAR_DIST, follow, layers, simLook } from '../proto/tileview';
-import { tilePose } from '../proto/u5';
+import { tileBreathe, tilePad, tilePose } from '../proto/u5';
 
 const P = (x: number, z: number, rot: number) => ({ x, z, rot });
 describe('follow', () => {
@@ -57,6 +57,25 @@ describe('layers', () => {
     expect(layers(true, true)).toEqual({ world: true, dots: false });
     expect(layers(false, true)).toEqual({ world: false, dots: true });
     expect(layers(true, false)).toEqual({ world: false, dots: true });   // glb 를 아직 못 받음
-    expect([REAR_DIST, FRONT_DIST]).toEqual([2.1, 1.25]);
+    expect(layers(true, true, true)).toEqual({ world: false, dots: true });   // 시뮬은 임무 중이어도 시뮬 공간(팀장 00:37)
+    expect(layers(true, true, false)).toEqual({ world: true, dots: false });   // 데모 · 실기 임무 중 = 현장
+    expect([REAR_DIST, FRONT_DIST]).toEqual([1.0, 1.25]);   // 임무 중 뒤 1 m(팀장 23:48) · 정면 1.25 m
+  });
+});
+
+describe('타일 바닥 표시 · 숨 (팀장 23:48)', () => {
+  it('어느 로봇이 숨 쉬나: 시뮬 · 임무 전 · 걷지 않음 · 엎드리지 않음일 때만', () => {
+    expect(tileBreathe({ sim: true, onRun: false, walk: false }, false)).toBe(true);
+    expect(tileBreathe({ sim: false, onRun: false, walk: false }, false)).toBe(false);   // 실기 · 데모
+    expect(tileBreathe({ sim: true, onRun: true, walk: false }, false)).toBe(false);
+    expect(tileBreathe({ sim: true, onRun: false, walk: true }, false)).toBe(false);
+    expect(tileBreathe({ sim: true, onRun: false, walk: false }, true)).toBe(false);
+  });
+  it('바닥 표시(시안 pad): 충전 = 가용 CHARGING · 점검 = 가용 MAINTENANCE(job maint) · 배터리 교체 · 시뮬은 없음', () => {
+    expect(tilePad({ sim: false, charging: true, job: null })).toBe('charge');
+    expect(tilePad({ sim: false, charging: false, job: { kind: 'maint', text: '점검 중' } })).toBe('check');
+    expect(tilePad({ sim: false, charging: false, job: { kind: 'swap', text: '배터리 교체' } })).toBeNull();
+    expect(tilePad({ sim: true, charging: true, job: null })).toBeNull();
+    expect(tilePad({ sim: false, charging: false, job: null })).toBeNull();
   });
 });

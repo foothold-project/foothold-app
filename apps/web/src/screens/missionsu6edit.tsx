@@ -52,17 +52,60 @@ const move = (e: Edit, from: number, to: number) => { if (e.ro || from === to) r
 const drag = (e: Edit, i: number) => ({ draggable: !e.ro, onDragStart: (ev: DragEvent) => ev.dataTransfer.setData('text/plain', String(i)),
   onDragOver: (ev: DragEvent) => ev.preventDefault(), onDrop: (ev: DragEvent) => { ev.preventDefault(); const f = Number(ev.dataTransfer.getData('text/plain')); if (Number.isInteger(f)) move(e, f, i); } });
 
-/** 둥근 할 일 차림(시안 u6_5): 누른 자리 가운데 · 둘레에 임무 여섯. 고르면 그 자리에 지점 */
-export function Radial({ at, jobs, pick, close }: { at: [number, number]; jobs: Mission[]; pick: (m: Mission) => void; close: () => void }) {
-  const SLOT: [number, number][] = [[124, 12], [226, 71], [226, 189], [124, 248], [22, 189], [22, 71]];
-  return <div style={{ position: 'absolute', left: `${at[0] - 170}px`, top: `${at[1] - 170}px`, width: '340px', height: '340px', zIndex: 4 }} data-radial role="menu" aria-label="이 자리에 할 일"
+/** 할 일 종류 대응표 (한 곳): 지점 → mission_id → Mission.steps[0].action, 지점 wait_s.
+ *  이동 = 단계 없음 · 대기 = WAIT 또는 지점 wait_s · 기록 = SENSOR_LOG(params.device). 온도 · 게이지 · 가스는 서버 ActionKey 에 아직 없어 자리만(꺼짐 · 「서버 준비 중」) */
+export const KINDS = [
+  { k: 'MOVE', label: '여기로 가기', action: null },
+  { k: 'GAUGE_READ', label: '게이지 읽기', soon: true },
+  { k: 'TEMP_READ', label: '온도 측정', soon: true },
+  { k: 'GAS_READ', label: '가스 점검', soon: true },
+  { k: 'PHOTO', label: '사진', action: 'PHOTO' },
+  { k: 'WAIT', label: '기다리기', action: 'WAIT' },
+  { k: 'OPERATOR_CONFIRM', label: '사람 확인', action: 'OPERATOR_CONFIRM' },
+  { k: 'SENSOR_LOG', label: '기록', action: 'SENSOR_LOG' },
+] as const;
+export type Kind = (typeof KINDS)[number]['k'] | 'UNKNOWN';
+export const SOON = '서버 준비 중', UNKNOWN_KIND = '알 수 없는 일';
+/** 종류 그림 (IC 는 missionsu6 과 서로 부르는 모듈이라 쓸 때 읽는다) */
+const kindIc = (k: Kind): ReactNode => ({
+  MOVE: IC.arrow, PHOTO: JOB_IC.PHOTO, WAIT: JOB_IC.WAIT, OPERATOR_CONFIRM: JOB_IC.OPERATOR_CONFIRM, SENSOR_LOG: IC.doc, GAUGE_READ: JOB_IC.SENSOR_LOG,
+  TEMP_READ: <path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z" />,
+  GAS_READ: <><path d="M12.8 19.6A2 2 0 1 0 14 16H2" /><path d="M17.5 8a2.5 2.5 0 1 1 2 4H2" /><path d="M9.8 4.4A2 2 0 1 1 11 8H2" /></>,
+  UNKNOWN: IC.warn,
+} as Record<Kind, ReactNode>)[k];
+/** 임무 하나의 종류(첫 단계). 모르는 action = 알 수 없는 일 */
+export const missionKind = (m?: Mission | null): Kind => {
+  if (!m) return 'UNKNOWN';
+  const a = m.steps[0]?.action as string | undefined;
+  if (!a) return 'MOVE';
+  return (KINDS.find((x) => 'action' in x && x.action === a)?.k as Kind | undefined) ?? 'UNKNOWN';
+};
+/** 지점 하나의 종류: 임무 첫 단계가 먼저, 단계가 없고 wait_s 가 있으면 대기 */
+export const kindOf = (w: Pick<ScenarioWaypoint, 'mission_id' | 'wait_s'>, jobs: Record<string, Mission>): Kind => {
+  const k = missionKind(jobs[w.mission_id]);
+  return k === 'MOVE' && w.wait_s ? 'WAIT' : k;
+};
+export const kindLabel = (k: Kind) => (k === 'UNKNOWN' ? UNKNOWN_KIND : KINDS.find((x) => x.k === k)!.label);
+
+/** 둥근 할 일 차림(시안 u6_5): 누른 자리(빈 곳이면 새 지점 · 지점이면 그 지점) 가운데 · 둘레에 종류 여덟.
+ *  종류를 고르면 그 종류의 임무(이름 순 첫째)로. 그 종류 임무가 없으면 꺼짐, 서버에 없는 종류는 꺼짐 + 「서버 준비 중」 */
+export function Radial({ at, jobs, cur, pick, close }: { at: [number, number]; jobs: Mission[]; cur?: Kind; pick: (m: Mission) => void; close: () => void }) {
+  const R = 132, C = 180, W = 92, H = 80;
+  const of = (k: Kind) => jobs.filter((m) => missionKind(m) === k).sort((a, b) => a.name.localeCompare(b.name, 'ko'))[0];
+  return <div style={{ position: 'absolute', left: `${at[0] - C}px`, top: `${at[1] - C}px`, width: `${C * 2}px`, height: `${C * 2}px`, zIndex: 4 }} data-radial role="menu" aria-label={cur ? '이 지점의 할 일' : '이 자리에 할 일'}
     onKeyDown={(ev) => { if (ev.key === 'Escape') close(); }}>
-    <div style={{ position: 'absolute', left: '0', top: '0', width: '340px', height: '340px', borderRadius: '50%', background: 'radial-gradient(circle,rgba(12,15,20,.55),rgba(12,15,20,.25) 60%,rgba(12,15,20,0) 72%)' }} onClick={close} />
-    <div style={{ position: 'absolute', left: '161px', top: '161px', width: '18px', height: '18px', borderRadius: '50%', background: '#fff', border: '3px solid #00c389', boxShadow: '0 0 0 6px rgba(0,195,137,.3)' }} />
-    {jobs.slice(0, 6).map((m, k) => <button key={m.id} type="button" role="menuitem" className="g" data-radial-job={m.id} onClick={() => pick(m)}
-      style={{ left: `${SLOT[k][0]}px`, top: `${SLOT[k][1]}px`, width: '92px', height: '80px', borderRadius: '18px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '5px', fontSize: '12.5px', fontWeight: '800', textAlign: 'center', padding: '0 6px' }}>
-      <Ic d={jobIc(m)} />{m.name}</button>)}
-    {!jobs.length && <div className="g" style={{ left: '90px', top: '12px', width: '160px', padding: '10px', borderRadius: '14px', fontSize: '12.5px', fontWeight: '700' }}>임무(할 일)가 없습니다. 기록 · 설정의 임무 목록에서 먼저 만드세요.</div>}
+    <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: 'radial-gradient(circle,rgba(12,15,20,.55),rgba(12,15,20,.25) 60%,rgba(12,15,20,0) 72%)' }} onClick={close} />
+    <div style={{ position: 'absolute', left: `${C - 9}px`, top: `${C - 9}px`, width: '18px', height: '18px', borderRadius: '50%', background: '#fff', border: '3px solid #00c389', boxShadow: '0 0 0 6px rgba(0,195,137,.3)' }} />
+    {cur === 'UNKNOWN' && <span className="g dk pill" style={{ left: `${C - 60}px`, top: `${C + 18}px`, height: '26px', fontSize: '12px' }} data-radial-cur>{UNKNOWN_KIND}</span>}
+    {KINDS.map((x, n) => {
+      const t = (n / KINDS.length) * 2 * Math.PI, m = 'soon' in x ? undefined : of(x.k), on = cur === x.k;
+      const why = 'soon' in x ? SOON : !m ? '이 종류의 임무가 아직 없습니다' : undefined;
+      return <button key={x.k} type="button" role="menuitem" className={`g${on ? ' wsel' : ''}`} data-radial-kind={x.k} data-soon={'soon' in x || undefined} aria-disabled={why ? 'true' : undefined} aria-pressed={cur ? on : undefined} title={why ?? m!.name}
+        onClick={() => { if (m) pick(m); }}
+        style={{ left: `${Math.round(C + R * Math.sin(t) - W / 2)}px`, top: `${Math.round(C - R * Math.cos(t) - H / 2)}px`, width: `${W}px`, height: `${H}px`, borderRadius: '18px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '5px', fontSize: '12.5px', fontWeight: '800', textAlign: 'center', padding: '0 6px',
+          ...(on && { background: 'linear-gradient(180deg,#00c389,#00c389)', color: '#fff', borderColor: 'rgba(0,195,137,.9)', boxShadow: '0 10px 24px rgba(0,195,137,.4)' }) }}>
+        <Ic d={kindIc(x.k)} />{x.label}</button>;
+    })}
   </div>;
 }
 
@@ -73,13 +116,16 @@ const point = (route: Route, [x, y]: [number, number], m: Mission): ScenarioWayp
 /** 지도 칸 공통: 누름 · 우클릭 → 둥근 차림(고르는 임무가 정해져 있으면 바로 그 자리) · 지점 누름 → 고름 */
 export function EditMap({ e, x, route, sel, setSel, pending, setPending, robot, children }: { e: Edit; x?: Scenario; route: Route; sel: number | null; setSel: (i: number | null) => void;
   pending: Mission | null; setPending: (m: Mission | null) => void; robot?: Robot; children?: ReactNode }) {
-  const [menu, setMenu] = useState<{ m: [number, number]; at: [number, number] } | null>(null);
+  const [menu, setMenu] = useState<{ m: [number, number]; at: [number, number]; i?: number } | null>(null);
   const add = (m: Mission, at: [number, number]) => { const w = point(route, at, m); if (!w || e.ro) return; e.put({ ...e.body, waypoints: [...e.body.waypoints, w] }); setSel(e.body.waypoints.length); setPending(null); setMenu(null); };
+  // 지점의 종류 바꾸기 = 그 종류 임무로 바꿈(자리 · 머무는 시간은 그대로)
+  const swap = (i: number, m: Mission) => { if (e.ro) return; e.put({ ...e.body, waypoints: e.body.waypoints.map((y, k) => (k === i ? { ...y, mission_id: m.id, mission_version: m.version } : y)) }); setMenu(null); };
   return <>
     <div className="stage" style={{ inset: 0 }}>
-      <RouteStage x={x} route={route} sel={sel} pickAt={(i) => { setSel(i); setMenu(null); }}
+      <RouteStage x={x} route={route} sel={sel} pickAt={(i, at) => { setSel(i); setMenu(e.ro ? null : { m: [0, 0], at, i }); }}
         pick={e.ro ? undefined : (m, at) => { if (pending) add(pending, m); else setMenu({ m, at }); }}>{robot && <RobotPill robot={robot} route={route} label={`${robot.name} ${robot.sim ? '시뮬' : '실제'} · 지금 자리`} />}</RouteStage></div>
-    {menu && <Radial at={menu.at} jobs={Object.values(e.jobs).filter((j) => !j.archived_at)} pick={(m) => add(m, menu.m)} close={() => setMenu(null)} />}
+    {menu && <Radial at={menu.at} jobs={Object.values(e.jobs).filter((j) => !j.archived_at)} cur={menu.i != null && e.body.waypoints[menu.i] ? kindOf(e.body.waypoints[menu.i], e.jobs) : undefined}
+      pick={(m) => (menu.i != null ? swap(menu.i, m) : add(m, menu.m))} close={() => setMenu(null)} />}
     {children}
   </>;
 }
@@ -116,9 +162,9 @@ export function ListPane({ e, route, sel, setSel, adding, setAdding }: { e: Edit
           <button type="button" className="btns" style={{ width: '30px', height: '30px', padding: 0 }} aria-label="뒤로" disabled={e.ro || sel === e.body.waypoints.length - 1} onClick={() => { move(e, sel as number, (sel as number) + 1); setSel((sel as number) + 1); }}>↓</button>
           <button type="button" className="btns" style={{ width: '30px', height: '30px', padding: 0, color: '#ff4d4f' }} aria-label="이 지점 지우기" disabled={e.ro} data-step-drop
             onClick={() => { e.put({ ...e.body, waypoints: e.body.waypoints.filter((_, k) => k !== sel) }); setSel(null); }}><Ic d={IC.x} /></button></span></div>
-      <div style={{ display: 'grid', gridTemplateColumns: '96px 1fr', rowGap: '12px', marginTop: '14px', fontSize: '14px', fontWeight: '600', alignItems: 'center' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr)', rowGap: '12px', marginTop: '14px', fontSize: '14px', fontWeight: '600', alignItems: 'center' }}>
         <span className="lab" style={{ fontSize: '13.5px' }}>할 일</span>
-        <select className="u6-select" aria-label="할 일" value={w.mission_id} disabled={e.ro} data-step-job onChange={(ev) => { const m = e.jobs[ev.target.value]; if (m) set({ mission_id: m.id, mission_version: m.version }); }}>
+        <select className="u6-select" style={{ width: '100%', minWidth: 0, textOverflow: 'ellipsis' }} aria-label="할 일" value={w.mission_id} disabled={e.ro} data-step-job onChange={(ev) => { const m = e.jobs[ev.target.value]; if (m) set({ mission_id: m.id, mission_version: m.version }); }}>
           {!job && <option value={w.mission_id}>받지 못한 임무</option>}{Object.values(e.jobs).filter((j) => !j.archived_at || j.id === w.mission_id).map((j) => <option key={j.id} value={j.id}>{j.name}</option>)}</select>
         <span className="lab" style={{ fontSize: '13.5px' }}>머무는 시간</span>
         <span className="row" style={{ gap: '6px' }}><input className="u6-select num" style={{ width: '90px' }} type="number" min={0} max={3600} aria-label="머무는 시간(초)" value={w.wait_s ?? ''} disabled={e.ro} data-step-wait
@@ -156,7 +202,7 @@ export function NodePane({ e, x, route, p, setSel, pickJob, mini }: { e: Edit; x
           style={{ left: `${l}px`, top: `${t}px`, width: '210px', height: '76px', padding: '0 14px', display: 'flex', alignItems: 'center', gap: '12px', borderRadius: '16px', cursor: n.k === 'pt' ? 'grab' : undefined }}>
           <span style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'rgba(0,195,137,.18)', color: '#00c389', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}><Ic d={n.k === 'start' ? IC.play : n.k === 'end' ? IC.flag : jobIc(e.jobs[e.body.waypoints[n.i].mission_id])} /></span>
           <div style={{ minWidth: 0 }}><div style={{ fontSize: '15px', fontWeight: '800', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.t}</div>
-            <div style={{ fontSize: '12.5px', color: 'rgba(255,255,255,.62)', fontWeight: '600', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.s}</div></div></div>; })}
+            <div className="u6-at" style={{ fontSize: '12.5px', fontWeight: '600', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.s}</div></div></div>; })}
       {pages > 1 && <div style={{ position: 'absolute', left: '60px', top: '20px' }}><Pager n={items.length} per={PER} at={at} go={setPage} label="노드" /></div>}
     </div>
     <div style={{ position: 'absolute', left: '22px', top: '22px', width: '230px' }}><div className="ttl" style={{ fontSize: '17px', marginBottom: '12px' }}>노드 고르기</div>
@@ -176,8 +222,8 @@ export function MapSteps({ e, route, pending }: { e: Edit; route: Route; pending
   return <div className="g dk" style={{ left: '20px', top: '20px', width: '320px', padding: '18px', borderRadius: '18px', zIndex: 3 }} data-map-steps>
     <div className="row" style={{ justifyContent: 'space-between', marginBottom: '10px' }}><span style={{ fontSize: '15px', fontWeight: '800' }}>할 일 순서</span><Pager n={n} per={PER} at={at} go={setPage} label="할 일" /></div>
     {e.body.waypoints.slice(at * PER, at * PER + PER).map((w, k) => <div key={at * PER + k} className="row" style={{ height: '38px', gap: '10px', fontSize: '14px', fontWeight: '700' }}>{badge(at * PER + k + 1)}<span style={{ minWidth: 0, flex: '1', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={jobName(e, w)}>{jobName(e, w)}</span>
-      <span style={{ flex: 'none', fontSize: '12.5px', color: 'rgba(255,255,255,.62)', maxWidth: '96px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{place(w, route)}</span></div>)}
-    {pending && <div className="row" style={{ height: '42px', gap: '10px', fontSize: '14px', fontWeight: '800', color: '#fff', borderTop: '1px solid rgba(255,255,255,.14)', marginTop: '6px' }} data-pending>{badge(n + 1, true)}{pending.name} 고르는 중</div>}
+      <span className="u6-at" style={{ flex: 'none', fontSize: '12.5px', maxWidth: '96px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{place(w, route)}</span></div>)}
+    {pending && <div className="row u6-pend" style={{ height: '42px', gap: '10px', fontSize: '14px', fontWeight: '800', marginTop: '6px' }} data-pending>{badge(n + 1, true)}{pending.name} 고르는 중</div>}
     {!n && !pending && <Why>지도를 누르거나 우클릭해 첫 할 일을 놓으세요.</Why>}
   </div>;
 }

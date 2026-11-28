@@ -25,6 +25,9 @@
 .u6 .mt-guess,.u6 [data-guess]{margin-left:4px;font-size:11px;font-weight:700;color:#f2b705}
 /* 사진 자리(.stage)에 서버 승인 지도 */
 .u6 .map{background:#dfe2e0}
+/* 3D 점토 지도 칸 어둠 판 바탕 = 브랜드 어둠 토큰 --paper(#12161d · 어둠 칸 · 바탕 셋 #12161d · #181d26 · #191e27 중 hero_dark 바탕 #0b0f14 에 가장 가까움).
+   지도 탭 미리 보기(Map3D --bg = var(--paper))와 같은 값 */
+.proto:not(.light).u6 .map:has([data-map3d-mission]){background:var(--paper)}
 .u6 .map>.stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
 .u6 .u6-stage{display:block;width:100%;height:100%}
 .u6 .map .u6-why{color:#5e6662;padding:24px}
@@ -51,7 +54,7 @@
 .proto.light.u6 .bk.kr{background:rgba(24,160,126,.22);border-color:#18A07E;color:#0E7F63}
 .proto.light.u6 .bk.k2{border-color:#18A07E;color:#0E7F63;background:rgba(24,160,126,.06)}
 .proto.light.u6 .bk.k3{border-color:#DCE0DE;color:#8A918D}
-.proto.light.u6 .mseg button.on{background:#FFFFFF;color:#1F2421;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.proto.light.u6 .mseg button.on,.proto.light.u6 .mseg span.on{background:#FFFFFF;color:#1F2421;box-shadow:0 1px 2px rgba(0,0,0,.08)}
 .proto.light.u6 .stat .lab,.proto.light.u6 .stat small{color:rgba(255,255,255,.75)}
 .proto.light.u6 .u6-hour{border-left-color:#E4E7E5!important;color:#5E6662!important}
 .u6 .u6-close{position:absolute;right:24px;top:76px;z-index:7}
@@ -90,3 +93,15 @@
 .proto.light .u6 .md .ck em{color:#5e6662}
 .proto.light .u6 .md .ck em.up{color:#a87a00!important}
 .proto.light .u6 .md .btns[style*="242,183,5"]{color:#a87a00!important}
+
+/* 지도 위 할 일 순서 상자: 지점 자리 글 · 고르는 중 줄 (밝은 판은 흰 유리 위라 어두운 글) */
+.u6 .u6-at{color:rgba(255,255,255,.62)}
+.u6 .u6-pend{color:#fff;border-top:1px solid rgba(255,255,255,.14)}
+.proto.light.u6 .u6-at{color:#5E6662}
+.proto.light.u6 .u6-pend{color:#1F2421;border-top-color:#DCE0DE}
+/* 배속 잠금: 지금 값(고른 칸)은 또렷이, 못 고르는 나머지만 흐리게 (칸 전체 .45 이면 밝은 판에서 「1 배」 가 사라진다) */
+.u6 .mseg[data-locked]{opacity:1}
+.u6 .mseg[data-locked] span:not(.on){opacity:.45}
+/* 모의 실행 위 띠 덧글: 어둠은 시안 연파랑, 밝은 판은 기존 흐린 글 값(연파랑은 밝은 바탕에서 안 보임) */
+.u6 .u6-bandsub{color:rgba(159,182,255,.75);font-weight:600}
+.proto.light.u6 .u6-bandsub{color:#5E6662}

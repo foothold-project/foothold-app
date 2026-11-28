@@ -8,10 +8,32 @@ import { App } from '../App';
 import { leaving, oldScenario, tabFromHash } from '../menu';
 import { clearPlans } from '../screens/missions';
 import { keptMission } from '../screens/missiontab';
+import u6AppCss from '../screens/missionsu6.app.css?raw';
+import u6Css from '../screens/missionsu6.css?raw';
+import pcPvCss from '../proto/pc.pv.css?raw';
+import { ticks } from '../screens/missionsu6run';
+import { KINDS, kindLabel, kindOf } from '../screens/missionsu6edit';
+import { resetModels } from '../screens/map3d';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+// 3D 지도 칸 시험만: WebGL · GLB 읽기를 가짜로(fake3.on). 그 밖은 진짜(jsdom 은 WebGL 이 없음)
+const fake3 = vi.hoisted(() => ({ on: false }));
+vi.mock('three', async (orig) => {
+  const t = await orig<typeof import('three')>();
+  class GL { domElement = document.createElement('canvas'); outputColorSpace = ''; shadowMap = { enabled: false, type: 0 }; setPixelRatio() {} setSize() {} dispose() {} forceContextLoss() {} render() {} }
+  return { ...t, WebGLRenderer: function (this: unknown, ...a: unknown[]) { return fake3.on ? new GL() : new (t.WebGLRenderer as unknown as new (...x: unknown[]) => object)(...a); } };
+});
+vi.mock('three/examples/jsm/loaders/GLTFLoader.js', async (orig) => {
+  const m = await orig<typeof import('three/examples/jsm/loaders/GLTFLoader.js')>();
+  const T = await import('three');
+  // glTF(+Y 위) 상자: 지도 x -1~4 · y -2~2 · 높이 0~1.4 (worldGroup 이 (x, y, z)gltf → (x, −z, y))
+  const scene = () => { const g = new T.Group(), b = new T.Mesh(new T.BoxGeometry(5, 1.4, 4), new T.MeshBasicMaterial()); b.position.set(1.5, 0.7, 0); g.add(b); return g; };
+  class L extends m.GLTFLoader { parseAsync(...a: Parameters<InstanceType<typeof m.GLTFLoader>['parseAsync']>) { return fake3.on ? Promise.resolve({ scene: scene() } as never) : super.parseAsync(...a); } }
+  return { ...m, GLTFLoader: L };
+});
 
 // 지도 100×80 칸, 0.05 m, origin (-1, -2) → x -1~4 m, y -2~2 m. 접근 금지 x 2~3
 const V1: MapVersion = { upload_id: 'up-v1', id: 'v1', floor_id: 'f1', number: 1, base_version_id: null, copied_from_id: null, status: 'APPROVED', image_sha256: 'ab'.repeat(32),
@@ -27,6 +49,10 @@ const S1 = scen('s1', '공정 순찰 A', [wp(0, 0, '펌프'), wp(3.5, 0, '게이
 const S2 = scen('s2', '가스 점검', [wp(0, 1), wp(1, 1)], { finish: { mode: 'STAY', target: null }, est_distance_m: 30 });
 const S3 = scen('s3', '지난 임무', [wp(0, 0)], { archived_at: '2026-11-27T00:00:00Z' });
 const ALL = [S1, S2, S3];
+/** 둥근 차림 시험이 더하는 임무(다른 시험은 M1 만) */
+let moreJobs: Mission[] = [];
+/** 판 3D 모형(시험이 바꿈): null = 없음(model_sha256 null) · 'ok' = 받음 · '404' = 판엔 sha 가 있는데 모형 없음 */
+let model3: null | 'ok' | '404' = null;
 
 let calls: { method: string; path: string; q: URLSearchParams; body?: Record<string, unknown>; key?: string | null }[] = [];
 /** POST /assignments 답(시험이 바꿈). 기본 = 그 로봇 ACTIVE */
@@ -59,14 +85,16 @@ function serve() {
       srv.slots = [...srv.slots, x]; return new Response(JSON.stringify(x), { status: 201, headers: { 'Content-Type': 'application/json' } });
     }
     if (path === '/sites') return ok({ items: [{ id: 'st', name: '공장', purpose: 'REAL', buildings: [{ id: 'b1', site_id: 'st', name: '본동', floors: [{ id: 'f1', building_id: 'b1', name: '1층', level: 1, approved_version_id: 'v1', pending_count: 0 }] }] }], next_cursor: null });
-    if (path === '/map-versions/v1') return ok(V1);
+    if (path === '/map-versions/v1') return ok(model3 ? { ...V1, model_sha256: 'cd'.repeat(32), model_floor_z: 0 } : V1);
+    if (path === '/map-versions/v1/model') return model3 === 'ok' ? new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { 'Content-Type': 'model/gltf-binary' } })
+      : new Response(JSON.stringify({ error: { code: 'MODEL_NOT_FOUND', message: '이 층은 3D 모형이 없습니다.', detail: {} } }), { status: 404 });
     if (path === '/map-versions/v1/zone-grid') {
       const cells = [];
       for (let r = 0; r < 80; r++) for (let c = 0; c < 100; c++) { const x = -1 + (c + 0.5) * 0.05; if (x >= 2 && x <= 3) cells.push({ index: r * 100 + c, no_go: true, slow: false, max_speed_mps: null }); }
       return ok({ format_version: 1, map_version_id: 'v1', origin: V1.origin, resolution: 0.05, width: 100, height: 80, row_order: 'TOP_TO_BOTTOM', cursor: 0, cells, next_cursor: null });
     }
     if (path === '/scenarios') return ok({ items: ALL, next_cursor: null });
-    if (path === '/missions') return ok({ items: [M1], next_cursor: null });
+    if (path === '/missions') return ok({ items: [M1, ...moreJobs], next_cursor: null });
     const m = path.match(/^\/scenarios\/(s\d)$/);
     if (m && method === 'PUT') { const x = ALL.find((s) => s.id === m[1])!; return ok({ ...x, ...body, version: x.version + 1 }); }
     if (m) { const x = ALL.find((s) => s.id === m[1]); return x ? ok(x) : new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: '없음', detail: {} } }), { status: 404 }); }
@@ -108,7 +136,7 @@ const click = async (e: Element | null) => { expect(e).toBeTruthy(); act(() => (
 describe('임무 탭(W2)', () => {
   // 시계: 오늘 08:05(지난 시각 · 처음 값 판정이 돌리는 때에 따라 바뀌지 않게). 타이머는 진짜 그대로
   beforeEach(() => { const d = new Date(); d.setHours(8, 5, 0, 0); vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'], now: d }); });
-  afterEach(() => { vi.useRealTimers(); });
+  afterEach(() => { vi.useRealTimers(); moreJobs = []; model3 = null; fake3.on = false; });
   it('주소 · 메뉴: #/missions 와 옛 #/mission 은 임무 탭, oldScenario 는 고를 id', () => {
     expect(tabFromHash('#/missions', false)).toBe('missions');
     expect(tabFromHash('#/mission', false)).toBe('missions');
@@ -327,6 +355,119 @@ describe('임무 탭(W2)', () => {
     expect($('[data-preflight-box]')!.textContent).toContain('K-01 실제 로봇으로 시작');   // u15_2 점검 창
   });
 
+  it('시안 u6_6 모의 실행: 위 띠에 배속 · 배속 칸 고른 값과 같음 · 아래 진행 칸에 일정 시작 ~ 끝 시간 눈금 넷', async () => {
+    await mount('#/missions');
+    await setTime('end', '11:00'); await setTime('start', '10:30');
+    await click($('[data-rehearse]')); await flush();
+    expect($('[data-band]')!.textContent).toContain('모의 실행 · 시뮬 · 1 배');
+    expect($('[data-band] .u6-bandsub')!.style.color).toBe('');   // 덧글 색은 판별 칸에서
+    expect($('[data-locked] .on')!.textContent).toBe('1 배');
+    expect($$('[data-ticks] span span').map((e) => e.textContent)).toEqual(['10:30', '10:40', '10:50', '11:00']);
+    expect(calls.filter((c) => c.method !== 'GET' && !['/scenarios/preview', '/estimates'].includes(c.path))).toEqual([]);   // 화면만 열고 보내지 않음
+  });
+  it('값이 없을 때 「없음 분」 · 「없음 %」 가 나오지 않음: 새 임무 걷기 모드는 「예상 시간 · 미확인」, 편집기 이 임무 칸은 단위를 뺌', async () => {
+    await mount('#/missions');
+    await click($('[data-new-mission]'));
+    const gaits = $$('[data-setup-gait]');
+    expect(gaits.length).toBe(3);
+    for (const g of gaits) { expect(g.querySelector('[data-setup-est]')!.textContent).toBe('미확인'); expect(g.textContent).toContain('예상 시간'); }
+    expect(document.body.textContent!.replace(/\s+/g, ' ')).not.toMatch(/없음 ?(분|%)/);
+    await click($('[data-setup-make]')); await flush();
+    expect($('[aria-label="임무 편집"]')).toBeTruthy();
+    expect(document.body.textContent!.replace(/\s+/g, ' ')).not.toMatch(/없음 ?(분|%)/);
+    await click($('[data-back-list]'));
+    await click($('[data-edit-mission]')); await flush();
+    expect(document.body.textContent!.replace(/\s+/g, ' ')).not.toMatch(/없음 ?(분|%)/);
+  });
+  describe('3D 지도 칸 (판에 모형)', () => {
+    const size = (w: number, h: number) => {
+      const a = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth')!, b = Object.getOwnPropertyDescriptor(Element.prototype, 'clientHeight')!;
+      Object.defineProperty(Element.prototype, 'clientWidth', { configurable: true, get: () => w });
+      Object.defineProperty(Element.prototype, 'clientHeight', { configurable: true, get: () => h });
+      return () => { Object.defineProperty(Element.prototype, 'clientWidth', a); Object.defineProperty(Element.prototype, 'clientHeight', b); };
+    };
+    const settle = async () => { for (let k = 0; k < 6; k++) { await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); await flush(); } };
+    afterEach(() => { resetModels(); });
+    it('모형 없음(model_sha256 null): 지금 2D 그대로 · /model 을 묻지 않음', async () => {
+      await mount('#/missions'); await settle();
+      expect($('[data-mission-map]')).toBeTruthy();
+      expect($('[data-map3d]')).toBeNull(); expect($('[data-map3d-mission]')).toBeNull();
+      expect(calls.filter((c) => c.path.endsWith('/model'))).toEqual([]);
+    });
+    it('모형 404: 그 판은 2D 로 돌아감 · 까닭 줄 없이 2D 경로 · 지점이 그대로', async () => {
+      model3 = '404'; fake3.on = true;
+      await mount('#/missions'); await settle();
+      expect(calls.filter((c) => c.path === '/map-versions/v1/model').length).toBe(1);
+      expect($('[data-map3d]')).toBeNull(); expect($('[data-map3d-mission]')).toBeNull();
+      expect($('[data-mission-map]')).toBeTruthy(); expect($$('[data-pt]').length).toBe(2);
+      expect($('[aria-label="임무 지도"] [role="alert"]')).toBeNull();
+    });
+    it('모형 있음: 점토 3D 칸 위 겹(칸 px)에 경로 · 지점 · 누른 자리 = 바닥면 지도 좌표(새 지점이 그 자리)', async () => {
+      model3 = 'ok'; fake3.on = true;
+      const undo = size(976, 900);
+      try {
+        await mount('#/missions'); await settle();
+        expect($('[data-map3d-mission]')).toBeTruthy();
+        const svg = $('svg[data-map3d]')!;
+        expect(svg.getAttribute('viewBox')).toBe('0 0 976 900');
+        const c = (n: number) => { const e = $(`[data-pt="${n}"] circle:last-of-type`)!; return [Number(e.getAttribute('cx')), Number(e.getAttribute('cy'))]; };
+        const [a, b] = [c(1), c(2)];
+        for (const p of [a, b]) { expect(p[0]).toBeGreaterThan(0); expect(p[0]).toBeLessThan(976); expect(p[1]).toBeGreaterThan(0); expect(p[1]).toBeLessThan(900); }
+        expect(b[0]).toBeGreaterThan(a[0]);   // 지점 2(x 3.5) 는 지점 1(x 0) 의 동쪽 = 화면 오른쪽
+        const seg = $('[data-seg="0"]')!;
+        expect([Number(seg.getAttribute('x1')), Number(seg.getAttribute('y1')), Number(seg.getAttribute('x2')), Number(seg.getAttribute('y2'))]).toEqual([...a, ...b]);
+        // 편집 지도: 지점 1 화면 자리 바로 옆 빈 곳을 누르면 둥근 메뉴 → 사진 → 새 지점이 지도 (0, 0) 근처
+        await click($('[data-edit-mission]')); await flush(); await click($('[data-look="map"]')); await settle();
+        const s2 = $('svg[data-map3d]')!, p1 = [Number($('[data-pt="1"] circle:last-of-type')!.getAttribute('cx')), Number($('[data-pt="1"] circle:last-of-type')!.getAttribute('cy'))];
+        await act(async () => { s2.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: p1[0], clientY: p1[1] })); });
+        expect($('[data-radial]')!.getAttribute('aria-label')).toBe('이 자리에 할 일');
+        await click($('[data-radial-kind="PHOTO"]'));
+        await click($('[data-look="list"]'));
+        expect($('[data-row="task"][data-row-i="2"]')!.textContent).toContain('(0.0, 0.0) m');
+      } finally { undo(); }
+    });
+  });
+  it('할 일 종류 대응표: steps 없음 = 이동 · PHOTO · WAIT 또는 wait_s · OPERATOR_CONFIRM · SENSOR_LOG · 모르는 action 은 「알 수 없는 일」(기록 아님)', () => {
+    const m = (id: string, steps: Mission['steps']): Mission => ({ ...M1, id, steps });
+    const jobs: Record<string, Mission> = {
+      mv: m('mv', []), ph: m('ph', [{ action: 'PHOTO', params: { camera: 'rgb' } }]), wt: m('wt', [{ action: 'WAIT', params: { seconds: 5 } }] as Mission['steps']),
+      ok: m('ok', [{ action: 'OPERATOR_CONFIRM', params: {} }] as Mission['steps']), lg: m('lg', [{ action: 'SENSOR_LOG', params: { device: 'lidar' } }] as Mission['steps']),
+      zz: m('zz', [{ action: 'TEMP_READ', params: {} }] as unknown as Mission['steps']),
+    };
+    const k = (mission_id: string, wait_s: number | null = null) => kindOf({ mission_id, wait_s }, jobs);
+    expect([k('mv'), k('ph'), k('wt'), k('ok'), k('lg')]).toEqual(['MOVE', 'PHOTO', 'WAIT', 'OPERATOR_CONFIRM', 'SENSOR_LOG']);
+    expect(k('mv', 30)).toBe('WAIT');   // 단계 없음 + 지점 wait_s = 대기
+    expect(k('ph', 30)).toBe('PHOTO');   // 첫 단계가 먼저
+    expect(k('zz')).toBe('UNKNOWN'); expect(kindLabel(k('zz'))).toBe('알 수 없는 일'); expect(kindLabel(k('zz'))).not.toBe('기록');
+    expect(k('없는-임무')).toBe('UNKNOWN');
+    expect([k('mv'), k('ph'), k('wt'), k('ok'), k('lg')].map(kindLabel)).toEqual(['여기로 가기', '사진', '기다리기', '사람 확인', '기록']);
+    expect(KINDS.filter((x) => 'soon' in x).map((x) => x.k)).toEqual(['GAUGE_READ', 'TEMP_READ', 'GAS_READ']);
+  });
+  it('시안 u6_5 둥근 할 일 메뉴: 지점 누르면 열림 · 지금 종류 칠함 · 온도 · 게이지 · 가스 꺼짐 + 「서버 준비 중」 · 종류 고르면 그 종류 임무로 바뀜', async () => {
+    moreJobs = [{ ...M1, id: 'm2', name: '들르기만', steps: [] }];
+    await mount('#/missions');
+    await click($('[data-edit-mission]')); await flush();
+    await click($('[data-look="map"]'));
+    await act(async () => { $('[data-pt="1"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 10, clientY: 10 })); });   // svg 지점
+    expect($('[data-radial]')!.getAttribute('aria-label')).toBe('이 지점의 할 일');
+    expect($$('[data-radial-kind]').map((b) => b.dataset.radialKind)).toEqual(['MOVE', 'GAUGE_READ', 'TEMP_READ', 'GAS_READ', 'PHOTO', 'WAIT', 'OPERATOR_CONFIRM', 'SENSOR_LOG']);
+    expect($('[data-radial-kind="PHOTO"]')!.getAttribute('aria-pressed')).toBe('true');   // m1 = PHOTO
+    for (const k of ['GAUGE_READ', 'TEMP_READ', 'GAS_READ']) { const b = $(`[data-radial-kind="${k}"]`)!; expect(b.getAttribute('aria-disabled')).toBe('true'); expect(b.title).toBe('서버 준비 중'); }
+    expect($('[data-radial-kind="WAIT"]')!.getAttribute('aria-disabled')).toBe('true');   // WAIT 임무 없음
+    await click($('[data-radial-kind="TEMP_READ"]'));   // 꺼진 칸은 아무 일 없음
+    expect($('[data-radial]')).toBeTruthy();
+    await click($('[data-radial-kind="MOVE"]'));
+    expect($('[data-radial]')).toBeNull();
+    await click($('[data-look="list"]'));   // 같은 초안: 고른 지점 1 의 할 일이 «들르기만»(m2) 으로, 지점 2 는 그대로
+    expect($<HTMLSelectElement>('[data-step-job]')!.value).toBe('m2');
+    expect($('[data-row="task"][data-row-i="0"]')!.textContent).toContain('들르기만');
+    expect($('[data-row="task"][data-row-i="1"]')!.textContent).toContain('게이지 읽기');
+  });
+  it('모의 실행 시간 눈금: 셋으로 나눈 네 눈금 · 자정 넘김 · 모양이 틀리면 비움', () => {
+    expect(ticks('15:00', '15:30')).toEqual(['15:00', '15:10', '15:20', '15:30']);
+    expect(ticks('23:30', '00:30')).toEqual(['23:30', '23:50', '00:10', '00:30']);
+    expect(ticks('', '15:30')).toEqual([]);
+  });
   it('모의 실행: 시뮬 로봇이 없으면 회색 + 까닭(title) · 보내지 않음', async () => {
     await mount('#/missions', 'u-kim', ROBOTS.filter((r) => !r.sim));
     const b = $<HTMLButtonElement>('[data-rehearse]')!;
@@ -438,6 +579,19 @@ describe('임무 탭(W2)', () => {
     expect($('[data-length]')!.textContent).toBe('30 m');
   });
 
+  it('시안 u6_1 «+ 새 임무» 는 칠한 단추 (계산된 바탕 = 초록 · 시안 html 의 테두리 꼴 .newm 아님)', async () => {
+    await mount('#/missions');
+    const cls = $('[data-new-mission]')!.className;
+    expect(cls.split(' ')).not.toContain('newm');
+    const st = document.createElement('style'); st.textContent = pcPvCss + u6Css; document.head.appendChild(st);
+    const box = document.createElement('div'); document.body.appendChild(box);
+    try {
+      box.className = 'proto u6'; box.innerHTML = `<button class="${cls}">새 임무</button>`;
+      const c = getComputedStyle(box.querySelector('button')!);
+      expect(c.backgroundImage || c.background).toContain('#00c389');
+      expect(c.color).toBe('rgb(255, 255, 255)');
+    } finally { st.remove(); box.remove(); }
+  });
   it('짜기: «편집» = 그 임무를 탭 안 편집 칸(이름 · 목록 ↔ 노드)으로, «‹ 임무 목록»으로 돌아옴 · «새 임무» = 빈 편집 칸', async () => {
     await mount('#/missions');
     await click($('[data-edit-mission]'));
@@ -484,6 +638,10 @@ describe('임무 탭(W2)', () => {
     expect($('[data-row="task"][data-row-i="1"]')!.textContent).toContain('게이지');
     await click($('[data-row="task"][data-row-i="0"]'));
     expect($('[data-step-detail="0"]')!.textContent).toContain('사진 찍기');   // 남길 것 = 임무 단계
+    // 할 일 칸은 긴 임무 이름에도 왼쪽 칸 안에 머문다(넓이 = 칸 넓이 · 줄 열은 minmax(0, 1fr))
+    const jobSel = $<HTMLSelectElement>('[data-step-job]')!;
+    expect(jobSel.style.width).toBe('100%'); expect(jobSel.style.minWidth).toBe('0');
+    expect((jobSel.parentElement as HTMLElement).style.gridTemplateColumns).toBe('96px minmax(0, 1fr)');
     await act(async () => { const i = $<HTMLInputElement>('[data-step-wait]')!; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(i, '45'); i.dispatchEvent(new Event('input', { bubbles: true })); });
     await act(async () => { await new Promise((r) => setTimeout(r, 450)); }); await flush();
     // 펌프(0,0) -> 게이지(3.5,0) 는 x 2~3 m 접근 금지 칸을 지난다 -> 저장 막음 · 까닭 한 줄
@@ -502,10 +660,50 @@ describe('임무 탭(W2)', () => {
     await click($('[data-edit-mission]')); await flush();
     await click($('[data-look="node"]'));
     expect($$('[data-node]').map((e) => e.dataset.node)).toEqual(['start', '1', '2', 'end']);
+    // 시안 u6_4 작은 지도: 그림만 (확대 · 보기 · 축척 단추가 작은 칸에 겹치지 않게)
+    const mini = $('[aria-label="작은 지도"]')!;
+    expect(mini.querySelector('[data-mission-map]')).toBeTruthy();
+    expect(mini.querySelectorAll('button').length).toBe(0);
+    expect(mini.querySelector('[data-scale]')).toBeNull();
+    // 노드 카드 자리 글도 밝은 판에서 보이게 판별 칸(.u6-at)으로
+    expect($('[data-node="1"] .u6-at')!.style.color).toBe('');
     await click($('[data-node-job="m1"]'));
     expect($('[data-look="map"]')!.getAttribute('aria-pressed')).toBe('true');
     expect($('[data-pending]')!.textContent).toContain('게이지 읽기 고르는 중');
     expect($('[data-map-steps]')!.textContent).toContain('펌프');
+    // 밝은 판 대비: 자리 글 · 고르는 중 줄은 흰 글을 박지 않고 판별 칸(.u6-at · .u6-pend)으로 칠한다
+    const at = $('[data-map-steps] .u6-at')!;
+    expect(at.style.color).toBe('');
+    expect($('[data-pending]')!.classList.contains('u6-pend')).toBe(true);
+    expect($('[data-pending]')!.style.color).toBe('');
+  });
+  it('밝은 판 대비 (계산된 색): 같은 클래스가 어둠 판은 밝은 글 · 밝은 판은 어두운 글', () => {
+    const st = document.createElement('style'); st.textContent = u6AppCss; document.head.appendChild(st);
+    const box = document.createElement('div'); document.body.appendChild(box);
+    try {
+      const color = (theme: string, html: string, sel: string) => { box.className = theme; box.innerHTML = html; return getComputedStyle(box.querySelector(sel)!).color; };
+      const at = '<span class="u6-at">(1.0, 4.0) m</span>', pend = '<div class="u6-pend">고르는 중</div>', seg = '<div class="mseg" data-locked><span class="on">1 배</span><span>10 배</span></div>';
+      expect(color('proto u6', at, '.u6-at')).toBe('rgba(255, 255, 255, 0.62)');
+      expect(color('proto light u6', at, '.u6-at')).toBe('rgb(94, 102, 98)');
+      expect(color('proto light u6', pend, '.u6-pend')).toBe('rgb(31, 36, 33)');
+      expect(color('proto light u6', seg, '.on')).toBe('rgb(31, 36, 33)');
+      expect(getComputedStyle(box.querySelector('.mseg')!).opacity).toBe('1');
+      const sub = '<span class="u6-bandsub">실제 로봇은 움직이지 않습니다</span>';   // 모의 실행 위 띠 덧글
+      expect(color('proto u6', sub, '.u6-bandsub')).toBe('rgba(159, 182, 255, 0.75)');
+      expect(color('proto light u6', sub, '.u6-bandsub')).toBe('rgb(94, 102, 98)');
+    } finally { st.remove(); box.remove(); }
+  });
+  it('3D 점토 지도 칸 바탕: 어둠 판에서 3D 칸일 때만 브랜드 어둠 토큰 --paper(#12161d · hero 바탕 #0b0f14 에 가장 가까움 · 지도 탭 미리 보기 --bg 와 같음) · 2D 칸 · 밝은 판은 그대로', () => {
+    const rules = u6AppCss.replace(/\s+/g, ' ');
+    expect(rules).toContain('.proto:not(.light).u6 .map:has([data-map3d-mission]){background:var(--paper)}');
+    expect(rules).toContain('.u6 .map{background:#dfe2e0}');
+  });
+  it('밝은 판 대비: 배속 고른 칸 · 지도 위 자리 글은 밝은 판에서 어두운 글 (기존 밝은 판 값)', () => {
+    const rules = u6AppCss.replace(/\s+/g, ' ');
+    expect(rules).toMatch(/\.proto\.light\.u6 \.mseg span\.on\{[^}]*color:#1F2421/);
+    expect(rules).toMatch(/\.proto\.light\.u6 \.u6-at\{color:#5E6662\}/);
+    expect(rules).toMatch(/\.proto\.light\.u6 \.u6-pend\{color:#1F2421/);
+    expect(rules).toMatch(/\.u6 \.mseg\[data-locked\]\{opacity:1\}/);   // 잠긴 배속 칸도 고른 값은 흐리지 않음
   });
   it('편집 중 탭 떠날 때 확인창 그대로: 저장 안 한 지도 편집이 있으면 임무 탭 · 옛 주소로 가기 전에 묻는다', async () => {
     await mount('#/map');

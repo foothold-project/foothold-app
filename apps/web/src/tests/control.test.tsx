@@ -6,8 +6,8 @@ import { pcBoard } from '../pcboard';
 import { App } from '../App';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
-import { EmptyControl, actOf, lastly } from '../screens/control';
-import { WALK_MIN_SPEED, facts, jointsNow, lying, order, tempLevel, tileView, wallGrid, walking } from '../proto/u5';
+import { EmptyControl, UNPICK_MS, actOf, controlPick, lastly } from '../screens/control';
+import { WALK_MIN_SPEED, facts, jointsNow, lying, order, resetSiteBoards, tempLevel, tileView, wallGrid, wallPick, walking } from '../proto/u5';
 import { JOINTS } from '../go2model';
 import { api } from '../api';
 import { sim } from '../phone';
@@ -60,6 +60,8 @@ const TWENTY: Robot[] = Array.from({ length: 20 }, (_, i) => ({
 /** 시안 이름 그대로 8 대(K-01 ~ K-08 · K-07 = 끊김 · K-08 = 시뮬) */
 const EIGHT: Robot[] = Array.from({ length: 8 }, (_, i) => ({ id: `k${i + 1}`, name: `K-0${i + 1}`, owner: i < 4 ? 'u-lee' : 'u-park', ownerName: i < 4 ? '이OO' : '박OO',
   battery: 70, online: i !== 7 && i !== 6, seenAt: '14:02:00', status: i === 7 ? null : 'RUNNING', mission: i === 7 ? undefined : '공정 순찰 A 2/4', sim: i === 7, serverDrive: i !== 7 }));
+/** 타일 벽은 8 칸까지(wallPick) · 특정 로봇 타일을 보는 시험은 그 로봇들만 */
+const SOME = (...ids: string[]) => TWENTY.filter((r) => ids.includes(r.id));
 const temp = (joints: (number | null)[]) => ({ robot_info: { source: 'GO2_DDS', attitude: { roll: 0, pitch: 0 }, error_code: 0, fallen: false, fallen_source: 'imu_tilt_estimate',
   temperature: { joints, battery: [], imu: null, body: [], age_s: 0.1 } } });
 
@@ -105,25 +107,56 @@ describe('관제 탭', () => {
     expect(tile('k2').querySelector('.nm .md')!.textContent).toBe('');   // 걷기 모드를 받기 전
   });
 
-  it('PC 첫 화면 = 관제(메뉴 첫 탭), 20대도 깨지지 않음: 타일 20개 · 줄여서 한 화면 · 경고 타일이 맨 앞 + 테두리 · 머리표', async () => {
+  it('PC 첫 화면 = 관제(메뉴 첫 탭), 20대: 타일은 8 칸(wallPick · 팀장 23:53) · 나머지 수 한 줄 · 경고 타일이 맨 앞 + 테두리 · 머리표', async () => {
     dashOk({ robots_attention: 1 });
     mount('u-kim', TWENTY); feed(TWENTY);
     await act(async () => {});
     expect($('h1').textContent).toBe('관제');
     expect($('[aria-label="주 메뉴"] [aria-current="page"]').getAttribute('data-href')).toBe('#/control');
-    expect(tiles()).toHaveLength(20);
-    expect($('[aria-label="로봇 타일"]').dataset.count).toBe('20');
+    expect(tiles()).toHaveLength(8);
+    expect($('[aria-label="로봇 타일"]').dataset.count).toBe('8'); expect($('[aria-label="로봇 타일"]').dataset.all).toBe('20');
+    expect($('[data-wall-rest]').textContent).toBe('타일 8 대 · 나머지 12 대는 지도 보기 · 로봇 탭');
     expect(tiles()[0].dataset.robot).toBe('g9');
     expect(tile('g9').dataset.tone).toBe('warn'); expect(tile('g9').classList.contains('lv-warn')).toBe(true); expect(tile('g9').classList.contains('warncell')).toBe(true);
     expect(tile('g9').querySelector('[data-warn-flag]')!.textContent).toBe('주의 · 배터리 낮음');
     expect(tile('g3').dataset.tone).toBeUndefined();
     expect($('[data-sum="경고"] b').textContent).toBe('1');
-    const g = wallGrid(20);
-    expect(g.zoom).toBeLessThan(1);
-    expect(g.cols * g.rows).toBeGreaterThanOrEqual(20);
-    expect((tile('g0').parentElement as HTMLElement).style.zoom).toBe(String(g.zoom));
+    expect(wallGrid(8).zoom).toBe(1);   // 8 칸 = 시안 4×2 그대로(줄이지 않음)
   });
 
+  it('타일 8 칸 고르기(wallPick · 팀장 23:53): 위험 · 경고 → 실기(Go2 X) → 점검 · 충전 · 시뮬 · 끊김/주의 한 대씩 → 임무 중 → 나머지, 차례는 줄 차례 그대로', () => {
+    const base = { owner: 'u-kim', ownerName: '김OO', battery: 70, online: true, seenAt: '14:05:20' };
+    const av = (demo: boolean, x: Partial<{ charging: boolean; job: { kind: 'maint' | 'swap'; text: string } }> = {}) => ({ demo, label: null, charging: false, job: null, ...x });
+    const F = (r: Robot, a?: ReturnType<typeof av>) => facts({ ...base, ...r } as Robot, 'u-kim', new Map(), a);
+    const go2 = F({ id: 'go2', name: 'Go2 X', status: 'IDLE' } as Robot, av(false));
+    const demo = (i: number, x: Partial<Robot> = {}, a: Parameters<typeof av>[1] = {}) => F({ id: `d${i}`, name: `K-0${i}`, sim: true, status: 'RUNNING', ...x } as Robot, av(true, a));
+    const list = order([go2,
+      demo(1), demo(2), demo(3), demo(4), demo(5),
+      demo(6, { status: 'IDLE' }, { job: { kind: 'maint', text: '점검 중' } }), demo(7, { status: 'IDLE' }, { charging: true }),
+      demo(8, { online: false }), F({ id: 's1', name: 'S-1', sim: true, status: 'IDLE' } as Robot, av(false)), F({ id: 's2', name: 'S-2', sim: true, status: 'IDLE' } as Robot, av(false)),
+      demo(9, { status: 'ERROR' })]);
+    const got = wallPick(list).map((f) => f.x.id);
+    expect(got).toHaveLength(8);
+    for (const id of ['d9', 'go2', 'd6', 'd7', 's1', 'd8']) expect(got, id).toContain(id);   // 위험 · 실기 · 점검 · 충전 · 시뮬 하나 · 끊김
+    expect(got).not.toContain('s2');   // 시뮬은 한 대
+    expect(got).toEqual(list.map((f) => f.x.id).filter((id) => got.includes(id)));   // 줄 차례 그대로
+    expect(wallPick(list.slice(0, 5)).map((f) => f.x.id)).toEqual(list.slice(0, 5).map((f) => f.x.id));   // 8 대 이하면 전부
+  });
+  it('서버 구성(팀장 00:37 · K-01 시뮬 · K-02~07 데모 · Go2 X 실기 · K-08 은 8 칸 밖) = 시안 u5_1 과 같은 8 칸 · 같은 차례(위험 → 실기 → 데모 → 시뮬)', () => {
+    const base = { owner: 'u-kim', ownerName: '김OO', battery: 70, online: true, seenAt: '14:05:20' };
+    const av = (demo: boolean, x: object = {}) => ({ demo, label: null, charging: false, job: null, ...x });
+    const F = (r: Partial<Robot>, a: ReturnType<typeof av>) => facts({ ...base, ...r } as Robot, 'u-kim', new Map(), a);
+    const go2 = F({ id: 'go2', name: 'Go2 X', status: 'IDLE' }, av(false));
+    const k01 = F({ id: 'k01', name: 'K-01', sim: true, status: 'RUNNING' }, av(false));   // 사용자 시뮬
+    const D = (n: number, x: Partial<Robot> = {}, a: object = {}) => F({ id: `k0${n}`, name: `K-0${n}`, sim: true, status: 'RUNNING', ...x }, av(true, a));
+    // 시안 u5_1: K-05 경고(빨간 칸) · K-04 충전 · K-06 점검 · 나머지 데모 임무 중, 시뮬 K-08 자리 = 서버 K-01
+    const demos = (k08: Partial<Robot>, k08demo: boolean) => [D(2), D(3), D(4, { status: 'IDLE' }, { charging: true }), D(5, { status: 'ERROR' }), D(6, { status: 'IDLE' }, { job: { kind: 'maint', text: '점검 중' } }), D(7),
+      F({ id: 'k08', name: 'K-08', sim: true, ...k08 }, av(k08demo))];
+    for (const [k08, dm] of [[{ status: 'IDLE' }, true], [{ status: 'RUNNING' }, true], [{ status: 'IDLE' }, false]] as [Partial<Robot>, boolean][]) {
+      const got = wallPick(order([k01, ...demos(k08, dm), go2])).map((f) => f.x.name);
+      expect(got, JSON.stringify([k08, dm])).toEqual(['K-05', 'Go2 X', 'K-02', 'K-03', 'K-04', 'K-06', 'K-07', 'K-01']);
+    }
+  });
   it('배치: 4 대 이하 2×2 (u5_6), 8 대 이하 4×2 (u5_1), 22 대 = 줄인 칸이 1472×900 안에 다 들어감', () => {
     expect(wallGrid(3)).toEqual({ cols: 2, rows: 2, zoom: 1 });
     expect(wallGrid(8)).toEqual({ cols: 4, rows: 2, zoom: 1 });
@@ -243,25 +276,66 @@ describe('관제 탭', () => {
     expect(at('.u5 .tile.sel.warncell{box-shadow:0 0 0 3px #00c389')).toBeGreaterThan(at('.u5 .tile.lv-crit{box-shadow'));
     expect(at('.proto.light .u5 .tile.sel.warncell{box-shadow:0 0 0 3px #18A07E')).toBeGreaterThan(at('.proto.light .u5 .tile.lv-bad'));
   });
-  it('한 번 누름 = 고름(선택 칸 · 작은 지도 강조), 한 번 더 = 그 로봇의 로봇 탭', () => {
-    mount('u-kim', TWENTY); feed(TWENTY);
-    act(() => { tile('g7').click(); });
+  // 팀장 00:19 누름 규칙: 한 번 = 고름 · 고른 것 다시 한 번 = 풂 · 두 번(더블클릭) = 로봇 탭. 타일 · 지도 보기 3D 표식 · 오른쪽 줄 같음
+  const click = (el: Element, detail = 1) => act(() => { el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail })); });
+  const dbl = (el: Element) => { click(el, 1); click(el, 2); act(() => { el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 })); }); };
+  const later = () => act(() => { vi.advanceTimersByTime(UNPICK_MS + 10); });
+  it('한 번 누름 = 고름(선택 칸 · 작은 지도 강조), 고른 로봇을 한 번 더 = 고르기 풂(로봇 탭으로 가지 않음)', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    mount('u-kim', TWENTY.slice(0, 8)); feed(TWENTY.slice(0, 8));
+    click(tile('g7'));
     expect(tile('g7').dataset.sel).toBe('true');
     expect(tile('g7').getAttribute('aria-pressed')).toBe('true');
     expect(tile('g7').classList.contains('sel')).toBe(true);
     expect($('[data-picked] .ttl').textContent).toBe('K-08');
-    expect($('[data-picked]').textContent).toContain('한 번 더 누르면 로봇 탭에서 열립니다.');
-    act(() => { tile('g7').click(); });
-    expect($('h1').textContent).toBe('로봇');
-    expect(location.hash).toBe('#/fleet');
+    expect($('[data-picked]').textContent).toContain('두 번 누르면 로봇 탭에서 열립니다. 한 번 더 누르면 고르기를 풉니다.');
+    click(tile('g7')); later();
+    expect(tile('g7').dataset.sel).toBeUndefined(); expect(controlPick.get()).toBe('');
+    expect(location.hash).toBe('#/control');
+    vi.useRealTimers();
+  });
+  it('다른 로봇을 누르면 그 로봇으로 바로 옮겨 고름', () => {
+    mount('u-kim', TWENTY.slice(0, 8)); feed(TWENTY.slice(0, 8));
+    click(tile('g7')); click(tile('g6'));
+    expect(tile('g6').dataset.sel).toBe('true'); expect(tile('g7').dataset.sel).toBeUndefined(); expect(controlPick.get()).toBe('g6');
+  });
+  it('더블클릭 = 로봇 탭 · 넘어가기 전 고르기가 흔들리지 않음(안 고른 로봇 · 이미 고른 로봇 둘 다)', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    for (const already of [false, true]) {
+      mount('u-kim', TWENTY.slice(0, 8), '#/control'); feed(TWENTY.slice(0, 8));
+      if (already) click(tile('g7'));
+      const seen: string[] = []; const off = controlPick.sub(() => seen.push(controlPick.get()));
+      click(tile('g7'), 1); click(tile('g7'), 2);
+      expect(tile('g7').dataset.sel).toBe('true');   // dblclick 직전: 고른 채
+      act(() => { tile('g7').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 })); });
+      later(); off();
+      expect(location.hash).toBe('#/fleet');
+      expect(seen.slice(0, seen.indexOf('') < 0 ? seen.length : seen.indexOf(''))).toEqual(already ? [] : ['g7']);   // 넘어가기 전 «골랐다 → 풀렸다» 없음
+      expect(seen.filter((x) => x === '').length).toBeLessThanOrEqual(1);   // 비움은 탭을 떠날 때 한 번뿐
+      act(() => root?.unmount()); box.remove();
+    }
+    vi.useRealTimers();
+  });
+  it('지도 보기 3D 표식 · 오른쪽 줄도 같은 규칙(고름 · 풂 · 더블클릭 로봇 탭)', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    for (const sel of ['.u5 .mks .mk3[data-r3="g7"]', '.u5 .side .rrow[data-r="K-08"]']) {
+      mount('u-kim', TWENTY.slice(0, 8), '#/control'); feed(TWENTY.slice(0, 8));
+      act(() => { seg('보기', 1).click(); });
+      const el = () => $(sel) as HTMLElement;
+      click(el()); expect(controlPick.get()).toBe('g7'); expect(el().getAttribute('aria-pressed')).toBe('true');
+      click(el()); later(); expect(controlPick.get()).toBe('');
+      dbl(el()); expect(location.hash).toBe('#/fleet');
+      act(() => root?.unmount()); box.remove();
+    }
+    vi.useRealTimers();
   });
 
   it('두 번 누름(dblclick)도 로봇 탭 · 선택 칸 «로봇 탭에서 열기» 도 같음', () => {
-    mount('u-kim', TWENTY); feed(TWENTY);
+    mount('u-kim', TWENTY.slice(0, 8)); feed(TWENTY.slice(0, 8));
     act(() => { tile('g7').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
     expect(location.hash).toBe('#/fleet');
     act(() => root?.unmount()); box.remove();
-    mount('u-kim', TWENTY, '#/control'); feed(TWENTY);
+    mount('u-kim', TWENTY.slice(0, 8), '#/control'); feed(TWENTY.slice(0, 8));
     act(() => { tile('g6').click(); });
     act(() => { $('[data-picked] .openb').click(); });
     expect(location.hash).toBe('#/fleet');
@@ -269,7 +343,7 @@ describe('관제 탭', () => {
 
   // 팀장 20:49: 시뮬도 실기 · 데모와 같은 따라가기 카메라(뒤 1 m) · 같은 현장. 정면은 뒤집기일 때만(시안 K-08 «정면 보기» 글도 그때만)
   it('뒤집기 = 정면 상태(관절 온도), 임무 중인 시뮬 로봇도 실기와 같은 뒤 1 m 시점 · 뒤집기는 고르기가 아님', () => {
-    mount('u-kim', TWENTY); feed(TWENTY, runs(['g2', 'g3']));
+    const R = SOME('g1', 'g2', 'g3'); mount('u-kim', R); feed(R, runs(['g2', 'g3']));
     expect(tile('g3').querySelector('.cv')!.getAttribute('data-face')).toBe('live');
     expect(tile('g2').querySelector('.cv')!.getAttribute('data-face')).toBe('live');
     expect(tile('g2').querySelector('.cv .ov')!.textContent).toBe('뒤 1 m');
@@ -285,10 +359,10 @@ describe('관제 탭', () => {
 
   // 팀장 21:16: 임무 중(그 로봇에 진행 중인 run) = 뒤 1 m 따라가기 + 현장 glb · 임무 전(대기 · 정지 · 충전 · 임무 없음) = 초록 점 바닥 + 로봇을 정면에서 · 현장 없음. 시뮬 · Go2 X 도 같은 규칙
   it('임무 있음 → 뒤 카메라 + 현장, 임무 없음 · 끝난 임무 → 정면 + 초록 바닥(현장 없음), 시뮬 · Go2 X 도 같음', () => {
-    mount('u-kim', TWENTY); feed(TWENTY, { ...runs(['g1', 'g2']), g4: RUN('COMPLETED'), g6: RUN('CANCELED'), g7: RUN('PAUSED') });
+    const R = SOME('g1', 'g2', 'g3', 'g4', 'g6', 'g7'); mount('u-kim', R); feed(R, { ...runs(['g1', 'g2']), g4: RUN('COMPLETED'), g6: RUN('CANCELED'), g7: RUN('PAUSED') });
     const face = (id: string) => tile(id).querySelector('.cv')!.getAttribute('data-face');
     const cam = (id: string) => JSON.parse(tile(id).querySelector('canvas')!.getAttribute('data-go2')!) as { yaw: number | string; dist: number };
-    expect(face('g1')).toBe('live'); expect(cam('g1')).toMatchObject({ yaw: 'back', dist: 2.1 });
+    expect(face('g1')).toBe('live'); expect(cam('g1')).toMatchObject({ yaw: 'back', dist: 1.0 });   // 임무 중 뒤 1 m(팀장 23:48)
     expect(face('g7')).toBe('live');   // 일시정지도 아직 그 임무 안
     expect(face('g2')).toBe('live'); expect(tile('g2').querySelector('.cv .ov')!.textContent).toBe('뒤 1 m');
     for (const id of ['g3', 'g4', 'g6']) { expect(face(id)).toBe('front'); expect(cam(id)).toMatchObject({ yaw: 0, dist: 1.25 }); }
@@ -308,7 +382,7 @@ describe('관제 탭', () => {
 
   // 팀장 20:51: K-04 · 06 · 08 은 조종권을 쥔 채 0 축(속도 0)인데 다리가 걸었다 → 걷는 다리는 서버 속도(state.speed) 가 WALK_MIN_SPEED 이상일 때만
   it('3D 는 지금 동작대로: 임무 중이고 실제로 움직이면(speed ≥ 0.05) 걷기, 속도 0 이면 선 자세, 잠금 · 오류 = 엎드림, 대기 = 서 있음, 끊김 = 마지막 자세 모름', () => {
-    mount('u-kim', TWENTY); feed(TWENTY, { g5: { speed: 0.4 } });
+    const R = SOME('g3', 'g5', 'g15'); mount('u-kim', R); feed(R, { g5: { speed: 0.4 } });
     expect(tile('g5').dataset.act).toBe('walk');
     expect(tile('g5').dataset.live).toBe('1');
     act(() => { FakeWS.last.recv(state('g5', { status: 'RUNNING', speed: 0 })); });
@@ -391,7 +465,7 @@ describe('관제 탭', () => {
     expect($$('.u5 .mks .mk3')).toHaveLength(20);
     expect($$('.u5 .mks .mk3').every((e) => e.style.display === 'none')).toBe(true);   // 위치가 오기 전에는 표지를 그리지 않음
     act(() => { seg('보기', 0).click(); });
-    expect(tiles()).toHaveLength(20);
+    expect(tiles()).toHaveLength(8);   // 타일은 8 칸, 지도 보기는 20 대 전부
   });
 
   it('지도 보기 이름표: 시뮬 로봇은 경고가 있어도 시안 K-08 꼴(파란 점선 · 상자 아이콘)', () => {
@@ -406,27 +480,52 @@ describe('관제 탭', () => {
     expect(mk('s1').classList.contains('sim')).toBe(true);
     expect(mk('s1').classList.contains('r')).toBe(false);
   });
-  it('작은 지도를 누르면 지도 보기로(팀장 11-28 · 시안 밖): 작은 지도 자리에서 자라 넘어감 · 위 단추로 가면 자라지 않음', () => {
+  it('작은 지도를 두 번 누르면 지도 보기로(팀장 00:22 · 시안 밖): 한 번 누름으로는 넘어가지 않음 · 작은 지도 자리에서 자라 넘어감 · 위 단추로 가면 자라지 않음 · 고른 로봇 없으면 다가갈 대상 없음', () => {
     mount('u-kim', TWENTY); feed(TWENTY);
     const mini = $('.u5 .mini[data-to-map]') as HTMLElement;
     expect(mini.getAttribute('role')).toBe('button');
     act(() => { mini.click(); });
+    expect($('[aria-label="로봇 타일"]')).not.toBeNull();
+    act(() => { mini.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 })); });
     expect($('[aria-label="로봇 타일"]')).toBeNull();
     expect($('.u5 .big canvas#site')).not.toBeNull();
     expect($('.u5 .big')!.hasAttribute('data-from-mini')).toBe(true);
+    expect($('.u5 .big')!.hasAttribute('data-focus')).toBe(false);
     act(() => { seg('보기', 0).click(); });
     act(() => { seg('보기', 1).click(); });
     expect($('.u5 .big')!.hasAttribute('data-from-mini')).toBe(false);
   });
+  it('고른 로봇: 작은 지도에서 그 점만 강조(나머지 흐림 · 이름표) · 작은 지도 더블클릭 = 지도 보기에서 그 로봇으로 다가감(data-focus)', async () => {
+    const floor = (id: string, v: string | null) => ({ id, building_id: 'b', name: '1층', level: 1, approved_version_id: v });
+    const sites = vi.spyOn(api, 'sites').mockResolvedValue({ next_cursor: null, items: [
+      { id: 'demo', name: '공장 터', purpose: 'SIM', demo: true, buildings: [{ id: 'b', site_id: 'demo', name: '공장', floors: [floor('f1', 'fac')] }] }] } as never);
+    try {
+      const at = (x: number) => ({ location: { floor_id: 'f1', map_version_id: 'fac', x, y: -50, yaw: 0, confidence: 1, updated_at: '' } } as never);
+      mount('u-kim', EIGHT); feed(EIGHT, { k3: at(100), k4: at(120) });
+      await act(async () => {});
+      act(() => { tile('k3').click(); });
+      const dot = (id: string) => $(`.u5 .mini .dotm[data-dot="${id}"]`);
+      expect(dot('k3').classList.contains('sel')).toBe(true); expect(dot('k4').classList.contains('dim')).toBe(true);
+      expect($('.u5 .mini .dotl.sel')!.textContent).toBe(EIGHT.find((r) => r.id === 'k3')!.name);
+      // 고른 로봇 쪽으로 2 배: k3 가 칸 가운데(가로 50% · 세로 125 px), k4(20 m 동쪽 = 그림 70 px = 작은 지도 8.75 px) 는 2 배 떨어져 17.5 → 18 px
+      expect($('.u5 .mini')!.dataset.zoom).toBe('2');
+      expect([dot('k3').style.left, dot('k3').style.top]).toEqual(['calc(50% + 0px)', '125px']);
+      expect(dot('k4').style.left).toBe('calc(50% + 18px)');
+      expect(($('.u5 .mini') as HTMLElement).style.backgroundSize).toBe('800px 500px');
+      act(() => { $('.u5 .mini[data-to-map]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 })); });
+      expect($('.u5 .big')!.getAttribute('data-focus')).toBe('k3');
+    } finally { sites.mockRestore(); }
+  });
 
   it('운영 관리자도 같은 틀(u5_6) · 처음은 «내 로봇»만, «모두»로 받은 목록 전부', () => {
-    mount('u-lee', TWENTY); feed(TWENTY.filter((r) => r.owner === 'u-lee'));
+    const S8 = TWENTY.slice(0, 8);
+    mount('u-lee', S8); feed(S8.filter((r) => r.owner === 'u-lee'));
     expect($('h1').textContent).toBe('관제');
-    expect(tiles()).toHaveLength(10);
+    expect(tiles()).toHaveLength(4);
     expect(tiles().every((t) => TWENTY.find((r) => r.id === t.dataset.robot)!.owner === 'u-lee')).toBe(true);
     expect($('.u5 .flt .on').textContent).toBe('내 로봇');
     act(() => { seg('범위', 0).click(); });
-    expect(tiles()).toHaveLength(20);
+    expect(tiles()).toHaveLength(8);
     expect(fact('g1', 'link')).toBe('확인 안 됨');   // 남의 로봇은 요약만 · 상태를 단정하지 않음
   });
 
@@ -444,7 +543,7 @@ describe('관제 탭', () => {
   });
 
   it('끊긴 로봇(u5_1 K-07): 칸 위 «다시 연결 중 · 마지막 화면 HH:MM» · 배터리는 값만(시안 «49 %») · 끊긴 시각은 연결 칸 «연결 중 HH:MM 끊김»', () => {
-    mount('u-kim', TWENTY); feed(TWENTY);
+    const R = SOME('g0', 'g3', 'g15'); mount('u-kim', R); feed(R);
     expect(tile('g15').querySelector('.lk')!.textContent).toBe('다시 연결 중마지막 화면 14:05');
     expect(fact('g15', 'battery')).toBe('70 %');
     expect([fact('g15', 'link'), small('g15', 'link')]).toEqual(['연결 중', '14:05 끊김']);
@@ -510,10 +609,13 @@ describe('관제 탭', () => {
     expect($('[data-empty-control] a').getAttribute('href')).toBe('#/fleet');
   });
 
-  it('타일 키보드: Enter = 로봇 탭(초점 받음)', () => {
-    mount('u-kim', TWENTY); feed(TWENTY);
+  it('타일 키보드: Enter = 고르기 · 다시 Enter = 풀기(바로), Shift+Enter = 로봇 탭(시안 밖)', () => {
+    mount('u-kim', TWENTY.slice(0, 8)); feed(TWENTY.slice(0, 8));
     expect(tile('g7').tabIndex).toBe(0);
-    act(() => { tile('g7').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    const key = (shiftKey = false) => act(() => { tile('g7').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey, bubbles: true })); });
+    key(); expect(controlPick.get()).toBe('g7');
+    key(); expect(controlPick.get()).toBe('');
+    key(true);
     expect($('h1').textContent).toBe('로봇');
     expect(location.hash).toBe('#/fleet');
   });
@@ -548,6 +650,22 @@ describe('관제 탭', () => {
     expect(tile('k1').querySelector('[data-paused]')).toBeNull();
   });
 
+  it('작은 지도 점(팀장 00:36 · 층 대조): demo 플래그가 없어도 위치 판이 작은 지도 그림의 층 꼴(1800 × 1120 · 0.5 m/px · 원점 (0, -560))이면 시뮬 · 데모 · 실기 모두 점 · 다른 꼴 판 · 판 못 받음은 뺌', async () => {
+    resetSiteBoards();
+    const ver = vi.spyOn(api, 'version').mockImplementation(async (id: string) => {
+      if (id === 'other') return { id, width: 3200, height: 2000, resolution: 0.2857, origin: [-7.1, -565.7, 0] } as never;
+      if (id === 'gone') throw new Error('404');
+      return { id, width: 1800, height: 1120, resolution: 0.5, origin: [0, -560, 0] } as never;
+    });
+    try {
+      const at = (v: string) => ({ location: { floor_id: 'f1', map_version_id: v, x: 100, y: -50, yaw: 0, confidence: 1, updated_at: '' } } as never);
+      const R = EIGHT.map((r, i) => (i === 1 ? { ...r, sim: true } : r));
+      mount('u-kim', R); feed(R, { k1: at('fac'), k2: at('fac'), k3: at('fac'), k4: at('other'), k5: at('gone') });
+      await act(async () => {}); await act(async () => {});
+      expect($$('.u5 .mini .dotm').map((e) => e.dataset.dot).sort()).toEqual(['k1', 'k2', 'k3']);
+      expect(ver.mock.calls.map((c) => c[0]).sort()).toEqual(['fac', 'gone', 'other']);   // 판마다 한 번
+    } finally { ver.mockRestore(); resetSiteBoards(); }
+  });
   it('작은 지도 점: /sites 의 demo 현장 층 승인 판(approved_version_id)과 위치 판 id 가 같을 때만, 서버 m → 시안 그림 px(25 + u·3.5, 20 + v·3.5)', async () => {
     // app-lx 공장 판: 1800 × 1120 · 0.5 m/px · origin (0, -560) — 크기는 보지 않고 판 id 로만 가름
     const floor = (id: string, v: string | null) => ({ id, building_id: 'b', name: '1층', level: 1, approved_version_id: v });
@@ -645,7 +763,7 @@ describe('관제 탭', () => {
   });
   it('선택 칸: 운영 관리자가 남의 로봇(요약만) = «확인 안 됨» · 상세 실패 = 까닭 한 줄 · 404 = 목록 다시 받기', async () => {
     vi.spyOn(api, 'robot').mockRejectedValue({ code: 'INTERNAL', status: 500, message: '서버 오류' });
-    const hid = TWENTY.map((r) => (r.owner === 'u-park' ? { ...r, unknown: 'summary' as const } : r));
+    const hid = TWENTY.slice(0, 8).map((r) => (r.owner === 'u-park' ? { ...r, unknown: 'summary' as const } : r));
     mount('u-lee', hid); feed(hid.filter((r) => r.owner === 'u-lee'));
     act(() => { seg('범위', 0).click(); });
     await act(async () => { tile('g7').click(); });
@@ -668,7 +786,7 @@ describe('관제 탭', () => {
   });
   it('선택 칸: 위치만 바뀐 state 도 다시 그린다(실시간 state 가 상세보다 앞섬)', async () => {
     vi.spyOn(api, 'robot').mockResolvedValue(ROBOT() as never);
-    mount('u-kim', TWENTY); feed(TWENTY);
+    mount('u-kim', TWENTY.slice(0, 8)); feed(TWENTY.slice(0, 8));
     await act(async () => { tile('g6').click(); });
     act(() => { FakeWS.last.recv(state('g6', { location: { floor_id: null, map_version_id: null, x: 9, y: 1, yaw: 0, confidence: 1, updated_at: '2026-11-28T05:06:07Z' } })); });
     expect(kv('위치')).toContain('x 9.0 m');
@@ -676,7 +794,7 @@ describe('관제 탭', () => {
   it('선택 칸: 담당이 바뀌면 다시 받고, 옛 요청의 늦은 답은 버린다', async () => {
     let late!: (v: unknown) => void;
     const got = vi.spyOn(api, 'robot').mockImplementationOnce(() => new Promise((ok) => { late = ok; }) as never).mockResolvedValue(ROBOT({ current_run: { run_id: 'r2', status: 'MOVING', scenario_name: '새 임무', progress: { done: 0, total: 1 } } }) as never);
-    mount('u-kim', TWENTY); feed(TWENTY);
+    mount('u-kim', TWENTY.slice(0, 8)); feed(TWENTY.slice(0, 8));
     await act(async () => { tile('g6').click(); });
     root!.render(<App user={USERS.find((u) => u.id === 'u-kim')} robots={TWENTY.map((r) => (r.id === 'g6' ? { ...r, owner: 'u-park', ownerName: '박OO' } : r))} />);
     await act(async () => {});
@@ -740,7 +858,7 @@ describe('관제 탭', () => {
     expect(band().textContent).not.toContain(NOT_SENT);
   });
   it('이 계정이 못 세우는 타일(총괄이 남의 시뮬)을 고르면 정지 단추 글은 «모두 정지» 그대로(reviewer G1)', () => {
-    const T = TWENTY.map((r) => (r.id === 'g6' ? { ...r, sim: true, owner: 'u-lee', demo: false } : r));   // 사용자 시뮬(데모 아님 · 22:04)
+    const T = TWENTY.slice(0, 8).map((r) => (r.id === 'g6' ? { ...r, sim: true, owner: 'u-lee', demo: false } : r));   // 사용자 시뮬(데모 아님 · 22:04)
     mount('u-kim', T); feed(T);
     act(() => { tile('g6').click(); });
     expect(stopBtn().textContent).toBe('모두 정지');
@@ -813,7 +931,7 @@ describe('관제 탭', () => {
     expect(tile('g6').querySelector('.stb[data-stop-line]')!.textContent).toBe(stopLine(rt.get('g6'))!.text);
   });
   it('R3: «모두»에서 남의 로봇을 고른 뒤 «내 로봇»으로 되돌리면 고름이 비고, STOP 한 번은 숨은 로봇이 아니라 고르기', () => {
-    mount('u-lee', TWENTY); feed(TWENTY);
+    mount('u-lee', TWENTY.slice(0, 8)); feed(TWENTY.slice(0, 8));
     act(() => { seg('범위', 0).click(); });   // 모두
     act(() => { tile('g7').click(); });                           // 박OO 로봇
     act(() => { seg('범위', 1).click(); });   // 내 로봇 → g7 은 보이지 않음
@@ -1164,6 +1282,41 @@ describe('관제 탭', () => {
     expect(FakeWS.last.of('stop')).toHaveLength(0);
     act(() => { go.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true })); });   // 새 Space 누름
     expect(FakeWS.last.of('stop')).toHaveLength(10);
+  });
+  it('데모 표시 스위치(대조표 u5_1): 끄면 데모 로봇을 타일 · 지도 보기 · 수에서 숨기고, 이 브라우저에 기억(저장 API 없음) · 고른 데모 로봇은 풂', async () => {
+    const item = (id: string, demo: boolean) => ({ robot_id: id, robot_name: id, state: 'FREE', busy_until: null, busy_slot_id: null, busy_label: null, battery_pct: 70, demo, sim: false, location_label: null });
+    const av = vi.spyOn(api, 'availability').mockResolvedValue({ items: [item('k1', true), item('k2', true), item('k3', false)] } as never);
+    try {
+      localStorage.setItem('fh-control-demo', '1');
+      mount('u-kim', EIGHT); feed(EIGHT);
+      await act(async () => {});
+      const sw = () => $('[data-demo-show]') as HTMLElement;
+      expect(sw().getAttribute('aria-checked')).toBe('true'); expect(tile('k1')).not.toBeNull();
+      act(() => { tile('k1').click(); }); expect(controlPick.get()).toBe('k1');
+      act(() => { sw().click(); });
+      expect(sw().getAttribute('aria-checked')).toBe('false');
+      expect(tile('k1')).toBeNull(); expect(tile('k2')).toBeNull(); expect(tile('k3')).not.toBeNull();
+      expect(controlPick.get()).toBe('');
+      expect(localStorage.getItem('fh-control-demo')).toBe('0');
+      act(() => { seg('보기', 1).click(); });
+      expect($$('.u5 .mks .mk3').map((e) => e.dataset.r3)).not.toContain('k1');
+      act(() => root?.unmount()); box.parentNode?.removeChild(box);
+      mount('u-kim', EIGHT); feed(EIGHT); await act(async () => {});   // 다시 열어도 꺼진 채
+      expect(sw().getAttribute('aria-checked')).toBe('false'); expect(tile('k1')).toBeNull();
+      act(() => { sw().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+      expect(tile('k1')).not.toBeNull(); expect(localStorage.getItem('fh-control-demo')).toBe('1');
+    } finally { av.mockRestore(); localStorage.setItem('fh-control-demo', '1'); }
+  });
+  it('첫 화면으로(대조표 u5_1): 지도 보기 첫 시점으로 새로 엶(다가가기 없음 · 작은 지도에서 자라기 없음)', () => {
+    mount('u-kim', TWENTY); feed(TWENTY);
+    const home = $('[data-home]') as HTMLElement;
+    expect(home.getAttribute('role')).toBe('button');
+    act(() => { home.click(); });
+    const big = () => $('.u5 .big') as HTMLElement;
+    expect(big()).not.toBeNull(); expect(big().hasAttribute('data-focus')).toBe(false); expect(big().hasAttribute('data-from-mini')).toBe(false);
+    const cv = big().querySelector('canvas');
+    act(() => { home.click(); });
+    expect(big().querySelector('canvas')).not.toBe(cv);   // 카메라를 새로(첫 시점) 잡도록 다시 그림
   });
   it('가용(GET /robots/availability) · 오늘 일정(GET /schedule): 구역 이름 = location_label · 데모 칩 · 충전 = state CHARGING 만 · 지금 걸친 BATTERY_SWAP 칸 = «배터리 교체» · MAINTENANCE = «점검 중» 칩 + busy_label 줄 · 실패면 수를 비움', async () => {
     const item = (id: string, o: object = {}) => ({ robot_id: id, robot_name: id, state: 'FREE', busy_until: null, busy_slot_id: null, busy_label: null, battery_pct: 70, demo: false, sim: false, location_label: null, ...o });
