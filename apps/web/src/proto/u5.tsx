@@ -171,14 +171,16 @@ export function facts(x: Robot, me: string, places: Map<string, string>, av?: Av
   // 요약 로봇은 rt 가 online 을 false 로 덮어 끊김을 모름 → 서버 목록 attention OFFLINE 으로 끊김을 봄
   const walk = noSpeed ? onRun && x.status === 'RUNNING' && rs?.status !== 'PAUSED' && !gone && !x.attention?.includes('OFFLINE') : walking(act, paused, s?.speed);
   const holder = x.holder ?? rt.get(x.id).holder;
-  const who: [string, string] = holder ? [holder.id === me ? '나' : holder.name, holder.type === 'RUN' ? '임무' : '조종'] : [x.owner ? (x.owner === me ? '나' : ownerName(x)) : '없음', '담당자'];
+  // 사람 칸(팀장 02:21 · 조정 02:38): RUN = «임무», USER + driving = «조종»(배지 «조종 중» 과 같은 판정), USER 이고 driving 아님 = «조종권»
+  const driving = holder?.type === 'USER' && x.holder?.driving === true;
+  const who: [string, string] = holder ? [holder.id === me ? '나' : holder.name, holder.type === 'RUN' ? '임무' : driving ? '조종' : '조종권'] : [x.owner ? (x.owner === me ? '나' : ownerName(x)) : '없음', '담당자'];
   // 남은 시간 = 서버 battery.minutes_left(정수 0 ~ 1440 · 실기 모형 없으면 null). 계약 타입이 base 에 오기 전이라 선택 칸으로 읽음. null 이면 % 만(지어내지 않음)
   const ml = (s?.battery as { minutes_left?: number | null } | null | undefined)?.minutes_left, left = typeof ml === 'number' && Number.isInteger(ml) && ml >= 0 && ml <= 1440 ? ml : null;
   const bat = x.battery != null ? `${Math.round(x.battery)} %` : null, tv = h ? lastly(x, `${Math.round(h.t)} °C`, x.seenAt) : null;
   return {
     stop: x.unknown === 'summary' ? null : stopLine(rt.get(x.id)),
     x, byTemp, demo: !!av?.demo, charging, job: av?.job ?? null, level, why, alert: needs(x) || !!lvTemp, flag: level ? `${LEVEL_TEXT[level]} · ${why}` : null, sim, lostNow: gone, lostAt: gone ? hm(x.seenAt) ?? '' : null, paused,
-    act, walk, onRun, driving: holder?.type === 'USER' && x.holder?.driving === true, mode: s?.gait?.gait ? GAIT_NAME[s.gait.gait] ?? s.gait.gait : '', mission: m, place, hot: h,
+    act, walk, onRun, driving, mode: s?.gait?.gait ? GAIT_NAME[s.gait.gait] ?? s.gait.gait : '', mission: m, place, hot: h,
     bat: sim ? ['시뮬', '배터리 해당 없음'] : [bat ?? '', charging ? '충전 중' : av?.job ? (av.job.kind === 'maint' ? '점검 중' : '배터리 교체') : left != null ? `약 ${left} 분` : ''],
     temp: sim ? ['없음', stText(x), ''] : tv ? [tv, lvTemp ? LEVEL_TEXT[lvTemp] : '보통', lvTemp === 'bad' || lvTemp === 'crit' ? ' r' : lvTemp === 'warn' ? ' w' : ''] : ['', '', ''],
     link: sim ? ['서버', '시뮬 계산', ''] : gone ? ['연결 중', hm(x.seenAt) ? `${hm(x.seenAt)} 끊김` : '', ' w'] : x.online ? ['연결', lat != null ? `${Math.round(lat)} ms` : '', ''] : [st.text, '', ''],

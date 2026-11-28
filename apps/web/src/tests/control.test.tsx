@@ -533,6 +533,11 @@ describe('관제 탭', () => {
     for (const off of [F(toRobot(sum(L(false)))), F(toRobot(sum(L()))), F(toRobot(sum(null)))]) {   // false · 칸 없음 · 조종권 없음(lease null)
       expect(off.driving).toBe(false); expect(tileBadge(off)!.key).toBe('idle');
     }
+    // 사람 칸(조정 02:38): USER + driving = 조종 · USER 만 = 조종권 · RUN(driving false) = 임무 · lease null = 담당자
+    expect(on.who[1]).toBe('조종'); expect(F(toRobot(sum(L(false)))).who[1]).toBe('조종권'); expect(F(toRobot(sum(L()))).who[1]).toBe('조종권');
+    const byRun = F(toRobot(sum({ holder_type: 'RUN', user: { id: 'u-a', display_name: '운영자 A' }, since: '2026-11-29T00:00:00Z', driving: false })));
+    expect([byRun.who[1], byRun.driving, tileBadge(byRun)!.key]).toEqual(['임무', false, 'idle']);
+    expect(F(toRobot(sum(null))).who[1]).toBe('담당자');
     const run = F({ ...toRobot(sum(L(true))), status: 'RUNNING', run: { id: 'r1', run_id: 'r1', scenario_name: '순찰', status: 'MOVING', step: 0, wait_reason: null, fail_code: null, progress: { done: 1, total: 4 } } as never });
     expect(tileBadge(run)!.key).toBe('run');   // 임무가 먼저
   });
