@@ -233,7 +233,7 @@ function Cv({ f, front, hotMap, boards }: { f: TileFacts; front: boolean; hotMap
   const id = f.x.id, summary = f.x.unknown === 'summary';
   // 서버 관절은 그릴 때마다 새로 읽는다(같은 화면 값이면 다시 그리지 않아도 관절은 바뀜 · 1 초 넘게 묵으면 버림)
   useEffect(() => (ref.current ? tileGl().add(ref.current, () => ({ ...look.current, q: summary ? null : jointsNow(id) })) : undefined), []);
-  const go2 = JSON.stringify({ walk: f.walk, glow: !f.sim, pin: !f.sim, hot: hotMap, cyber: f.sim, scene: v.pose && !f.sim ? 'site' : 'dots', yaw: v.front ? 0 : 'back', dist: v.front ? FRONT_DIST : REAR_DIST, ...(pad && !v.pose ? { pad } : {}), ...(down ? { pose: 'down' } : {}), floor: 0.5 });
+  const go2 = JSON.stringify({ walk: f.walk, glow: !f.sim, pin: !f.sim, hot: hotMap, cyber: f.sim, scene: v.pose ? 'site' : 'dots', yaw: v.front ? 0 : 'back', dist: v.front ? FRONT_DIST : REAR_DIST, ...(pad && !v.pose ? { pad } : {}), ...(down ? { pose: 'down' } : {}), floor: 0.5 });
   const showFront = v.front;
   return <div style={{ height: '222px' }} className={showFront ? 'cv st' : 'cv'} data-face={showFront ? 'front' : 'live'}>
     <canvas ref={ref} className={showFront ? 'front' : 'rear'} data-go2={go2}></canvas>

@@ -38,12 +38,12 @@ export const REAR_DIST = 1.0, FRONT_DIST = 1.25;
 /** 바라보는 높이(m): 점 바닥 · 정면 = 몸통(0.17 · 시안 go2view). 현장 위 뒤 1 m = SITE_AIM(00:53 사진: 0.17 이면 아래로 21° 라 화면이 로봇 앞 5 m 안 바닥만 · 흰 판처럼 보임 →
  *  지평선이 화면 위쪽에 들어오게 올려 앞쪽 배관 · 건물이 보이게) */
 export const BODY_AIM = 0.17, SITE_AIM = 0.35;
-export const aimY = (l: Pick<TileLook, 'pose' | 'front' | 'cyber'>) => (l.pose && !l.front && !l.cyber ? SITE_AIM : BODY_AIM);
+export const aimY = (l: Pick<TileLook, 'pose' | 'front'>) => (l.pose && !l.front ? SITE_AIM : BODY_AIM);
 /** 로봇 발밑 그림자(원 반지름 m · 앞뒤 늘림 · 진하기). 로봇 탭 무대도 같은 값 */
 export const SHADOW = { r: 0.22, sy: 1.5, opacity: 0.35 };
 /** 그릴 층: 현장(임무 중 · 자리 있음 · glb 받음)이면 현장만, 아니면 점 바닥만(현장 바닥 위로 점이 비치지 않게 · 팀장 21:45).
- *  시뮬(cyber)은 임무 중이어도 늘 시뮬 공간 = 파란 로봇 + 점 바닥, 공장 현장을 깔지 않음(팀장 00:37). 데모 · 실기는 그대로 */
-export const layers = (pose: boolean, site: boolean, cyber = false) => { const w = pose && site && !cyber; return { world: w, dots: !w }; };
+ *  시뮬(cyber)도 임무 중이면 그 로봇이 선 판의 시뮬레이션 공간(현장)을 뒤 1 m 로 · 로봇만 파란 결(팀장 01:04). 점 바닥은 임무 없을 때만 */
+export const layers = (pose: boolean, site: boolean) => { const w = pose && site; return { world: w, dots: !w }; };
 export function camPull(world: THREE.Object3D, cam: THREE.Vector3) {
   const to = cam.clone().sub(HEAD), len = to.length();
   ray.set(HEAD, to.clone().normalize()); ray.far = len;
@@ -195,7 +195,7 @@ class Tiles {
       // 현장 = 그 로봇 지도 안 실제 자리 · 방향(서버 위치 · yaw 를 보간). 로봇은 늘 가운데 · 시점은 뒤쪽 위 그대로라 걷고 돌면 현장이 지나가고 돈다
       v.at = look.pose ? follow(v.at, look.pose, dt) : null;
       const p = v.at;
-      const ly = layers(!!p, !!this.site, look.cyber); this.world.visible = ly.world; this.grid.visible = ly.dots;
+      const ly = layers(!!p, !!this.site); this.world.visible = ly.world; this.grid.visible = ly.dots;
       if (this.pads) { this.pads.charge.visible = ly.dots && look.pad === 'charge'; this.pads.check.visible = ly.dots && look.pad === 'check'; }
       if (p) { this.world.rotation.set(0, -p.rot, 0); this.world.position.set(0, 0, 0); this.world.updateMatrix();
         const off = new THREE.Vector3(-p.x, 0, -p.z).applyAxisAngle(new THREE.Vector3(0, 1, 0), -p.rot); this.world.position.copy(off);
