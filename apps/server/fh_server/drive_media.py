@@ -17,7 +17,6 @@ from apps.contracts import models as C
 from .models import Robot, now
 from .robots import server_drive_allowed
 from .security import digest
-from .tunnel import ws_origin_allowed
 
 FRAME = TypeAdapter(C.MediaMessage)
 SLAM_FRAME = TypeAdapter(C.SlamMessage)
@@ -211,7 +210,8 @@ class Relay:
             if self.pending > 16 or channel not in CHANNELS or len(self.viewers.get(key, ())) >= 4:
                 raise ValueError('capacity or channel')
             if not ws.headers.get('authorization'):
-                if not ws_origin_allowed(self.rt.settings, ws):
+                expected = self.rt.settings.ws_origin or str(ws.base_url).rstrip('/').replace('wss:', 'https:').replace('ws:', 'http:')
+                if not ws.headers.get('origin') or ws.headers['origin'] not in (expected, self.rt.settings.tunnel_origin):
                     raise ValueError('origin rejected')
             async def check():
                 await self.read(self.viewer_auth, ws.headers, ws.cookies, robot_id)
