@@ -62,7 +62,7 @@ const setVal = (el: HTMLInputElement | HTMLSelectElement, v: string) => act(() =
 const submit = async (form: Element) => { act(() => { (form as HTMLFormElement).requestSubmit(); }); await flush(); };
 const click = async (b: HTMLButtonElement | undefined) => { expect(b).toBeDefined(); act(() => b!.click()); await flush(); };
 /** 계정 목록에서 이름으로 골라 상세 열기 */
-/** 비밀번호 바꾸기는 내 계정 칸의 단추로 여는 창(시안 u9_2) — 닫혀 있으면 연다 */
+/** 비밀번호 바꾸기는 내 계정 칸의 단추로 여는 창(시안 u9_2). 닫혀 있으면 연다 */
 const openPw = async () => { if (!$('form[aria-label="비밀번호 바꾸기"]')) await click(btn('비밀번호 바꾸기', card('내 정보'))); };
 const pick = (name: string) => click([...card('계정').querySelectorAll('li button')].find((b) => b.textContent!.includes(name)) as HTMLButtonElement);
 

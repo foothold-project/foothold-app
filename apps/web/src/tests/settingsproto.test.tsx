@@ -133,7 +133,7 @@ describe('사용자와 권한 (u9_3)', () => {
     expect(users.querySelector('[data-missing="last-seen"]')!.textContent).toContain('서버');
     expect(btn('사용자 추가', users)).toBeDefined();
   });
-  it('권한 표: 앱이 실제로 가르는 일만(총괄 ✓ · 운영자 —), 바꾼 기록 = 계정 사건', async () => {
+  it('권한 표: 앱이 실제로 가르는 일만(총괄 ✓ · 운영자 ·), 바꾼 기록 = 계정 사건', async () => {
     serve(signedIn(KIM)); await open(); await go('사용자와 권한');
     const perm = $('[aria-label="권한"]')!;
     const rows = [...perm.querySelectorAll('tbody tr')].map((r) => [...r.children].map((c) => c.getAttribute('data-can') ?? c.textContent));
