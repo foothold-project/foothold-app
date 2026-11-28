@@ -2,7 +2,7 @@
 // 고정 글 자리만 서버 값으로 바꿨다. 서버에 없는 값은 칸을 두고 그 글만 비운다. 명령은 기존 모듈(STOP = App 의 정지 처리, 고름 = controlPick)만 부른다.
 import { NO_SIGNAL, driveFeedText, useDriveFeed } from '../drivemedia';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { RobotAvailability, RobotSummary, ScreenState } from '../../../contracts/ts';
+import type { MapVersion, RobotAvailability, RobotSummary, ScreenState } from '../../../contracts/ts';
 import { api, type ApiFail } from '../api';
 import { RUN } from '../screens';
 import { realDash } from '../screens/fleet';
@@ -13,7 +13,7 @@ import { JOINTS } from '../go2model';
 import { rt, useRt } from '../rt';
 import type { Ctx } from '../screens';
 import { actOf, controlPick, flagNote, isLost, lastly, needs, useControlPick } from '../screens/control';
-import { floorName, floorsOf, useTree } from '../screens/maps';
+import { floorName, floorsOf, toPixel, useTree } from '../screens/maps';
 import { sitePose, toMapPx } from './site';
 import { tiles as tileGl, type TileLook } from './tileview';
 import { SiteView } from './u5map';
@@ -199,11 +199,27 @@ function Tile({ f, sel, front, pick, open }: { f: TileFacts; sel: boolean; front
 }
 
 // ── 오른쪽 칸 ─────────────────────────────────────────────
+/** 작은 지도 = 시안 공장 터 그림(3200 × 2000 px 를 400 × 250 으로). 그 판으로 보는 서버 지도 판 = 같은 크기(3200 × 2000)인 판 */
+export const SITE_PX = [3200, 2000] as const;
+const VERS = new Map<string, MapVersion | null>(), verSubs = new Set<() => void>();
+/** 지도 판 메타(GET /map-versions/{id}) — 한 번 받아 두고 같이 씀. 실패면 null(점을 그리지 않음) */
+function useVersions(ids: string[]) {
+  const [, bump] = useState(0), key = [...new Set(ids)].sort().join(',');
+  useEffect(() => {
+    const on = () => bump((n) => n + 1); verSubs.add(on);
+    for (const id of key ? key.split(',') : []) if (!VERS.has(id)) { VERS.set(id, null); api.version(id).then((v) => { VERS.set(id, v); verSubs.forEach((f) => f()); }, () => { VERS.delete(id); }); }   // 실패면 다음에 판 목록이 바뀔 때 다시 받음 }
+    return () => { verSubs.delete(on); };
+  }, [key]);
+  return VERS;
+}
 function Mini({ all, sel }: { all: TileFacts[]; sel: string }) {
+  const locOf = (f: TileFacts) => stateOf(f.x)?.location ?? (f.x.unknown === 'summary' ? null : f.x.location);
+  const vers = useVersions(all.map((f) => locOf(f)?.map_version_id ?? '').filter(Boolean));
   const dots = [...all].sort((a, b) => a.x.name.localeCompare(b.x.name, 'ko', { numeric: true })).flatMap((f) => {
-    const p = sitePose(stateOf(f.x)?.location ?? (f.x.unknown === 'summary' ? null : f.x.location));
-    if (!p) return [];   // 위치가 오면 그린다(지어내지 않음)
-    const [px, py] = toMapPx(p.x, p.z), left = `calc(50% + ${Math.round(px * 0.125 - 200)}px)`, top = `${Math.round(py * 0.125)}px`;
+    // 서버 위치를 그 판의 origin · resolution 으로 그림 px(큰 지도와 같은 toPixel). 판이 공장 판(3200 × 2000)이 아니거나 판 id 가 없으면 그리지 않음(엉뚱한 자리보다 뺌)
+    const l = locOf(f), v = l?.map_version_id ? vers.get(l.map_version_id) : null;
+    if (!l || !v || v.width !== SITE_PX[0] || v.height !== SITE_PX[1] || l.x == null || l.y == null || !Number.isFinite(l.x) || !Number.isFinite(l.y)) return [];
+    const [px, py] = toPixel(v, l.x!, l.y!), left = `calc(50% + ${Math.round(px * 0.125 - 200)}px)`, top = `${Math.round(py * 0.125)}px`;
     const kind = f.sim ? 'sim' : f.level === 'bad' || f.level === 'crit' ? 'r' : f.level === 'warn' || f.lostNow ? 'o' : '';
     const me = f.x.id === sel, label = sel ? me : kind === 'r' || (kind === 'o' && !f.lostNow);
     return [<i key={f.x.id} className={`dotm ${kind}${sel ? (me ? ' sel' : ' dim') : ''}`} style={{ left, top }} data-walk={f.walk ? '1' : undefined} data-dot={f.x.id}></i>,
