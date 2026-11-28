@@ -40,7 +40,7 @@ export const BODY_AIM = 0.17, FRONT_FOV = 30;
 /** 임무 중 뒤 시점(팀장 01:08 · 시안 u5_1 타일): 로봇 뒤쪽 높은 곳에서 크게 내려다봄. 로봇은 타일 가운데 아래쪽에 타일 높이 약 1/3,
  *  앞 바닥 · 건물 · 탱크가 넓게 보인다. 로봇까지 내려다보는 각 ≈ 48°(atan(up / back)), 시선 가운데는 로봇 앞 ahead m 바닥(≈ 36°).
  *  데모 · 실기 · 시뮬 임무 모두 같은 값(현장이 없으면 같은 시선으로 점 바닥) */
-export const REAR_CAM = { back: 1.95, up: 2.15, ahead: 1.0, fov: 40 } as const;
+export const REAR_CAM = { back: 1.6, up: 1.65, ahead: 1.15, fov: 50 } as const;
 /** 카메라 자리 · 바라보는 점(로봇 몸 기준 · 로봇 앞 = +z) */
 type V3 = [number, number, number];
 export const camAt = (front: boolean): { pos: V3; aim: V3; fov: number } => (front
