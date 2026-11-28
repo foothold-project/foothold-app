@@ -66,8 +66,9 @@ export function toneSite(site: THREE.Object3D, light: boolean) {
 
 const loader = new GLTFLoader().setDRACOLoader(new DRACOLoader().setDecoderPath({ js: dracoJs, wasm: dracoWasm }));
 const once = new Map<string, Promise<THREE.Group | null>>();
+/** 받은 모형은 한 번만 받아 같이 쓴다. 못 받으면 기억에서 지워 다음 부름(다시 그림 · 다시 불러오기)이 새로 받는다 */
 const glb = (url: string) => {
-  if (!once.has(url)) once.set(url, new Promise((res) => loader.load(url, (g) => res(g.scene), undefined, () => res(null))));
+  if (!once.has(url)) once.set(url, new Promise((res) => loader.load(url, (g) => res(g.scene), undefined, () => { once.delete(url); res(null); })));
   return once.get(url)!;
 };
 let walkP: Promise<Walk | null> | null = null;
