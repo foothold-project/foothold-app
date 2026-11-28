@@ -1544,10 +1544,20 @@ describe('관제 탭', () => {
     expect(tile('k4').querySelector('.cv .ov')!.textContent).toBe('대기 중 · 정면 보기');
     expect(tile('k2').querySelector('.ln span')!.textContent).toBe('공정 순찰 A');
   });
-  it('시뮬 임무 전 = 시안 고정 글 «임무 전 · 시뮬 등록» · 배터리 칸 «시뮬 · 배터리 해당 없음»', () => {
+  it('시뮬 임무 전 = 시안 고정 글 «임무 전 · 시뮬 등록» · 배터리 · 온도 칸은 데모와 같은 규칙(서버 값 · 정말 없을 때만 «없음»)', () => {
     mount('u-kim', EIGHT); feed(EIGHT);
     expect(tile('k8').querySelector('.ln span')!.textContent).toBe('임무 전 · 시뮬 등록');
-    expect([fact('k8', 'battery'), small('k8', 'battery')]).toEqual(['시뮬', '배터리 해당 없음']);
+    expect(fact('k8', 'battery')).toBe('70 %'); expect(small('k8', 'battery')).not.toContain('해당 없음');   // 서버가 보낸 배터리
+    expect(fact('k8', 'temp')).toBe('없음');   // 관절 온도를 받지 않음
+    act(() => root!.unmount()); root = null; box.remove();
+    const on8 = EIGHT.map((r) => (r.id === 'k8' ? { ...r, online: true } : r));   // 서버에 붙은 시뮬
+    mount('u-kim', on8); feed(on8, { k8: temp([40, 41, 42, 43, 61, 44, 45, 46, 47, 48, 49, null]) });
+    expect([fact('k8', 'temp'), small('k8', 'temp')]).toEqual(['61 °C', '경고']);   // 머리띠 · 최근 경고의 관절 경고와 같은 값(60 °C 이상 = 경고)
+    expect(tile('k8').querySelector('[data-fact="temp"]')!.className).toBe('s r');
+    const noBat = EIGHT.map((r) => (r.id === 'k8' ? { ...r, battery: null } : r));
+    act(() => root!.unmount()); root = null; box.remove();
+    mount('u-kim', noBat); feed(noBat, { k8: { battery: null } });
+    expect(fact('k8', 'battery')).toBe('없음');
   });
   it('데모 = 실기 꼴: 가용 demo = true 인 시뮬 로봇은 시뮬 점선 · 칩 · «배터리 해당 없음» 없이 실기 타일과 같고 «데모» 칩만 더함', async () => {
     const av = vi.spyOn(api, 'availability').mockResolvedValue({ items: [{ robot_id: 'k8', robot_name: 'K-08', state: 'FREE', busy_until: null, busy_slot_id: null, busy_label: null, battery_pct: 70, demo: true, sim: true, location_label: null }] } as never);
