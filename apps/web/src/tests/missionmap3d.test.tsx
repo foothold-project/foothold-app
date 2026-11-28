@@ -1,7 +1,7 @@
 // 임무 탭 3D 지도 좌표: 지도(m) → 화면(px) → 지도 왕복, 바닥 높이, 카메라 뒤 · 하늘 쪽
 import * as THREE from 'three';
 import { afterEach, describe, expect, it } from 'vitest';
-import { CLAY, CLAY_CAM, CUT_SHADE, NOGO_MODEL, clayBox, clayCam, clayCoat, claySpan } from '../clay3d';
+import { CLAY, CLAY_CAM, CLAY_LIGHT, CUT_SHADE, NOGO_MODEL, clayFocus, clayLight, clayBox, clayCam, clayCoat, claySpan } from '../clay3d';
 import { worldGroup } from '../screens/map3d';
 import { clayCamera, fromScreen, toScreen } from '../screens/missionsu6map3d';
 
@@ -101,5 +101,40 @@ describe('지도 대표 구도 규칙(자산 hero.html RULE · 지도 다섯 장
     const fm = f.material as THREE.MeshBasicMaterial, wm = w.material as THREE.MeshBasicMaterial;
     expect(fm.color.getHex()).toBe(NOGO_MODEL); expect(fm.opacity).toBe(0.14); expect(wm.opacity).toBe(0.24); expect(f.castShadow).toBe(false);
     expect((o.material as THREE.MeshStandardMaterial).color.getHex()).toBe(CLAY.top); expect(o.castShadow).toBe(true);
+  });
+});
+
+describe('초점 상자 extras · 판 빛 (조정 23:56 결정 1 · 2)', () => {
+  const boxOf = (x0: number, x1: number, y0: number, y1: number) => new THREE.Box3(new THREE.Vector3(x0, y0, 0), new THREE.Vector3(x1, y1, 3));
+  it('extras.focus {fx, fz, fs} 가 있으면 그 가운데(지도 y = −fz) · 한 변 fs 로 자름(공동구 앞 40 m)', () => {
+    const root = new THREE.Group(); root.userData.focus = { fx: 26.96, fz: -11.27, fs: 40 };
+    const f = clayFocus(root, boxOf(0, 210, -31, 0));
+    expect(f.from).toBe('extras'); expect(f.c.x).toBeCloseTo(26.96, 6); expect(f.c.y).toBeCloseTo(11.27, 6);
+    expect([f.size.x, f.size.y]).toEqual([40, 31]);   // 세로 31 m 는 40 보다 작아 그대로
+  });
+  it('extras 가 없거나 값이 틀리면 지금 규칙: 둘레 상자 가운데 · 한 변 520 m 상한', () => {
+    for (const focus of [undefined, { fx: 1, fz: 2 }, { fx: 'a', fz: 0, fs: 40 }, { fx: 0, fz: 0, fs: 0 }]) {
+      const root = new THREE.Group(); if (focus) root.userData.focus = focus;
+      const f = clayFocus(root, boxOf(0, 1000, -571.4, 0));
+      expect(f.from).toBe('box'); expect(f.c.x).toBeCloseTo(500, 6); expect(f.c.y).toBeCloseTo(-285.7, 6);
+      expect([f.size.x, f.size.y]).toEqual([520, 520]);
+    }
+  });
+  it('판 빛: 밝음 반구 1.15 · 해 3.2 · 노출 0.92 · 점토 색 그대로, 어둠 반구 2.6 · 해 1.2 · 노출 0.72 · 점토 × #a9b2bd · ACES · 금지 구역 재질은 그대로', () => {
+    const root = new THREE.Group(), wall = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial()), ng: THREE.Mesh = new THREE.Mesh(new THREE.BoxGeometry(), Object.assign(new THREE.MeshStandardMaterial(), { name: 'nogo_floor' }));
+    const wall2 = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial());
+    root.add(wall, wall2, ng); clayCoat(root);
+    expect(wall2.material).toBe(wall.material);   // 점토는 재질 하나를 여러 메시가 같이 씀
+    const gl = { toneMapping: THREE.NoToneMapping as THREE.ToneMapping, toneMappingExposure: 1 }, hemi = new THREE.HemisphereLight(), sun = new THREE.DirectionalLight();
+    clayLight(gl, hemi, sun, root, true);
+    expect([gl.toneMapping, gl.toneMappingExposure, hemi.intensity, sun.intensity]).toEqual([THREE.ACESFilmicToneMapping, 0.92, 1.15, 3.2]);
+    expect((wall.material as THREE.MeshStandardMaterial).color.getHex()).toBe(CLAY.top);
+    clayLight(gl, hemi, sun, root, false); clayLight(gl, hemi, sun, root, false);   // 어둠을 두 번 불러도 곱은 한 번
+    expect([gl.toneMappingExposure, hemi.intensity, sun.intensity, hemi.color.getHex(), hemi.groundColor.getHex()]).toEqual([0.72, 2.6, 1.2, 0xa8b8cc, 0x161c24]);
+    expect((wall.material as THREE.MeshStandardMaterial).color.getHex()).toBe(new THREE.Color(CLAY.top).multiply(new THREE.Color(0xa9b2bd)).getHex());
+    expect((ng.material as THREE.MeshBasicMaterial).color.getHex()).toBe(NOGO_MODEL);
+    clayLight(gl, hemi, sun, root, true);   // 다시 밝음 = 곱이 쌓이지 않음
+    expect((wall.material as THREE.MeshStandardMaterial).color.getHex()).toBe(CLAY.top);
+    expect(CLAY_LIGHT.dark.tone).toBe(0xa9b2bd);
   });
 });

@@ -23,6 +23,33 @@ export function clayCam(c: { x: number; y: number }, span: number) {
   return { x: c.x + Math.sin(a) * Math.cos(e) * d, y: c.y - Math.cos(a) * Math.cos(e) * d, z: Math.sin(e) * d };
 }
 
+/** 초점 상자(지도 좌표): glb 장면 extras.focus {fx, fz, fs}(three 좌표 · fz = 지도 −y · 공동구처럼 긴 판의 앞쪽 상자)가 있으면 그것,
+ *  없으면 모형 둘레 상자 가운데 · 한 변 fsMax 로 자름(hero.html 과 같음). 돌려주는 size = 자른 가로 · 세로(높이는 그대로) */
+export function clayFocus(root: THREE.Object3D, box: THREE.Box3) {
+  const sz = box.getSize(new THREE.Vector3()), mid = box.getCenter(new THREE.Vector3());
+  const f = root.userData?.focus as { fx?: unknown; fz?: unknown; fs?: unknown } | undefined;
+  const ok = !!f && [f.fx, f.fz, f.fs].every((x) => typeof x === 'number' && Number.isFinite(x)) && (f.fs as number) > 0;
+  const lim = ok ? (f!.fs as number) : CLAY_CAM.fsMax;
+  return { c: ok ? new THREE.Vector3(f!.fx as number, -(f!.fz as number), mid.z) : mid, size: new THREE.Vector3(Math.min(sz.x, lim), Math.min(sz.y, lim), sz.z), from: ok ? 'extras' as const : 'box' as const };
+}
+
+/** 판 빛(hero.html LOOK 그대로): 밝음 = 반구 1.15 · 해 3.2 · 노출 0.92, 어둠 = 반구 2.6 · 해 1.2 · 노출 0.72 · 재질 색 × #a9b2bd. 톤 매핑 ACES */
+export const CLAY_LIGHT = {
+  light: { hemi: [0xffffff, 0xd9dcdb, 1.15] as const, sun: 3.2, exp: 0.92, tone: 0xffffff },
+  dark: { hemi: [0xa8b8cc, 0x161c24, 2.6] as const, sun: 1.2, exp: 0.72, tone: 0xa9b2bd },
+};
+/** 판(밝음 · 어둠) 빛을 입힘. 판이 바뀌면 다시 부르고 다시 그린다 */
+export function clayLight(gl: Pick<THREE.WebGLRenderer, 'toneMapping' | 'toneMappingExposure'>, hemi: THREE.HemisphereLight, sun: THREE.DirectionalLight, root: THREE.Object3D, light: boolean) {
+  const k = light ? CLAY_LIGHT.light : CLAY_LIGHT.dark;
+  gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = k.exp;
+  hemi.color.setHex(k.hemi[0]); hemi.groundColor.setHex(k.hemi[1]); hemi.intensity = k.hemi[2];
+  sun.color.setHex(0xfff6ea); sun.intensity = k.sun;
+  // 같은 재질을 여러 메시가 써도 재질마다 한 번만(Set) · 늘 원래 점토 색에서 다시 계산(판을 바꿔도 곱이 쌓이지 않음)
+  const mats = new Set<THREE.MeshStandardMaterial>();
+  root.traverse((o) => { const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined; if ((o as THREE.Mesh).isMesh && m?.userData?.clay) mats.add(m); });
+  mats.forEach((m) => m.color.setHex(CLAY.top).multiply(new THREE.Color(k.tone)));
+}
+
 /** 모형 안 금지 구역 재질(nogo*) 색 */
 export const NOGO_MODEL = 0xff4d4f;
 /** 단면 자른 면 어둡기(뒷면 색 곱) */
@@ -67,7 +94,7 @@ export function clayBox(root: THREE.Object3D) {
 
 /** 모형 덮기: 모든 면을 점토 재질 하나로(원래 재질은 거둠) · 그림자 주고받기 */
 export function clayCoat(root: THREE.Object3D) {
-  const clay = new THREE.MeshStandardMaterial({ color: CLAY.top, roughness: 1, metalness: 0 });
+  const clay = new THREE.MeshStandardMaterial({ color: CLAY.top, roughness: 1, metalness: 0 }); clay.userData.clay = true;
   root.traverse((o) => {
     const m = o as THREE.Mesh; if (!m.isMesh) return;
     const old = Array.isArray(m.material) ? m.material : [m.material], n = old[0]?.name ?? '';
