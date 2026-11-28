@@ -91,7 +91,9 @@ export function stopText({ stop: p, link: l, step, slotBusy }: Sim) {
   const st = l?.st;
   if (!st || l!.stAt <= p.at) return '■ 정지 요청을 로봇에 보냈습니다. 로봇 확인을 기다립니다.';
   if (!st.latched) return '■ 정지 요청을 보냈지만 로봇이 아직 잠금을 알리지 않았습니다.';
-  return st.applied.every((v) => v === 0) ? '■ 정지 잠금 — 로봇이 잠금과 멈춤 출력을 알렸습니다.' : '▲ 정지 잠금 — 출력이 아직 멈추지 않았습니다. 현장을 확인하세요.';
+  // 빈 applied = 출력 보고 없음(현장 승인 닫힘 등) · [].every 는 참이라 따로
+  if (!st.applied?.length) return '▲ 정지 잠금 · 멈춤 출력은 확인되지 않았습니다 (현장 승인이 닫혀 있을 수 있음). 리모컨이나 현장에서 멈추세요.';
+  return st.applied.every((v) => v === 0) ? '■ 정지 잠금 · 로봇이 잠금과 멈춤 출력을 알렸습니다.' : '▲ 정지 잠금 · 출력이 아직 멈추지 않았습니다. 현장을 확인하세요.';
 }
 
 /** 잠금 사유 OUTPUT_STALLED(에이전트 출력 지연 → 0·STOP·잠금) 안내. 해제 판정은 에이전트 몫이라 단추 동작은 그대로 */
