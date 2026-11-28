@@ -232,14 +232,14 @@ function Settings({ c, r }: { c: Ctx; r: Robot }) {
 function Check({ c, r, guide }: { c: Ctx; r: Robot; guide: () => void }) {
   useRt();
   const mineOrAdmin = r.owner === c.user.id || c.user.role === 'ORG_ADMIN';
-  const { pill, steps, net } = prepSteps(c, r), list = checks(r, net), bad = list.filter((x) => x.state === 'blocked').length;
-  const t = new Date(rt.now()), at = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
+  const { pill, steps, net } = prepSteps(c, r), list = checks(r, net), bad = list.filter((x) => x.state === 'blocked').length, unknown = list.filter((x) => x.state === 'none').length;
+  const t = new Date(), at = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
   const tone = { ok: 'var(--pr3)', blocked: '#ff4d4f', none: 'var(--mu2)' } as const;
   const row = (k: string, state: keyof typeof tone, name: ReactNode, small: ReactNode, attrs: Record<string, unknown> = {}) => <div className="r" key={k} {...attrs}>
     <span style={{ color: tone[state] }}><svg className="ic" viewBox="0 0 24 24" style={{ width: '20px', height: '20px' }}>{CHECK_IC[state]}</svg></span>{name}<small>{small}</small></div>;
   return <div className="pane2 chk" style={{ position: 'absolute', inset: '0', padding: '22px 8px 8px' }} aria-label="점검" data-u4-tab="check">
     <div className="row" style={{ justifyContent: 'space-between', padding: '0 18px 12px' }}><span className="ttl">순서 점검</span>
-      <span className="mu2" style={{ fontSize: '13px' }} data-u4-check-head>{mineOrAdmin ? `${at} · ${bad ? `${bad} 곳 막힘` : '모두 통과'}` : NA}</span></div>
+      <span className="mu2" style={{ fontSize: '13px' }} data-u4-check-head>{mineOrAdmin ? `${at} · ${bad ? `${bad} 곳 막힘` : unknown ? `${unknown} 곳 확인 전` : '모두 통과'}` : NA}</span></div>
     {!mineOrAdmin ? <p className="mu" style={{ padding: '0 18px' }} data-u4-check-none>내 담당 로봇만 점검할 수 있습니다 · 이 로봇은 요약만 보입니다.</p> : <>
       <div data-readycheck-list>{list.map((x) => row(x.key, x.state, CHECK_NAME[x.key] ?? x.name, x.why, { 'data-check': x.key, 'data-state': x.state }))}</div>
       <section aria-label="조종 준비" data-u4-prep data-pill={pill.tone}>
