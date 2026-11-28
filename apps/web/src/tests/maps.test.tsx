@@ -2,7 +2,7 @@
 // fetch 는 가짜 서버, WebSocket 은 FakeWS. 나무·권한별 단추, 409/403/404/422/413/네트워크 실패, 좌표 변환·y 뒤집힘,
 // 두 단계 올리기 순서·실패 중단, STALE, 판 전환, 승인 판 없음, 로봇 점 없음, 어떤 실패에도 STOP 이 보이고 실제로 정지 요청이 나가는지 본다.
 import { CLAY_CAM, cellAt, clayCam, occGrid } from '../screens/u7/clay';
-import { areaOf, dateOf, inkOf, planText, pointsText, railGroups, regionOf, siteOrder, tagOf } from '../screens/u7/pick';
+import { areaOf, dateOf, inkOf, planText, pointsText, railGroups, regionOf, siteOrder, tagOf, unitOf } from '../screens/u7/pick';
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
@@ -2623,6 +2623,24 @@ describe('지도 탭 고르기 첫 줄 · 썸네일 거름', () => {
     expect([...box.querySelectorAll('[data-u7-linedefs] filter')].map((f) => f.id)).toEqual(['u7-line-d', 'u7-line-l', 'u7-line-d-i', 'u7-line-l-i']);
     const px = (v: number) => new Uint8ClampedArray([v, v, v, 255, v, v, v, 255, 0, 0, 0, 0]);
     expect([inkOf(px(250)), inkOf(px(30)), inkOf(new Uint8ClampedArray(4))]).toEqual(['light', 'dark', 'light']);   // 흰 빈 곳 판 · 어두운 색 그림 · 투명뿐
+  });
+});
+
+// 조정 00:00: 서버 region 이 없을 때 시안 이름 표 지역(장애물 경기장 = 시험 → 위 묶음) · 스캔 전 묶음 순서 조선대 → 사관학교 · 단위 층 / 구간
+describe('지도 탭 시안 이름 표(지역 · 순서 · 단위)', () => {
+  it('region 칸 없이: 머리 국내 · 해외 · 시험 · 장애물 경기장 위 · 스캔 전 = 조선대 → 사관학교 · 공동구 = 구간', () => {
+    const S = (id: string, name: string) => ({ id, name, purpose: 'REAL', buildings: [] });
+    const fl = (id: string, name: string, v: string | null) => ({ id, building_id: 'x', name, level: 1, approved_version_id: v }) as never;
+    const bd = (id: string, floors: never[]) => ({ id, site_id: 's', name: id, floors }) as never;
+    const sites = [S('a', '인공지능사관학교'), S('b', '장애물 경기장'), S('c', '조선대 IT융합대학'), S('d', '지하 공동구'), S('e', '큰 공장'), S('f', '해외 플랜트')];
+    const blds = [{ site: sites[0], building: bd('사관', [fl('f1', '1층', null)]) }, { site: sites[1], building: bd('경기장', [fl('f2', '경기장 전체', null)]) },
+      { site: sites[2], building: bd('조선대', [fl('f3', '5층', null)]) }, { site: sites[3], building: bd('공동구', [fl('f4', '구간 A', 'v4'), fl('f5', '구간 B', 'v5')]) },
+      { site: sites[4], building: bd('공장', [fl('f6', '1층', 'v6')]) }, { site: sites[5], building: bd('플랜트', [fl('f7', '1층', 'v7')]) }] as never;
+    const g = railGroups(sites as never, blds);
+    expect(g.map((x) => [x.head, x.rows.map((r) => (r.building as { id: string }).id)])).toEqual([['국내 · 해외 · 시험', ['공장', '공동구', '플랜트', '경기장']], ['실제 현장 · 아직 스캔 전', ['조선대', '사관']]]);
+    expect([regionOf(sites[3] as never), regionOf(sites[1] as never), regionOf(sites[0] as never)]).toEqual(['국내', '시험', '']);
+    expect([unitOf([{ name: '구간 A' }, { name: '구간 B' }]), unitOf([{ name: '1층' }]), unitOf([])]).toEqual(['구간', '층', '층']);
+    expect(g.reduce((a, x) => a + x.rows.reduce((b, r) => b + r.n, 0), 0)).toBe(4);   // 머리 「지도 N 개」 = 판 있는 층 수(오른쪽 수의 합)
   });
 });
 

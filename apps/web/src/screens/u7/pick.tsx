@@ -42,7 +42,13 @@ type VerOpt = { point_count?: number | null; area_m2?: number | null; origin_kin
 const sopt = (s: MapSite) => s as MapSite & SiteOpt;
 const opt = (v: MapVersion) => v as MapVersion & VerOpt;
 const REGION: Record<string, string> = { DOMESTIC: '국내', OVERSEAS: '해외', TEST: '시험' };
-export const regionOf = (s: MapSite) => REGION[sopt(s).region ?? ''] ?? '';
+/** 임시 표(조정 23:39 · 00:00): 서버 sort_order · region 이 아직 없어 시안 u7_1 현장 순서 · 지역을 이름으로 고정. 서버 칸이 오면 서버 값이 이기고 이 표는 지움 */
+const PROTO_SITES: [string, 'DOMESTIC' | 'OVERSEAS' | 'TEST' | null][] = [['큰 공장', 'DOMESTIC'], ['지하 공동구', 'DOMESTIC'], ['해외 플랜트', 'OVERSEAS'], ['장애물 경기장', 'TEST'],
+  ['조선대 IT융합대학', null], ['인공지능사관학교', null]];
+const regionKey = (s: MapSite) => sopt(s).region ?? PROTO_SITES.find(([n]) => n === s.name)?.[1] ?? null;
+export const regionOf = (s: MapSite) => REGION[regionKey(s) ?? ''] ?? '';
+/** 층 단위(시안 u7_1 「2 층」 · 「2 구간」): 층 이름이 모두 「구간 …」 이면 구간, 아니면 층 */
+export const unitOf = (floors: { name: string }[]) => (floors.length && floors.every((f) => /^구간/.test(f.name)) ? '구간' : '층');
 /** 점 수 글(시안 u7 꼴 「9.6 억 점」 · 「1.1 억 점」 · 「3,400 만 점」 · 「8,200 점」) · 칸 없으면 '' */
 export const pointsText = (v: MapVersion) => { const n = opt(v).point_count; if (typeof n !== 'number' || n <= 0) return '';
   if (n >= 1e8) return `${Math.round(n / 1e7) / 10} 억 점`; if (n >= 1e4) return `${Math.round(n / 1e4).toLocaleString('ko-KR')} 만 점`; return `${n.toLocaleString('ko-KR')} 점`; };
@@ -131,7 +137,7 @@ function TrashPane({ again }: { again: () => void }) {
 
 /** 왼쪽 현장 두 묶음(시안 u7_1): 지도가 있는(또는 시뮬) 건물 = 머리 빈 자리(시안 「국내 · 해외 · 시험」 = 지역 칸, 서버에 아직 없음), 실제 현장(purpose REAL)인데 지도 0 개 = 「실제 현장 · 아직 스캔 전」. 장소 순서 = 서버 목록 */
 /** 현장 순서: 서버 sort_order 가 있으면 그것(작은 수 먼저), 없으면 시안 u7_1 순서를 이름으로 고정한 임시 표, 표에 없으면 서버 순서 그대로(조정 23:39 · sort_order 오면 표는 지움) */
-const PROTO_ORDER = ['큰 공장', '지하 공동구', '해외 플랜트', '장애물 경기장'];
+const PROTO_ORDER = PROTO_SITES.map(([n]) => n);
 export const siteOrder = (sites: MapSite[]) => {
   const key = (st: MapSite, i: number) => { const o = (st as { sort_order?: number | null }).sort_order, k = PROTO_ORDER.indexOf(st.name);
     return [typeof o === 'number' ? 0 : k >= 0 ? 1 : 2, typeof o === 'number' ? o : k >= 0 ? k : i] as const; };
@@ -140,8 +146,8 @@ export const siteOrder = (sites: MapSite[]) => {
 export function railGroups(sites: MapSite[], blds: { site: Place['site']; building: Place['building'] }[]) {
   const rows = siteOrder(sites).flatMap((st) => blds.filter((x) => x.site.id === st.id).map((x) => ({ site: st, building: x.building, n: x.building.floors.filter((f) => f.approved_version_id).length })));
   // region TEST(시험 · 장애물 경기장 등)는 판이 없어도 위 묶음 · 위 묶음 머리 = 있는 지역 글(국내 · 해외 · 시험 순), 지역 칸이 없으면 빈 머리
-  const late = rows.filter((r) => !r.n && purposeOf(r.site) === 'REAL' && sopt(r.site).region !== 'TEST'), maps = rows.filter((r) => !late.includes(r));
-  const head = ['DOMESTIC', 'OVERSEAS', 'TEST'].filter((k) => maps.some((r) => sopt(r.site).region === k)).map((k) => REGION[k]).join(' · ');
+  const late = rows.filter((r) => !r.n && purposeOf(r.site) === 'REAL' && regionKey(r.site) !== 'TEST'), maps = rows.filter((r) => !late.includes(r));
+  const head = ['DOMESTIC', 'OVERSEAS', 'TEST'].filter((k) => maps.some((r) => regionKey(r.site) === k)).map((k) => REGION[k]).join(' · ');
   return [...(maps.length ? [{ head, rows: maps, late: false }] : []),
     ...(late.length ? [{ head: '실제 현장 · 아직 스캔 전', rows: late, late: true }] : [])];
 }
@@ -155,7 +161,8 @@ export function PickU7({ maker, t, places, vers, choose, make, note, manage, set
   const cur = blds.find((x) => x.building.id === bid) ?? blds.find((x) => x.building.id === first) ?? blds[0];
   const [fid, setFid] = useState(''), floors = cur ? byLevel(cur.building.floors) : [];
   const fl = floors.find((f) => f.id === fid) ?? (cur && picFloor(cur.building)) ?? floors[0], v = fl?.approved_version_id ? vers[fl.approved_version_id] : undefined;
-  const maps = places.filter((p) => p.floor.approved_version_id).length;
+  // 머리 「지도 N 개」(시안 u7_1 「지도 8 개」 = 왼쪽 줄 오른쪽 수의 합) = 지도 탭에 보이는 현장들의 판(승인 판)이 있는 층 수
+  const maps = rail.reduce((a, g) => a + g.rows.reduce((b, x) => b + x.n, 0), 0);
   const [no3, setNo3] = useState(''), [why, setWhy] = useState('');
   const demo = !!cur && demoBoard(cur.site, cur.building), none = !!t.tree && !places.length;
   const newMap = () => { if (maker) make('robot'); else setWhy('지도 만들기는 담당 실기 로봇이 있어야 합니다. 지도 파일은 「관리」 의 「3D 지도 올리기」 로 올립니다.'); };
@@ -169,7 +176,7 @@ export function PickU7({ maker, t, places, vers, choose, make, note, manage, set
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>{g.rows.map(({ site: st, building: b, n }) =>
           <div key={b.id} className={`site${b.id === cur?.building.id ? ' on' : ''}`} style={n ? undefined : { opacity: 0.72 }} role="button" tabIndex={0} aria-pressed={b.id === cur?.building.id} data-building={b.id} data-site={st.name}
             onClick={() => { setBid(b.id); setFid(''); }}><span className="av" style={n || b.id === cur?.building.id ? undefined : { background: 'transparent', border: '1.5px dashed rgba(255,255,255,.28)' }}>{ic(19, PIN)}</span>
-            <div style={{ flex: 1, minWidth: 0 }}>{b.name}<small>{g.late ? [...byLevel(b.floors).map((f) => f.name), planText(st)].filter(Boolean).join(' · ') : `${regionOf(st) ? `${regionOf(st)} · ` : ''}${st.name === b.name ? '' : `${st.name} · `}${b.floors.length} 층${n ? '' : ' · 지도 없음'}`}</small></div><span className="mu2" style={{ fontSize: '12.5px' }}>{n}</span></div>)}</div></div>)}
+            <div style={{ flex: 1, minWidth: 0 }}>{b.name}<small>{g.late ? [...byLevel(b.floors).map((f) => f.name), planText(st)].filter(Boolean).join(' · ') : `${regionOf(st) ? `${regionOf(st)} · ` : ''}${st.name === b.name ? '' : `${st.name} · `}${b.floors.length} ${unitOf(b.floors)}${n ? '' : ' · 지도 없음'}`}</small></div><span className="mu2" style={{ fontSize: '12.5px' }}>{n}</span></div>)}</div></div>)}
       {t.tree && !blds.length && <p className="mu2" style={{ fontSize: '13px', margin: '14px 6px' }}>아직 층이 있는 건물이 없습니다. 「관리」 에서 장소 · 건물 · 층을 만듭니다.</p>}
       <div style={{ position: 'absolute', left: '20px', right: '20px', bottom: '20px', fontSize: '12.5px', lineHeight: '1.55', color: 'var(--mu2)' }}>로봇이 현장을 걸으며 스캔한 3D 지도입니다. 층마다 따로 만듭니다.</div></div>
     <div className="head"><span className="ttl" style={{ fontSize: '26px' }}>지도</span>{cur && <span className="mu2" style={{ fontSize: '14px', fontWeight: 600 }} data-u7-sub>{cur.site.name === cur.building.name ? cur.building.name : `${cur.building.name} · ${cur.site.name}`}</span>}
