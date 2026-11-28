@@ -1,0 +1,53 @@
+{
+  "$id": "fh-app/1/EventCategoryCounts",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "ACCOUNT": {
+      "minimum": 0,
+      "title": "Account",
+      "type": "integer"
+    },
+    "APPROVAL": {
+      "minimum": 0,
+      "title": "Approval",
+      "type": "integer"
+    },
+    "LEASE": {
+      "minimum": 0,
+      "title": "Lease",
+      "type": "integer"
+    },
+    "LINK": {
+      "minimum": 0,
+      "title": "Link",
+      "type": "integer"
+    },
+    "ROUTE": {
+      "minimum": 0,
+      "title": "Route",
+      "type": "integer"
+    },
+    "RUN": {
+      "minimum": 0,
+      "title": "Run",
+      "type": "integer"
+    },
+    "SAFETY": {
+      "minimum": 0,
+      "title": "Safety",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "RUN",
+    "ROUTE",
+    "LINK",
+    "LEASE",
+    "APPROVAL",
+    "SAFETY",
+    "ACCOUNT"
+  ],
+  "title": "EventCategoryCounts",
+  "type": "object"
+}

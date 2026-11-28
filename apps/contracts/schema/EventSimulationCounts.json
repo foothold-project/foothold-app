@@ -1,0 +1,30 @@
+{
+  "$id": "fh-app/1/EventSimulationCounts",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "none": {
+      "description": "로봇 없는 사건 (계정 등). simulation 을 걸면 목록에서 빠진다",
+      "minimum": 0,
+      "title": "None",
+      "type": "integer"
+    },
+    "real": {
+      "minimum": 0,
+      "title": "Real",
+      "type": "integer"
+    },
+    "sim": {
+      "minimum": 0,
+      "title": "Sim",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "real",
+    "sim",
+    "none"
+  ],
+  "title": "EventSimulationCounts",
+  "type": "object"
+}

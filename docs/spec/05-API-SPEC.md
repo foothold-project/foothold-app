@@ -383,7 +383,7 @@ purge 이후 NULL 기록이 생겼거나 파일 대기열이 남으면
 
 | 메서드 | 경로 | 설명 | 권한 |
 |---|---|---|---|
-| GET | `/events` | 사건 `?category=&severity=&robot_id=&user_id=&run_id=&from&to` | 로그인(운영자는 범위 제한) |
+| GET | `/events` | 사건 `?category=&severity=&robot_id=&user_id=&run_id=&from&to&q=&simulation=&has_clip=`. 응답 `{items, next_cursor, counts?, clip_retention_days?}` (아래 «기록 탭 찾기 · 거르기 · 개수») | 로그인(운영자는 범위 제한) |
 | GET | `/events/export.csv` | 같은 필터로 CSV | 로그인(`/events` 와 같은 범위 판정) |
 | GET | `/notifications` | 내 알림 `?unread=1` | 로그인 |
 | POST | `/notifications/read` | `{ids}` 또는 `{all:true}` | 로그인 |
@@ -410,6 +410,19 @@ purge 이후 NULL 기록이 생겼거나 파일 대기열이 남으면
 - 서버는 사건 행을 넣는 모든 경로에서 이 하한을 한 곳(`fh_server/models.py` 의 `severity_floor`)으로 건다. 에이전트도 보낼 때 같은 규칙을 쓴다(폰 허브 `PHONE_LEASE_TIMEOUT` 등은 `warn`).
 - 서버 조종권 요청 시간 초과의 코드 `TIMEOUT` 은 밑줄이 없어 위 정규식에 맞지 않지만, 따로 지정해 최소 `WARN` 이다(2026-11-28 결정).
 
+**기록 탭 찾기 · 거르기 · 개수** (운영 결정 2026-11-28, #613)
+- 새 매개변수는 `/events` 와 `/events/export.csv` 에 같이 걸린다. 셋 다 생략하면 이전과 같다.
+  - `q`: 찾기 문구 (최대 100 자, 앞뒤 공백을 지우고 비면 생략과 같다). 사건 `message` · `code` · 로봇 이름 가운데 하나에 들어 있으면 맞는다. 대소문자를 가리지 않고, `%` · `_` 는 글자 그대로 찾는다.
+  - `simulation`: `true` 는 시뮬 로봇 사건만, `false` 는 실기 로봇 사건만. 기준은 사건의 로봇이 지금 가진 `simulation` 값이다. 로봇이 없는 사건(계정 등)은 어느 쪽에도 들지 않는다.
+  - `has_clip`: `true` 는 `data.clip` 이 JSON `true` 인 사건만(«지금 남기기» 가 영상을 원한 사건, §8.1), `false` 는 그 밖. 영상이 실제로 만들어졌는지는 뜻하지 않는다.
+- 범위 판정은 기존 `/events` 와 같다. 찾기와 개수도 볼 수 있는 사건 안에서만 하고, 다른 조직 사건 · 로봇 이름은 섞이지 않는다.
+- `counts` (선택 칸, `EventCounts`): 첫 쪽(`cursor` 없음)에만 값이 있고 다음 쪽은 `null` 이다.
+  - `total`: 모든 거르기를 건 사건 수 (`limit` 무시).
+  - `category` (7 종) · `severity` (`INFO` · `WARN` · `ERROR`) · `simulation` (`real` · `sim` · `none`=로봇 없음) · `clip` (`with_clip` · `without_clip`). 칸은 늘 다 있고 없는 값은 0 이다.
+  - 각 묶음은 자기 거르기만 빼고 나머지를 다 건 수다. 예: `severity=WARN` 이어도 `severity` 묶음은 세 등급을 다 센다. 그래서 거르기 판이 다른 칸의 수를 그대로 보여 줄 수 있다.
+- `clip_retention_days` (선택 칸): 사건 영상 보관 일수. 조직 설정에는 이 값이 없어 서버 설정 `FH_CLIP_RETENTION_DAYS` (1 이상 정수)를 싣는다. 설정이 없으면 `null` 이다. 보관 기간이 지난 영상을 지우는 작업은 아직 없다.
+- 이전 응답 모양 `{items, next_cursor}` 만 읽는 화면은 그대로 동작한다.
+
 ### 8.1 사건 영상 · 관절 기록 재생 · 지금 남기기 (u07, IMPL-GAP U8-03~U8-12)
 
 정본 타입은 `apps/contracts/models.py` 의 `EventClip` · `EventClipList` · `JointLogFrame` · `JointLogReplay` · `RecordMarkRequest` · `RecordMarkResult` 다.
@@ -419,6 +432,7 @@ purge 이후 NULL 기록이 생겼거나 파일 대기열이 남으면
 - 길이: 사건 10 초 전부터 5 초 뒤까지 (`CLIP_PRE_S` · `CLIP_POST_S`). 넘어짐은 다시 설 때까지라 서기 전에는 `end_at` 이 null 이다.
 - 등급: 위험(`ERROR`)은 늘 영상을 남긴다. 주의(`WARN`)는 고른 때만 남긴다. 정보(`INFO`)는 기록만 하고 영상이 없다.
 - 상태 `status`: `PENDING`(만드는 중) · `READY`(`url` 있음) · `FAILED`(`reason` 있음) · `NOT_BUILT`(만드는 장치가 아직 없음, `clip_id` null, `reason` 있음). `url` 은 `READY` 일 때만 값이 있다.
+- 썸네일 · 길이 (선택 칸, 2026-11-28 추가): `thumbnail_url` · `duration_s`(실제 영상 길이 초, 0 이상). `READY` 일 때만 값이 올 수 있고 그 밖의 상태는 `null` 이다. 썸네일 만들기와 길이 재기는 아직 서버에 없어 지금은 늘 `null` 이다.
 
 **관절 기록 재생**: `JointLogReplay { event_id, robot_id, start_at, joint_names[12], rate_hz, frames[] }`, 프레임은 `JointLogFrame { t, q[12], base { xyz[3], wxyz[4] }, gait|null }`. `t` 는 `start_at` 부터 초이고 프레임은 시간 순으로 늘어난다. `q` 는 `joint_names` 순서의 rad. 재생 빠르기 0.25 · 0.5 · 1 · 2 배와 반복은 웹이 프레임을 다시 그려서 한다. 서버는 빠르기를 받지 않는다.
 

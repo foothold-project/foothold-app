@@ -489,6 +489,16 @@ export interface Event {
   data: Record<string, unknown>;
 }
 
+export interface EventCategoryCounts {
+  RUN: number;
+  ROUTE: number;
+  LINK: number;
+  LEASE: number;
+  APPROVAL: number;
+  SAFETY: number;
+  ACCOUNT: number;
+}
+
 export interface EventClip {
   /** 만든 영상 번호. 만들기 전(NOT_BUILT)에는 null */
   clip_id: string | null;
@@ -503,6 +513,16 @@ export interface EventClip {
   url: string | null;
   /** NOT_BUILT · FAILED 의 까닭 코드 (예: CLIP_PIPELINE_NOT_BUILT) */
   reason: string | null;
+  /** READY 일 때만 값이 올 수 있다. 썸네일 만들기 전에는 null */
+  thumbnail_url?: string | null;
+  /** 만든 영상의 실제 길이 초. READY 일 때만 값이 올 수 있다 */
+  duration_s?: number | null;
+}
+
+export interface EventClipCounts {
+  /** data.clip 이 true 인 사건 */
+  with_clip: number;
+  without_clip: number;
 }
 
 export interface EventClipList {
@@ -510,9 +530,35 @@ export interface EventClipList {
   next_cursor: string | null;
 }
 
+export interface EventCounts {
+  /** 모든 거르기를 건 사건 수 (cursor · limit 무시) */
+  total: number;
+  category: EventCategoryCounts;
+  severity: EventSeverityCounts;
+  simulation: EventSimulationCounts;
+  clip: EventClipCounts;
+}
+
 export interface EventList {
   items: Event[];
   next_cursor: string | null;
+  /** 첫 쪽 (cursor 없음) 에만 값. 다음 쪽은 null */
+  counts?: EventCounts | null;
+  /** 사건 영상 보관 일수. 서버 설정 FH_CLIP_RETENTION_DAYS, 없으면 null */
+  clip_retention_days?: number | null;
+}
+
+export interface EventSeverityCounts {
+  INFO: number;
+  WARN: number;
+  ERROR: number;
+}
+
+export interface EventSimulationCounts {
+  real: number;
+  sim: number;
+  /** 로봇 없는 사건 (계정 등). simulation 을 걸면 목록에서 빠진다 */
+  none: number;
 }
 
 export interface ExecutableAgentScenario {

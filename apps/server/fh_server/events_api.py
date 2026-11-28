@@ -10,7 +10,8 @@ from uuid import UUID
 
 from fastapi import Depends, Query, Request, Response
 from fastapi.responses import StreamingResponse
-from sqlalchemy import or_, select, tuple_
+from sqlalchemy import and_, func, not_, or_, select, tuple_
+from sqlalchemy.orm import aliased
 from apps.contracts import models as C
 from .models import Event, Robot, User
 
@@ -143,18 +144,38 @@ def csv_cell(value):
     return value
 
 
-def install(app, DB, Identity, fail):
+def like(text):
+    return '%' + text.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
+
+
+def has_clip():
+    # mark-now stores data.clip as the JSON boolean «a clip was wanted» (05 §8.1).
+    return Event.data.contains({'clip': True})
+
+
+def search(user, text):
+    pattern = like(text)
+    named = select(Robot.id).where(Robot.org_id == user.org_id, Robot.name.ilike(pattern, escape='\\'))
+    return or_(Event.message.ilike(pattern, escape='\\'), Event.code.ilike(pattern, escape='\\'),
+               Event.robot_id.in_(named))
+
+
+def install(app, DB, Identity, fail, clip_retention_days=None):
     app.add_middleware(CSVResourcesMiddleware)
     def filters(category: C.Category | None = None, severity: Literal['INFO', 'WARN', 'ERROR'] | None = None,
                 robot_id: UUID | None = None, user_id: UUID | None = None, run_id: UUID | None = None,
                 start: Annotated[C.UTCDateTime | None, Query(alias='from')] = None,
-                end: Annotated[C.UTCDateTime | None, Query(alias='to')] = None):
+                end: Annotated[C.UTCDateTime | None, Query(alias='to')] = None,
+                q: Annotated[str | None, Query(max_length=100)] = None,
+                simulation: bool | None = None, has_clip: bool | None = None):
         if start and end and start > end:
             fail(400, 'VALIDATION', '시작 시각은 끝 시각보다 늦을 수 없습니다.')
         return dict(category=category, severity=severity, robot_id=robot_id, user_id=user_id,
-                    run_id=run_id, start=start, end=end)
+                    run_id=run_id, start=start, end=end, q=(q or '').strip() or None,
+                    simulation=simulation, has_clip=has_clip)
 
-    def filtered(db, user, values):
+    def filtered(db, user, values, skip=None):
+        """skip: one facet ('category' · 'severity' · 'simulation' · 'has_clip') left unfiltered for counts."""
         query = visible_events(user)
         def missing():
             fail(404, 'NOT_FOUND', '기록을 찾을 수 없습니다.')
@@ -174,13 +195,43 @@ def install(app, DB, Identity, fail):
         if values['run_id'] and not db.scalar(query.where(Event.run_id == values['run_id']).with_only_columns(Event.id).limit(1)):
             missing()
         for key in ('category', 'severity', 'robot_id', 'user_id', 'run_id'):
-            if values[key] is not None:
+            if values[key] is not None and key != skip:
                 query = query.where(getattr(Event, key) == values[key])
         if values['start']:
             query = query.where(Event.at >= values['start'])
         if values['end']:
             query = query.where(Event.at <= values['end'])
+        if values['q']:
+            query = query.where(search(user, values['q']))
+        if values['simulation'] is not None and skip != 'simulation':
+            # Robotless events (ACCOUNT etc.) are neither real nor simulated.
+            query = query.where(Event.robot_id.in_(select(Robot.id).where(
+                Robot.org_id == user.org_id, Robot.simulation.is_(values['simulation']))))
+        if values['has_clip'] is not None and skip != 'has_clip':
+            query = query.where(has_clip() if values['has_clip'] else not_(has_clip()))
         return query.order_by(Event.at.desc(), Event.id.desc())
+
+    def counts(db, user, values):
+        def grouped(key):
+            column = getattr(Event, key)
+            rows = db.execute(filtered(db, user, values, skip=key).order_by(None)
+                .with_only_columns(column, func.count()).group_by(column))
+            return dict(rows.all())
+        category, severity = grouped('category'), grouped('severity')
+        robot = aliased(Robot)
+        real, sim, none = db.execute(filtered(db, user, values, skip='simulation').order_by(None)
+            .with_only_columns(func.count().filter(robot.simulation.is_(False)),
+                               func.count().filter(robot.simulation.is_(True)),
+                               func.count().filter(robot.id.is_(None)))
+            .select_from(Event).outerjoin(robot, and_(robot.org_id == Event.org_id, robot.id == Event.robot_id))).one()
+        clipped, total_clip = db.execute(filtered(db, user, values, skip='has_clip').order_by(None)
+            .with_only_columns(func.count().filter(has_clip()), func.count())).one()
+        total = db.scalar(filtered(db, user, values).order_by(None).with_only_columns(func.count()))
+        return C.EventCounts(total=total,
+            category={key: category.get(key, 0) for key in C.CATEGORIES},
+            severity={key: severity.get(key, 0) for key in ('INFO', 'WARN', 'ERROR')},
+            simulation={'real': real, 'sim': sim, 'none': none},
+            clip={'with_clip': clipped, 'without_clip': total_clip - clipped})
 
     @app.get('/api/v1/events', response_model=C.EventList)
     def events(auth: Identity, db: DB, response: Response, values: Annotated[dict, Depends(filters)],
@@ -194,7 +245,8 @@ def install(app, DB, Identity, fail):
         rows = rows[:limit]
         response.headers['Cache-Control'] = 'no-store'
         return C.EventList(items=[event_object(row) for row in rows],
-            next_cursor=cursor_encode(rows[-1].at, rows[-1].id) if more else None)
+            next_cursor=cursor_encode(rows[-1].at, rows[-1].id) if more else None,
+            counts=None if after else counts(db, auth[0], values), clip_retention_days=clip_retention_days)
 
     @app.get('/api/v1/events/export.csv')
     def export(request: Request, auth: Identity, db: DB, values: Annotated[dict, Depends(filters)]):
