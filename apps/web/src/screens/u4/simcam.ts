@@ -16,6 +16,8 @@ export const CAM_FOV = 62, CAM_PITCH = 0.08;
 export const FACTORY_GLB = '/proto-assets/assets/maps_large/3d/factory_site.glb';
 /** 시안 공장 터 지도 그림(3200 × 2000 px · 3.5 px/m · 그림 원점 (25, 20) px · 900 m × 560 m) */
 export const FACTORY_PNG = '/proto-assets/shared/map_large_factory.png';
+/** 밝은 판 공장 그림: 시안 build_scene.py 가 같은 3200 × 2000 px 에 정사영으로 뽑은 흰 점토 결 그림(지도 탭 · 관제와 같은 파일) */
+export const FACTORY_LIGHT = '/proto-assets/shared/map_large_factory_top.jpg';
 const K = 3.5, OX = 25, OY = 20, FW = 3200, FH = 2000;
 /** 서버 판 m(x 동 · y 북) → 시안 공장 그림 px. 시안 design 변환 그대로(px = 25 + 3.5 x, py = 20 − 3.5 y) · 데모 현장 판에만 쓴다 */
 export const factoryPx = (x: number, y: number) => [OX + K * x, OY - K * y] as const;

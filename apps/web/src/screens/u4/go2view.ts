@@ -40,6 +40,7 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
   const rim = new THREE.DirectionalLight(0x00c389, 1.6); rim.position.set(-1.5, 1.2, -1.8); scene.add(rim);
   const rim2 = new THREE.DirectionalLight(0x4c9bff, 0.8); rim2.position.set(1.6, 0.6, -1.4); scene.add(rim2);
 
+  const pools: THREE.Object3D[] = [];   // 어두운 판 바닥 빛 웅덩이(밝은 판에서는 회색 원으로 보여 끔)
   const N = 44, step = 0.09, pts = new Float32Array(N * N * 3);
   for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) { const k = (i * N + j) * 3; pts[k] = (i - N / 2) * step; pts[k + 1] = 0; pts[k + 2] = (j - N / 2) * step; }
   const gg = new THREE.BufferGeometry(); gg.setAttribute('position', new THREE.BufferAttribute(pts, 3));
@@ -63,6 +64,7 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
       vertexShader: `varying vec2 u; void main(){ u=position.xy/0.6; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);} `,
       fragmentShader: `varying vec2 u; void main(){ float d=clamp(length(u),0.0,1.0); float a=(1.0-d)*(1.0-d); gl_FragColor=vec4(0.85,0.9,1.0,0.13*a);} ` }));
     pool.rotation.x = -Math.PI / 2; pool.position.y = 0.0005; pool.renderOrder = -1; scene.add(pool);
+    pools.push(pool);
   }
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.22, 48), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 }));
   shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.001; shadow.scale.set(1, 1.5, 1); scene.add(shadow);
@@ -119,6 +121,7 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
     grid.traverse((o) => { const m = (o as THREE.Points).material as THREE.ShaderMaterial | undefined; if (!m?.uniforms?.col) return;
       m.blending = l ? THREE.NormalBlending : dark.blend; m.uniforms.col.value.copy(l ? mint : dark.col); m.needsUpdate = true; });
     shadow.material.opacity = l ? 0.18 : 0.35;
+    pools.forEach((o) => { o.visible = !l; });
   };
   const clock = new THREE.Clock(); let t = 0.35, off = 0, raf = 0;
   function frame() {

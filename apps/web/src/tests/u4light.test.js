@@ -16,11 +16,11 @@ describe('로봇 탭 u4 밝은 판 = DESIGN.md 밝음 1', () => {
       expect(m[2], m[1]).not.toMatch(/var\(--(paper|ink|brand|rule|card|dim)/);
     }
   });
-  it('흰 칸 위 동작 단추 글자 = 글자색(흰 글자 · 그림자 아님), 3D 무대 위 띠 = 어두운 유리 + 흰 글자', () => {
+  it('흰 칸 위 동작 단추 글자 = 글자색(흰 글자 · 그림자 아님), 3D 무대 위 띠 = 밝은 유리 + 밝음 1 글자', () => {
     const at = (sel) => rules.find((m) => m[1].split(',').map((x) => x.trim()).includes(sel))?.[2] ?? '';
     expect(at('.proto.light .u4 .act div')).toMatch(/color:#1F2421/);
-    expect(at('.proto.light .u4 .stage3d .g.dk')).toMatch(/rgba\(31,36,33,\.62\)/);
-    expect(at('.proto.light .u4 .stage3d .g.dk')).toMatch(/color:#FFFFFF/);
+    expect(at('.proto.light .u4 .stage3d [data-u4-walk]')).toMatch(/color:#0E7F63/);   // 밝은 무대 위 밝은 유리 · 밝음 1 글자
+    expect(at('.proto.light .u4 .stage3d [data-u4-loc]')).toMatch(/color:#1F2421/);
   });
   it('밝은 판 무대 · 지도 칸 바탕 = 밝음 1 (어두운 결 아님)', () => {
     const at = (sel) => rules.find((m) => m[1].split(',').map((x) => x.trim()).includes(sel))?.[2] ?? '';
