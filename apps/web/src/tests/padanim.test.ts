@@ -1,7 +1,7 @@
 // 충전 · 점검 바닥 표시 위로 오르는 층(팀장 11-29 01:37): 층 크기 · 박 단계 · 움직임 줄이기 · 관제 타일과 로봇 탭이 같은 함수
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { PAD_BEATS, PAD_PLAN, PAD_PLANS, PAD_RISE, PAD_TOP, padGroup, padRise, padStep, padTick } from '../proto/padanim';
+import { PAD_BEATS, PAD_PLAN, PAD_PLANS, PAD_RISE, PAD_TOP, padGroup, padPlan, padRise, padStep, padTick } from '../proto/padanim';
 import tileSrc from '../proto/tileview.ts?raw';
 import go2Src from '../screens/u4/go2view.ts?raw';
 
@@ -33,6 +33,12 @@ describe('바닥 표시 오르는 층', () => {
     padTick(g, 7.5 * PAD_RISE.beat, false); expect(shown(g)).toBe(7);
     padTick(g, 8.5 * PAD_RISE.beat, false); expect(shown(g)).toBe(0);
     padTick(g, 7.5 * PAD_RISE.beat, true); expect(shown(g)).toBe(0);
+  });
+
+  it('주소 값 ?pad=B (또는 #… ?pad=B) 로 안을 덮어씀 · 다른 값 · 없음은 PAD_PLAN', () => {
+    const at = (u: string) => { history.replaceState(null, '', u); return padPlan(); };
+    expect(at('/?pad=B')).toBe('B'); expect(at('/#/fleet?pad=B')).toBe('B'); expect(at('/#/control?pad=A')).toBe('A');
+    expect(at('/?pad=C')).toBe(PAD_PLAN); expect(at('/#/control')).toBe(PAD_PLAN);
   });
 
   it('층마다 원 중심 기준으로 작아지며 위로 · 진하기는 오를수록 낮음 · 낮은 채도', () => {
