@@ -4,7 +4,10 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 import { App } from '../App';
 import { USERS, type Robot } from './fixtures';
-import { FakeWS, state } from './fakeWs';
+import { FakeWS, lease, state } from './fakeWs';
+import { api } from '../api';
+import { rt } from '../rt';
+import { vi } from 'vitest';
 import { linkText, serverText, whoFace } from '../proto/bar';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -86,5 +89,41 @@ describe('PC 시안 머리줄', () => {
     expect($('[role="menu"] .fh-me').textContent).toBe('김OO(총괄)');
     while (!$('.proto').classList.contains('light')) act(() => { $<HTMLButtonElement>('[role="menu"] [data-theme-pick]').click(); });
     expect($('.proto > .bar')).not.toBeNull();
+  });
+  it('«K-01 조종 중» 칩 = 이 연결이 가진 조종권(rt lease · 서버 lease_id) 로봇 · 없으면 칩 없음 · STOP 은 늘 맨 끝', () => {
+    mount('u-lee');
+    act(() => { FakeWS.last.open(); for (const r of EIGHT) if (r.online) FakeWS.last.recv(state(r.id, {})); });
+    expect($('.bar .livechip')).toBeNull();
+    act(() => { FakeWS.last.recv(lease('k2', { id: 'u-park', name: '박OO' })); });   // 남의 조종권: 이 연결에 lease_id 없음
+    expect($('.bar .livechip')).toBeNull();
+    // 조종 화면이 열린 동안만 lease 가 남는다(rt: 떠난 화면은 반납). 머리줄은 rt 의 lease 값만 읽는다
+    const real = rt.get.bind(rt), mine = new Set(['k1']);
+    const spy = vi.spyOn(rt, 'get').mockImplementation((id: string) => (mine.has(id) ? { ...real(id), lease: `L-${id}` } : real(id)));
+    act(() => { FakeWS.last.recv(state('k1', { speed: 0.1 })); });
+    expect($('.bar .livechip').textContent).toBe('K-01 조종 중');
+    expect($('.bar .rt').lastElementChild!.className).toBe('allstop');
+    mine.add('k3'); act(() => { FakeWS.last.recv(state('k3', { speed: 0.1 })); });
+    expect($('.bar .livechip').textContent).toBe('K-01 외 1 대 조종 중');
+    mine.clear(); act(() => { FakeWS.last.recv(state('k1', { speed: 0 })); });
+    expect($('.bar .livechip')).toBeNull();
+    spy.mockRestore();
+  });
+  it('총괄: 결재 대기 수(GET /dashboard) = 메뉴 끝 작은 표 · 0 이면 숨김 · 누르면 결재 · 운영 관리자는 없음', async () => {
+    const d = vi.spyOn(api, 'dashboard').mockResolvedValue({ robots_total: 8, robots_online: 7, robots_attention: 0, robots_running: 0, approvals_pending: 3, operators: [] } as never);
+    mount('u-kim');
+    await act(async () => {});
+    const ap = $('.bar .tabs [data-approvals]');
+    expect([ap.dataset.approvals, ap.hidden, ap.textContent]).toEqual(['3', false, '결재 3']);
+    act(() => { ap.click(); window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    expect(location.hash).toBe('#/approval');
+    act(() => root?.unmount()); root = null; box.remove();
+    d.mockResolvedValue({ robots_total: 8, robots_online: 7, robots_attention: 0, robots_running: 0, approvals_pending: 0, operators: [] } as never);
+    mount('u-kim');
+    await act(async () => {});
+    expect($('.bar [data-approvals]').hidden).toBe(true);
+    act(() => root?.unmount()); root = null; box.remove();
+    mount('u-lee');
+    expect($('.bar [data-approvals]')).toBeNull();
+    d.mockRestore();
   });
 });

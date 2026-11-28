@@ -424,6 +424,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         bell={<Guard quiet><Bell cancel={cancel} face={(n) => <BellFace unread={n} />} pop={`fh${light ? ' light' : ''}`} /></Guard>}
         stop={(canStop || toSim) && <button type="button" className="allstop" aria-label="비상 정지" data-stop style={{ minHeight: 44 }} {...barStop}>{STOP_FACE}</button>}
         approvals={user.role === 'ORG_ADMIN' ? { n: dash.d ? dash.d.approvals_pending : null, why: dash.err ? `요약을 받지 못했습니다. ${dash.err}` : undefined } : undefined}
+        driving={pool.filter((r) => !!rt.get(r.id).lease).map((r) => r.name)}
         menu={<>{logout && <button type="button" className="btn" onClick={logout}>로그아웃</button>}<ThemeNav /></>} />
       {proto5 ? <><Guard key="u5"><Control5 {...ctx!} stop={stopOne} mayStop={(id) => stops.some((r) => r.id === id)} /></Guard>
         <div className={`fh ap-in${light ? ' light' : ''}`}><h1 className="ap-sr">{title}</h1>{pickEl}{bandEl}</div></>
