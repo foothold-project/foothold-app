@@ -126,6 +126,27 @@ class Pairing(Tenant, Base):
     consumed: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
+class PairingOffer(Tenant, Base):
+    """Phone-shown QR offer (u08). Holds no robot credential; the key stays on pairings."""
+    __tablename__ = 'pairing_offers'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id'], ['organizations.id']),
+        ForeignKeyConstraint(['org_id', 'created_by'], ['users.org_id', 'users.id']),
+        ForeignKeyConstraint(['pairing_id'], ['pairings.id'], ondelete='SET NULL'),
+        UniqueConstraint('code_hash'),
+        CheckConstraint("state IN ('WAITING','READ','PAIRED','EXPIRED','FAILED')", name='pairing_offer_state'),
+        Index('pairing_offers_creator', 'org_id', 'created_by'),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4)
+    created_by: Mapped[UUID] = mapped_column(PGUUID)
+    code_hash: Mapped[bytes] = mapped_column(LargeBinary)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    state: Mapped[str] = mapped_column(Text, default='WAITING')
+    robot_serial: Mapped[str | None] = mapped_column(Text)
+    pairing_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    robot_id: Mapped[UUID | None] = mapped_column(PGUUID)
+
+
 class PairingRate(Tenant, Base):
     __tablename__ = 'pairing_rates'
     __table_args__ = (ForeignKeyConstraint(['org_id'], ['organizations.id']),)
@@ -541,6 +562,46 @@ class Assignment(Tenant, Base):
     created_by: Mapped[UUID] = mapped_column(PGUUID)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
     removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ScheduleSlot(Tenant, Base):
+    # 시나리오는 판 번호로만 적는다 (외래 키 없음): 휴지통 영구 삭제를 막지 않기 위해서다.
+    __tablename__ = 'schedule_slots'
+    __table_args__ = (
+        UniqueConstraint('org_id', 'id'),
+        ForeignKeyConstraint(['org_id', 'robot_id'], ['robots.org_id', 'robots.id']),
+        ForeignKeyConstraint(['org_id', 'assignment_id'], ['assignments.org_id', 'assignments.id']),
+        ForeignKeyConstraint(['org_id', 'created_by'], ['users.org_id', 'users.id']),
+        CheckConstraint('end_at > start_at', name='schedule_slot_order'),
+        CheckConstraint("kind IN ('CONFIRMED','DRAFT','BATTERY_SWAP')", name='schedule_slot_kind'),
+        CheckConstraint("gait IS NULL OR gait IN ('classic','sport','start','ame2')", name='schedule_slot_gait'),
+        CheckConstraint('(scenario_id IS NULL) = (scenario_version IS NULL)', name='schedule_slot_scenario_pair'),
+        CheckConstraint("scenario_id IS NOT NULL OR kind = 'BATTERY_SWAP'", name='schedule_slot_scenario_required'),
+        Index('schedule_slots_robot_time', 'org_id', 'robot_id', 'start_at'),
+        CheckConstraint("run_state IS NULL OR run_state IN ('STARTING','STARTED','DONE','FAILED','SKIPPED','MISSED')",
+                        name='schedule_slot_run_state'),
+        CheckConstraint('(run_state IS NULL) = (run_at IS NULL)', name='schedule_slot_run_pair'),
+        UniqueConstraint('run_id', name='schedule_slot_run_id'),
+        Index('schedule_slots_due', 'org_id', 'start_at', postgresql_where=text('run_state IS NULL')),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text('gen_random_uuid()'))
+    robot_id: Mapped[UUID] = mapped_column(PGUUID)
+    scenario_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    scenario_version: Mapped[int | None] = mapped_column(Integer)
+    gait: Mapped[str | None] = mapped_column(Text)
+    start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    kind: Mapped[str] = mapped_column(Text)
+    assignment_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    memo: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[UUID] = mapped_column(PGUUID)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+    # 예약 실행 (11/28): 시각 -> STARTING -> STARTED -> DONE | FAILED, 또는 SKIPPED | MISSED. 비어 있을 때만 잡는다.
+    run_state: Mapped[str | None] = mapped_column(Text)
+    run_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    run_code: Mapped[str | None] = mapped_column(Text)
+    run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    confirmed_by: Mapped[UUID | None] = mapped_column(PGUUID)  # who made it CONFIRMED (pre-unlock authority)
 
 
 class IdempotencyReceipt(Tenant, Base):

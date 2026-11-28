@@ -90,9 +90,10 @@ class ReadOnlyObserver(Observer):
         if isinstance(frame, dict) and frame.get('t') == 'slam' and getattr(self, 'mapping', None) is not None:
             self.mapping.command(frame)
             return Effects((), self.tick().messages)
-        if isinstance(frame, dict) and frame.get('t') in ('ping', 'phone.revoke'):
+        if isinstance(frame, dict) and frame.get('t') in ('ping', 'phone.revoke', 'run.start', 'run.control'):
+            # run.* only to report the physical run gate (FORBIDDEN) back; no lease/unlock bridge here.
             return super().receive(frame)
-        return self.tick()  # includes STOP, lease, cmd, unlock, reset, all run.*
+        return self.tick()  # includes STOP, lease, cmd, unlock, reset
 
 
 class Reporting:

@@ -65,6 +65,7 @@ class Settings:
     runtime_seconds: int = 1800
     scenario_data_origin: str | None = field(default=None, repr=False)
     arrival_pose_max_age_s: float | None = None
+    local_backend: str | None = None  # 'mujoco': mujoco_launcher.MujocoLauncher (local only, no Gazebo)
 
     @property
     def unit_runtime_seconds(self):
@@ -81,6 +82,12 @@ class Settings:
                 raise ValueError('arrival pose maximum age must be positive and finite')
         if type(self.runtime_seconds) is not int or not 5 <= self.runtime_seconds <= 3600:
             raise ValueError('simulation runtime must be 5..3600 seconds')
+        # The 1..2 cap came with the native Gazebo/ROS first launch (P1-C, FIRST-LAUNCH.md: native 1 robot,
+        # fake 2 for namespace/topic/port planning). A local MuJoCo agent is one Node + one Python process
+        # per robot with no ROS graph; local integration allows 4 (demo-day 11/28, not a product decision).
+        robot_cap = 4 if self.local_backend == "mujoco" else 2
+        if self.local_backend not in (None, 'mujoco') or (self.local_backend and self.real):
+            raise ValueError('local backend must be mujoco and never with the native launcher')
         if self.real and self.runtime_seconds < 300:
             raise ValueError('native simulation runtime must be 300..3600 seconds')
         ports_allowed = allowed_ports(self.extra_ports)
@@ -88,9 +95,9 @@ class Settings:
             raise ValueError('simulation domain must be 93')
         if self.host != '127.0.0.1' or type(self.port) is not int or self.port not in ports_allowed:
             raise ValueError('manager requires loopback and approved port range')
-        if not 32 <= len(self.secret) <= 256 or not self.secret.isascii() or any(ord(c) < 33 for c in self.secret) or not 1 <= self.max_robots <= 2:
+        if not 32 <= len(self.secret) <= 256 or not self.secret.isascii() or any(ord(c) < 33 for c in self.secret) or not 1 <= self.max_robots <= robot_cap:
             raise ValueError('private service credential and robot cap 1..2 required')
-        if not self.worlds or not self.slots or len(self.slots) > 2:
+        if not self.worlds or not self.slots or len(self.slots) > robot_cap:
             raise ValueError('catalogue requires worlds and at most two provisioned slots')
         ports = [slot.port for slot in self.slots.values()]
         if len(set(ports)) != len(ports) or self.port in ports or any(type(p) is not int or p not in ports_allowed for p in ports):
@@ -143,4 +150,5 @@ class Settings:
                    runtime_seconds=int(env.get('FH_SIM_RUNTIME_SECONDS', '1800')),
                    scenario_data_origin=env.get('FOOTHOLD_SCENARIO_DATA_ORIGIN'),
                    arrival_pose_max_age_s=(float(env['FH_RUN_ARRIVAL_POSE_MAX_AGE_S'])
-                       if 'FH_RUN_ARRIVAL_POSE_MAX_AGE_S' in env else None))
+                       if 'FH_RUN_ARRIVAL_POSE_MAX_AGE_S' in env else None),
+                   local_backend=env.get('FH_SIM_LOCAL_BACKEND') or None)

@@ -90,11 +90,16 @@ def test_sim_scenario_no_assignment_or_approval_real_unchanged(maps, seeded, rob
         with engine.begin() as conn:
             conn.execute(text('UPDATE robots SET simulation=:sim WHERE id=:id'),
                          {'sim': robot_simulation, 'id': seeded['robots']['mine']})
-        for actor in (headers, auth(http, 'one')):
-            denied = assignment(http, actor, sim, seeded['robots']['mine'])
-            assert denied.status_code == 409, denied.text
-            assert denied.json()['error']['code'] == 'SIM_SCENARIO_NO_ASSIGN'
-            assert denied.json()['error']['message'] == '시뮬 시나리오는 시뮬 탭에서 바로 실행합니다'
+        if robot_simulation:  # local demo-day 11/28: a sim robot takes a SIM place scenario, ACTIVE, no approval
+            made = assignment(http, auth(http, 'one'), sim, seeded['robots']['mine'])
+            assert made.status_code == 201 and made.json()['status'] == 'ACTIVE', made.text
+            http.delete(P + '/assignments/' + made.json()['id'], headers=headers)
+        else:
+            for actor in (headers, auth(http, 'one')):
+                denied = assignment(http, actor, sim, seeded['robots']['mine'])
+                assert denied.status_code == 409, denied.text
+                assert denied.json()['error']['code'] == 'SIM_SCENARIO_NO_ASSIGN'
+                assert denied.json()['error']['message'] == '시뮬 시나리오는 시뮬 탭에서 바로 실행합니다'
         # Exercise the approval-request boundary directly (there is no new
         # public approval-request endpoint). Roll back the rejected candidate.
         with Session(engine) as db:
@@ -108,7 +113,7 @@ def test_sim_scenario_no_assignment_or_approval_real_unchanged(maps, seeded, rob
                 approvals.request_assignment(db, user, candidate, fail)
             assert exc.value.status == 409 and exc.value.code == 'SIM_SCENARIO_NO_ASSIGN'
             db.rollback()
-        assert http.get(P + '/assignments', headers=headers).json()['items'] == []
+        assert [a for a in http.get(P + '/assignments', headers=headers).json()['items'] if a['status'] != 'REMOVED'] == []
         assert http.get(P + '/approvals', headers=headers).json()['items'] == []
         allowed = assignment(http, auth(http, 'one'), real, seeded['robots']['mine'])
         assert allowed.status_code == 201 and allowed.json()['status'] == 'ACTIVE', allowed.text

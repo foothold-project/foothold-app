@@ -1,0 +1,73 @@
+{
+  "$id": "fh-app/1/PairingOfferStatus",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "expires_at": {
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+    },
+    "offer_id": {
+      "format": "uuid",
+      "title": "Offer Id",
+      "type": "string"
+    },
+    "pairing_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Pairing Id"
+    },
+    "robot_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Robot Id"
+    },
+    "robot_serial": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Robot Serial"
+    },
+    "state": {
+      "enum": [
+        "WAITING",
+        "READ",
+        "PAIRED",
+        "EXPIRED",
+        "FAILED"
+      ],
+      "title": "State",
+      "type": "string"
+    }
+  },
+  "required": [
+    "offer_id",
+    "state",
+    "expires_at",
+    "robot_serial",
+    "pairing_id",
+    "robot_id"
+  ],
+  "title": "PairingOfferStatus",
+  "type": "object"
+}

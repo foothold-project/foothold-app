@@ -210,8 +210,7 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   const own = (s: MapSite) => purposeOf(s) === purpose;
   const t = useMemo(() => ({ ...t0, tree: t0.tree && { ...t0.tree, items: t0.tree.items.filter((s) => sim || own(s)) } }), [t0.tree, t0.err]);
   const admin = c.user.role === 'ORG_ADMIN', places = useMemo(() => floorsOf(t.tree), [t.tree]), robots = c.robots ?? [];
-  const [finding, setFinding] = useState(() => keptPlan.find && !!keptPlan.sel), [addr] = useState(finding);   // 옛 #/mission/<id> — 그 시나리오의 층을 찾는 중
-  const [pick, setPick] = useState(() => kept.d?.floor ?? (finding ? '' : keptPlan.floor)), cur = places.find((p) => p.floor.id === pick);
+  const [pick, setPick] = useState(() => kept.d?.floor ?? keptPlan.floor), cur = places.find((p) => p.floor.id === pick);
   const [sel, setSel0] = useState<string | null>(() => (keptPlan.kind === 'scenarios' && !kept.d ? keptPlan.sel : null)), setSel = (x: string | null) => { keptPlan.sel = x; setSel0(x); };
   const [madmin, setMadmin] = useState(() => keptPlan.kind === 'missions');
   const [manage, setManage] = useState(false);   // 지도 탭 첫 화면 «고르기 · 관리»(시안 u7_1 · u7_2)
@@ -221,17 +220,6 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   const [msg, setMsg] = useState<Msg>(null), [busy, setBusy] = useState(false), [make, setMake] = useState<Make>(''), [found, setFound] = useState<Msg>(null);
   const [intent, setIntent] = useState<Intent>(null), maker = !sim && makers(c.user, robots).length > 0;   // intent = 층을 열 때 바로 띄울 창
   const names = useNames(c.user, admin, c.cancel), vers = useVers(places, c.cancel);
-  // 옛 주소가 연 시나리오는 시뮬 탭에서 연다(RB-SCEN-SIMTAB 11-11 — 시나리오 편집은 시뮬 탭만). 고른 층·시나리오는 keptPlan 에 남아 거기서 열린다
-  useEffect(() => { if (!sim && addr && pick && keptPlan.sel) location.hash = '#/sim'; }, [pick]);
-  /** 지도 탭 → 시뮬 탭 그 층 시나리오 창(id = 열 시나리오, '' = 목록) */
-  const toSim = (floor: string, id: string) => { keptPlan.kind = 'scenarios'; keptPlan.floor = floor; keptPlan.sel = id || null; location.hash = '#/sim'; };
-  useEffect(() => {
-    if (!finding || !keptPlan.sel) return;
-    keptPlan.find = false;
-    api.plan('scenarios', keptPlan.sel, null, c.cancel).then((x) => { const sc = x as Scenario; const f = sc.floor_ids?.[0] ?? sc.waypoints?.[0]?.floor_id ?? ''; setPick(f); keptPlan.floor = f; setFinding(false); },
-      (e: ApiFail) => { if (e.code === 'CANCELED') return; setSel(null); setFinding(false); setPick(keptPlan.floor);
-        setFound({ text: e.status === 404 ? '주소의 시나리오를 찾을 수 없습니다. 지워졌을 수 있습니다 — «시뮬» 탭에서 지도를 고른 뒤 찾으세요.' : `주소의 시나리오를 받지 못했습니다. ${e.message}` }); });
-  }, []);
   const run = async (k: Kind, f: () => Promise<unknown>, ok: string, act?: NonNullable<Msg>['act']) => {
     setBusy(true); setMsg(null);
     try { await f(); setForm(null); setAsk(null); setMsg({ text: ok, ok: true, act }); t.again(); return true; }
@@ -330,7 +318,6 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   const top = cur && <>{back}{side}</>;
 
   if (madmin && sim) return <MissionAdmin user={c.user} robots={robots} cancel={c.cancel} back={() => setMadmin(false)} />;
-  if (finding) return <section className="mx" aria-label="지도 보기"><div className="mx-center"><p className="lv-note" role="status">주소의 시나리오를 찾는 중…</p></div></section>;
   if (whole && cur) return <AllFloors key={cur.building.id} b={cur.building} top={top} cancel={c.cancel} />;
   const shut0 = () => { setMake(''); setForm(null); setAsk(null); };
   const title = make === 'robot' ? '지도 만들기 — 어느 층에?' : make === 'file' ? '파일 올리기 — 어느 층에?' : sim ? '장소 고치기' : '이름 바꾸기·삭제';
@@ -342,7 +329,7 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   if (cur) return <>{sim ? <Floor key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} told={() => c.dash?.again()} top={top} name={label} user={c.user} robots={robots} open0={intent}
       places={places} sel={sel} setSel={setSel} toAdmin={() => setMadmin(true)} run={(x) => scenRun(x, places, vers)} />
     : <FloorView key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} told={() => c.dash?.again()} top={back} side={side} name={label} user={c.user} robots={robots} places={places} open0={intent}
-      fix={() => { setForm(null); setAsk(null); setMsg(null); setMake('fix'); }} toScen={(id) => toSim(cur.floor.id, id)} />}
+      fix={() => { setForm(null); setAsk(null); setMsg(null); setMake('fix'); }} toScen={(id) => { keptPlan.floor = cur.floor.id; location.hash = id ? `#/mission/${encodeURIComponent(id)}` : '#/missions'; }} />}   {/* 겹침 «예» = 임무 탭에서 그 임무 · u7_3 «이 지도로 모의 실행» = 시안 u6_6 (임무 탭, 그 층) */}
     {pop}</>;
   const mk = (k: Make) => { setForm(null); setAsk(null); setMsg(null); setMake(k); };
   if (!sim) return <Pick maker={maker} t={t} places={places} vers={vers} choose={choose} make={mk} note={found} manage={manage} setManage={setManage} edit={!make && placeBody}>
@@ -489,7 +476,7 @@ function Chooser({ sim, maker, t, places, vers, choose, make, note, cancel, chil
     <div className="mx-scroll"><div className="mx-choose">
       <h2>{sim ? '어느 지도로 시뮬할까요?' : '어느 지도에서 일할까요?'}</h2>
       <p className="lv-note">{sim ? '지도를 고르면 위쪽 «시뮬 열기»로 시뮬을 열고, 그 지도의 시나리오를 만들고 고쳐 «시뮬에서 실행»합니다. 실기 지도의 시나리오도 여기서 고칩니다(실기 로봇은 조종 화면에서 시나리오를 고릅니다).'
-        : '지도를 고르면 그 지도의 구역·벽을 보고 고칩니다. 시나리오는 «시뮬» 탭에서 만들고 고칩니다.'}</p>
+        : <>지도를 고르면 그 지도의 구역·벽을 보고 고칩니다. <a href="#/missions" data-mission-link>임무(경로·할 일)는 «임무» 탭에서 만들고 고칩니다</a></>}</p>
       <Note m={note} />
       <div className="fh-row"><input className="inp fh-grow" type="search" aria-label="지도 찾기" placeholder="장소·건물·층 이름으로 찾기" value={q} onChange={(e) => setQ(e.target.value)} />
         {sim ? <button type="button" className="btn" onClick={() => make('fix')}>장소 고치기</button>
@@ -550,8 +537,8 @@ function Route({ v, x, floor }: { v: Pick<MapVersion, 'origin' | 'resolution' | 
   const on = x.waypoints.filter((w) => w.floor_id === floor), rr = Math.max(v.width, v.height) / 60;
   return <g data-route={x.id} style={{ pointerEvents: 'none' }}>
     {on.length > 1 && <polyline points={on.map((w) => toPixel(v, w.x, w.y).join(',')).join(' ')} style={{ fill: 'none', stroke: 'var(--accent)', strokeWidth: 3, strokeDasharray: '6 4' }} vectorEffect="non-scaling-stroke" />}
-    {on.map((w, i) => { const [a, b] = toPixel(v, w.x, w.y); return <g key={i}><circle cx={a} cy={b} r={rr} style={{ fill: 'var(--accent)', stroke: '#FFFFFF', strokeWidth: 2 }} vectorEffect="non-scaling-stroke" />
-      <text x={a} y={b + rr * 0.45} fontSize={rr * 1.3} textAnchor="middle" style={{ fill: '#FFFFFF' }}>{i + 1}</text></g>; })}
+    {on.map((w, i) => { const [a, b] = toPixel(v, w.x, w.y); return <g key={i}><circle cx={a} cy={b} r={rr} style={{ fill: 'var(--accent)', stroke: 'var(--on-accent)', strokeWidth: 2 }} vectorEffect="non-scaling-stroke" />
+      <text x={a} y={b + rr * 0.45} fontSize={rr * 1.3} textAnchor="middle" style={{ fill: 'var(--on-accent)' }}>{i + 1}</text></g>; })}
   </g>;
 }
 

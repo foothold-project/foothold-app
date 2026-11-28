@@ -313,3 +313,64 @@ def test_stop_ends_only_our_simmgr(tmp_path):
             if proc.poll() is None:
                 proc.kill()
                 proc.wait()
+
+
+def test_sim_world_slots_and_policy_env_from_env(checkout, tmp_path, monkeypatch):
+    """demo-day 11/28: FH_SIM_WORLD · FH_SIM_SLOTS pick the MuJoCo world and robot count; START policy env passes."""
+    sim_checkout(checkout)
+    monkeypatch.setenv('FH_SIM_WORLD', 'plant_a')
+    monkeypatch.setenv('FH_SIM_SLOTS', '4')
+    for key, value in (('FH_SIM_ORT_NODE', '/x/ort/index.js'), ('FH_SIM_START_MAP', 'off'), ('FH_SIM_POLICY_DIR', '/x/m15500')):
+        monkeypatch.setenv(key, value)
+    values, _ = local_up.prepare(checkout, tmp_path / 'accounts.env', docker=False, check=False)
+    data = tmp_path / 'data'
+    sim = local_up.sim_setup(checkout, values, data)
+    catalog = json.loads(Path(sim['FH_SIM_CATALOG']).read_text())
+    org = UUID(values['FH_ORG_ID'])
+    robots = [str(seed.sim_robot_id(org))] + [str(local_up.extra_sim_robot_id(org, n)) for n in (2, 3, 4)]
+    assert [s['robot_id'] for s in catalog['slots']] == robots
+    assert len({s['port'] for s in catalog['slots']}) == 4
+    assert [w['id'] for w in catalog['worlds']] == ['plant_a']
+    assert set(json.loads(Path(sim['FH_PHONE_PASS_KEYS']).read_text())) == set(robots)
+    manager = local_up.simmgr_env(checkout, values, sim)
+    assert manager['FH_SIM_MAX_ROBOTS'] == '4'
+    assert (manager['FH_SIM_ORT_NODE'], manager['FH_SIM_START_MAP'], manager['FH_SIM_POLICY_DIR']) == ('/x/ort/index.js', 'off', '/x/m15500')
+    # back to the default: one slot, collapsed house (the pass-key file follows the slots)
+    monkeypatch.delenv('FH_SIM_WORLD')
+    monkeypatch.delenv('FH_SIM_SLOTS')
+    values, _ = local_up.prepare(checkout, tmp_path / 'accounts.env', docker=False, check=False)
+    sim = local_up.sim_setup(checkout, values, data)
+    catalog = json.loads(Path(sim['FH_SIM_CATALOG']).read_text())
+    assert [s['robot_id'] for s in catalog['slots']] == robots[:1]
+    assert [w['id'] for w in catalog['worlds']] == ['collapsed-house-v2']
+    assert set(json.loads(Path(sim['FH_PHONE_PASS_KEYS']).read_text())) == set(robots[:1])
+    assert local_up.simmgr_env(checkout, values, sim)['FH_SIM_MAX_ROBOTS'] == '1'
+
+
+@pytest.mark.parametrize('slots', ['0', '5', 'two'])
+def test_sim_slots_out_of_range_refused(checkout, tmp_path, monkeypatch, slots):
+    sim_checkout(checkout)
+    monkeypatch.setenv('FH_SIM_SLOTS', slots)
+    values, _ = local_up.prepare(checkout, tmp_path / 'accounts.env', docker=False, check=False)
+    with pytest.raises(SystemExit, match='FH_SIM_SLOTS'):
+        local_up.sim_setup(checkout, values, tmp_path / 'data')
+
+
+def test_simmgr_gets_user_bus_for_startup_preflight(checkout, tmp_path, monkeypatch):
+    """simmgr preflight runs `systemctl --user`; without the user bus it refuses to start."""
+    sim_checkout(checkout)
+    monkeypatch.setenv('XDG_RUNTIME_DIR', '/run/user/4242')
+    monkeypatch.setenv('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/4242/bus')
+    values, _ = local_up.prepare(checkout, tmp_path / 'accounts.env', docker=False, check=False)
+    manager = local_up.simmgr_env(checkout, values, local_up.sim_setup(checkout, values, tmp_path / 'data'))
+    assert manager['XDG_RUNTIME_DIR'] == '/run/user/4242'
+    assert manager['DBUS_SESSION_BUS_ADDRESS'] == 'unix:path=/run/user/4242/bus'
+
+
+def test_sim_world_list_for_connected_floors(checkout, tmp_path, monkeypatch):
+    """plant_a starts as world + spawn floor; the simmgr catalog keys are plant_a/l1 .. l3."""
+    sim_checkout(checkout)
+    monkeypatch.setenv('FH_SIM_WORLD', 'plant_a/l1,plant_a/l2,plant_a/l3')
+    values, _ = local_up.prepare(checkout, tmp_path / 'accounts.env', docker=False, check=False)
+    catalog = json.loads(Path(local_up.sim_setup(checkout, values, tmp_path / 'data')['FH_SIM_CATALOG']).read_text())
+    assert [w['id'] for w in catalog['worlds']] == ['plant_a/l1', 'plant_a/l2', 'plant_a/l3']

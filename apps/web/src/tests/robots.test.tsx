@@ -148,7 +148,7 @@ describe('관제 요약 = GET /dashboard(05 §4)', () => {
     expect(kpi()).toEqual({ 전체: '2', 연결: '1', '임무 중': '0', '주의 필요': '1', '결재 대기': '0' });
     expect(card('요약').querySelector('.bad')!.textContent).toContain('주의 필요');
     expect(card('운영 관리자').textContent).toBe('운영 관리자 2명이운영로봇 1대박운영로봇 1대');
-    expect($('[data-stop]')).toBeNull();   // 총괄·실기만 — 실기 STOP 없음(10-25)
+    expect($('[data-stop]')).not.toBeNull();   // 총괄도 실기 STOP(11/28 · 서버 #544)
   });
   // TAB-SPLIT(11-10): 로봇 탭은 실기만 — 서버 요약(시뮬까지 셈)에서 받은 목록의 시뮬 몫을 뺀다(결재 대기는 그대로)
   it('총괄: 목록에 시뮬이 있으면 요약·운영 관리자 표에서 그 몫을 빼고, 목록·경보에도 시뮬 없음', async () => {
@@ -430,7 +430,7 @@ describe('subscription.revoked(05 §9)', () => {
     const w = live(LEE);
     act(() => { w.recv({ t: 'subscription.revoked', robot: 'r-a', reason: 'ROBOT_DELETED' }); });
     await flush();
-    expect($('header')!.lastElementChild).toBe($('[data-stop]'));
+    expect($('header, .bar .rt')!.lastElementChild).toBe($('[data-stop]'));
     stopOk();
   });
 });
@@ -455,7 +455,7 @@ describe('sub 404(apps/server README «S0» — 등록·담당 변경 직후 서
     expect($('[aria-label="로봇 없음"]')).toBeNull();
     expect($('[data-missed]')!.textContent).toContain('실시간 상태를 받을 수 없는 로봇이 있습니다');
     expect($('[data-missed]')!.textContent).toContain('다음 목록 갱신 때 다시 확인합니다.');
-    expect($('header [data-link]')).toBeNull();            // 연결은 그대로
+    expect($('header [data-link], .bar [data-link]')).toBeNull();            // 연결은 그대로
     act(() => w.recv(state('r-a', { battery: { soc: 33, updated_at: AT } })));
     expect(big('battery')).toBe('33%');                     // 고른 내 로봇(Go2-A) «로봇 상태»
     expect(row('Go2-B').textContent).toContain('확인 안 됨');

@@ -85,7 +85,7 @@ def install(app, DB, Identity, fail, page):
         if version is None:
             fail(404, 'NOT_FOUND', '시나리오 판을 찾을 수 없습니다.')
         robot = robot_for_write(db, user, body.robot_id, fail, creating=True)
-        require_assignable(db, version, fail)
+        require_assignable(db, version, fail, robot)
         require_target(db, version, robot, fail)
         live = db.scalars(select(Assignment).join(ScenarioVersion,
             ScenarioVersion.id == Assignment.scenario_version_id).where(Assignment.org_id == user.org_id,

@@ -216,7 +216,8 @@ int run(const Config& config, Robot& robot, PolicyExecutor& policy, Trace& trace
     // App input (APP-MOVES.md): off unless --app-port. Bound before the first tick so a bind
     // failure stops the runner while it is still in factory mode.
     std::optional<AppSocket> app;
-    AppInput app_input(trace, config.runner.fwd_max);
+    // Session token for the connector (Codex pr550 H3): a fresh 0600 file each start, never logged.
+    AppInput app_input(trace, config.app_port ? write_app_token(app_token_path) : std::string{}, config.runner.fwd_max);
     if (config.app_port) {
         app.emplace(static_cast<std::uint16_t>(config.app_port));
         std::cout << "{\"app_port\":" << app->port() << "}\n";

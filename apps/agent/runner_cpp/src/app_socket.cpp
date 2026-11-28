@@ -1,7 +1,11 @@
 #include "foothold/app_socket.hpp"
 
 #include <array>
+#include <cstdio>
 #include <cerrno>
+#include <fcntl.h>
+#include <random>
+#include <sys/stat.h>
 #include <stdexcept>
 #include <system_error>
 #include <arpa/inet.h>
@@ -12,6 +16,27 @@
 namespace foothold {
 namespace {
 constexpr int max_per_tick = 64;
+}
+
+std::string write_app_token(const char* path) {
+    std::random_device random;
+    std::string token;
+    for (int i = 0; i < 4; ++i) {
+        char part[9];
+        std::snprintf(part, sizeof(part), "%08x", static_cast<unsigned>(random()));
+        token += part;
+    }
+    // Remove our old file, then create exclusively: a file or link left by another user stays and fails here.
+    if (unlink(path) != 0 && errno != ENOENT)
+        throw std::system_error(errno, std::generic_category(), "remove old app token");
+    const int fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+    if (fd == -1) throw std::system_error(errno, std::generic_category(), "create app token");
+    struct stat info{};
+    const bool ok = fchmod(fd, 0600) == 0 && fstat(fd, &info) == 0 && info.st_uid == geteuid() &&
+                    write(fd, token.data(), token.size()) == static_cast<ssize_t>(token.size());
+    close(fd);
+    if (!ok) throw std::runtime_error("write app token");
+    return token;
 }
 
 AppSocket::AppSocket(std::uint16_t port) {

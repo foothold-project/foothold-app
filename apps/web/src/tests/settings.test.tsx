@@ -53,7 +53,10 @@ async function open() {
 afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.unstubAllGlobals(); });
 
 const $ = <T extends Element = HTMLElement>(s: string, from: ParentNode = box) => from.querySelector<T>(s);
-const btn = (t: string, from: ParentNode = box) => [...from.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
+const find = (t: string, from: ParentNode) => [...from.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
+/** PC 시안 머리줄: 로그아웃 · 화면 밝기는 나 칸을 눌러 여는 차림 안 */
+const openWho = () => { if (!box.querySelector('.ap-menu') && box.querySelector('.bar .who')) act(() => box.querySelector<HTMLElement>('.bar .who')!.click()); };
+const btn = (t: string, from: ParentNode = box) => { if (t === '로그아웃' && !find(t, from)) openWho(); return find(t, from); };
 const card = (label: string) => $(`[aria-label="${label}"]`)!;
 const setVal = (el: HTMLInputElement | HTMLSelectElement, v: string) => act(() => {
   Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')!.set!.call(el, v);
@@ -213,7 +216,7 @@ describe('총괄 — 계정 관리', () => {
     for (const v of ['김대표', '김총괄']) {
       setVal(name(), v);
       await submit(f);
-      expect([$('.fh-me')!.textContent, $('h2', card('계정 상세'))!.textContent, name().value]).toEqual([`${v} · 총괄`, v, v]);
+      expect([$('.bar .who')!.getAttribute('aria-label'), $('h2', card('계정 상세'))!.textContent, name().value]).toEqual([`${v}(총괄)`, v, v]);
       expect(card('계정').querySelector('li b')!.textContent).toBe(v);
     }
     await submit(f);   // 그대로면 안 보냄
@@ -607,7 +610,7 @@ describe('내 정보(모두)', () => {
     setVal($('input[name="display_name"]', f)!, ' 이반장 ');
     await submit(f);
     expect(sent('PATCH', '/me').map((c) => c.body)).toEqual([{ display_name: '이반장' }]);
-    expect($('.fh-me')!.textContent).toBe('이반장 · 운영 관리자');
+    expect($('.bar .who')!.getAttribute('aria-label')).toBe('이반장(운영 관리자)');
     expect(card('내 정보').textContent).toContain('이름을 바꿨습니다.');
   });
 
@@ -682,17 +685,17 @@ describe('B1 앞 세션 요청의 늦은 답 — 로그아웃 → 다른 계정 
     await click(btn('로그아웃'));
     setVal($('input[name="username"]')!, 'lee'); setVal($('input[name="password"]')!, 'pw');
     await submit($('main[aria-label="로그인"] form')!);
-    expect($('.fh-me')!.textContent).toBe('이운영 · 운영 관리자');
+    expect($('.bar .who')!.getAttribute('aria-label')).toBe('이운영(운영 관리자)');
 
     await act(async () => give(late));
     await flush();
-    expect($('.fh-me')!.textContent).toBe('이운영 · 운영 관리자');
+    expect($('.bar .who')!.getAttribute('aria-label')).toBe('이운영(운영 관리자)');
     expect(box.textContent).not.toMatch(/로그인이 끝났습니다|비밀번호를 바꿨습니다/);
     const f = $('form', card('내 정보'))!;
     setVal($('input[name="display_name"]', f)!, '이반장');
     await submit(f);
     expect(sent('PATCH', '/me').map((c) => c.headers['X-FH-CSRF'])).toEqual(['csrf-2']);
-    expect($('.fh-me')!.textContent).toBe('이반장 · 운영 관리자');
+    expect($('.bar .who')!.getAttribute('aria-label')).toBe('이반장(운영 관리자)');
   });
 });
 
@@ -712,6 +715,7 @@ describe('U9-03 밝기 · U9-04 서버 값 없는 칸', () => {
     await open();
     expect(radios().map((r) => [r.value, r.closest('label')!.textContent, r.checked])).toEqual([['dark', '어두움', true], ['light', '밝음', false], ['system', '기기 설정 따름', false]]);
     act(() => radios()[1].click()); await flush();
+    openWho();
     expect($('[data-theme-pick]')!.getAttribute('aria-label')).toBe('화면 밝기 밝음');
     expect($('.fh')!.classList.contains('light')).toBe(true);
     await click($<HTMLButtonElement>('button[data-theme-pick]')!);   // 머리 메뉴: 밝음 → 기기 설정 따름

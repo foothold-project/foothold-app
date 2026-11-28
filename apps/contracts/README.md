@@ -43,6 +43,17 @@ TS는 타입 선언이며 런타임 검증기가 아니다. bigint 사건 ID는 
 - 지금 서버: `mark-now` 는 실제 사건 행을 남기고 영상 상태는 `NOT_BUILT`. 영상 목록 · 영상 하나 · 관절 기록은
   501 `CLIP_PIPELINE_NOT_BUILT` · `JOINT_LOG_NOT_BUILT` 와 한 줄 글.
 
+## 폰 QR 페어링 (u08)
+
+경로는 API 명세 §3.1. 타입은 `PairingOffered` · `PairingOfferStatus` · `PairingOfferState` ·
+`PairingOfferClaim` · `PairingOfferClaimed`.
+
+- 폰(로그인한 운영)이 `PairingOffered.code` 를 QR `foothold-offer:<code>` 로 띄운다. 이 응답과
+  `PairingOfferStatus` 에는 poll_secret · 연결 키가 없다.
+- 로봇은 읽은 code 와 serial 로 `PairingOfferClaim` 을 보내고 `PairingOfferClaimed.poll_secret` 으로
+  기존 `PairingPollResult` 를 받는다. 키는 로봇 쪽에만 간다.
+- 상태는 `WAITING` → `READ` → `PAIRED`, 아니면 `EXPIRED` (시간 초과 · 새 QR) · `FAILED` (confirm 409).
+
 ## 에이전트 실시간 판 (W4-B 조정 결정)
 
 화면 `fh-rt/1`은 유지한다. agent hello는 `fh-agent/2`이며 state.stop_ref가 필수다.
@@ -64,11 +75,19 @@ AgentState와 이를 상속하는 PhoneState의 선택 필드 `safety_reason`은
 `delivered=true`는 그 순간 정지가 연결된 에이전트 대기열에 들어갔다는 뜻이다. 소켓으로 실제 보냈다는 보증은 아니다.
 `delivered=false`는 로봇이 멈췄다는 뜻도, 안 멈췄다는 뜻도 아니다. 에이전트 연결이 없거나
 막혀 서버가 지금 보낼 길이 없다는 뜻이다. 정지 감사 기록은 그대로 남는다.
-에이전트가 없을 때 누른 STOP은 큐에 넣지 않는다. 다시 붙으면 서버가 연결 STOP(cause `agent_connected`)을
-보내 잠긴 채 시작한다. 단 서버 조종 스위치가 꺼진 실기는 서버가 STOP을 보낼 수 없다(재연결 STOP도
-막힌다. 폰 직결·리모컨으로 멈춘다).
 `latched`는 제어 잠금(우리 출력이 멈춰 있음)일 뿐 물리 정지 확인이 아니다. 움직이던 기체가 실제로
 섰는지는 에이전트의 `GO2_STOP_HELD` 같은 측정 증거로만 말한다. `delivered`도 `latched`도 그 증거를 대신하지 않는다.
+
+AgentState·PhoneState·ScreenState의 선택 필드 `field_gate`는 `OPEN | CLOSED | null`이다.
+현장 승인 관문이 있는 실기 에이전트(GatedSession)만 `gate.allowed()`로 채우고, 관문이 없거나
+모르면 null이다. 서버는 받은 값을 `ScreenState.field_gate`로 그대로 넘기며, 필드를 생략하는
+옛 에이전트·오래된 상태·오프라인 로봇은 null이다.
+`ScreenState.stop_applied`는 `true | false | null`이다. 서버가 보낸 마지막 `stop_ref`를 에이전트가
+적용했다고 보고하면 true, 관문 닫힘처럼 다른 까닭의 잠금이면 false, 상태 없음·오래됨·보낸 STOP 없음은 null이다.
+`field_gate=CLOSED`이면 STOP이 로봇에 가지 않는다. `latched=true`에 `applied`가 비었거나 0이라는 것만으로 정지 출력을 뜻하지 않는다.
+관문이 닫힌 에이전트는 STOP을 operator_stop으로만 기억하고 로봇 출력(StopMove 포함)을 내지 않는다.
+웹 문구: 조종 준비 「현장 승인이 닫혀 있어 앱 정지가 로봇에 가지 않습니다. 리모컨으로 멈추세요」, STOP 한 줄 「현장 승인이 닫혀 정지가 로봇에 가지 않음 · 리모컨으로 멈추세요」
+에이전트가 없을 때 누른 STOP 은 큐에 넣지 않는다. 에이전트가 다시 붙으면 서버가 연결 STOP (cause `agent_connected`, `stop_ref` +1) 을 보내고, 로봇은 잠긴 채 시작한다. 앞서 누른 STOP 이 나중에 전달되지는 않는다. 단 서버 조종 스위치가 꺼진 실기는 서버가 STOP 을 보낼 수 없다 (재연결 STOP 도 막힌다. 폰 직결 · 리모컨으로 멈춘다). 관문이 열린 채 붙으면 이 연결 STOP 이 같은 결과 (잠김 · 출력 0) 를 낸다. 관문이 닫힌 채 붙으면 연결 STOP 도 로봇 출력으로 이어지지 않고, 에이전트는 `stop_ref` 0 을 보고한다. 화면 상태에는 `stop_ref` 가 없으므로 화면은 `stop_applied` (서버가 보낸 마지막 `stop_ref` 를 에이전트가 적용했다고 보고하면 true, 관문 닫힘 등 다른 잠금이면 false) 와 `latched` · `field_gate` 로 이것을 안다. 사람 STOP 의 «로봇 정지 확인» 은 `stop_applied=true` 일 때만 보인다. `applied` 가 비어 있는 것은 `field_gate=OPEN` 일 때만 멈춤 출력으로 읽는다.
 
 `AgentState`·`PhoneState`·`ScreenState`의 선택 `unlock_refused`는
 `{reason, at, axes}` 또는 null이다. `at`은 UTC 시각, `reason`은 `UnlockRefused`의
@@ -102,6 +121,23 @@ readiness와 동일하게 맞는 nonzero만 `level=ACCEPTED`,
 즉시 로컬 STOP·0·잠금과 lease 폐기를 적용하며 재연결이 자동 주행 재개를 뜻하지 않는다.
 상세 접수/복구·HTTP STOP 최초 인증 예외는 서버 README를 따른다.
 
+
+## 조종자 표시 (11/28 웹 시뮬 탭)
+
+`PhoneState.holder_type` (`USER` | `RUN` | null) · `holder_name` (string | null) 은 필수 칸이다. `PhoneReply` 의
+`LEASE_HELD` 거절에도 같은 두 칸이 실린다 (다른 reply 에는 없음). 폰 직결 조종자는 USER 와 `PhoneHello.display_name`
+(선택), 서버 중계는 그 뒤의 사람과 서버가 `AgentUnlock.display_name` 으로 내려 준 이름, 예약 실행의 RUN lease 는
+RUN 과 null. 이름은 표시용이며 권한 판단에 쓰지 않는다. 모르면 null.
+
+## 실행 일시정지 `ScreenRunControl` (11/28 #542 R5)
+
+`lease_id` 는 `op: "pause"` 일 때만 빼도 된다 (resume · abort 는 필수, 없으면 검증 실패).
+
+- 쥔 쪽 RUN: 로봇 담당 (O_OWN) 누구나 `{t:"run.control", id, robot, run_id, screen_id, op:"pause"}` 를 보낸다.
+  run_id 는 RUN lease 의 run 이어야 한다. 서버가 RUN lease 를 풀고 (속도 0 · 잠김) run 은 PAUSED.
+- 쥔 쪽 USER: 그 lease 를 쥔 화면만 `lease_id` 를 실어 pause 한다. 다른 화면은 `LEASE_MISMATCH`, 멈추려면 STOP 또는 `lease.request`.
+- STOP 잠금이 우선이다. pause · resume 은 잠금을 풀지 않는다.
+- 모든 pause 는 사건 `RUN_PAUSE_REQUESTED` (user_id = 보낸 사람, `data.run_id` · `data.holder_type` · `data.connection`).
 
 ## 지도 (S3a)
 
@@ -453,7 +489,9 @@ accepted state episode다(서버 sim DB ID와 혼용 금지). launch 바인딩�
 
 `RobotSummary.server_drive_blocked`는 선택·nullable 표시용 목록이다. 담당자와 총괄에게만
 실기의 `SWITCH_OFF`(서버 스위치), `NO_OWNER`(담당 없음), `NO_SERIAL`(기체번호 없음),
-`AGENT_OFFLINE`(기존 자동 연결 관문 불충족)을 전달한다. 허용이면 `[]`, 시뮬과 요약만
+`AGENT_OFFLINE`(기존 자동 연결 관문 불충족)을 전달한다. 서버 쪽 이유가 하나도 없는데 신선한
+에이전트 상태가 `field_gate=CLOSED`이면 `FIELD_GATE_CLOSED` 하나를 넣는다(이때 `server_drive_allowed`가
+참일 수 있다). 허용이면 `[]`, 시뮬과 요약만
 볼 수 있는 사용자에게는 `null`이다. 허용 판단은 기존 `server_drive_allowed`와 서버
 조종 관문을 그대로 쓰며, 옛 서버가 이유 필드를 생략하거나 `null`로 보내면 기존 안내를 쓴다.
 
@@ -501,3 +539,41 @@ Upload/MapVersion 경로와 옛 판 관리 방식을 쓴다. 해상도 0.05 m·�
 화면 재진입 뒤에도 이 번호를 `base_version`으로 보내며, 서버 목록의 새 번호로 몰래 갱신하지 않는다.
 이 메타데이터는 `TerrainSpec` JSON에 넣지 않는다. 같은 id의 로컬 수정본을 서버 사본으로 덮을 때는 확인을 받는다.
 지형 편집 입구는 시뮬 탭에 두고 지도 탭의 «+ 지도 만들기»는 기존 장소·층·지도 파일 흐름을 유지한다.
+
+## 일정 · 가용 · 예상 (app-design-lx 11/28 합의)
+
+`ScheduleSlot`·`ScheduleSlotCreate`·`ScheduleSlotPatch`·`ScheduleDay`, `RobotAvailability(List)`,
+`EstimateRequest`·`Estimate`. 서버 경로는 `GET /api/v1/schedule?day=YYYY-MM-DD&tz=Asia/Seoul`,
+`POST /api/v1/schedule/slots` (201, `Idempotency-Key` 선택), `PATCH`·`DELETE /api/v1/schedule/slots/{id}` (204),
+`GET /api/v1/robots/availability?start=&end=`, `POST /api/v1/estimates` 다.
+
+- 구간은 `[start, end)` 반열린 구간이다. 끝과 시작이 맞닿으면 겹침이 아니다. 날 보기는 그 시간대의 하루와 겹치는 칸을 모두 준다.
+- 같은 로봇에 겹치면 409 `SCHEDULE_CONFLICT`, `detail.slot_ids` 에 겹친 칸 id. 종류와 관계없이 모든 칸이 겹침 대상이다.
+- 시나리오가 없는 칸은 `BATTERY_SWAP` 만 된다. 시나리오 id 와 판 번호는 함께 오거나 함께 빠진다.
+- PATCH 는 생략은 그대로, null 은 거부한다 (`gait` 를 지우는 길은 아직 없다). 합친 값으로 순서 · 시나리오 규칙을 다시 본다.
+  PATCH 로 바꿀 수 있는 것은 로봇 · 시각 · 종류 · 걷기 모드뿐이다. 시나리오 · 메모 · 배정을 바꾸려면 칸을 지우고 새로 넣는다 (의도, 바뀐 시나리오가 같은 칸 id 로 남지 않게).
+- `ame2` 처럼 준비 안 된 걷기 모드는 `CONFIRMED` 칸이 될 수 없다 (409 `GAIT_NOT_READY`). 초안은 된다.
+- 일정 사건 (`SCHEDULE_SLOT_*`) 의 갈래는 `RUN` (임무).
+- 예약 실행 (11/28): `CONFIRMED` 칸의 시작 시각에 서버가 칸 만든 사람 이름으로 #537 과 같은 `run.start` 를 보낸다.
+  조종권은 기존 RUN holder lease (`holder_type` `RUN:<run_id>`, STOP 확인 뒤), 에이전트는 그 lease 로 그 run 하나만 시작한다.
+  `run_state`: null → `STARTING` → `STARTED` (`run_id`) → `DONE` | `FAILED`, 또는 `SKIPPED` | `MISSED`, 까닭은 `run_code`.
+  사람 USER lease · 요청 · 넘김이 있으면 기다리지 않고 `SKIPPED LEASE_HELD`. 실기 칸은 시작하지 않는다 (`SKIPPED REAL_ROBOT_SCHEDULE_DISABLED`, 여는 곳은 서버 설정 `FH_SCHEDULE_REAL_ROBOTS` 하나 · 기본 꺼짐 · 실기 STOP 확인 뒤). 끊긴 로봇은 `MISSED ROBOT_OFFLINE`.
+  한 칸은 한 번만 (run_state 가 비었을 때만 잡음 · `run_id` 유일). 실행이 걸린 칸은 PATCH · DELETE 409 `SCHEDULE_SLOT_RUN`.
+  다음 칸이 `BATTERY_SWAP` 이면 사건 `SCHEDULE_BATTERY_SWAP_NEXT` 만 남긴다 (시작하지 않음). 사건 `SCHEDULE_RUN_*`.
+  잠금은 사람만 푼다 (SF-02): 칸 시각에 로봇이 잠겨 있으면 (새 state 가 없음 포함) `SKIPPED STOP_LATCHED`, unlock 을 보내지 않는다.
+  서버가 내는 unlock 은 RUN lease 를 넘겨받을 때 서버 스스로 낸 STOP 만 푼다. 그 사이 사람 STOP 이 오면 `SKIPPED STOP_LATCHED`.
+  예외 (①, 시뮬만): 칸을 CONFIRMED 로 만든 사람 (`confirmed_by`) 이 잠금 해제를 미리 누른 것으로 본다. 단 그 잠금이
+  «사람이 풀어 둔 로봇을 서버가 조종권을 놓으며 (lease 반납 · 만료 · run 끝) 잠근 것» 일 때만이다. 다시 붙음 · 재시작 ·
+  사람 STOP · 에이전트 스스로 잠금 (stop_gen 이 서버 STOP 없이 바뀜) · safety 잠금은 그대로 `STOP_LATCHED`.
+  해제는 그 사람 권한 (지금도 담당 또는 총괄, 잠기지 않은 계정) 으로 하고 사건 `SCHEDULE_PRE_UNLOCK` (user = 확정한 사람) 을 남긴다.
+  권한이 없거나 확정한 사람이 없으면 `SKIPPED CONFIRMER_NOT_ALLOWED`. `ScheduleSlot.confirmed_by` 는 만들 때 CONFIRMED 면 만든 사람,
+  PATCH 로 종류가 CONFIRMED 가 되면 그 사람, CONFIRMED 가 아니게 되면 null 이다.
+  `STARTED` 칸은 `end_at` + 60 초가 지나도록 에이전트 보고가 없으면 `FAILED RUN_REPORT_LOST`. 늦게 온 보고는 `SCHEDULE_RUN_LATE_REPORT` 사건만 남기고 칸 상태는 그대로.
+- 권한은 배정과 같다. 조직 사용자는 모두 읽고, 바꾸기는 총괄 또는 그 로봇 담당만. 다른 로봇으로 옮기면 두 로봇 모두 권한이 있어야 한다.
+- 가용 `state`: 기간과 겹치는 칸이 있으면 `BUSY` (끝이 가장 늦은 칸을 `busy_*` 로), 없으면 연결이 끊긴 로봇은 `OFFLINE`, 그 외 `FREE`.
+  `CHARGING` 은 서버에 충전 신호가 없어 지금은 내지 않는다. `demo` 는 서버에 그런 로봇 필드가 없어 항상 false, `sim` 은 `Robot.simulation`.
+  연결 · 배터리 · 위치는 로봇 요약과 같은 가림 규칙이라 담당 아닌 운영자에게는 `battery_pct` · `location_label` 이 null 이고 연결을 몰라 `OFFLINE` 대신 `FREE` 로 보일 수 있다.
+- 예상 `length_m` 은 시나리오 저장 때 지점 순서로 잰 `est_distance_m` (직선 · 연결점 경유, Nav2 아님).
+  걷기 속도와 배터리 %/분은 `apps/server/fh_server/schedule.py` 의 미실측 추정 표 한 곳에 있고, 그래서 `estimate_source` 는 지금 항상 `TABLE_UNMEASURED` 다.
+  `task_s` 는 임무의 WAIT (지점 `wait_s` 가 덮음) · SENSOR_LOG 초, PHOTO · OPERATOR_CONFIRM 은 고정 표. `margin_s` 는 그 로봇에서 `start` 에 진행 중이거나 뒤에 오는 첫 칸 (`end > start`) 의 시작 빼기 `eta`, 없으면 null. 진행 중인 칸이 있으면 음수다. 이미 넣은 칸을 다시 예상할 때는 `exclude_slot_id` 로 그 칸을 뺀다.
+  `end_battery_pct` 는 지금 배터리를 볼 수 있을 때만 값이 있다.

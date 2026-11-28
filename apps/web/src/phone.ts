@@ -27,6 +27,8 @@ export type Link = {
   exp: number;
   /** 시나리오 실행(05 §13.10) — 에이전트가 알린 마지막 상태(state.run·run.update), 지점 도착 한 줄, NAV_UNAVAILABLE 로 시작을 거절받음 */
   run: RunSnapshot | null; arrived: string; navOff: boolean;
+  /** 마지막 lease.take 가 LEASE_HELD 였으면 그 조종자 종류(#537 reply.holder_type). 다시 조종 시작을 누르면 비움 */
+  held: 'USER' | 'RUN' | null;
 };
 export type Sim = {
   step: Step; catalog: SimCatalog | null; worldsOk: boolean; mine: SimRobot[]; listed: boolean; err: string; robot: SimRobot | null; since: number; link: Link | null;
@@ -57,7 +59,7 @@ const runtimeUntil = (r: SimRobot) => typeof r.remaining_s === 'number' && Numbe
 const REJECTED = new Set(['400 SIM_VALIDATION', '400 SIM_IDENTITY_INVALID', '400 SIM_CREDENTIAL_INVALID', '404 SIM_WORLD_NOT_FOUND', '404 SIM_SLOT_NOT_FOUND',
   '409 SIM_WORLD_BUSY', '409 SIM_OWNER_LIMIT', '409 SIM_NATIVE_SINGLE_ONLY', '409 SIM_ROBOT_LIMIT']);
 // gen = 연결 세대(close 마다), epoch = 화면 세션(clear 마다), cancel = 띄우는 중 STOP(POST 답이 오면 바로 정리), me = 내 사용자 id(총괄 목록은 조직 전체라 owner 로 내 것 판정)
-let S = blank(), lastEcho = '', ws: WebSocket | null = null, cam: WebSocket | null = null, timer = 0, tick = 0, lastSimPing = -Infinity, seq = 0, ids = 0, backoff = 0, gen = 0, epoch = 0, cancel = false, me = '';
+let S = blank(), lastEcho = '', ws: WebSocket | null = null, cam: WebSocket | null = null, timer = 0, tick = 0, lastSimPing = -Infinity, seq = 0, ids = 0, backoff = 0, gen = 0, epoch = 0, cancel = false, me = '', myName = '';   // myName = 로그인한 사람 이름(hello.display_name · 1~64 자, App 이 sim.as 로 넣음)
 let axes: Axes = [0, 0];   // [전후, 회전, 옆] -1..1, 조종 화면이 넣는다
 let lastCmd = Infinity;   // 마지막 cmd 를 보낸 때(단조) — 명령 틱 공백 검사
 let surface: 'pc' | undefined;   // PC «시뮬» 탭이 열려 있으면 'pc' — 출입증 요청에 싣는다(ADR-003 §6.2, 폰은 보내지 않음)
@@ -81,7 +83,7 @@ const subs = new Set<() => void>();
 const emit = () => { S = { ...S }; subs.forEach((f) => f()); };
 const set = (p: Partial<Sim>) => { Object.assign(S, p); emit(); };
 const setLink = (p: Partial<Link>) => { if (S.link) { S.link = { ...S.link, ...p }; emit(); } };
-const fresh = (): Link => ({ at: 'connecting', welcome: null, st: null, stAt: 0, lease: null, why: '', code: 0, notice: '', busy: '', giving: false, clipped: false, rtt: null, cam: 'wait', img: '', ask: null, exp: 0, run: null, arrived: '', navOff: false });
+const fresh = (): Link => ({ at: 'connecting', welcome: null, st: null, stAt: 0, lease: null, why: '', code: 0, notice: '', busy: '', giving: false, clipped: false, rtt: null, cam: 'wait', img: '', ask: null, exp: 0, run: null, arrived: '', navOff: false, held: null });
 
 // 실기 중계 통로: 화면이 window.fhGo2Link={seq,host,port} 를 두면 앱 0.5 s 읽기가 보고 중계를 열어 'fh-go2-link' {seq,port} 또는 {seq,why} 로 알린다(JS → 네이티브 호출 0).
 // 지우면 중계와 그 위 연결을 모두 닫는다 — 앱이 가려졌다 돌아오면 새 포트로 다시 알린다
@@ -164,7 +166,20 @@ const ERR: Record<string, string> = {
   MAP_VERSION_MISMATCH: '시나리오의 지도 판이 로봇 지도와 달라 실행하지 않았습니다.', FLOOR_TRANSITION_UNSUPPORTED: '여러 층을 지나는 시나리오는 아직 실행할 수 없습니다.',
   PLAN_UNAVAILABLE: '시나리오 자료를 받지 못해 실행하지 않았습니다.', MAP_PROOF_UNAVAILABLE: '이 지도로는 시나리오를 실행할 수 없습니다 — 지도 원본을 증명할 수 없는 판입니다(사람이 고친 판 등).',
 };
-const RESULT: Record<string, string> = { ACCEPTED: '조종권을 넘겼습니다.', DECLINED: '조종권 요청을 거절했습니다.', TIMEOUT: '조종권 요청이 시간이 지나 거절됐습니다.', CANCELED: '조종권 요청이 취소됐습니다.' };
+/** 조종권 거절 중 안전 글(등급 2 · 결정 1-4): 정지 확인 실패 · 다른 사람 조종 중. 알림 칸에서 접지 않는다(검수 #548 R1) */
+export const SAFE_NOTICE = [ERR.STOP_CONFIRM_FAILED, ERR.LEASE_HELD];
+/** 예약 실행(RUN)이 시뮬 Hub 를 쥠(#537 state.holder_type). 이때 lease.take 는 에이전트가 늘 LEASE_HELD 로 거절한다(agent phone/hub.py lease.take · owner 가 다른 peer) */
+/** 예약 실행이 쥐어 «조종 시작» 이 막힌 까닭(LEASE_HELD + RUN 답과 시뮬 탭 · 폰 HeldRun 이 같은 말) */
+export const HELD_RUN = '예약 임무가 조종 중입니다 · 임무가 끝나거나 멈춘 뒤 조종할 수 있습니다.';
+export const runHolds = (l: Link | null | undefined) => l?.st?.holder_type === 'RUN';
+/** LEASE_HELD 거절의 조종자(#537 holder_type · holder_name, 그 reply 에만 실림). 이름은 표시용 · 모르면 이름 없이 한 줄 */
+function heldText(r: PhoneReply) {
+  const who = r.holder_name?.trim();
+  if (r.holder_type === 'RUN') return HELD_RUN;
+  if (r.holder_type === 'USER') return `${who ? `${who} 님이` : '다른 사람이'} 다른 화면에서 조종 중입니다 · 거기서 조종을 놓으면 잡을 수 있습니다.`;   // 어느 화면(관제 · 폰 · 시뮬 탭)인지는 계약에 없음
+  return ERR.LEASE_HELD;
+}
+export const RESULT: Record<string, string> = { ACCEPTED: '조종권을 넘겼습니다.', DECLINED: '조종권 요청을 거절했습니다.', TIMEOUT: '조종권 요청이 시간이 지나 거절됐습니다.', CANCELED: '조종권 요청이 취소됐습니다.' };
 /** 닫기 코드(§13.6) → 문구. 4401·4403 은 새 출입증 전 자동 재연결하지 않는다 */
 export function closeText(code: number) {
   const t = code === 4401 ? '출입증이 만료됐거나 로봇이 연결을 확인하지 못했습니다.'
@@ -173,7 +188,7 @@ export function closeText(code: number) {
     : code === 1013 ? '로봇이 지금 연결을 받을 수 없습니다. 잠시 뒤 다시 연결하세요.'
     : code === 1012 || code === 1007 || code === 1003 || code === 1009 ? '로봇이 잘못된 메시지로 보고 연결을 닫았습니다.'
     : '로봇 연결이 끊겼습니다.';
-  return `${t}(${code}) 로봇은 입력이 끊기면 스스로 멈춥니다.`;
+  return `${t.replace(/\.$/, '')} (${code}). 로봇은 입력이 끊기면 스스로 멈춥니다.`;   // «끊겼습니다 (1006). 로봇은 …»
 }
 
 function send(m: Record<string, unknown>, wait?: (ok: boolean, r?: PhoneReply) => void) {
@@ -343,7 +358,7 @@ function onMsg(raw: string) {
   } else if (m.t === 'reply') {
     const r = m as unknown as PhoneReply, f = replies.get(r.id);
     replies.delete(r.id);
-    setLink({ busy: '', ...(r.lease_id ? { lease: r.lease_id } : {}), ...(r.ok ? {} : { notice: ERR[r.error?.code ?? ''] ?? `요청을 처리하지 못했습니다(${r.error?.code}).` }) });
+    setLink({ busy: '', ...(r.lease_id ? { lease: r.lease_id } : {}), ...(r.error?.code === 'LEASE_HELD' ? { held: r.holder_type ?? null } : {}), ...(r.ok ? {} : { notice: r.error?.code === 'LEASE_HELD' ? heldText(r) : ERR[r.error?.code ?? ''] ?? `요청을 처리하지 못했습니다(${r.error?.code}).` }) });
     f?.(r.ok, r);   // 안내를 고쳐 쓸 수 있게 기본 안내 뒤에 부른다
   } else if (m.t === 'cmd.ack') {
     if (!!m.clipped !== l.clipped) setLink({ clipped: !!m.clipped });
@@ -500,6 +515,8 @@ export const sim = {
       : { step: 'pick', robot: null, slotBusy: false, stop: null, taken, err: `${S.busyWhy} ${more ? '띄우기를 다시 누르면 다른 슬롯을 시도합니다.' : '사용이 끝난 뒤 다시 누르세요.'}` });
   },
   /** 이미 떠 있는 내 시뮬 로봇에 다시 붙기 */
+  /** 내 이름(PhoneHello.display_name, 계약 1~64 자). 비면 hello 에 넣지 않는다 */
+  as(name: string) { myName = Array.from(name.trim()).slice(0, 64).join(''); },
   attach(r: SimRobot) { set({ robot: r, runtimeUntil: runtimeUntil(r), err: '', stop: null }); return sim.connect(); },
   /** 실기 연결(주변 찾기 «연결»): 앱 중계를 열고, 포트가 오면 출입증 → 직접 hello(connect). 1폰 1대 — 다른 로봇이 걸려 있으면 하지 않는다 */
   real(t: Real, robotId: string) {
@@ -529,7 +546,7 @@ export const sim = {
       if (ra > 0) S.retryAt = now() + ra * 1000;
       // 403 WEB_SIM_ONLY = 서버가 이 로봇에 웹 시뮬 출입증을 주지 않음(simulation 꺼짐). 서버 문구 그대로, 화면은 «다시 연결»을 내지 않는다(code 403)
       if (e instanceof ApiFail && e.status === 403 && e.code === 'WEB_SIM_ONLY') return setLink({ at: 'closed', code: 403, why: e.message });
-      const plain = S.real && e instanceof ApiFail ? e.code === 'ADMIN_NO_REAL_CONTROL' ? e.message : ra > 0 ? `요청이 많습니다 — ${Math.ceil(ra)}초 뒤 다시 연결하세요.` : REAL_PASS[e.code] : undefined;
+      const plain = S.real && e instanceof ApiFail ? ra > 0 ? `요청이 많습니다. ${Math.ceil(ra)}초 뒤 다시 연결하세요.` : REAL_PASS[e.code] : undefined;
       setLink({ at: 'closed', why: plain ?? `출입증을 받지 못했습니다. ${message(e)}` });
       return;
     }
@@ -539,7 +556,7 @@ export const sim = {
     ws = w; seq = 0; tick = 0; lastSimPing = -Infinity; lastCmd = Infinity;
     w.onopen = () => {
       if (ws !== w) return;
-      w.send(JSON.stringify({ t: 'hello', id: `p${++ids}`, robot: r.robot_id, proto: 'fh-phone/1', device: deviceId(), ticket }));
+      w.send(JSON.stringify({ t: 'hello', id: `p${++ids}`, robot: r.robot_id, proto: 'fh-phone/1', device: deviceId(), ticket, ...(myName && { display_name: myName }) }));
       timer = window.setInterval(beat, CMD_MS);
       document.addEventListener('visibilitychange', onHide);
     };
@@ -548,7 +565,7 @@ export const sim = {
   },
   /** 연결만 닫음(로봇은 입력이 끊겨 스스로 0) */
   close() { gen++; if (ws || cam || timer) drop(1000); },
-  take() { if (send({ t: 'lease.take' })) setLink({ busy: 'take', giving: false, notice: '' }); },
+  take() { if (send({ t: 'lease.take' })) setLink({ busy: 'take', giving: false, notice: '', held: null }); },
   /** 명시 해제(현재 stop_gen). 성공 답은 해제 확인이 아니다 — state.latched=false 를 본다 */
   unlock() { const l = S.link; if (l?.lease && l.st && send({ t: 'unlock', lease_id: l.lease, stop_gen: l.st.stop_gen })) setLink({ busy: 'unlock', notice: '' }); },
   /** 0 + 반납(보기는 남음). 보내면서 lease 를 먼저 비운다(옛 lease 로 cmd 를 더 보내지 않음). 답을 기다릴 수 있게 Promise */

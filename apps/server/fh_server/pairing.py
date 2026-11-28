@@ -9,17 +9,19 @@ from uuid import UUID, uuid4
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from fastapi import Request, Response
 from starlette.websockets import WebSocketDisconnect
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from apps.contracts import models as C
 from . import phone_pass
-from .models import Event, Pairing, PairingRate, Robot, now
+from .models import Event, Pairing, PairingOffer, PairingRate, Robot, now
 from .event_messages import render
 from .robots import robot_object
 from .security import digest, token
 
 TTL = timedelta(minutes=10)
+OFFER_TTL = timedelta(minutes=5)
+OPEN_OFFER = ('WAITING', 'READ')
 MAX_PENDING = 100
 
 
@@ -80,8 +82,9 @@ def install(app, DB, Identity, fail, authorize, settings, find_robot, robot_even
 
     def operator(auth):
         user = auth[0]
-        if user.role != 'OPERATOR':
-            fail(403, 'FORBIDDEN', '담당 운영자만 로봇을 연결할 수 있습니다.')
+        # 운영 결정 2026-11-28: 총괄도 로봇을 붙이고 끊는다 (뒤의 ROBOT_WRITE 관문).
+        if user.role not in ('OPERATOR', 'ORG_ADMIN'):
+            fail(403, 'FORBIDDEN', '담당 운영자나 총괄만 로봇을 연결할 수 있습니다.')
         return user
 
     def rate(db, request, lane, user=None):
@@ -113,6 +116,92 @@ def install(app, DB, Identity, fail, authorize, settings, find_robot, robot_even
         if row is None or row.expires_at <= now():
             missing()
         return row
+
+    def linked_offer(db, row):
+        # An offer-made pairing is confirmable only while its offer is still READ.
+        offer = db.scalar(select(PairingOffer).where(PairingOffer.pairing_id == row.id,
+            PairingOffer.org_id == settings.org_id).with_for_update())
+        if offer is not None and (offer.state != 'READ' or offer.expires_at <= now()):
+            missing()
+        return offer
+
+    def settle_offer(offer, robot_id):
+        if offer is not None:
+            offer.state, offer.robot_id = 'PAIRED', robot_id
+
+    def fail_offer(db, row, offer):
+        # Persist before the 409 so the phone sees FAILED and the robot stops polling.
+        offer.state = 'FAILED'
+        row.consumed, row.token_ciphertext = True, None
+        db.commit()
+
+    def offer_status(row):
+        if row.state in OPEN_OFFER and row.expires_at <= now():
+            row.state = 'EXPIRED'
+        return C.PairingOfferStatus(offer_id=row.id, state=row.state, expires_at=row.expires_at,
+            robot_serial=row.robot_serial, pairing_id=row.pairing_id, robot_id=row.robot_id)
+
+    @app.post(prefix + '/pairing/offer', response_model=C.PairingOffered)
+    def offer(request: Request, response: Response, auth: Identity, db: DB):
+        """Phone side: a short single-use code for the QR. No secret, no key."""
+        user = operator(auth)
+        rate(db, request, 'offer', user)
+        mine = (PairingOffer.org_id == user.org_id, PairingOffer.created_by == user.id,
+                PairingOffer.state.in_(OPEN_OFFER))
+        # A new QR closes every earlier open code of this operator immediately.
+        old = [p for p in db.scalars(select(PairingOffer.pairing_id).where(*mine)) if p is not None]
+        if old:
+            db.execute(update(Pairing).where(Pairing.id.in_(old), Pairing.robot_id.is_(None))
+                .values(consumed=True, token_ciphertext=None))
+        db.execute(update(PairingOffer).where(*mine).values(state='EXPIRED'))
+        db.execute(delete(PairingOffer).where(PairingOffer.org_id == user.org_id,
+            PairingOffer.expires_at < now() - timedelta(days=1)))
+        code = secrets.token_urlsafe(18)
+        row = PairingOffer(id=uuid4(), org_id=user.org_id, created_by=user.id, code_hash=digest(code),
+            expires_at=now() + OFFER_TTL, state='WAITING')
+        db.add(row)
+        response.headers['Cache-Control'] = 'no-store'
+        return C.PairingOffered(offer_id=row.id, code=code, expires_at=row.expires_at)
+
+    @app.post(prefix + '/pairing/offer/claim', response_model=C.PairingOfferClaimed)
+    def offer_claim(body: C.PairingOfferClaim, request: Request, response: Response, db: DB):
+        """Robot side: code read from the phone QR plus serial. Only this reply carries the poll secret."""
+        rate(db, request, 'offer-claim')
+        row = db.scalar(select(PairingOffer).where(PairingOffer.org_id == settings.org_id,
+            PairingOffer.code_hash == digest(body.code)).with_for_update())
+        if row is not None and row.state == 'WAITING' and row.expires_at <= now():
+            row.state = 'EXPIRED'
+            db.commit()
+            missing()
+        if row is None or row.state != 'WAITING':
+            missing()
+        if db.scalar(select(func.count()).select_from(Pairing).where(
+                Pairing.org_id == settings.org_id, Pairing.robot_id.is_(None),
+                Pairing.expires_at > now())) >= MAX_PENDING:
+            fail(429, 'PAIRING_CAPACITY', '연결 대기가 많습니다. 잠시 뒤 다시 시도하세요.')
+        poll_secret, raw, identifier = token(), token(), uuid4()
+        nonce = secrets.token_bytes(12)
+        ciphertext = nonce + AESGCM(digest('pairing-token:' + poll_secret)).encrypt(nonce, raw.encode(), identifier.bytes)
+        # The pairings code is random and never shown; only the offer code was public.
+        db.add(Pairing(id=identifier, org_id=settings.org_id, code_hash=digest('offer:' + token()),
+            poll_hash=digest(poll_secret), token_hash=digest(raw), token_ciphertext=ciphertext,
+            robot_serial=body.robot_serial, expires_at=row.expires_at, consumed=False,
+            claimed_by=row.created_by))
+        db.flush()
+        row.state, row.robot_serial, row.pairing_id = 'READ', body.robot_serial, identifier
+        response.headers['Cache-Control'] = 'no-store'
+        return C.PairingOfferClaimed(pairing_id=identifier, expires_at=row.expires_at, poll_secret=poll_secret)
+
+    @app.get(prefix + '/pairing/offer/{offer_id}', response_model=C.PairingOfferStatus)
+    def offer_get(offer_id: UUID, response: Response, auth: Identity, db: DB):
+        """Phone side: WAITING, READ, PAIRED, EXPIRED or FAILED. Never a secret."""
+        user = operator(auth)
+        row = db.scalar(select(PairingOffer).where(PairingOffer.id == offer_id,
+            PairingOffer.org_id == user.org_id, PairingOffer.created_by == user.id).with_for_update())
+        if row is None:
+            missing()
+        response.headers['Cache-Control'] = 'no-store'
+        return offer_status(row)
 
     @app.post(prefix + '/pairing/start', response_model=C.PairingStarted)
     def start(body: C.PairingStart, request: Request, response: Response, db: DB):
@@ -159,6 +248,7 @@ def install(app, DB, Identity, fail, authorize, settings, find_robot, robot_even
         row = await asyncio.to_thread(lookup, db, pairing_id)
         if row.claimed_by != user.id or row.robot_id is not None or row.consumed:
             missing()
+        offer = await asyncio.to_thread(linked_offer, db, row)
         if not body.name.strip():
             fail(400, 'VALIDATION', '로봇 이름을 입력하세요.')
         def existing_robot():
@@ -169,8 +259,10 @@ def install(app, DB, Identity, fail, authorize, settings, find_robot, robot_even
         mac_placeholder = 0xFFFF0000 <= int(row.robot_serial.split('-')[0]) <= 0xFFFFFFFF
         existing = None if mac_placeholder else await asyncio.to_thread(existing_robot)
         if existing is not None:
-            if (existing.org_id != user.org_id or existing.owner_user_id != user.id
-                    or existing.simulation):
+            if (existing.org_id != user.org_id or existing.simulation
+                    or (user.role != 'ORG_ADMIN' and existing.owner_user_id != user.id)):
+                if offer is not None:
+                    await asyncio.to_thread(fail_offer, db, row, offer)
                 fail(409, 'ROBOT_ALREADY_PAIRED', '담당 운영에게 넘겨받기 또는 삭제를 요청하세요.')
             rt, rid = app.state.realtime, str(existing.id)
             rt.begin_robot_change(rid)
@@ -184,6 +276,7 @@ def install(app, DB, Identity, fail, authorize, settings, find_robot, robot_even
                     existing.field_approval_expires_at = None
                     phone_pass.revoke(db, user.org_id, robot_id=existing.id, clock=issuer.clock)
                     row.robot_id = existing.id
+                    settle_offer(offer, existing.id)
                     robot_event(db, user, existing, 'ROBOT_REPAIRED', {'name': existing.name})
                     db.commit()
                 await asyncio.to_thread(reconnect)
@@ -199,6 +292,7 @@ def install(app, DB, Identity, fail, authorize, settings, find_robot, robot_even
             db.add(robot)
             db.flush()
             row.robot_id = robot.id
+            settle_offer(offer, robot.id)
             robot_event(db, user, robot, 'ROBOT_CREATED', {'name': robot.name, 'paired': True})
             return robot_object(db, robot, user, app.state.realtime)
         response.headers['Cache-Control'] = 'no-store'

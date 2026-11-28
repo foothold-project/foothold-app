@@ -71,3 +71,30 @@ function simHandler(dir) {
 export function localSim(dir) {
   return { name: 'fh-local-sim', apply: 'serve', configureServer(server) { server.middlewares.use(simHandler(dir)); } };
 }
+
+/** 시안 자산 폴더(사진 · 3D 모형 · 지도 그림, 저장소 밖). FH_ASSET_DIR 이 없으면 null (그 화면 칸은 비어 보임) */
+export function assetDir(env) {
+  const value = env.FH_ASSET_DIR?.trim();
+  if (!value) return null;
+  return isAbsolute(value) ? value : join(WEB, value);
+}
+
+const ASSET_TYPES = { ...TYPES, '.glb': 'model/gltf-binary', '.bin': 'application/octet-stream', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };
+
+/** 개발 서버(serve)에만. /proto-assets/ 를 FH_ASSET_DIR 폴더 안의 실제 파일로만 준다 */
+/** @returns {import('vite').Plugin} */
+export function localAssets(dir) {
+  const handler = (req, res, next) => {
+    const raw = req.url ?? '', q = raw.indexOf('?'), path = q < 0 ? raw : raw.slice(0, q);
+    if (!path.startsWith('/proto-assets/')) return next();
+    const head = req.method === 'HEAD';
+    if (req.method !== 'GET' && !head) return send(res, 405, 'text/plain; charset=utf-8', 'GET 만 받습니다', false);
+    const file = dir ? inside(dir, path.slice('/proto-assets/'.length)) : null;
+    if (!file) return send(res, 404, 'text/plain; charset=utf-8', '자산 폴더에 없는 파일입니다', head);
+    res.writeHead(200, { 'content-type': ASSET_TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream',
+      'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+    if (head) return res.end();
+    createReadStream(file).on('error', () => res.destroy()).pipe(res);
+  };
+  return { name: 'fh-local-assets', apply: 'serve', configureServer(server) { server.middlewares.use(handler); } };
+}

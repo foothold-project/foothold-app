@@ -163,6 +163,46 @@
       "title": "AgentFieldApproval",
       "type": "object"
     },
+    "AgentGait": {
+      "additionalProperties": false,
+      "properties": {
+        "gait": {
+          "enum": [
+            "classic",
+            "sport",
+            "start",
+            "ame2"
+          ],
+          "title": "Gait",
+          "type": "string"
+        },
+        "lease_id": {
+          "format": "uuid",
+          "title": "Lease Id",
+          "type": "string"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "t": {
+          "const": "gait",
+          "default": "gait",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "request_id",
+        "lease_id",
+        "gait"
+      ],
+      "title": "AgentGait",
+      "type": "object"
+    },
     "AgentLease": {
       "additionalProperties": false,
       "properties": {
@@ -443,6 +483,141 @@
       "title": "AgentPosture",
       "type": "object"
     },
+    "AgentRunControl": {
+      "additionalProperties": false,
+      "properties": {
+        "lease_id": {
+          "format": "uuid",
+          "title": "Lease Id",
+          "type": "string"
+        },
+        "op": {
+          "enum": [
+            "pause",
+            "resume",
+            "abort"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "screen_id": {
+          "format": "uuid",
+          "title": "Screen Id",
+          "type": "string"
+        },
+        "t": {
+          "const": "run.control",
+          "default": "run.control",
+          "title": "T",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "request_id",
+        "user_id",
+        "lease_id",
+        "run_id",
+        "screen_id",
+        "op"
+      ],
+      "title": "AgentRunControl",
+      "type": "object"
+    },
+    "AgentRunStart": {
+      "additionalProperties": false,
+      "description": "ScreenRunStart 를 서버가 확인한 뒤 넘긴 꼴. user_id 는 서버가 인증한 요청자.",
+      "properties": {
+        "assignment_id": {
+          "format": "uuid",
+          "title": "Assignment Id",
+          "type": "string"
+        },
+        "floor_id": {
+          "format": "uuid",
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "lease_id": {
+          "format": "uuid",
+          "title": "Lease Id",
+          "type": "string"
+        },
+        "map_version_id": {
+          "format": "uuid",
+          "title": "Map Version Id",
+          "type": "string"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "scenario_id": {
+          "format": "uuid",
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "scenario_version": {
+          "minimum": 1,
+          "title": "Scenario Version",
+          "type": "integer"
+        },
+        "screen_id": {
+          "format": "uuid",
+          "title": "Screen Id",
+          "type": "string"
+        },
+        "t": {
+          "const": "run.start",
+          "default": "run.start",
+          "title": "T",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "request_id",
+        "user_id",
+        "lease_id",
+        "run_id",
+        "screen_id",
+        "scenario_id",
+        "scenario_version",
+        "floor_id",
+        "map_version_id",
+        "assignment_id"
+      ],
+      "title": "AgentRunStart",
+      "type": "object"
+    },
     "AgentServerPing": {
       "additionalProperties": false,
       "properties": {
@@ -595,6 +770,20 @@
     "AgentUnlock": {
       "additionalProperties": false,
       "properties": {
+        "display_name": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Display Name"
+        },
         "lease_id": {
           "format": "uuid",
           "title": "Lease Id",
@@ -611,6 +800,19 @@
           "default": "unlock",
           "title": "T",
           "type": "string"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User Id"
         }
       },
       "required": [
@@ -898,12 +1100,15 @@
       "action": "#/$defs/AgentAction",
       "cmd": "#/$defs/AgentCommand",
       "field_approval": "#/$defs/AgentFieldApproval",
+      "gait": "#/$defs/AgentGait",
       "lease": "#/$defs/AgentLease",
       "phone.revoke": "#/$defs/AgentPhoneRevoke",
       "ping": "#/$defs/AgentServerPing",
       "posture": "#/$defs/AgentPosture",
+      "run.control": "#/$defs/AgentRunControl",
       "run.recorded": "#/$defs/RunRecorded",
       "run.report_rejected": "#/$defs/RunReportRejected",
+      "run.start": "#/$defs/AgentRunStart",
       "slam": "#/$defs/AgentMappingCommand",
       "stop": "#/$defs/AgentStop",
       "streams": "#/$defs/AgentStreams",
@@ -950,6 +1155,15 @@
     },
     {
       "$ref": "#/$defs/AgentAction"
+    },
+    {
+      "$ref": "#/$defs/AgentGait"
+    },
+    {
+      "$ref": "#/$defs/AgentRunStart"
+    },
+    {
+      "$ref": "#/$defs/AgentRunControl"
     }
   ]
 }

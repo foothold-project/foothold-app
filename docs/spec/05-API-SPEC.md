@@ -101,11 +101,11 @@
 
 | 메서드 | 경로 | 설명 | 권한 |
 |---|---|---|---|
-| GET | `/robots` | 목록 + 최신 상태 요약 `?scope=mine|all` (기본 `mine`). `all` = 조직의 전체 로봇 | 로그인 |
+| GET | `/robots` | 목록 + 최신 상태 요약 `?scope=mine|all` (기본: 운영자 `mine` · 총괄 `all`, 운영 결정 2026-11-28). `all` = 조직의 전체 로봇 | 로그인 |
 | POST | `/robots` | 실기 직접 등록 폐지 →403 `PAIRING_REQUIRED`; §3.1 사용 | 없음 |
 | GET | `/robots/{id}` | 상세(장치 목록·담당자·현재 실행·현재 층). 담당 밖 운영 관리자에게는 로봇 요약 객체만 200 | 로그인 |
 | GET | `/robots/{id}/owner-candidates` | 넘길 수 있는 같은 조직의 활성(잠금·보관 제외) OPERATOR, 본인 제외. `{items:[{user_id,display_name}],next_cursor}`, 이름순(동명은 user_id순), 기존 `limit/cursor`. 시뮬은 기존 ROBOT_WRITE 판정 후409 `SIM_ROBOT_MANAGED`, 없는 로봇404 | 실기 O(내), 담당 밖·총괄403 |
-| PATCH | `/robots/{id}` | 이름·담당 운영 관리자 `{name, owner_user_id}`. 실기 넘기기 대상은 같은 조직의 활성 운영, null 거부, 넘기면 STOP·잠금·조종권 회수 | 실기 O(내), 담당 없는 실기 지정만 A, 시뮬 기존 A |
+| PATCH | `/robots/{id}` | 이름·담당 운영 관리자 `{name, owner_user_id}`. 실기 넘기기 대상은 같은 조직의 활성 운영, null 거부, 넘기면 STOP·잠금·조종권 회수 | 실기 O(내) · A(전체, 11/28), 시뮬 기존 A |
 | DELETE | `/robots/{id}` | 해제(실행·조종 중이면 409), 연결 키 폐기 | 실기 O(내), 시뮬 전용 관리 API |
 | POST | `/robots/{id}/agent-token` | 실기 직접 발급 폐지 →403 `PAIRING_REQUIRED`, 시뮬 기존409 `SIM_TOKEN_MANAGED` | 없음 |
 | GET | `/robots/{id}/telemetry` | 그래프용 요약 `?from&to&fields=battery,speed,latency&step=10s` | A, O(내). 담당 밖 운영 관리자는 404 |
@@ -149,19 +149,23 @@
 | POST `/pairing/claim` | `{code}` → `{pairing_id,robot_serial,expires_at}` | 운영만 |
 | POST `/pairing/{id}/confirm` | `{name}` → `RobotSummary`; 새 등록은 담당=claim한 운영·simulation=false, 같은 담당 기체는 기존 id 재연결 | 같은 운영만 |
 | POST `/pairing/{id}/poll` | `{poll_secret}` → `{state:"waiting"}` / `{state:"paired",robot_id,agent_token,agent_ws_url}` / `{state:"consumed"}` | 시작 프로그램의 비밀 필요 |
+| POST `/pairing/offer` | 본문 없음 → `{offer_id,code,expires_at}` (u08 폰 QR). poll_secret·연결 키 없음 | 운영만 |
+| POST `/pairing/offer/claim` | `{code,robot_serial}` → `{pairing_id,expires_at,poll_secret}`; 로봇이 QR에서 읽은 코드로 1회만 | 로그인 없음 (로봇) |
+| GET `/pairing/offer/{offer_id}` | → `{offer_id,state,expires_at,robot_serial,pairing_id,robot_id}`; state `WAITING`·`READ`·`PAIRED`·`EXPIRED`·`FAILED` | 만든 운영만 |
 | POST `/robots/{id}/field-approval` | 폐기된 사람 승인 API →410 `FIELD_APPROVAL_RETIRED` | 실기 담당 운영만 |
 | DELETE `/robots/{id}/field-approval` | 폐기된 사람 승인 API →410 `FIELD_APPROVAL_RETIRED` | 실기 담당 운영만 |
 | DELETE `/robots/{id}/connection` | 연결 키·폰 출입증 폐기, 진행 중 조종 STOP·잠금·조종권 회수, 연결 종료 →204 | 실기 담당 운영만 |
 
 - serial은 DDS uint32 두 개를 정규화한 `앞숫자-뒷숫자`다. 같은 serial의 활성 실기가 있고 담당이 confirm한 운영 본인이면 기존 robot_id로 재연결한다. 이름을 바꾸고 새 토큰을 발급하며 옛 토큰·폰 출입증·현장 승인을 폐기하고 진행 중 조종은 연결 끊기와 같은 STOP·잠금·조종권 회수 뒤 옛 연결을 닫는다. 토큰이 살아 있는 노트북 재설치도 같은 처리다. 다른 담당의 기체는409와 «담당 운영에게 넘겨받기 또는 삭제 요청» 안내를 준다. 기존 serial 없는 로봇·토큰은 그대로 둔다.
+- **폰 QR 방향 (u08, 2026-11-28)**: 로그인한 운영의 폰이 QR `foothold-offer:<code>`를 띄우고 Go2 앞 카메라가 읽는다. code는 24자 무작위(`[A-Za-z0-9_-]`)·5분·1회용이며 원문은 저장하지 않는다. offer 응답과 상태 응답에는 poll_secret·연결 키가 없다. 로봇이 `offer/claim`을 하면 서버가 기존 pairings 행을 만들어 poll_secret을 로봇 응답에만 주고 offer는 `READ`가 된다. 폰은 상태에서 읽힌 serial과 `pairing_id`를 보고 기존 `/pairing/{pairing_id}/confirm`으로 이름을 정한다 (`PAIRED`). 연결 키는 로봇이 기존 `poll`로만 받는다. 이미 쓴 코드·만료 코드·다른 조직 코드는 404 `PAIRING_NOT_FOUND`이고 만료된 offer는 `EXPIRED`로 닫힌다. 같은 운영이 새 offer를 받으면 앞의 열린 offer는 즉시 `EXPIRED`, 읽혔던 pairing은 consumed가 되어 confirm 404·poll `consumed`다. 다른 담당 기체라 confirm이 409이면 offer는 `FAILED`. `offer`는 사용자당 10회·IP당 20회, `offer/claim`은 IP당 20회 (10분 창). 로봇 앞 카메라 QR 읽기는 계약(`read_offer_qr_from_front_camera`)만 있고 실기 시험은 팀장 현장 확인 뒤다. QR로 Wi-Fi 비밀번호 넘기기는 보류(팀장 결정). 기존 `start`·`claim` 흐름은 호환으로 남는다.
 - 코드는 10분·1회용, poll_secret은 32바이트 무작위이며 start 응답에서만 전달한다. claim한 다른 운영의 claim/confirm, 없는 코드·사용한 코드·만료 코드는 같은404 `PAIRING_NOT_FOUND`다. 같은 운영의 대기 claim 재요청은 허용한다.
 - start는 실제 연결 IP당 10분 고정 창 10회, claim은 사용자당 10회·IP당 20회다(429). 프록시의 임의 전달 헤더는 신뢰하지 않는다. DB에 카운터를 저장해 실패·재시작으로 초기화되지 않는다. 조직당 확인 전 대기 상한100건이다.
 - 모든 pairing 응답은 `Cache-Control: no-store`. poll_secret은 해시만, 전달 전 토큰은 poll_secret에서 별도로 유도한 키로 AES-GCM 암호화해 저장한다. 한 번 poll하면 암호문을 지운다. 코드·비밀·토큰·serial 원문은 사건에 기록하지 않는다.
-- 담당 없는 실기만 총괄이 PATCH에 `{owner_user_id}` 한 필드만 보내 같은 조직의 활성 운영에게 담당을 지정할 수 있다. null·이름 동시 변경·기존 담당 교체는 허용하지 않는다. 지정은 진행 중 조종을 정지·잠금·조종권 회수하고 사건으로 남기며 연결 키를 발급하지 않는다.
+- 총괄은 담당 없는 실기와 남이 담당하는 실기 모두 이름 · 담당 바꾸기 · 끊기 · 지우기를 한다(운영 결정 2026-11-28). 담당은 담당 바꾸기 때만 바뀌고, 실기 담당을 비우는 null은 거부한다. 사건 data에 그때 담당 `owner_user_id`를 남긴다. 지정은 진행 중 조종을 정지·잠금·조종권 회수하고 사건으로 남기며 연결 키를 발급하지 않는다.
 - 현장 안전 확인 없음 — 담당·연결·전체 스위치로 관문. 사람의 세 항목 체크와 승인·해제는 사용하지 않는다. 이전 POST/DELETE는 담당 권한 확인 뒤410이며 상태를 바꾸지 않는다.
 - `RobotSummary.robot_serial`은 총괄도 읽는다. 호환 필드 `field_approval_expires_at`은 항상 null이며 DB의 옛 값은 권한으로 쓰지 않는다. DB 열을 지우거나 이관하지 않는다.
 - 서버 경유 실기 수동 조종은 전체 스위치 AND 담당 있음 AND 페어링 기체번호 있음 AND 인증된 실기 agent 연결이 모두 필요하다. `FH_SERVER_DRIVE_ENABLED=1`은 전체 스위치이며, env가 없을 때만 옛 `FH_SERVER_DRIVE_ROBOTS` UUID 목록을 대신 쓴다. 명시0·다른 값은 닫힘이며 wildcard는 거부한다. 목록의 `server_drive_allowed`도 이 조건으로 정한다.
-- 전체 스위치가 닫히면 운영은 `PHONE_DIRECT_REQUIRED`; 연결·담당 확인 중에는 호환 코드 `FIELD_APPROVAL_REQUIRED`를 사용한다. 총괄은 항상 `ADMIN_NO_REAL_CONTROL`. 시뮬·폰 출입증·명령표·속도 제한·0.30초 감시는 유지한다.
+- 전체 스위치가 닫히면 운영은 `PHONE_DIRECT_REQUIRED`; 연결·담당 확인 중에는 호환 코드 `FIELD_APPROVAL_REQUIRED`를 사용한다. 총괄도 운영자와 같은 관문을 받는다(운영 결정 2026-11-28로 `ADMIN_NO_REAL_CONTROL` 폐지). 시뮬·폰 출입증·명령표·속도 제한·0.30초 감시는 유지한다.
 - 연결 중 서버는 `{t:"field_approval",expires_at:UTC|null}` 표식을 자동 발급하고60초마다 갱신한다. 한 표식은30분 이하이며, 연결이 살아 있는 동안 자동 관문에 총 시간 제한은 없다. 최종 발신 때 현재 peer·담당·전체 스위치·500ms 이내 인증 확인·연결 생존을 다시 검사한다. 연결이 끊기거나 확인이 오래되면 갱신하지 않는다. `FIELD_APPROVAL_EXPIRED` 사건은 더 만들지 않으며 옛 기록은 읽을 수 있다.
 - 노트북은 기존 nic·serial·최대1800초·벽시계/단조시계 만료 검사를 유지한다. 같은 유효 연결의 정상 표식 갱신은 조종권·잠금 상태를 유지하며, 끊김·만료·검사 실패는 STOP·잠금·조종권 회수다. 연결 끊기·담당 변경·재연결도 진행 중 조종을 끝내며, 재연결 뒤 자동 표식을 받아도 조종권·잠금 해제는 복원하지 않는다. 다시 취득·STOP 확인·명시 잠금 해제가 필요하다. 안전 STOP·lease-null 경로는 그대로다.
 - 배포 담당이 할 일: 기존0022 DB 이관 적용 확인(이번 추가 이관 없음), 서버·새 연결 프로그램의 호환 및 비밀 전달 경로 확인, 필요한 경우 전체 스위치 설정, 별도 승인된 절차로 재시작·통합 검증. 이 구현 작업은 운영 env·서버·실기·시뮬을 건드리지 않는다.
@@ -330,10 +334,43 @@ purge 이후 NULL 기록이 생겼거나 파일 대기열이 남으면
 | DELETE | `/assignments/{id}` | 해제 | A, O(내) |
 
 ### 6.5 실행
-**직결 실행의 정본은 §13.10**이다(ADR-002 §9, ADR-003 §5·§11). 아래 POST 시작·제어는
-옛 서버 중계 설계이며 직결 모드에서 실행 명령 경로로 구현하지 않는다. GET 기록·보고서는
+**실행 명령은 서버 실시간 길이 정본이다 (2026-11-28 팀장 05:09 · 05:14).** 시작 · 일시정지 · 이어 가기 ·
+취소는 폰 · 웹 어느 기기에서든 화면 실시간 메시지 `run.start` · `run.control` (§9, 계약
+`ScreenRunStart` · `ScreenRunControl`) 로 서버에 보내고, 서버가 관문을 확인해 에이전트 메시지
+`run.start` · `run.control` (`AgentRunStart` · `AgentRunControl`) 로 넘긴다. 결과는 에이전트 상태
+`run_result` 로 돌아와 화면 상태 `run_result` · `run` 으로 보인다. 필드는 폰 직결 프레임 (§13.10) 과
+같고, 다른 점은 `assignment_id` 필수 · `screen_id` 필수 · `lease_id` 는 pause 말고 모든 op 에 필수 ·
+`resume_token` 없음 · `return` 없음이다.
+- 일시정지 (11/28 #542 R5, 팀장 05:09 모든 기기에서 멈추고 이어 가기). lease 규칙은 바꾸지 않는다.
+  - 쥔 쪽이 RUN (예약 실행 · 다시 붙은 run) 이면 그 로봇 담당 (O_OWN) 누구나 lease_id 없이 pause 한다.
+    `{"t":"run.control","id":"<요청>","robot":"<로봇>","run_id":"<그 run>","screen_id":"<화면>","op":"pause"}`
+    (필수 t · id · robot · run_id · screen_id · op, lease_id 는 생략 또는 무시). run_id 가 RUN lease 의 run 과 같아야 한다.
+    서버는 RUN lease 를 푼다 (lease null → STOP). 중계가 Hub 를 놓아 속도 0 · 잠김, run 은 PAUSED 로 남는다.
+    이어 가기는 사람이 USER lease 를 잡고 그 lease 로 resume (아래 «이어 가기 증명»). RUN lease 는 다시 잡지 않는다.
+  - 쥔 쪽이 USER 면 그 lease 를 쥔 화면 (같은 연결 · lease_id 맞춤) 만 pause 한다. 다른 화면 (같은 사람의 다른
+    기기 포함) 은 `LEASE_MISMATCH`. 그 화면이 멈추려면 STOP (누구나, 잠김) 또는 `lease.request` (넘겨받기) 를 쓴다.
+  - resume · abort 는 그대로 (lease_id 필수). STOP 잠금이 우선이다. pause 도 resume 도 잠금을 풀지 않는다.
+  - 모든 pause 는 사건 `RUN_PAUSE_REQUESTED` (보낸 사람 user_id · `data.run_id` · `data.holder_type` USER|RUN) 를 남긴다.
+- 서버 관문: 담당 (총괄은 담당과 같은 관문, 운영 결정 2026-11-28 · #544) · 조종권 USER lease 일치 · 에이전트 인증 0.5 s 안 · 담당 변경 중
+  아님, 실기는 현장 승인 · 서버 조종 켬을 더한다. 시작은 ACTIVE 배정 (로봇 · 시나리오 판 · 층 · 지도 판) 이어야
+  한다. 시작 · 이어 가기는 멈춰 있을 때만. 정지 · 반납 · 승인 · 조종권이 바뀌면 큐에 남은 `run.*` 는 보내지 않는다.
+  거절 코드 `RUN_NOT_ALLOWED` · `RUN_MOVING` · `RUN_ASSIGNMENT_INVALID` · `RUN_STOPPED` (배정 확인 중 STOP, 큐에 넣지 않음) (+ 기존 lease · 권한 코드).
+  `run.*` 의 `reply` 는 서버가 에이전트 소켓에 실제로 보낸 뒤에 `ok:true` 다. 마지막 발신 관문에서 막히면 `RUN_NOT_DELIVERED`,
+  STOP · lease 로 큐에서 지워지면 `RUN_STOPPED`, 에이전트가 끊기면 `ROBOT_OFFLINE`. `run.start` 는 보내기 바로 앞에서 배정을 한 번 더 읽고,
+  그 사이 철회되면 `RUN_ASSIGNMENT_INVALID`, 그 사이 STOP 이면 `RUN_STOPPED` (Codex 검토 M3 · M4, 11/28).
+  데모 로봇에서 조종권을 쥔 화면 소켓이 닫히면 서버는 15 초를 기다리지 않고 바로 조종권을 거둔다 (cause `screen_disconnected`, M2).
+  중계기는 서버 unlock 의 `stop_gen` 이 지금 세대와 같을 때만 푼다. 그 사이 다른 STOP 이 있었으면 버린다 (H1).
+- 데모 (시뮬) 로봇도 같은 메시지 · 같은 관문이다. 다른 것은 지금 있는 안전 차이 (현장 승인 · 서버 조종 켬은 실기만) 뿐.
+- 이어 가기 증명: 서버가 «그 로봇의 지금 USER lease 주인» 을 확인한다 (같은 run 을 시작한 사용자이거나 지금
+  lease 를 넘겨받은 사용자). 비밀값은 서버 상태에 싣지 않는다. 잠김 중이면 거절.
+- 폰 직결 (§13.10) 은 그대로 남는다. 서버가 죽었을 때 정지 · 끝 (STOP · 일시정지 · 취소) 길이다. 에이전트 Hub 는
+  먼저 잡은 조종자 하나만 둔다 (폰이 잡고 있으면 서버 길은 `LEASE_HELD`).
+- 실기: 에이전트 실행 기계가 아직 `FORBIDDEN` 으로 막는다 (실기 Hub 에 Nav2 · 시나리오 자료 · 실행 기록 · SF-12
+  없음, 팀장 결정 대기).
+
+아래 POST 시작·제어는 옛 HTTP 설계이며 구현하지 않는다 (실시간 메시지가 정본). GET 기록·보고서는
 서버 데이터 경로로 유지한다. `POST /runs/precheck`는 실기의 SF-12 데이터 점검 API로
-유지하며 시뮬에서는 호출·선행 조건 모두 생략한다. 시뮬은 배정·결재도 거치지 않고 실기 조건은 유지한다.
+유지하며 시뮬에서는 호출·선행 조건 모두 생략한다. 시뮬은 결재를 거치지 않음 (배정은 시뮬 로봇에 한해 결재 없이 ACTIVE). 실기 조건은 유지한다.
 
 | 메서드 | 경로 | 설명 | 권한 |
 |---|---|---|---|
@@ -469,7 +506,7 @@ purge 이후 NULL 기록이 생겼거나 파일 대기열이 남으면
 ### 9.3 서버 → 화면
 | t | 본문 | 빈도 |
 |---|---|---|
-| `state` | 로봇 요약 객체(§3)의 바뀐 부분 + `speed`, `latency_ms`(지금 미측정 `null`), `stop_gen`, `latched`, `applied` | 구독 로봇마다 10 Hz |
+| `state` | 로봇 요약 객체(§3)의 바뀐 부분 + `speed`, `latency_ms`(지금 미측정 `null`), `stop_gen`, `latched`, `applied`, `field_gate`(`OPEN`\|`CLOSED`\|`null`, 에이전트 값 그대로. 옛 에이전트·오래된 상태는 `null`), `stop_applied`(true\|false\|null, 서버의 마지막 STOP 을 에이전트가 적용했다고 보고했는가. 사람 STOP 확인은 true 일 때만) | 구독 로봇마다 10 Hz |
 | `lease` | `{robot, holder, lease_id(조종권자 연결에만), since}` | 바뀔 때 |
 | `lease.requested` | `{robot, request_id, requester:{display_name, role}, expires_at}` | 조종권자에게 |
 | `lease.result` | `{robot, request_id, result: "ACCEPTED"|"DECLINED"|"TIMEOUT"|"CANCELED", error?}`. 정지 확인 실패([02 F-TO-04](02-FUNCTIONAL-SPEC.md#f-to-04-조종권-요청-sf-05sf-08--확정--제안-보완) 넘김 순서 4)는 `CANCELED` + `error:"STOP_CONFIRM_FAILED"` | 요청자·조종권자에게 |
@@ -500,7 +537,7 @@ purge 이후 NULL 기록이 생겼거나 파일 대기열이 남으면
 | t | 본문 | 빈도 |
 |---|---|---|
 | `hello` | `{proto:"fh-agent/1", agent_version, robot_model, firmware, devices:[…], map_versions:[sha256…], last_floor_id, latched, stop_gen, lease_id, run:{run_id, status, step, wait_reason?}|null}` | 연결 직후 1회(3 s 안). 서버는 이것으로 실행·조종권을 맞춘다([04 §3.2](04-ARCHITECTURE.md#32-연결-끊김-처리) 재연결) |
-| `state` | `{pose:{floor_id,x,y,yaw,confidence}, speed, battery:{soc,voltage?}, latched, stop_gen, stop_ref, applied:[vx,vy,wz], mode:"USER"|"RUN"|"FREE", devices_changed?}`. 측정 전 값(pose 각 칸·speed·soc)은 `null`. `stop_ref` 는 §10.5 | 10 Hz, 그리고 `lease`·`stop`·`unlock` 을 적용한 직후 |
+| `state` | `{pose:{floor_id,x,y,yaw,confidence}, speed, battery:{soc,voltage?}, latched, stop_gen, stop_ref, applied:[vx,vy,wz], mode:"USER"|"RUN"|"FREE", devices_changed?, field_gate?}`. `field_gate` 는 현장 승인 관문이 있는 실기 에이전트만 `OPEN`/`CLOSED`, 관문 없음·모름은 `null`. 측정 전 값(pose 각 칸·speed·soc)은 `null`. `stop_ref` 는 §10.5 | 10 Hz, 그리고 `lease`·`stop`·`unlock` 을 적용한 직후 |
 | `ping` | `{}` | 서버 `ping` 에는 `state` 또는 `ping` 으로 응답한다(10 Hz `state` 가 응답을 겸함) |
 | `event` | `{code, severity, robot_at|null, data}` (서버가 문장을 만든다) | 생길 때. 끊김 중 쌓은 것은 재연결 때 순서대로. 끊긴 동안의 재시도 사건은 하나로 묶는다(§10.3 규칙 11) |
 | `run.update` | `{run_id, status, step, progress, path_deviation_m?, fail_code?}` | 바뀔 때 |
@@ -565,6 +602,8 @@ P1-B의 `phone.revoke`/`phone.revoke.ack`는 현재 구현 프로토콜 `fh-agen
 4. `stop_ref` 가 상한 2^53-1 에 닿으면 그 값으로 확인된 조종권은 한 번 줄 수 있다. 그 뒤의 STOP 은 같은 상한값을 다시 실어 계속 보내되, 그 값으로 새 조종권은 주지 않는다(`lease.result` `CANCELED` + `error:"STOP_REF_EXHAUSTED"`). 다시 주려면 중재기를 새로 띄워야 한다.
 5. 서버와 에이전트는 이 계약을 함께 갱신한다. `stop_ref` 를 돌려주지 않는 옛 에이전트는 새 서버에서 정지 확인을 통과하지 못한다.
 - 여기서 확인하는 것은 메시지 사이의 인과(그 STOP 을 적용했다는 보고)다. 몸이 실제로 섰는지(속도 0·정지 거리)는 아니다.
+- `field_gate=CLOSED`이면 STOP이 로봇에 가지 않는다. `latched=true`에 `applied`가 비었거나 0이라는 것만으로 정지 출력을 뜻하지 않는다. 관문이 닫힌 에이전트는 STOP 을 받아도 로봇 출력(StopMove 포함)을 내지 않는다. 웹 문구: 조종 준비 「현장 승인이 닫혀 있어 앱 정지가 로봇에 가지 않습니다. 리모컨으로 멈추세요」, STOP 한 줄 「현장 승인이 닫혀 정지가 로봇에 가지 않음 · 리모컨으로 멈추세요」
+- 에이전트가 없을 때 누른 STOP 은 큐에 넣지 않는다. 에이전트가 다시 붙으면 서버가 연결 STOP (cause `agent_connected`, `stop_ref` +1) 을 보내고, 로봇은 잠긴 채 시작한다. 앞서 누른 STOP 이 나중에 전달되지는 않는다. 관문이 열린 채 붙으면 이 연결 STOP 이 같은 결과 (잠김 · 출력 0) 를 낸다. 관문이 닫힌 채 붙으면 연결 STOP 도 로봇 출력으로 이어지지 않고, 에이전트는 `stop_ref` 0 을 보고한다. 화면 상태에는 `stop_ref` 가 없으므로 화면은 `stop_applied` (서버가 보낸 마지막 `stop_ref` 를 에이전트가 적용했다고 보고하면 true, 관문 닫힘 등 다른 잠금이면 false) 와 `latched` · `field_gate` 로 이것을 안다. 사람 STOP 의 «로봇 정지 확인» 은 `stop_applied=true` 일 때만 보인다. `applied` 가 비어 있는 것은 `field_gate=OPEN` 일 때만 멈춤 출력으로 읽는다.
 
 ---
 
@@ -585,6 +624,12 @@ P1-B의 `phone.revoke`/`phone.revoke.ack`는 현재 구현 프로토콜 `fh-agen
 ## 12. 변경 이력
 | 판 | 날짜 | 내용 |
 |---|---|---|
+| 0.26 | 2026-11-28 | Codex 검토 (#537): `run.*` reply 는 보낸 뒤 · `RUN_NOT_DELIVERED`, 보내기 앞 배정 재확인, 데모 화면 끊김 즉시 회수, 늦은 unlock 의 `stop_gen` 확인 (§6.5) |
+| 0.25 | 2026-11-28 | 10:58: 실기 칸 예약 실행 안 함 (`REAL_ROBOT_SCHEDULE_DISABLED`, 설정 하나 기본 꺼짐), 시뮬은 확정한 사람이 잠금 해제를 미리 누른 것으로 봄 (조종권을 놓으며 생긴 잠금만, `SCHEDULE_PRE_UNLOCK`). 자세한 것은 `apps/contracts/README.md` «일정» |
+| 0.24 | 2026-11-28 | #542 R5: §6.5 일시정지 · RUN 이 쥔 run 은 담당 누구나 lease_id 없이 pause, USER 는 쥔 화면만, 모든 pause 사건 `RUN_PAUSE_REQUESTED`. 예약 실행은 잠긴 로봇을 풀지 않음 (`SKIPPED STOP_LATCHED`) |
+| 0.23 | 2026-11-28 | 일정 칸 예약 실행: CONFIRMED 칸 시각에 서버가 §6.5 `run.start` 를 같은 관문으로 보냄 (RUN holder lease · 칸 run_state · 한 번만). 자세한 것은 `apps/contracts/README.md` «일정» |
+| 0.22 | 2026-11-28 | 웹 시뮬 탭 요청: §13 PhoneState · LEASE_HELD reply 에 `holder_type` · `holder_name`, PhoneHello 선택 `display_name`, 에이전트 `unlock.display_name` |
+| 0.21 | 2026-11-28 | 팀장 05:09 · 05:14: §6.5 실행 명령을 화면 → 서버 → 에이전트 실시간 길 (`run.start` · `run.control`) 로, 데모도 같은 길, 서버 길 이어 가기 증명, 폰 직결은 서버 장애 때 정지 · 끝 길 |
 | 0.19 | 2026-10-25 | ADR-003 ⑤ 후속 계약(§13.10): 고정 시나리오 자료 참조·직결 run 프레임·단일 층·3초 감시 제안·같은 화면 재개·에이전트 보고/영속 기록·구현 분할. 현재 미구현과 제품 결정을 구분 |
 | 0.1 | 2026-10-19 | 최초 작성 |
 | 0.2 | 2026-10-19 | PR #3 검토 1·2차 반영 (deadman 현재 동작·감시 모드 분리·연결 끊김 기준·기록 범위·에이전트 REST·ID·판 충돌 범위 등) |
@@ -840,6 +885,7 @@ state는 §10과 같은 이름·뜻의 `battery:{soc,voltage?}`, `pose:{floor_id
 |---|---|
 | `robot`, `controller`, `controller_device` | 로봇·현재 조종자 사용자·기기 UUID. 예약 중에도 사용자/기기를 보이며 없으면 null |
 | `controller_connected`, `lease_id` | 살아 있는 조종자 연결 여부. lease_id는 그 연결에만 보이고 나머지는 null. 예약은 연결/lease가 아님 |
+| `holder_type`, `holder_name` | 누가 Hub 를 쥐었나 (11/28, 필수 · null 가능). `USER`: 폰 직결 조종자 (이름은 hello 의 선택 `display_name`) 또는 서버 중계 뒤의 사람 (이름은 서버 `unlock.display_name`). `RUN`: 예약 실행의 RUN lease, 이름 null. 아무도 없으면 둘 다 null, 이름을 모르면 null. `LEASE_HELD` 거절 reply 에도 같은 두 칸 |
 | `stop_ref` | **폰 state에 한해** Hub가 생성한 로컬 STOP 확인 카운터다. 폰의 요청 ID나 서버의 ref가 아니다. Observer가 서버에 보내는 §10.5 stop_ref는 서버의 마지막 유효 ref만 돌려주며 없거나 서버가 재접속하면 0이다 |
 | `stop_requested`, `posture:{z,tilt_deg,fallen,body_still}`, `velocity:[vx,vy,wz]` | 신선한 로컬 bridge 피드백. 오래되면 각 값 null |
 | `echo:{id,client_time_ms,agent_time_ms}|null` | 마지막 앱 ping의 ID·폰 시각·에이전트 수신 UTC ms. 폰이 수신 시 RTT를 계산하며 서로 다른 시계의 단방향 지연으로 추정하지 않음 |
@@ -920,8 +966,8 @@ URL·쿠키·로그·감사 사건·DB에 토큰/서명을 넣지 않는다. 화
 
 - `surface` 기본값은 `phone`이다. PC 시뮬 화면은 반드시 `pc`를 요청한다.
   `pc`는 로봇의 서버 `simulation` 값이 정확히 `True`가 아니면 control·view 모두
-  403 `WEB_SIM_ONLY`다. PR #95 총괄 실기 출입증 403 `ADMIN_NO_REAL_CONTROL`은
-  기존 권한 검사에서 그대로 유지한다. 서버가 허용해도 에이전트는 서명된 `surface`와
+  403 `WEB_SIM_ONLY`다. 이 관문은 총괄에게도 같고, 총괄도 phone 실기 출입증을 받는다
+  (운영 결정 2026-11-28, PR #95의 총괄 실기 출입증 403 `ADMIN_NO_REAL_CONTROL`은 폐지). 서버가 허용해도 에이전트는 서명된 `surface`와
   **자기 기동 때 명시한 simulation 설정**을 다시 확인한다. PC는 hello·조종권·조종을
   거부하며 STOP·조종권 반납은 이 관문으로 막지 않는다. 직결 `run.*`는 아직 지원하지
   않아 실행되지 않는다(ADR-003 ⑤ 후속). PC도 같은 Session·deadman 0.3 s를 쓴다.
@@ -1138,6 +1184,9 @@ namespace, tf_prefix, command_topic, launcher, `expires_at`(UTC 기한, 옛 관�
 `remaining_s`(관리자 단조 시계 기준 남은 정수 초, 옛 관리자면 null)을 싣는다. `state=PREPARED,launcher=fake`는
 가짜 launcher의 계약 시험 결과이고 접속 가능한 로봇이 아니다. `RUNNING,native-single`은
 네이티브 에이전트 listener가 열린 결과이며 §13.6·ADR-002 §8 성능 통과를 뜻하지 않는다.
+`RUNNING,mujoco-local`은 로컬 전용 `FH_SIM_LOCAL_BACKEND=mujoco` 의 헤드리스 MuJoCo 에이전트가
+서버 에이전트 WS 인증 연결을 연 결과다. 이 에이전트는 폰 직결 listener 가 없어 `agent_address` 로는 붙지 않는다.
+자식이 끝나면 `ERROR` 로 바뀌며 DELETE 로 정리한다.
 
 시뮬 수명은 `FH_SIM_RUNTIME_SECONDS` 한 설정으로 기본1800초(30분), native는300..3600초,
 fake는5..3600초까지 허용한다. 월드 준비를 요청한 시점부터 계산하며 준비 시간도 포함한다.
@@ -1507,8 +1556,8 @@ F-MS-06의 우선순위(STOP_LATCHED 등)를 유지한다.
   `run_cancel=true`를 검증한다. 서버는 발급 때 현재 조직·로봇 담당/총괄 권한을 확인한다.
   원 실행 화면은 기존 권한으로도 취소할 수 있다. 이 안전 축소 요청에는 lease 취득,
   screen_id·resume_token·unlock·중립을 요구하지 않으며 RUN_ACTIVE로 막지 않는다.
-  다른 화면의 pause/resume·조종권 획득은 허용하지 않는다. 실기의 PC 연결 금지와
-  총괄의 실기 조종 금지는 유지한다(실기 취소는 phone의 view+취소 권한으로만).
+  다른 화면의 pause/resume·조종권 획득은 허용하지 않는다. 실기의 PC 연결 금지는
+  총괄에게도 같게 유지한다(실기 취소는 phone의 view+취소 권한으로만). 총괄도 실기를 조종한다(운영 결정 2026-11-28).
   에이전트 적용 뒤 `CANCELED`, `fail_code=OPERATOR_ABORT`와 0·목표 취소·잠금 유지,
   RUN holder/활성 실행 해제·서버 기록을 한 종료 전이로 처리한다. 종료 후에는 RUN_ACTIVE로
   새 run_id를 막지 않지만 STOP 확인·명시 해제·중립 등 새 실행의 안전 관문은 필요하다.
@@ -1614,8 +1663,8 @@ F-MS-06의 우선순위(STOP_LATCHED 등)를 유지한다.
 ### 13.11 총괄 정지 요청과 상태 요약 (ADR-002, FIX-1029)
 
 전체 스위치가 꺼진 실기(`simulation != true`)의 서버 WS 조종권·명령·잠금 해제·STOP 및 REST
-`POST /robots/{id}/stop` 중계는 거부한다. §3.1의 전체 스위치·담당·연결을 갖춘 실기 수동 조종은 그 절의 예외를 따른다. 운영자는 `PHONE_DIRECT_REQUIRED`, 총괄은
-기존 `ADMIN_NO_REAL_CONTROL`을 받는다. 서버의 시작·끊김·기록 장애에 따른 내부 제어
+`POST /robots/{id}/stop` 중계는 거부한다. §3.1의 전체 스위치·담당·연결을 갖춘 실기 수동 조종은 그 절의 예외를 따른다. 운영자와 총괄 모두
+`PHONE_DIRECT_REQUIRED`를 받는다(운영 결정 2026-11-28, `ADMIN_NO_REAL_CONTROL` 폐지). 서버의 시작·끊김·기록 장애에 따른 내부 제어
 발신도 전체 스위치가 꺼진 실기로 보내지 않는다. 시뮬의 기존 중계 경로와 에이전트의 구형 수신 STOP 방어는 유지한다.
 
 총괄은 `POST /api/v1/robots/{robot_id}/stop-requests`에 `{request_id: UUID}`를 보낸다.

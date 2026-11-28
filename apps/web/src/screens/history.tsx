@@ -1,7 +1,7 @@
 // 기록 탭·서랍 «최근 사건»·알림 종(01 LG-01·02·04·05, 02 F-LG·F-COM-03, 03 UX §5.5, 05 §8 · S2 /events·/notifications).
 // 목록·범위·문장은 서버 값 그대로: 화면은 필터를 요청 매개변수로 넘길 뿐 다시 거르거나 문장을 짓지 않는다(운영 관리자 범위도 서버가 정함).
 // 이 요청들이 실패·지연돼도 머리줄·STOP·조종 화면은 그대로다 · 오류는 이 칸 안에만 쓴다.
-import { Fragment, useEffect, useId, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { Fragment, useEffect, useId, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import type { Event as Ev, EventList, NotificationList, Notification, NotificationsRead } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import { idleSim, myRobots, simName, type Robot, type Tone } from '../fake';
@@ -354,7 +354,8 @@ export function RecentEvents({ robot, cancel }: { robot: string; cancel?: AbortS
 export const BELL_MS = 15_000;
 /** 알림 종(F-COM-03, PC 머리줄): 안 읽은 수 배지 + 펼치면 최근 20개. 누르면 읽음 처리하고 그 기록으로 간다.
  *  못 받으면 이전 값 그대로 · 실패 글은 펼친 칸 안에만 */
-export function Bell({ cancel }: { cancel?: AbortSignal }) {
+/** face = 종 겉모양을 바꿀 때(PC 시안 머리줄 · proto/bar BellFace), pop = 펼친 칸에 더할 class(시안 틀 밖 옛 색 변수 .fh · 테마) — 받기 · 읽음 · 차림 동작은 그대로 */
+export function Bell({ cancel, face, pop }: { cancel?: AbortSignal; face?: (unread: number) => ReactNode; pop?: string }) {
   const [list, setList] = useState<NotificationList | null>(null), [err, setErr] = useState('');
   const box = useRef<HTMLDetailsElement>(null), get = useRef(() => {});
   // 한 번에 한 요청: 앞 요청이 끝나야(제한시간은 api) 다음을 BELL_MS 뒤에 예약 · 느린 정상 답도 버리지 않고, 요청이 쌓여 STOP 과 연결을 다투지 않게.
@@ -393,9 +394,9 @@ export function Bell({ cancel }: { cancel?: AbortSignal }) {
     if (x.link.startsWith('#/')) location.hash = x.link;
   };
   const unread = list?.unread_count ?? 0;
-  return <details ref={box} className="fh-more" data-bell onKeyDown={(e) => { if (e.key === 'Escape' && box.current?.open) { box.current.open = false; box.current.querySelector('summary')?.focus(); } }}>
-    <summary aria-label={list ? `알림 안 읽음 ${unread}건` : '알림'}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0" /></svg>{unread > 0 && <span className="fh-badge" aria-hidden="true">{unread > 99 ? '99+' : unread}</span>}</summary>
-    <div className="card" style={{ whiteSpace: 'normal', width: 'min(360px, 80vw)', maxHeight: '60vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }} aria-label="알림 목록">
+  return <details ref={box} className={face ? 'ap-bell' : 'fh-more'} data-bell onKeyDown={(e) => { if (e.key === 'Escape' && box.current?.open) { box.current.open = false; box.current.querySelector('summary')?.focus(); } }}>
+    <summary aria-label={list ? `알림 안 읽음 ${unread}건` : '알림'}>{face ? face(unread) : <><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0" /></svg>{unread > 0 && <span className="fh-badge" aria-hidden="true">{unread > 99 ? '99+' : unread}</span>}</>}</summary>
+    <div className={pop ? `card ${pop}` : 'card'} style={{ whiteSpace: 'normal', width: 'min(360px, 80vw)', maxHeight: '60vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }} aria-label="알림 목록">
       <div className="fh-row"><b className="fh-grow">알림</b><button type="button" className="btn" disabled={!unread} onClick={() => read({ all: true })}>모두 읽음</button></div>
       {err && <div className="fh-row"><p className="fh-msg" role="alert">{err}</p><button type="button" className="btn" onClick={() => get.current()}>다시 시도</button></div>}
       {list && !list.items.length && <p className="lv-note">알림이 없습니다.</p>}

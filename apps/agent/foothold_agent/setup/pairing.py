@@ -2,6 +2,7 @@
 from datetime import datetime
 import json
 import math
+import re
 import time
 from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler, ProxyHandler
@@ -41,6 +42,25 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
+OFFER_PREFIX = 'foothold-offer:'
+OFFER_CODE = re.compile(r'[A-Za-z0-9_-]{24}')
+
+
+def offer_code(text):
+    """u08: the phone QR holds only `foothold-offer:<code>`, never an address or secret."""
+    if not isinstance(text, str) or not text.startswith(OFFER_PREFIX):
+        raise ValueError('not a foothold offer QR')
+    code = text[len(OFFER_PREFIX):]
+    if not OFFER_CODE.fullmatch(code):
+        raise ValueError('invalid offer code')
+    return code
+
+
+def read_offer_qr_from_front_camera():
+    """Contract only. Reading the phone QR with the Go2 front camera waits for an on-site check."""
+    raise NotImplementedError('front camera QR reading is not built (u08, on-site check first)')
+
+
 class Pairing:
     def __init__(self, server, *, post=None, wall=time.time):
         self.server = origin(server)
@@ -74,6 +94,19 @@ class Pairing:
                 or not now < expires <= now+600+SERVER_CLOCK_SKEW_S):
             raise ValueError('invalid pairing response')
         self._id, self._secret, self.code, self.expires_at = pairing_id, secret, code, expires
+
+    def claim_offer(self, qr_text, serial):
+        """Claim the phone-shown offer; the poll secret arrives only in this reply."""
+        value = self._post('/api/v1/pairing/offer/claim',
+                           {'code': offer_code(qr_text), 'robot_serial': serial})
+        pairing_id = str(UUID(value['pairing_id']))
+        secret = value['poll_secret']
+        expires = timestamp(value['expires_at'])
+        now = self.wall()
+        if (not isinstance(secret, str) or not 32 <= len(secret) <= 256
+                or not now < expires <= now+600+SERVER_CLOCK_SKEW_S):
+            raise ValueError('invalid offer claim response')
+        self._id, self._secret, self.code, self.expires_at = pairing_id, secret, None, expires
 
     def poll(self, serial):
         if self._secret is None or self.wall() >= self.expires_at:

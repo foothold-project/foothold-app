@@ -14,7 +14,7 @@ import { TERRAIN_REASON } from '../simstart';
 import raw from './mapcases.json?raw';
 import mapscenCss from '../screens/mapscen.css?raw';
 import { FakeWS } from './fakeWs';
-import { adminNoStop } from './adminStop';
+import { keptMission } from '../screens/missiontab';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -132,10 +132,9 @@ const $$ = <T extends Element = HTMLElement>(s: string, from: ParentNode = box) 
 
 /** STOP 이 머리줄 맨 끝에 있고 누를 수 있다 + 실제로 눌러 정지 요청이 실시간 연결로 나간다(대상이 없으면 로봇 고르기에서 골라) */
 const stopSends = async () => {
-  if (adminNoStop(box)) return;
   const s = $<HTMLButtonElement>('[data-stop]')!;
   expect(s.disabled).toBe(false);
-  expect($('header')!.lastElementChild).toBe(s);
+  expect($('header, .bar .rt')!.lastElementChild).toBe(s);
   act(() => FakeWS.last.open());
   await click(s);
   const pick = $<HTMLSelectElement>('[aria-label="정지할 로봇"]');
@@ -175,7 +174,7 @@ describe('지도 탭 — 장소 나무', () => {
     expect($$('[data-floor]').map((b) => b.textContent)).toEqual(['1층', '2층']);
     expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층');
     expect(img()!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
-    expect($('[data-stop]')).toBeNull();   // 총괄·실기만 — 실기 STOP 없음(10-25)
+    expect($('[data-stop]')).not.toBeNull();   // 총괄도 실기 STOP(11/28 · 서버 #544)
     await click(floorBtn('2층'));
     expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 2층');
     expect(floorBtn('2층').getAttribute('aria-pressed')).toBe('true');
@@ -1365,7 +1364,7 @@ describe('지도 편집 — 나가기 확인·STOP', () => {
     expect(unload()).toBe(false);                                       // 바꾼 것 없으면 묻지 않음
     await tool('연결점'); await tap(1, 1);
     expect(unload()).toBe(true);
-    await click($('nav a[href="#/fleet"]'));
+    await click($('[aria-label="주 메뉴"] [data-href="#/fleet"]'));
     await hashed();
     expect(location.hash).toBe('#/map');
     expect(card('확인').textContent).toContain('저장하지 않은 편집이 있습니다. 나가면 편집 내용을 잃습니다.');
@@ -1398,7 +1397,7 @@ describe('지도 편집 — 나가기 확인·STOP', () => {
     await click(btn('나가기', card('확인'))); await hashed();
     expect(canvas()).toBeNull();
     expect(kept.d).toBeNull();                                           // 나가기로 버린 편집은 남기지 않음
-    expect(sent('GET', '/scenarios/s9').length).toBeGreaterThan(0);   // 나가기 뒤에야 그 시나리오의 층을 찾는다
+    expect($('main')!.getAttribute('aria-label')).toBe('임무');   // 나가기 뒤에야 임무 탭으로 열림(W2)
   });
   it('REVIEW-260 B1: 다른 층에 남은 저장 안 한 편집이 있으면 새 편집 전에 묻는다(취소 = 남김, 버리고 편집 = 비움)', async () => {
     serve(editSrv());
@@ -1427,9 +1426,9 @@ describe('지도 편집 — 나가기 확인·STOP', () => {
   it('STOP: 편집 중·확인창이 떠 있을 때 늘 보이고 실제로 정지 요청', async () => {
     serve(editSrv());
     await startEdit();
-    await click($('nav a[href="#/fleet"]')); await hashed();         // 바꾼 것 없으면 바로 떠남 — 다시 들어옴
+    await click($('[aria-label="주 메뉴"] [data-href="#/fleet"]')); await hashed();         // 바꾼 것 없으면 바로 떠남 — 다시 들어옴
     expect($('main')!.getAttribute('aria-label')).toBe('로봇');
-    await click($('nav a[href="#/map"]')); await hashed();
+    await click($('[aria-label="주 메뉴"] [data-href="#/map"]')); await hashed();
     await click(btn('편집', card('보기·편집')));
     canvas().getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 320, right: 400, bottom: 320, x: 0, y: 0, toJSON() {} }) as DOMRect;
     await tool('연결점'); await tap(1, 1);
@@ -1503,7 +1502,7 @@ describe('지도 편집 — PR #30 검토(B1~B4)', () => {
     expect(dots()).toBe(1); expect(pressed('벽')).toBe('true');
     expect(field('바꾼 이유', card('지도 저장')).value).toBe('지점 추가');
     expect(alertText()).not.toContain('다른 사람이 먼저');
-    await click($('nav a[href="#/fleet"]')); await hashed();
+    await click($('[aria-label="주 메뉴"] [data-href="#/fleet"]')); await hashed();
     expect(card('확인').textContent).toContain('저장하지 않은 편집이 있습니다.');
     await click(btn('나가기', card('확인'))); await hashed();
     expect($('main')!.getAttribute('aria-label')).toBe('로봇');
@@ -1607,7 +1606,7 @@ describe('지도 편집 — PR #30 검토(B1~B4)', () => {
     await tool('벽'); expect(dots()).toBe(2); expect(pressed('벽')).toBe('true');
     await click(btn('끝내기'));
     expect(canvas().querySelectorAll('[data-edit]')).toHaveLength(2);                 // 지금 판 벽 1 + 그린 벽 1
-    await click($('nav a[href="#/fleet"]')); await hashed();
+    await click($('[aria-label="주 메뉴"] [data-href="#/fleet"]')); await hashed();
     expect(card('확인').textContent).toContain('저장하지 않은 편집이 있습니다.');   // 도구 바꾸기 확인이 나가기 확인을 지우지 않음
   });
 });
@@ -2241,12 +2240,13 @@ describe('지도 탭 REAL · 시뮬 탭 SIM', () => {
       expect(['+ 장소', '+ 건물', '+ 층'].every((t) => btn(t, card('장소')))).toBe(true);
     });
   });
-  it('옛 시나리오 주소가 시뮬 장소의 시나리오면 시뮬 탭으로 넘긴다', async () => {
+  it('옛 시나리오 주소는 시뮬 장소의 시나리오여도 임무 탭으로 연다(W2)', async () => {
     serve(signedIn(KIM, { 'GET /sites': { status: 200, body: BOTH }, ...empty,
       'GET /scenarios/sc9': { status: 200, body: { id: 'sc9', name: '언덕 순찰', floor_ids: ['f9'], waypoints: [] } } }));
     await open('#/mission/sc9');
     await flush();
-    expect(location.hash).toBe('#/sim');
+    expect(location.hash).toBe('#/missions');
+    expect($('main')!.getAttribute('aria-label')).toBe('임무');
   });
   it('저장 안 한 편집 중 다른 탭 주소 → 떠나던 탭(시뮬)으로 되돌리고 묻는다', async () => {
     serve(signedIn(KIM));
@@ -2309,7 +2309,7 @@ describe('구역 지키기 — 지도 편집', () => {
     await click(btn('저장', $('.mx-bar')!)); await save('이름만');
     expect(body().features.zones.map((x) => Object.keys(x).sort().join())).toEqual(['id,name,polygon,type', 'id,name,polygon,type']);
   });
-  it('저장 전 겹침: 창에 시나리오 이름·겹친 꼴, «아니요» = 저장 안 하고 편집 계속, «예» = 저장한 뒤 시뮬 탭 첫 시나리오로', async () => {
+  it('저장 전 겹침: 창에 시나리오 이름·겹친 꼴, «아니요» = 저장 안 하고 편집 계속, «예» = 저장한 뒤 임무 탭에서 첫 시나리오를 고름(W2)', async () => {
     serve(editSrv({ ...saved201, 'POST /floors/f1/zone-overlaps': hits() }));
     await startEdit();
     await tool('접근 금지'); await drag(1, 1, 2, 0);
@@ -2324,7 +2324,8 @@ describe('구역 지키기 — 지도 편집', () => {
     await click(btn('저장', $('.mx-bar')!)); await save();
     await click($('[data-overlap-yes]')); await hashed();
     expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);
-    expect(location.hash).toBe('#/sim'); expect(keptPlan.sel).toBe('s9');
+    expect(location.hash).toBe('#/missions'); expect(keptMission.sel).toBe('s9');
+    expect($('main')!.getAttribute('aria-label')).toBe('임무');
   });
   it('겹침 검사 실패: 저장을 막지 않고 «겹침을 확인하지 못했습니다» — «계속 편집» 또는 «그래도 저장»', async () => {
     serve(editSrv({ ...saved201, 'POST /floors/f1/zone-overlaps': err(500, 'INTERNAL', '서버 오류') }));
@@ -2444,11 +2445,11 @@ describe('지도 탭 · 시안 u7', () => {
     for (const w of ['충전소', '지나온 경로']) expect(side.textContent, w).not.toContain(w);
   });
 
-  it('u7_3 «이 지도로 모의 실행» = 시뮬 탭 그 층 시나리오', async () => {
+  it('u7_3 «이 지도로 모의 실행» = 시안 u6_6 (임무 탭, 그 층)', async () => {
     serve(signedIn(KIM));
     await open('#/map');
     await click($('[data-to-sim]'));
-    expect(location.hash).toBe('#/sim');
+    expect(location.hash).toBe('#/missions');
     expect(keptPlan.floor).toBe('f1');
   });
 });

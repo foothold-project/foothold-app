@@ -20,8 +20,7 @@ const ICON = {
 };
 
 /** 총괄 웹(PC) 왼쪽 세로 메뉴(W1 · U0-01): 관제 · 로봇 · 지도 · 임무 · 기록 · 설정. 설정은 PC_BOTTOM 으로 맨 아래 따로. 관제가 첫 탭 = PC 첫 화면(U5-02).
- *  임무(#/missions)는 임무 탭(W-mission)이 들어오기 전까지 지도 탭 «시나리오» 목록으로 연다. 옛 주소 #/mission 과 같은 길(tabFromHash · oldScenario).
- *  시나리오는 지도 탭 오른쪽 창 «시나리오» 탭(MAP-TAB-MERGE 11-03) — 옛 주소 #/mission(·/<id>·?scenario_id=)은 지도 탭으로(tabFromHash, App 이 그 시나리오를 연다).
+ *  임무(#/missions)는 임무 탭(W2 · screens/missiontab). 옛 주소 #/mission(·/<id>·?scenario_id=)도 임무 탭으로(tabFromHash), id 가 있으면 App 이 그 임무를 고른다(oldScenario).
  *  결재 탭은 숨김(10-27 결재 없이 바로 반영 — 새 결재가 안 생김). 옛 결재·알림 링크 #/approvals 는 주소로 그대로 열린다.
  *  시뮬 탭은 메뉴에서 숨김(U0-01). #/sim 주소로는 그대로 열린다. 실기 조종은 폰만(10 ADR-003 §1 결정 3). 옛 주소 #/drive 는 로봇 탭으로 */
 export const PC_TABS: Tab[] = [
@@ -42,6 +41,8 @@ export const PHONE_TABS: Tab[] = [
   { id: 'drive', label: '조종', icon: ICON.drive },
   { id: 'history', label: '기록', icon: ICON.history },
 ];
+/** 폰 로봇 연결 화면 ⋯ 메뉴의 지도 스캔(App, screens/scanentry.tsx). 조종 중(#/drive/<로봇 id>)에는 없다 */
+export const PHONE_SCAN = '지도 스캔';
 /** 폰 조종 화면 아래 줄 — 화면을 바꾸지 않고 시트로 연다(ADR-002 §3.2) */
 export type SheetId = 'pose' | 'scenario' | 'goal' | 'policy';
 export const PHONE_SHEETS: { id: SheetId; label: string }[] = [
@@ -53,11 +54,11 @@ export const labelOf = (t: Tab, role: Role) => (typeof t.label === 'string' ? t.
 /** 주소(#/<id>[/<로봇 id>][?…])에서 탭 고르기. 이 틀에 없는 탭이면 첫 탭(PC 관제, 폰 조종). PC 옛 #/drive(·/<로봇 id>)는 로봇 탭, 폰의 #/map 은 조종 */
 export function tabFromHash(hash: string, phone: boolean): TabId {
   const id = hash.replace(/^#\/?/, '').split(/[/?]/)[0], all = tabsFor(phone);   // 폰 #/drive/<로봇 id> 도 조종, #/history?event_id=… 도 기록 탭
-  // 서버 알림 링크는 #/approvals?approval_id=…, 옛 시나리오 탭 #/mission 과 임무 탭 #/missions(W-mission 전)는 지도 탭, PC 옛 조종 #/drive 는 로봇 탭
-  const want = id === 'approvals' ? 'approval' : id === 'mission' || id === 'missions' ? 'map' : id === 'drive' && !phone ? 'fleet' : id;
+  // 서버 알림 링크는 #/approvals?approval_id=…, 옛 시나리오 탭 #/mission 은 임무 탭, PC 옛 조종 #/drive 는 로봇 탭
+  const want = id === 'approvals' ? 'approval' : id === 'mission' ? 'missions' : id === 'drive' && !phone ? 'fleet' : id;
   return (all.find((t) => t.id === want) ?? all[0]).id;
 }
-/** 옛 시나리오 탭 주소면 열 시나리오 id(없으면 ''), 아니면 null — #/mission, #/mission/<id>, #/mission?scenario_id=<id>. 임무 탭 #/missions(…)도 같은 길(W-mission 전까지) */
+/** 임무 탭 주소면 고를 임무(시나리오) id(없으면 ''), 아니면 null. 옛 #/mission, #/mission/<id>, #/mission?scenario_id=<id> 와 #/missions(…) */
 export function oldScenario(hash: string): string | null {
   const m = /^#\/?missions?(?:\/([^/?]+))?(?:\?(.*))?$/.exec(hash);
   if (!m) return null;

@@ -41,13 +41,16 @@ def test_robot_crud_roles_owner_validation_one_time_token_and_audit(client, seed
         assert raw not in repr([e.data for e in changes])
     assert client.patch(path, headers=operator, json={'name': None}).status_code == 400
     assert client.patch(path, headers=operator, json={'owner_user_id': None}).status_code == 400
-    assert client.delete(path, headers=admin).status_code == 403
-    assert client.delete(path, headers=operator).status_code == 204
-    assert client.get(path, headers=admin).status_code == 404
+    assert client.delete(path, headers=app_token(client, 'two')).status_code == 403
+    # 운영 결정 2026-11-28: 총괄은 남이 담당하는 실기도 지운다. 기록에는 총괄과 원래 담당이 남는다.
+    assert client.delete(path, headers=admin).status_code == 204
+    assert client.get(path, headers=operator).status_code == 404
     with DBSession(client.app.state.engine) as db:
         row = db.get(Robot, UUID(created['id']))
         assert row.archived_at and row.agent_token_hash != digest(raw)
-        assert db.scalar(select(Event).where(Event.robot_id == row.id, Event.code == 'ROBOT_ARCHIVED'))
+        archived = db.scalar(select(Event).where(Event.robot_id == row.id, Event.code == 'ROBOT_ARCHIVED'))
+        assert archived.user_id == seeded['users']['admin']
+        assert archived.data['owner_user_id'] == str(seeded['users']['one'])
     with pytest.raises(WebSocketDisconnect) as error:
         with client.websocket_connect('wss://testserver/api/v1/agent/ws',
                 headers={'authorization': 'Bearer ' + raw}):
@@ -176,7 +179,31 @@ def test_assignment_recalls_disconnected_phone_without_server_lease(client, seed
         assert str(jti) in [j for item in packet['items'] for j in item['jtis']]
 
 
-def test_assignment_change_preserves_admin_subscription_but_denies_real_control(client, seeded, rt):
+@pytest.mark.parametrize('actor', ['one', 'admin'])
+def test_assignment_recalls_admin_phone_control_pass_too(client, seeded, rt, actor):
+    # #544 검토 H1: 총괄도 실기 출입증을 받으므로 담당 변경은 옛 담당뿐 아니라 총괄의 조종 출입증도 회수한다.
+    rid, now_s = seeded['robots']['mine'], int(time.time())
+    passes = {user: uuid4() for user in ('one', 'admin')}
+    with DBSession(client.app.state.engine) as db:
+        db.get(Robot, rid).simulation = False
+        for user, jti in passes.items():
+            db.add(PhonePass(org_id=seeded['org'], user_id=seeded['users'][user], robot_id=rid,
+                device=uuid4(), purpose='control', jti=jti, iat=now_s, exp=now_s + 600))
+        db.commit()
+    with agent(client, seeded, direct=True) as ag:
+        result = client.patch(P + '/robots/' + str(rid), headers=app_token(client, actor),
+                              json={'owner_user_id': str(seeded['users']['two'])})
+        assert result.status_code == 200, result.text
+        wanted, sent = {str(j) for j in passes.values()}, set()
+        for _ in range(3):  # 회수 묶음은 사람·목적별로 나뉠 수 있다
+            packet = receive(ag, 'phone.revoke')
+            sent |= {j for item in packet['items'] for j in item['jtis']}
+            if wanted <= sent:
+                break
+        assert wanted <= sent
+
+
+def test_assignment_change_preserves_admin_subscription_and_phone_direct_gate(client, seeded, rt):
     admin = app_token(client, 'admin')
     rid = seeded['robots']['mine']
     with DBSession(client.app.state.engine) as db:
@@ -185,12 +212,12 @@ def test_assignment_change_preserves_admin_subscription_but_denies_real_control(
     with agent(client, seeded, direct=True) as ag, screen(client, admin) as ws:
         assert reply(ws, send(ws, 'sub', robots=[str(rid)], streams=['state']))['ok']
         denied = reply(ws, send(ws, 'lease.take', rid))
-        assert denied['error']['code'] == 'ADMIN_NO_REAL_CONTROL'
+        assert denied['error']['code'] == 'PHONE_DIRECT_REQUIRED'  # 총괄도 같은 안전 관문
         assert client.patch(P + '/robots/' + str(rid), headers=app_token(client),
             json={'owner_user_id': str(seeded['users']['two'])}).status_code == 200
         # Let both policy and delivery watchers pass the changed row boundary.
         assert receive(ws, 'state')['robot'] == str(rid)
         denied = reply(ws, send(ws, 'cmd', rid, lease_id=str(uuid4()), seq=0, axes=[0, 0, 0]))
-        assert denied['error']['code'] == 'ADMIN_NO_REAL_CONTROL'
+        assert denied['error']['code'] == 'PHONE_DIRECT_REQUIRED'
         assert rt.arbiter.robot(str(rid)).holder is None
         assert all(str(rid) in peer.subscriptions for peer in rt.screens.values())

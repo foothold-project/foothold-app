@@ -182,15 +182,23 @@ describe('시뮬 조종 화면 — 컴퓨터 키(10-29 «컴퓨터는 화살표,
     expect(driveCss).not.toMatch(/(^|\})\s*\.dv-stick\{display:none/);
   });
 
-  it('↑·W 전진(키 기본 0.6 m/s)·A/D 회전(UIUX-1101: ←/→ 는 실기처럼 옆걸음), 떼면 0 · 수정키·입력칸 무시', async () => {
+  it('↑·W 전진(키 기본 0.6 m/s)·A·← / D·→ 회전(d5 · 옆걸음은 Q/E), 떼면 0 · 수정키·입력칸 무시', async () => {
     const a = await launch({ ...welcome(), limits: CONT }); await drive(a);
     expect($('[data-sim-keys]')!.textContent).toContain('회전');
+    expect($('[data-sim-keys] [data-key-off]')!.textContent).toContain('Q/E 옆');   // 로봇 한계 vy 0 · 회색 + 까닭
     await key('keydown', 'ArrowUp');
     expect((await cmd()).vx).toBeCloseTo(0.6, 5);
     expect($('[data-sim-vx]')!.textContent).toBe('0.60 m/s');
     await key('keydown', 'KeyA');
     expect(await cmd()).toMatchObject({ wz: 0.5 });
-    await key('keyup', 'KeyA'); await key('keyup', 'ArrowUp');
+    await key('keyup', 'KeyA'); await key('keydown', 'ArrowLeft');
+    expect(await cmd()).toMatchObject({ vy: 0, wz: 0.5 });   // ← = 회전(옆걸음 아님)
+    await key('keyup', 'ArrowLeft'); await key('keydown', 'ArrowRight');
+    expect(await cmd()).toMatchObject({ vy: 0, wz: -0.5 });
+    await key('keyup', 'ArrowRight'); await key('keydown', 'KeyQ');
+    expect(await cmd()).toMatchObject({ vy: 0 });   // 옆 한계 0 이면 0
+    expect(box.textContent).toContain('옆걸음은 아직 지원하지 않습니다');
+    await key('keyup', 'KeyQ'); await key('keyup', 'ArrowUp');
     expect(await cmd()).toMatchObject({ vx: 0, vy: 0, wz: 0 });
     await key('keydown', 'KeyW', { ctrlKey: true });
     expect(await cmd()).toMatchObject({ vx: 0 });
@@ -305,7 +313,7 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
     const a = await launch({ ...welcome(), limits: EXP }); await drive(a);
     expect($('[data-sim-exp]')).toBeNull();   // 10-26: 영상 위에서 빼고 메뉴 안 한 줄
     await click($('[data-sim-menu]'));
-    const exp = $('[data-sim-exp]')!, full = '시뮬 시험용 — 후진·옆걸음·제자리 회전은 넘어질 수 있습니다';
+    const exp = $('[data-sim-exp]')!, full = '시뮬 시험용 · 후진·옆걸음·제자리 회전은 넘어질 수 있습니다';
     expect(exp.textContent).toBe('시험용 · 넘어질 수 있음');   // 긴 문장은 aria·설정 시트
     expect(exp.getAttribute('aria-label')).toBe(full);
     expect(exp.closest('.dv-menu')).toBeTruthy();
@@ -379,7 +387,7 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
       lidar: { available: true, reason: 'Ready', token: tok('l') } } } as ReturnType<typeof welcome>);
     await drive(a);
     expect($('[data-cam-pick="external"]')!.getAttribute('aria-pressed')).toBe('true');
-    expect($('.dv-stage [data-cam="external"]')!.textContent).toBe('외부 카메라 연결 전 · 시뮬 외부 카메라 소스가 아직 연결되지 않았습니다 (External camera source is not connected)');
+    expect($('.dv-stage [data-cam="external"]')!.textContent).toBe('외부 카메라 연결 전 · 시뮬 외부 카메라 소스가 아직 연결되지 않았습니다');   // 11-28: 영문 원문 괄호는 실기처럼 뺌
     expect(box.querySelector('.dv-stage img[alt="RGB 영상"]')).toBeNull();
     expect($('[data-orbit-why]')!.textContent).toBe('외부 카메라를 받는 중일 때만 시점을 옮길 수 있습니다');
     expect($('.dv-stage [data-orbit]')).toBeNull();   // 못 옮기면 끌기 처리 자체를 붙이지 않음
@@ -427,7 +435,7 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
     expect(arrows('전후')).toBe('up+ down- left- right-');
     const left = stick('전후');
     ptr(left, 'pointerdown', 0, 50); await wait(80);
-    expect(box.textContent).toContain('옆걸음은 아직 지원하지 않습니다 — 시뮬에서 아직 확인 안 됨');
+    expect(box.textContent).toContain('옆걸음은 아직 지원하지 않습니다. 시뮬에서 아직 확인 안 됨');
     expect(last(a.of('cmd'))).toMatchObject({ vx: 0, vy: 0, wz: 0 });
     ptr(left, 'pointermove', 100, 50); await wait(80);
     expect(last(a.of('cmd'))).toMatchObject({ vy: 0 });
@@ -503,7 +511,7 @@ describe('시뮬 로봇 직결 흐름', () => {
     // 영상: 같은 포트 /phone/camera/ws, 첫 프레임 camera.hello
     const [c] = cams();
     expect(c.url).toBe('ws://127.0.0.1:9481/phone/camera/ws');
-    expect($('[data-cam="external"]')!.textContent).toBe('이 로봇은 관측 영상(media/1)을 알리지 않습니다');   // 외부 카메라 없으면 이유(RGB 로 바꿔 끼우지 않음)
+    expect($('[data-cam="external"]')!.textContent).toBe('이 로봇은 관측 영상을 알리지 않습니다');   // 11-28: 내부 규약명(media/1) 뺌   // 외부 카메라 없으면 이유(RGB 로 바꿔 끼우지 않음)
     await click($('[data-cam-pick="rgb"]'));
     act(() => c.open());
     expect(c.sent[0]).toMatchObject({ t: 'camera.hello', robot: S1, token: 'cam-1' });
@@ -730,7 +738,7 @@ describe('시뮬 직결 실패', () => {
     await wait(80);
     act(() => a.drop(1006)); await flush();
     const text = $('[data-sim-drive]')!.textContent!;
-    expect(text).toContain('로봇 연결이 끊겼습니다.(1006)');
+    expect(text).toContain('로봇 연결이 끊겼습니다 (1006). 로봇은 입력이 끊기면 스스로 멈춥니다.');   // 마침표 뒤 띄어쓰기(코드는 마침표 앞 괄호)
     expect(text).toContain('연결 끊김');
     expect(text).not.toContain('조종 중(나)');   // 끊긴 뒤 지난 state 로 조종자라 쓰지 않음
     expect(btn('조종 시작')).toBeUndefined();
@@ -862,7 +870,7 @@ it.each(['STARTING', 'STOPPING'] as const)('목록의 %s를 전환 안내로 표
   await launch();
   mine = mine.map((r) => ({ ...r, state }));
   await act(() => sim.load());
-  expect(box.textContent).toContain(state === 'STARTING' ? '시뮬을 띄우는 중…' : '시뮬을 정리하는 중…');
+  expect($('[data-sim-pill]')!.textContent).toContain(state === 'STARTING' ? '띄우는 중' : '정리 중');   // 11-28 PHONE-CLUTTER 1-5: 상태 낱말은 칩에만(알림 칸 «시뮬을 띄우는 중…» 은 뺌)
   expect(box.textContent).not.toContain('관리자에 연결하지 못했습니다');
   expect($('[data-stop]')).toBeTruthy();
   await click($('[data-sim-menu]'));
@@ -1629,3 +1637,24 @@ describe('직결 시뮬 조종 — 새로 누른 입력만(RB-SIMDRIVE-FRESH-PRE
     ptr(fwd, 'pointerup', 50, 0);
   });
 });
+
+describe('폰 시뮬 조종 RUN 이 쥐면 (#537 state.holder_type · 08:04)', () => {
+  it('«조종 시작» 회색 + 까닭 한 줄 · 일시정지 못 함은 실행 칸 한 곳 · 칠한 단추 없음 · RUN 이 놓으면 «조종 시작» 다시 켜짐', async () => {
+    const a = await launch();
+    a.auto = ((m: Msg) => (['hello', 'cmd', 'ping', 'stop', 'lease.take'].includes(m.t) ? undefined : {})) as FakeWS['auto'];
+    await recv(a, phoneState({ holder_type: 'RUN', holder_name: null, run: { run_id: 'run-o', status: 'MOVING', step: 0, progress: { done: 0, total: 3 }, wait_reason: null, fail_code: null } }));
+    expect(btn('조종 시작')!.disabled).toBe(true);
+    expect($('[data-sim-card] [data-held-run] button')).toBeNull();
+    expect(box.textContent!.split('예약 임무가 조종 중입니다 · 임무가 끝나거나 멈춘 뒤 조종할 수 있습니다.')).toHaveLength(2);   // 한 곳
+    await click($<HTMLButtonElement>('[data-notes-more]')!);   // 등급 3 실행 안내는 «+N 더 보기» 뒤(PHONE-CLUTTER #548). 조종 시작이 막힌 까닭(data-held-run)은 접지 않음
+    expect(box.textContent!.split('이 화면에서는 일시정지할 수 없습니다')).toHaveLength(2);   // 실행 칸 한 곳
+    expect($('[data-sim-card] [data-held-run]')!.textContent).toBe('예약 임무가 조종 중입니다 · 임무가 끝나거나 멈춘 뒤 조종할 수 있습니다.');
+    expect([...box.querySelectorAll<HTMLButtonElement>('[data-sim-card] .btn.pri')].filter((b) => !b.disabled).map((b) => b.textContent)).toEqual([]);
+    await click(btn('조종 시작'));
+    expect(a.sent.filter((m) => m.t === 'lease.take')).toEqual([]);
+    await recv(a, phoneState({ holder_type: null, holder_name: null }));
+    expect(btn('조종 시작')!.disabled).toBe(false);
+    expect($('[data-held-run]')).toBeNull();
+  });
+});
+

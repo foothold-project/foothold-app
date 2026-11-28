@@ -76,6 +76,13 @@ export interface AgentFieldApproval {
   expires_at: string | null;
 }
 
+export interface AgentGait {
+  t: "gait";
+  request_id: string;
+  lease_id: string;
+  gait: "classic" | "sport" | "start" | "ame2";
+}
+
 export interface AgentHello {
   execution_capabilities?: ExecutionCapabilities;
   t: "hello";
@@ -189,6 +196,30 @@ export interface AgentPosture {
   action: "stand_up" | "stand_down";
 }
 
+export interface AgentRunControl {
+  t: "run.control";
+  request_id: string;
+  user_id: string;
+  lease_id: string;
+  run_id: string;
+  screen_id: string;
+  op: "pause" | "resume" | "abort";
+}
+
+export interface AgentRunStart {
+  t: "run.start";
+  request_id: string;
+  user_id: string;
+  lease_id: string;
+  run_id: string;
+  screen_id: string;
+  scenario_id: string;
+  scenario_version: number;
+  floor_id: string;
+  map_version_id: string;
+  assignment_id: string;
+}
+
 export interface AgentRunUpdate {
   t: "run.update";
   run_id: string;
@@ -235,6 +266,9 @@ export interface AgentState {
   response_health?: RobotResponseHealth | null;
   posture?: PostureState | null;
   posture_result?: PostureResult | null;
+  gait?: GaitState | null;
+  gait_result?: GaitResult | null;
+  run_result?: RunCommandResult | null;
   action_result?: ActionResult | null;
   robot_info?: Go2RobotInfo | null;
   control?: "FACTORY" | "LOWLEVEL" | null;
@@ -249,6 +283,7 @@ export interface AgentState {
   battery: AgentBattery;
   latched: boolean;
   safety_reason?: "OUTPUT_STALLED" | null;
+  field_gate?: "OPEN" | "CLOSED" | null;
   unlock_refused?: UnlockRefused | null;
   stop_gen: number;
   stop_ref: number;
@@ -277,6 +312,8 @@ export interface AgentTokenResponse {
 }
 
 export interface AgentUnlock {
+  user_id?: string | null;
+  display_name?: string | null;
   t: "unlock";
   lease_id: string;
   stop_gen: number;
@@ -475,6 +512,25 @@ export interface ErrorBody {
   detail: Record<string, unknown>;
 }
 
+export interface Estimate {
+  length_m: number;
+  walk_s: number;
+  task_s: number;
+  eta: string;
+  margin_s: number | null;
+  end_battery_pct: number | null;
+  estimate_source: "MEASURED" | "TABLE_UNMEASURED";
+}
+
+export interface EstimateRequest {
+  scenario_id: string;
+  scenario_version?: number | null;
+  robot_id: string;
+  gait: "classic" | "sport" | "start" | "ame2";
+  start?: string | null;
+  exclude_slot_id?: string | null;
+}
+
 export interface Event {
   id: string;
   at: string;
@@ -574,7 +630,7 @@ export interface ExecutableRunStarted {
   map_version_id: string;
   user_id: string;
   device_id: string;
-  surface: "phone" | "pc";
+  surface: "phone" | "pc" | "server";
   screen_id: string;
   simulation: boolean;
   map_proof: RunMapProof;
@@ -662,6 +718,19 @@ export interface FloorCreate {
 export interface FloorPatch {
   name?: string;
   level?: number;
+}
+
+export interface GaitResult {
+  request_id: string;
+  gait: "classic" | "sport" | "start" | "ame2";
+  status: "RUNNING" | "SUCCEEDED" | "REJECTED" | "FAILED";
+  code: string;
+  sdk_code: number | null;
+}
+
+export interface GaitState {
+  gait: "classic" | "sport" | "start" | "ame2" | null;
+  available: ("classic" | "sport" | "start" | "ame2")[];
 }
 
 export interface Go2ActionParams {
@@ -1387,6 +1456,32 @@ export interface PairingConfirm {
   name: string;
 }
 
+export interface PairingOfferClaim {
+  code: string;
+  robot_serial: string;
+}
+
+export interface PairingOfferClaimed {
+  pairing_id: string;
+  expires_at: string;
+  poll_secret: string;
+}
+
+export interface PairingOfferStatus {
+  offer_id: string;
+  state: "WAITING" | "READ" | "PAIRED" | "EXPIRED" | "FAILED";
+  expires_at: string;
+  robot_serial: string | null;
+  pairing_id: string | null;
+  robot_id: string | null;
+}
+
+export interface PairingOffered {
+  offer_id: string;
+  code: string;
+  expires_at: string;
+}
+
 export interface PairingPaired {
   state: "paired";
   robot_id: string;
@@ -1472,6 +1567,7 @@ export interface PhoneHello {
   t: "hello";
   ticket: string;
   device: string;
+  display_name?: string;
 }
 
 export interface PhoneLease {
@@ -1597,6 +1693,8 @@ export interface PhoneRelayState {
 
 export interface PhoneReply {
   detail?: RunResumeDetail | null;
+  holder_type?: "USER" | "RUN" | null;
+  holder_name?: string | null;
   t: "reply";
   id: string;
   ok: boolean;
@@ -1703,6 +1801,9 @@ export interface PhoneState {
   response_health?: RobotResponseHealth | null;
   posture: PhonePosture;
   posture_result?: PostureResult | null;
+  gait?: GaitState | null;
+  gait_result?: GaitResult | null;
+  run_result?: RunCommandResult | null;
   action_result?: ActionResult | null;
   robot_info?: Go2RobotInfo | null;
   control?: "FACTORY" | "LOWLEVEL" | null;
@@ -1717,6 +1818,7 @@ export interface PhoneState {
   battery: AgentBattery;
   latched: boolean;
   safety_reason?: "OUTPUT_STALLED" | null;
+  field_gate?: "OPEN" | "CLOSED" | null;
   unlock_refused?: UnlockRefused | null;
   stop_gen: number;
   stop_ref: number;
@@ -1736,6 +1838,8 @@ export interface PhoneState {
   sim_time_s: number | null;
   sim_wall_delta_s: number | null;
   simulation: boolean;
+  holder_type: "USER" | "RUN" | null;
+  holder_name: string | null;
 }
 
 export interface PhoneStateUpload {
@@ -1889,7 +1993,7 @@ export interface ProvenRunStarted {
   map_version_id: string;
   user_id: string;
   device_id: string;
-  surface: "phone" | "pc";
+  surface: "phone" | "pc" | "server";
   screen_id: string;
   simulation: boolean;
   map_proof: RunMapProof;
@@ -1910,6 +2014,23 @@ export interface RecordMarkResult {
 
 export interface RefreshRequest {
   refresh_token: string;
+}
+
+export interface RobotAvailability {
+  robot_id: string;
+  robot_name: string;
+  state: "FREE" | "BUSY" | "CHARGING" | "OFFLINE";
+  busy_until: string | null;
+  busy_slot_id: string | null;
+  busy_label: string | null;
+  battery_pct: number | null;
+  demo: boolean;
+  sim: boolean;
+  location_label: string | null;
+}
+
+export interface RobotAvailabilityList {
+  items: RobotAvailability[];
 }
 
 export interface RobotCreate {
@@ -1985,8 +2106,8 @@ export interface RobotSummary {
   controller_connected?: boolean | null;
   simulation: boolean;
   server_drive_allowed: boolean;
-  /** 표시용 조종 불가 이유. 전체 보기 가능한 실기만 목록, 허용이면 빈 목록, 그 외 null. 허용 판단에는 쓰지 않는다. */
-  server_drive_blocked?: ("SWITCH_OFF" | "NO_OWNER" | "NO_SERIAL" | "AGENT_OFFLINE")[] | null;
+  /** 표시용 조종 불가 이유. 전체 보기 가능한 실기만 목록, 허용이면 빈 목록, 그 외 null. 허용 판단에는 쓰지 않는다. FIELD_GATE_CLOSED: 서버 쪽 이유가 없는데 에이전트 현장 승인 관문이 닫혀 앱 정지가 로봇에 가지 않는다(허용 값과 함께 올 수 있음). */
+  server_drive_blocked?: ("SWITCH_OFF" | "NO_OWNER" | "NO_SERIAL" | "AGENT_OFFLINE" | "FIELD_GATE_CLOSED")[] | null;
   robot_serial?: string | null;
   /** 폐기된 사람 현장 승인 호환 필드. 항상 null이며 자동 연결 관문은 server_drive_allowed를 쓴다. */
   field_approval_expires_at?: string | null;
@@ -2002,6 +2123,14 @@ export interface RobotSummary {
   current_run: CurrentRun | null;
   devices: Device[];
   attention: string[];
+}
+
+export interface RunCommandResult {
+  request_id: string;
+  op: "start" | "pause" | "resume" | "abort";
+  run_id: string;
+  status: "SUCCEEDED" | "REJECTED";
+  code: string;
 }
 
 export interface RunCopy {
@@ -2122,7 +2251,7 @@ export interface RunStarted {
   map_version_id: string;
   user_id: string;
   device_id: string;
-  surface: "phone" | "pc";
+  surface: "phone" | "pc" | "server";
   screen_id: string;
   simulation: boolean;
   map_proof?: RunMapProof;
@@ -2246,6 +2375,51 @@ export interface ScenarioWrite {
   notes?: string;
 }
 
+export interface ScheduleDay {
+  day: string;
+  tz: string;
+  slots: ScheduleSlot[];
+}
+
+export interface ScheduleSlot {
+  id: string;
+  robot_id: string;
+  scenario_id: string | null;
+  scenario_version: number | null;
+  gait: "classic" | "sport" | "start" | "ame2" | null;
+  start: string;
+  end: string;
+  kind: "CONFIRMED" | "DRAFT" | "BATTERY_SWAP";
+  assignment_id: string | null;
+  memo: string;
+  created_by: string;
+  created_at: string;
+  run_state: "STARTING" | "STARTED" | "DONE" | "FAILED" | "SKIPPED" | "MISSED" | null;
+  run_id: string | null;
+  run_code: string | null;
+  confirmed_by: string | null;
+}
+
+export interface ScheduleSlotCreate {
+  robot_id: string;
+  scenario_id?: string | null;
+  scenario_version?: number | null;
+  gait?: "classic" | "sport" | "start" | "ame2" | null;
+  start: string;
+  end: string;
+  kind: "CONFIRMED" | "DRAFT" | "BATTERY_SWAP";
+  assignment_id?: string | null;
+  memo?: string;
+}
+
+export interface ScheduleSlotPatch {
+  robot_id?: string;
+  start?: string;
+  end?: string;
+  kind?: "CONFIRMED" | "DRAFT" | "BATTERY_SWAP";
+  gait?: "classic" | "sport" | "start" | "ame2";
+}
+
 export interface ScreenAction {
   action: "Damp" | "BalanceStand" | "StopMove" | "StandUp" | "StandDown" | "RecoveryStand" | "Euler" | "Sit" | "RiseSit" | "SpeedLevel" | "Hello" | "Stretch" | "Content" | "Dance1" | "Dance2" | "SwitchJoystick" | "Pose" | "Scrape" | "FrontFlip" | "FrontJump" | "FrontPounce" | "Heart" | "StaticWalk" | "TrotRun" | "EconomicGait" | "LeftFlip" | "BackFlip" | "HandStand" | "FreeWalk" | "FreeBound" | "FreeJump" | "FreeAvoid" | "ClassicWalk" | "WalkUpright" | "CrossStep" | "AutoRecoverySet" | "AutoRecoveryGet" | "SwitchAvoidMode" | "CheckMode" | "SelectMode" | "Greet";
   params?: Go2ActionParams;
@@ -2273,6 +2447,16 @@ export interface ScreenEnvelope {
   id: string;
   /** 첫 메시지는 필수, 후속은 생략 가능; null은 거부한다. */
   proto?: "fh-rt/1";
+}
+
+export interface ScreenGait {
+  id: string;
+  /** 첫 메시지는 필수, 후속은 생략 가능; null은 거부한다. */
+  proto?: "fh-rt/1";
+  robot: string;
+  t: "gait";
+  lease_id: string;
+  gait: "classic" | "sport" | "start" | "ame2";
 }
 
 export interface ScreenLease {
@@ -2349,6 +2533,34 @@ export interface ScreenRobot {
   robot: string;
 }
 
+export interface ScreenRunControl {
+  id: string;
+  /** 첫 메시지는 필수, 후속은 생략 가능; null은 거부한다. */
+  proto?: "fh-rt/1";
+  robot: string;
+  t: "run.control";
+  lease_id?: string | null;
+  run_id: string;
+  screen_id: string;
+  op: "pause" | "resume" | "abort";
+}
+
+export interface ScreenRunStart {
+  id: string;
+  /** 첫 메시지는 필수, 후속은 생략 가능; null은 거부한다. */
+  proto?: "fh-rt/1";
+  robot: string;
+  t: "run.start";
+  lease_id: string;
+  run_id: string;
+  screen_id: string;
+  scenario_id: string;
+  scenario_version: number;
+  floor_id: string;
+  map_version_id: string;
+  assignment_id: string;
+}
+
 export interface ScreenServerPing {
   t: "ping";
   t_server: string;
@@ -2358,6 +2570,10 @@ export interface ScreenState {
   response_health?: RobotResponseHealth | null;
   posture?: PostureState | null;
   posture_result?: PostureResult | null;
+  gait?: GaitState | null;
+  gait_result?: GaitResult | null;
+  run?: RunSnapshot | null;
+  run_result?: RunCommandResult | null;
   action_result?: ActionResult | null;
   control?: "FACTORY" | "LOWLEVEL" | null;
   robot_info?: Go2RobotInfo | null;
@@ -2374,6 +2590,10 @@ export interface ScreenState {
   latency_ms: number | null;
   latched: boolean | null;
   safety_reason?: "OUTPUT_STALLED" | null;
+  /** CLOSED면 앱 정지가 로봇에 가지 않는다. latched에 applied 0만으로 정지 출력을 뜻하지 않는다. 옛 에이전트는 null. */
+  field_gate?: "OPEN" | "CLOSED" | null;
+  /** 에이전트가 서버의 마지막 STOP(stop_ref)을 적용했다고 보고하면 true. 관문 닫힘 등 다른 잠금이면 false. 상태 없음·오래됨·이 로봇에 보낸 STOP 없음은 null. 사람 STOP 확인은 이 값이 true일 때만. */
+  stop_applied?: boolean | null;
   unlock_refused?: UnlockRefused | null;
   stop_gen: number | null;
   applied: number[] | null;
@@ -2433,7 +2653,7 @@ export interface SimCatalog {
   worlds: SimWorld[];
   slots: string[];
   max_robots: number;
-  launcher: "fake" | "native-single";
+  launcher: "fake" | "native-single" | "mujoco-local";
   manager_instance_id: string | null;
 }
 
@@ -2514,7 +2734,7 @@ export interface SimRobot {
   namespace: string;
   tf_prefix: string;
   command_topic: string;
-  launcher: "fake" | "native-single";
+  launcher: "fake" | "native-single" | "mujoco-local";
   expires_at: string | null;
   /** Manager monotonic runtime remaining at this response, in seconds. */
   remaining_s: number | null;
@@ -2854,19 +3074,25 @@ export type RunFailCode = "NAV_GOAL_REJECTED" | "NAV_TIMEOUT" | "LOCALIZATION_LO
 export type RunRejectCode = "NOT_CONTROLLER" | "FORBIDDEN" | "RUN_ACTIVE" | "RUN_CONFLICT" | "RUN_NOT_FOUND" | "RUN_STATE_CONFLICT" | "RUN_OWNER_MISMATCH" | "RESUME_REJECTED" | "UNSUPPORTED_OPERATION" | "RECORDING_UNAVAILABLE" | "NAV_UNAVAILABLE" | "MAP_VERSION_MISMATCH" | "FLOOR_TRANSITION_UNSUPPORTED" | "PLAN_UNAVAILABLE";
 export type RunReportTransientCode = "RUN_REPORT_SEQUENCE" | "RUN_REPORT_STORAGE";
 export type RunReportPermanentCode = "RUN_REPORT_OWNER" | "RUN_REPORT_MAP" | "RUN_REPORT_PLAN" | "RUN_REPORT_STATE" | "RUN_REPORT_STEP" | "RUN_REPORT_PROVENANCE" | "RUN_REPORT_CONFLICT" | "RUN_REPORT_INSTANCE" | "RUN_REPORT_ROBOT" | "RUN_REPORT_NOT_FOUND" | "RUN_REPORT_INVALID";
-export type ScreenMessage = ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing | ScreenPosture | ScreenAction;
+export type ScreenMessage = ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing | ScreenPosture | ScreenAction | ScreenGait | ScreenRunStart | ScreenRunControl;
 export type AgentMessage = AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia | AgentPhoneRevokeAck | AgentMappingUpdate;
 export type PhoneMessage = PhoneHello | PhoneLease | PhoneStop | PhoneRespond | PhoneCommand | PhoneUnlock | PhonePing | PhoneRunStart | PhoneRunStartV2 | PhoneRunControl | PhoneRunConfirm;
-export type ServerAgentMessage = AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval | AgentMappingCommand | AgentPosture | AgentAction;
+export type ServerAgentMessage = AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams | AgentPhoneRevoke | RunRecorded | RunReportRejected | AgentFieldApproval | AgentMappingCommand | AgentPosture | AgentAction | AgentGait | AgentRunStart | AgentRunControl;
 export type SlamMessage = SlamPointCloudHeader | SlamPoseFrame | SlamStatus;
 export type MediaMessage = MediaVideoFrame | MediaPointCloudHeader | MediaStatus;
 export type MediaChannel = "rgb" | "external" | "lidar" | "depth";
 export type MediaSource = "d435i_rgb" | "go2_front" | "gazebo_external" | "l1" | "go2_depth";
 export type ExecutionCapabilityKey = "wait" | "photo.rgb" | "photo.depth" | "operator_confirm" | "sensor_log.rgb" | "sensor_log.depth" | "sensor_log.lidar" | "sensor_log.battery";
+export type GaitName = "classic" | "sport" | "start" | "ame2";
+export type GaitRejectCode = "GAIT_MOVING" | "GAIT_NOT_STANDING" | "GAIT_NOT_READY" | "GAIT_LATCHED" | "GAIT_BUSY" | "GAIT_UNSUPPORTED" | "GAIT_CANCELLED" | "GAIT_LEASE_LOST" | "GAIT_TIMEOUT" | "GAIT_SDK_ERROR" | "GAIT_NOT_ALLOWED";
+export type ScheduleKind = "CONFIRMED" | "DRAFT" | "BATTERY_SWAP";
+export type AvailabilityState = "FREE" | "BUSY" | "CHARGING" | "OFFLINE";
+export type EstimateSource = "MEASURED" | "TABLE_UNMEASURED";
 export type LowlevelAction = "Sit" | "RiseSit" | "StandDown" | "Stretch" | "Hello" | "Heart" | "Damp" | "Greet";
 export type ControlMode = "FACTORY" | "LOWLEVEL";
 export type FactoryUnsupportedAction = "Greet";
 export type LowlevelQuery = "CheckMode" | "AutoRecoveryGet";
 export type PairingPollResult = PairingWaiting | PairingPaired;
+export type PairingOfferState = "WAITING" | "READ" | "PAIRED" | "EXPIRED" | "FAILED";
 export type ClipStatus = "PENDING" | "READY" | "FAILED" | "NOT_BUILT";
 export type RecordsNotBuiltCode = "CLIP_PIPELINE_NOT_BUILT" | "JOINT_LOG_NOT_BUILT";

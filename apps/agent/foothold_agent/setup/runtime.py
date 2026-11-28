@@ -259,6 +259,8 @@ class GatedSession(DriveSession):
 
     def _state(self):
         value = super()._state()
+        # CLOSED: receive() drops STOP before any robot output.
+        value['field_gate'] = 'OPEN' if self.gate.allowed() else 'CLOSED'
         if self.gate.active is None:
             value['stop_ref'] = 0
         return value

@@ -10,7 +10,6 @@ import { tabFromHash } from '../menu';
 import { NOTE_MS } from '../api';
 import { BELL_MS, stamp, when } from '../screens/history';
 import { FakeWS } from './fakeWs';
-import { adminNoStop } from './adminStop';
 import { fleetRow } from './fleetRow';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -89,15 +88,14 @@ const rows = () => [...card('사건').querySelectorAll('tbody tr')].map((l) => l
 const alertText = () => [...box.querySelectorAll('[role="alert"]')].map((a) => a.textContent).join(' ');
 /** STOP 이 머리줄 맨 끝에 있고 누를 수 있다 */
 const stopOk = () => {
-  if (adminNoStop(box)) return true;
   const s = $<HTMLButtonElement>('[data-stop]');
   expect(s).toBeTruthy();
   expect(s!.disabled).toBe(false);
-  expect($('header')!.lastElementChild).toBe(s);
+  expect($('header, .bar .rt')!.lastElementChild).toBe(s);
 };
 /** STOP 을 실제로 눌러 정지 요청이 실시간 연결로 나가는지까지(R2). PC 기록 탭처럼 대상이 없으면 «정지할 로봇 고르기»에서 로봇을 골라 정지 */
 const stopSends = async () => {
-  if (stopOk()) return;
+  stopOk();
   act(() => FakeWS.last.open());
   await click($('[data-stop]'));
   const pick = $<HTMLSelectElement>('[aria-label="정지할 로봇"]');
@@ -416,12 +414,12 @@ describe('화면 일부가 깨져도 STOP 은 남음(검토 P1)', () => {
     await open('#/fleet');
     const boom = vi.spyOn(Date.prototype, 'toTimeString').mockImplementation(() => { throw new RangeError('Invalid time value'); });   // 사건 행 시각에서 터짐
     vi.spyOn(console, 'error').mockImplementation(() => {});   // React 가 잡은 예외를 찍는 줄
-    await click($('nav a[href="#/history"]'));
+    await click($('[aria-label="주 메뉴"] [data-href="#/history"]'));
     expect(card('화면 오류').textContent).toContain('이 화면을 그리지 못했습니다');
     expect($('h1')!.textContent).toBe('기록');
     await stopSends();
     boom.mockRestore();
-    await click($('nav a[href="#/fleet"]'));
+    await click($('[aria-label="주 메뉴"] [data-href="#/fleet"]'));
     expect($('[aria-label="화면 오류"]')).toBeNull();
     await drawer();   // 총괄: 상세는 행을 누르면 여는 서랍(03 §5.1)
     expect(card('로봇 상세')).toBeTruthy();
@@ -441,7 +439,7 @@ describe('로봇 0대 — 기록은 열림(검토 P2)', () => {
     expect(card('알림에서 연 기록').textContent).toContain('알림이 가리킨 계정 사건');
     expect([...$('[aria-label="기록"] select')!.querySelectorAll('option')].map((o) => o.textContent)).toEqual(['전체']);
     expect($('[aria-label="로봇 없음"]')).toBeNull();
-    stopOk();
+    expect($('[data-stop]')).toBeNull();   // 예외는 정지할 로봇이 없을 때만(로봇 0대). 총괄도 로봇이 있으면 STOP
   });
   it('폰: 담당 로봇 0대면 로봇 필터 없이 서버가 주는 내 기록, 알림 링크도', async () => {
     serve(signedIn(PARK, { ...none,
@@ -584,7 +582,7 @@ describe('사건 문구 다듬기(10-22 QA R3·R4·R9·R10)', () => {
     expect(rows()[1]).toContain('시뮬 로봇 1 배터리가 부족합니다.');
     expect(card('사건').textContent).not.toMatch(/628962ca|1a2b3c4d/);
     expect([...card('기록').querySelectorAll('option')].map((x) => x.textContent).filter((t) => /시뮬/.test(t!))).toEqual(['시뮬 로봇 2', '시뮬 로봇 1', '내 연습 시뮬']);
-    await click($('a[href="#/fleet"]'));
+    await click($('[aria-label="주 메뉴"] [data-href="#/fleet"]'));
     expect([...card('로봇 목록').querySelectorAll('b')].map((x) => x.textContent)).toEqual(['Go2-A']);   // TAB-SPLIT: 로봇 탭은 실기만
   });
   it('폰에서 남의 로봇 주소 = 로봇 연결로 돌아가며 «담당 로봇이 아닙니다» 한 줄(닫기)', async () => {
@@ -706,7 +704,7 @@ describe('알림 종', () => {
     await open('#/fleet');
     const bell = $('[data-bell]')!;
     expect(bell.querySelector('summary')!.getAttribute('aria-label')).toBe('알림 안 읽음 2건');
-    expect(bell.querySelector('.fh-badge')!.textContent).toBe('2');
+    expect(bell.querySelector('.badge')!.textContent).toBe('2');
     act(() => { (bell as HTMLDetailsElement).open = true; });
     expect(card('알림 목록').textContent).toContain('알림 7 본문');
     await click([...card('알림 목록').querySelectorAll('li button')][0]);
@@ -714,7 +712,7 @@ describe('알림 종', () => {
     expect(location.hash).toBe('#/history?event_id=7');
     expect($('h1')!.textContent).toBe('기록');
     expect(card('알림에서 연 기록').textContent).toContain('알림이 가리킨 사건');
-    expect(bell.querySelector('.fh-badge')!.textContent).toBe('1');
+    expect(bell.querySelector('.badge')!.textContent).toBe('1');
     expect((bell as HTMLDetailsElement).open).toBe(false);
     stopOk();
   });
@@ -727,7 +725,7 @@ describe('알림 종', () => {
     await open('#/fleet');
     await click(btn('모두 읽음'));
     expect(sent('POST', '/notifications/read').map((c) => c.body)).toEqual([{ all: true }]);
-    expect($('[data-bell] .fh-badge')).toBeNull();
+    expect($('[data-bell] .badge')).toBeNull();
     expect($('[data-bell] summary')!.getAttribute('aria-label')).toBe('알림 안 읽음 0건');
     expect(btn('모두 읽음')!.disabled).toBe(true);
   });
@@ -739,7 +737,7 @@ describe('알림 종', () => {
     await open('#/fleet');
     await click(btn('모두 읽음'));
     expect(card('알림 목록').textContent).toContain('읽음으로 바꾸지 못했습니다. 알림을 찾을 수 없습니다.');
-    expect($('[data-bell] .fh-badge')!.textContent).toBe('1');
+    expect($('[data-bell] .badge')!.textContent).toBe('1');
     stopOk();
   });
   it('알림을 못 받으면 칸 안에만 이유 — 머리줄·STOP 그대로', async () => {
@@ -788,7 +786,7 @@ describe('알림 종', () => {
       'POST /notifications/read': () => { unread = 0; return { status: 204 }; },
     }));
     await open('#/fleet');
-    expect($('[data-bell] .fh-badge')!.textContent).toBe('1');
+    expect($('[data-bell] .badge')!.textContent).toBe('1');
     await click(btn('모두 읽음'));
     expect(sent('GET', '/notifications')).toHaveLength(2);       // 읽음 뒤 받기 시작
     await click(btn('모두 읽음'));                                 // 진행 중에 또 읽음 → 지금 요청 뒤 한 번 더

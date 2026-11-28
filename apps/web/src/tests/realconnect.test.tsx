@@ -169,6 +169,11 @@ describe('실기 연결 흐름', () => {
     await pick();
     await relay({ port: 40123 });
     expect($('[data-real-why]')?.textContent).toContain('출입증 열쇠');
+    act(() => root?.unmount()); root = null; box.remove(); sim.clear();
+    serve({ status: 429, body: { error: { code: 'PASS_RATE_LIMIT', message: '요청이 많습니다.', detail: { retry_after: 30 } } } });   // 429 = retry_after 초 안내
+    await pick();
+    await relay({ port: 40123 });
+    expect($('[data-real-why]')?.textContent).toBe('요청이 많습니다. 30초 뒤 다시 연결하세요.');
   });
 
   it('앱이 Wi-Fi 문제를 알리면 그 이유, 연결 전 STOP 은 «보낼 길 없음»(정리 DELETE 0)', async () => {

@@ -152,8 +152,20 @@ def private_file(path, text):
     return str(path)
 
 
+def extra_sim_robot_id(org_id, number):
+    """Slots 2..4 (FH_SIM_SLOTS). The server creates the row on the first POST /simulation/robots."""
+    return seed.uuid5(seed.NAMESPACE, f'{org_id}/sim-robot-{number}')
+
+
+# Read from the shell (or .env) only for --sim mujoco; never reaches the API server.
+POLICY_KEYS = ('FH_SIM_ORT_NODE', 'FH_SIM_START_MAP', 'FH_SIM_POLICY_DIR')
+
+
 def sim_setup(repository, values, data):
-    """Private files for simmgr with the local MuJoCo backend; one slot = the seeded robot."""
+    """Private files for simmgr with the local MuJoCo backend.
+
+    Default: one slot = the seeded robot, world collapsed-house-v2. FH_SIM_WORLD names another
+    world (plant_a: the server sends its approved map bindings) and FH_SIM_SLOTS 1..4 adds slots."""
     if not (Path(repository) / 'apps/simmgr/mujoco_launcher.py').exists():
         raise SystemExit('--sim mujoco 는 simmgr 로컬 MuJoCo 백엔드 (#594) 가 들어간 저장소에서만 됩니다')
     if values.get('FH_SIM_SRC'):
@@ -165,18 +177,30 @@ def sim_setup(repository, values, data):
         source = check_assets(values.get('FH_SIM_ASSETS', ''))
     folder = Path(data) / 'sim'
     folder.mkdir(mode=0o700, parents=True, exist_ok=True)
-    robot, org = str(seed.sim_robot_id(UUID(values['FH_ORG_ID']))), values['FH_ORG_ID']
+    org = values['FH_ORG_ID']
+    count = os.environ.get('FH_SIM_SLOTS') or values.get('FH_SIM_SLOTS') or '1'
+    if not count.isdigit() or not 1 <= int(count) <= 4:
+        raise SystemExit('FH_SIM_SLOTS 는 1..4 (MuJoCo 로컬 로봇 수)')
+    world = os.environ.get('FH_SIM_WORLD') or values.get('FH_SIM_WORLD') or 'collapsed-house-v2'
+    robots = [str(seed.sim_robot_id(UUID(org)))] + [str(extra_sim_robot_id(UUID(org), n))
+                                                    for n in range(2, int(count) + 1)]
     secret = lambda size: base64.urlsafe_b64encode(os.urandom(size)).rstrip(b'=').decode()
-    catalog = {'worlds': [{'id': 'collapsed-house-v2', 'name': '무너진 집 (MuJoCo)',
-                           'world_file': '/nonexistent/mujoco', 'map_file': '/nonexistent/mujoco'}],
+    catalog = {'worlds': [{'id': item, 'name': '무너진 집 (MuJoCo)' if item == 'collapsed-house-v2' else item + ' (MuJoCo)',
+                           'world_file': '/nonexistent/mujoco', 'map_file': '/nonexistent/mujoco'}
+                          for item in world.split(',')],  # connected worlds: one key per spawn floor
                'slots': [{'robot_id': robot, 'org_id': org, 'key_path': '/nonexistent/key',
-                          'replay_path': '/nonexistent/replay', 'port': 9449}]}
+                          'replay_path': '/nonexistent/replay', 'port': 9449 - i} for i, robot in enumerate(robots)]}
     catalog_file = folder / 'catalog.json'
     if catalog_file.exists() and json.loads(catalog_file.read_text()) != catalog:
-        catalog_file.unlink()  # organization changed; derived, holds no secret
+        catalog_file.unlink()  # organization/world/slots changed; derived, holds no secret
+    passes = folder / 'pass-keys.json'
+    if passes.exists() and set(json.loads(passes.read_text())) != set(robots):
+        passes.unlink()  # local-only keys for the current slots; never kept for removed robots
     return {'FH_SIM_AUTH_FILE': private_file(folder / 'service.key', secret(32)),
-            'FH_PHONE_PASS_KEYS': private_file(folder / 'pass-keys.json', json.dumps(
-                {robot: {'active': 'local', 'keys': {'local': secret(32)}}})),
+            'FH_PHONE_PASS_KEYS': private_file(passes, json.dumps(
+                {robot: {'active': 'local', 'keys': {'local': secret(32)}} for robot in robots})),
+            'max_robots': str(len(robots)),
+            **{key: os.environ.get(key) or values[key] for key in POLICY_KEYS if os.environ.get(key) or values.get(key)},
             'FH_SIM_CATALOG': private_file(catalog_file, json.dumps(catalog, ensure_ascii=False)),
             'FH_SIM_SRC': source, 'SIM_RUN_DIR': str(folder / 'runs'),
             'pidfile': str(folder / 'simmgr.pid'), 'log': str(folder / 'simmgr.log')}
@@ -184,7 +208,9 @@ def sim_setup(repository, values, data):
 
 def simmgr_env(repository, values, sim):
     """Only what simmgr needs: no database URL, account passwords or ROS settings."""
-    env = {key: os.environ[key] for key in ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR') if key in os.environ}
+    env = {key: os.environ[key] for key in ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR',
+                                                 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS')  # preflight: systemctl --user
+           if key in os.environ}
     env.update({
         'PYTHONPATH': os.pathsep.join((str(repository), str(Path(repository) / 'apps/agent'))),
         'FH_SIM_CATALOG': sim['FH_SIM_CATALOG'], 'FH_SIM_AUTH_FILE': sim['FH_SIM_AUTH_FILE'],
@@ -192,6 +218,8 @@ def simmgr_env(repository, values, sim):
         'FH_SIM_AGENT_WS_URL': f"ws://127.0.0.1:{values['FH_API_PORT']}/api/v1/agent/ws",
         'FH_SIM_LOCAL_BACKEND': 'mujoco', 'FH_SIM_AGENT_PYTHON': sys.executable,
         'FH_SIM_SRC': sim['FH_SIM_SRC'], 'SIM_RUN_DIR': sim['SIM_RUN_DIR'],
+        'FH_SIM_MAX_ROBOTS': sim.get('max_robots', '1'),
+        **{key: sim[key] for key in POLICY_KEYS if key in sim},
     })
     return env
 

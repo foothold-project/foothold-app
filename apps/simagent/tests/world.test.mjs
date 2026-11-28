@@ -19,7 +19,7 @@ test('Node 에서 장면 컴파일', { skip }, async () => {
 test('1 초 뒤 몸통 높이가 서 있는 범위', { skip }, async () => {
   const w = await loadWorld({ simSrc, mapId: MAP, seed: 1 });
   try {
-    w.run(1.0, [0, 0, 0]);
+    await w.run(1.0, [0, 0, 0]);
     const h = w.baseHeight();
     assert.ok(h > 0.25 && h < 0.45, `몸통 높이 ${h.toFixed(3)} m`);
     assert.ok(w.upright() > 0.9, `곧추섬 ${w.upright()}`);
@@ -30,9 +30,26 @@ test('1 초 뒤 몸통 높이가 서 있는 범위', { skip }, async () => {
 test('같은 씨앗은 같은 결과 · 다른 씨앗은 다른 결과', { skip }, async () => {
   const pose = async (seed) => {
     const w = await loadWorld({ simSrc, mapId: MAP, seed });
-    try { w.run(1.0, [0.5, 0, 0]); return Array.from(w.sim.d.qpos); } finally { w.dispose(); }
+    try { await w.run(1.0, [0.5, 0, 0]); return Array.from(w.sim.d.qpos); } finally { w.dispose(); }
   };
   const a = await pose(7), b = await pose(7), c = await pose(8);
   assert.deepEqual(a, b);
   assert.notDeepEqual(a, c);
+});
+
+test('MuJoCo wasm 입구: npm 배치와 FH_SIM_ASSETS mujoco/ 배치 둘 다 찾음', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { mujocoEntry } = await import('../world.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'fh-mujoco-entry-'));
+  try {
+    const npm = join(root, 'npm'), bundle = join(root, 'bundle'), empty = join(root, 'empty');
+    mkdirSync(join(npm, 'node_modules/@mujoco/mujoco'), { recursive: true }); writeFileSync(join(npm, 'node_modules/@mujoco/mujoco/mujoco.js'), '');
+    mkdirSync(join(bundle, 'mujoco'), { recursive: true }); writeFileSync(join(bundle, 'mujoco/mujoco.js'), '');
+    mkdirSync(empty);
+    assert.equal(mujocoEntry(npm), join(npm, 'node_modules/@mujoco/mujoco/mujoco.js'));
+    assert.equal(mujocoEntry(bundle), join(bundle, 'mujoco/mujoco.js'));
+    assert.throws(() => mujocoEntry(empty), /MuJoCo wasm/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

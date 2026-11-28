@@ -36,7 +36,15 @@ class Manager:
     def __init__(self, settings, launcher=None):
         validate_control_environment()
         self.settings = settings
-        self.launcher = launcher if launcher is not None else (NativeLauncher(settings) if settings.real else FakeLauncher())
+        if launcher is None:
+            if settings.real:
+                launcher = NativeLauncher(settings)
+            elif settings.local_backend == 'mujoco':
+                from .mujoco_launcher import MujocoLauncher
+                launcher = MujocoLauncher(settings)
+            else:
+                launcher = FakeLauncher()
+        self.launcher = launcher
         if self.launcher.real != settings.real:
             raise ValueError('launcher mode mismatch')
         self.deployment_lease = DeploymentLease(os.environ.get('FH_SIM_DEPLOY_GUARD_DIR'))
@@ -69,14 +77,21 @@ class Manager:
         native = self.launcher.real
         if native and robot.state not in ('STARTING', 'STOPPING') and getattr(self.launcher, 'failure', False):
             robot.state = 'ERROR'
+        if self.live and robot.state == 'RUNNING' and not self.launcher.alive(slot):
+            robot.state = 'ERROR'  # the agent process exited; never report a dead child as live
         return dict(generation=robot.generation, robot_id=slot.robot_id, owner_id=robot.owner, world_id=robot.world,
             simulation=True, state=robot.state, spawn_floor_id=robot.spawn_floor_id, agent_address=f'ws://{self.settings.agent_host}:{slot.port}/phone/ws',
             namespace='' if native else slot.namespace,
             tf_prefix='' if native else slot.namespace.lstrip('/') + '/',
             command_topic='/v2_live/cmd_vel' if native else slot.namespace + '/v2_live/cmd_vel',
-            launcher='native-single' if native else 'fake', expires_at=self.expires_at,
+            launcher='native-single' if native else getattr(self.launcher, 'label', 'fake'), expires_at=self.expires_at,
             remaining_s=None if self.deadline is None or self.expires_at is None else
                 max(0, math.ceil(self.deadline - asyncio.get_running_loop().time())))
+
+    @property
+    def live(self):
+        # Non-native launchers that own real agent processes (local MuJoCo).
+        return getattr(self.launcher, 'live', False) is True
 
     @staticmethod
     def selection(world_id, spawn_floor_id=None):
@@ -213,7 +228,8 @@ class Manager:
                 # Retain ownership and capacity until confirmed cleanup; never reuse.
                 self.failed = True
                 raise
-            row.state = 'RUNNING' if self.launcher.real else 'PREPARED'
+            # The launcher returns only after its readiness check; FakeLauncher has no process.
+            row.state = 'RUNNING' if self.launcher.real or self.live else 'PREPARED'
             return self.describe(row)
 
     async def remove(self, robot_id, generation):
@@ -247,6 +263,9 @@ class Manager:
             self._release_deployment_lease()
             if self.expiry_task and self.expiry_task is not asyncio.current_task():
                 self.expiry_task.cancel()
+        elif self.live and not getattr(self.launcher, 'failure', False):
+            # The launcher reaped the agent and proved its process group empty.
+            self.failed = False
         return False
 
     def _release_deployment_lease(self):

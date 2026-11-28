@@ -266,8 +266,8 @@ describe('입구', () => {
   it('App: PC #/terrain 은 로봇 유무와 상관없이 열리고, 메뉴에 칸은 없다', () => {
     app(false, '#/terrain');
     expect($('[data-terrain]')).toBeTruthy();
-    expect($('.fh-nav').textContent).not.toMatch('지형');
-    expect($('.fh-nav [aria-current="page"]')!.textContent).toBe('지도');   // 지형 화면은 지도 탭 안(11-19)
+    expect($('[aria-label="주 메뉴"]').textContent).not.toMatch('지형');
+    expect($('[aria-label="주 메뉴"] [aria-current="page"]')!.textContent).toBe('지도');   // 지형 화면은 지도 탭 안(11-19)
     expect($('[data-terrain-back]')!.getAttribute('href')).toBe('#/map');
     act(() => root!.unmount()); box.remove();
     app(false, '#/terrain', []);

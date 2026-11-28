@@ -260,6 +260,10 @@ def start_rig(tmp_path, monkeypatch, port=None):
     monkeypatch.setattr(trace, 'START_FLAG', flag)
     if port is None: monkeypatch.delenv('FH_START_MOVE_PORT', raising=False)
     else: monkeypatch.setenv('FH_START_MOVE_PORT', str(port))
+    from foothold_agent.go2_direct import runner_link
+    token = tmp_path / 'runner.token'
+    token.write_text('0123456789abcdef0123456789abcdef'); token.chmod(0o600)
+    monkeypatch.setattr(runner_link, 'TOKEN_FILE', str(token))
     r = rig(0)
     for name in ACTIONS:
         setattr(r[2], name, lambda *a, name=name: pytest.fail(f'{name} must not invoke during START'))

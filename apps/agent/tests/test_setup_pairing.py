@@ -762,3 +762,48 @@ def test_rejected_saved_connection_explains_web_code_repair_without_old_cli_copy
     for old in ('--repair', '폰에서', 'QR'):
         assert old not in message+output
     assert not status.snapshot()['connected']
+
+
+def test_state_reports_field_gate_open_closed_and_null_without_gate():
+    gate, session, client, inputs, wall, now, nic_ok, made, activate = rig()
+    assert session._state()['field_gate'] == 'CLOSED'
+    session.receive({'t':'field_approval', 'expires_at':1100}); activate()
+    assert gate.active is not None and session._state()['field_gate'] == 'OPEN'
+    session.receive({'t':'field_approval', 'expires_at':None})
+    assert gate.active is None and session._state()['field_gate'] == 'CLOSED'
+    from foothold_agent.go2_direct.server import DriveSession
+    plain = DriveSession(Feedback(SERIAL)); plain.connect()
+    assert plain._state()['field_gate'] is None
+
+
+def test_stop_while_field_gate_closed_reports_closed_and_outputs_nothing():
+    # Pins the existing behaviour: a closed gate forwards no STOP to the robot,
+    # so latched with zero applied must not be read as a stop having been sent.
+    gate, session, client, inputs, wall, now, nic_ok, made, activate = rig()
+    session.receive({'t':'field_approval', 'expires_at':1100}); activate()
+    session.receive({'t':'field_approval', 'expires_at':None})
+    calls = [list(pair.calls) for pair in made[0]]
+    client._emit(session.receive({'t':'stop', 'stop_ref':7}))
+    value = session._state()
+    assert value['field_gate'] == 'CLOSED' and value['latched'] is True
+    assert [list(pair.calls) for pair in made[0]] == calls and len(made) == 1
+    assert session.operator_stop
+    never = rig()
+    never[2]._emit(never[1].receive({'t':'stop', 'stop_ref':7}))
+    assert never[1]._state()['field_gate'] == 'CLOSED' and never[7] == []
+
+
+def test_state_closing_gate_reports_one_consistent_snapshot():
+    # Review M3: expiry noticed inside _state must not mix pre-close
+    # stop_gen with field_gate=CLOSED in one message.
+    gate, session, client, inputs, wall, now, nic_ok, made, activate = rig()
+    session.receive({'t':'field_approval', 'expires_at':1100}); activate()
+    before = session._state()
+    assert before['field_gate'] == 'OPEN'
+    wall.value = 1100  # expires between reports; _state notices it
+    value = session._state()
+    assert value['field_gate'] == 'CLOSED' and gate.active is None
+    after = session._state()
+    assert (value['latched'], value['stop_gen'], value['applied'], value['stop_ref']) == (
+        after['latched'], after['stop_gen'], after['applied'], after['stop_ref'])
+    assert value['stop_gen'] > before['stop_gen']

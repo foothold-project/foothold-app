@@ -42,6 +42,8 @@ class Settings:
     server_drive_robots: frozenset[UUID] = frozenset()
     server_drive_enabled: bool | None = None
     robot_installer_enabled: bool = True
+    schedule_runner_enabled: bool = False  # 일정 칸 예약 실행 (from_env 기본 켬, 시험은 직접 tick)
+    schedule_real_robots: bool = False  # 실기 예약 실행 (①) 을 여는 한 곳. 실기 STOP 확인 뒤에만 켠다 (11/28 10:58)
 
     def drive_enabled(self, robot_id):
         return (self.server_drive_enabled if self.server_drive_enabled is not None
@@ -54,6 +56,8 @@ class Settings:
                    files_root=os.environ.get('FH_FILES_ROOT', '/var/lib/foothold/files'),
                    phone_pass_keys=os.environ.get('FH_PHONE_PASS_KEYS'),
                    robot_installer_enabled=os.environ.get('FH_ROBOT_INSTALLER_ENABLED', '1') == '1',
+                   schedule_runner_enabled=os.environ.get('FH_SCHEDULE_RUNNER', '1') == '1',
+                   schedule_real_robots=os.environ.get('FH_SCHEDULE_REAL_ROBOTS', '0') == '1',
                    simmgr_url=os.environ.get('FH_SIM_MANAGER_URL'), simmgr_auth_file=os.environ.get('FH_SIM_AUTH_FILE'),
                    tunnel_origin=tunnel_origin(os.environ),
                    server_drive_enabled=(os.environ['FH_SERVER_DRIVE_ENABLED'] == '1'
@@ -72,9 +76,6 @@ def fail(status, code, message, detail=None):
     raise APIError(status, code, message, detail)
 
 
-ADMIN_NO_REAL_CONTROL = '총괄 계정은 실기 로봇을 조종하거나 정지할 수 없습니다. 담당 운영자 폰에서 하세요.'
-
-
 def authorize(user: User, permission: str, robot: Robot | None = None):
     """One A/O policy, used on every request (no cached role/ownership claims)."""
     if robot is not None and (robot.org_id != user.org_id or getattr(robot, 'archived_at', None)):
@@ -83,9 +84,8 @@ def authorize(user: User, permission: str, robot: Robot | None = None):
     owns = user.role == 'ORG_ADMIN' or (robot is not None and robot.owner_user_id == user.id)
     # A/ROBOT_READ manage/view the full fleet. O_OWN is motion authority only;
     # assignments and robot configuration must not use it as a management gate.
-    if (permission in ('O_OWN', 'ROBOT_STOP') and robot is not None
-            and user.role == 'ORG_ADMIN' and robot.simulation is not True):
-        fail(403, 'ADMIN_NO_REAL_CONTROL', ADMIN_NO_REAL_CONTROL)
+    # ORG_ADMIN holds O_OWN/ROBOT_STOP on real robots too (운영 결정 2026-11-28). Safety
+    # gates (drive setting, field approval, STOP latch, single lease) stay elsewhere.
     if permission == 'ROBOT_READ' and not owns:
         fail(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
     if permission == 'O_OWN' and not owns:
@@ -95,10 +95,9 @@ def authorize(user: User, permission: str, robot: Robot | None = None):
         'A': user.role == 'ORG_ADMIN',
         'O': valid_role,
         'ROBOT_WRITE': (user.role == 'ORG_ADMIN' if robot is not None and getattr(robot, 'simulation', False) is True
-                        else user.role == 'OPERATOR' and robot is not None and robot.owner_user_id == user.id),
-        'ROBOT_ASSIGN_UNOWNED': (user.role == 'ORG_ADMIN' and robot is not None
-                                and getattr(robot, 'simulation', False) is not True
-                                and robot.owner_user_id is None),
+                        # 운영 결정 2026-11-28: 총괄은 남이 담당하거나 담당 없는 실기도 관리한다.
+                        else robot is not None and (user.role == 'ORG_ADMIN' or (
+                            user.role == 'OPERATOR' and robot.owner_user_id == user.id))),
         'ROBOT_SUMMARY': valid_role and robot is not None,
         'ROBOT_READ': valid_role and robot is not None and owns,
         'O_OWN': valid_role and robot is not None and owns,
@@ -284,13 +283,16 @@ def create_app(settings: Settings | None = None):
         trash_task = asyncio.create_task(trash_collector())
         denial_task = asyncio.create_task(denial_auditor())
         simulation_task = asyncio.create_task(simulation.watch(app))
+        schedule_task = asyncio.create_task(scheduler.watch(app) if settings.schedule_runner_enabled
+                                            else asyncio.sleep(0))
         try:
             yield
         finally:
             trash_task.cancel()
             denial_task.cancel()
             simulation_task.cancel()
-            await asyncio.gather(denial_task, simulation_task, trash_task, return_exceptions=True)
+            schedule_task.cancel()
+            await asyncio.gather(denial_task, simulation_task, trash_task, schedule_task, return_exceptions=True)
             await app.state.realtime.close()
             engine.dispose()
 
@@ -640,11 +642,17 @@ def create_app(settings: Settings | None = None):
             event(db, actor.org_id, 'SESSION_REVOKED', actor.id,
                   {'session_id': str(session_id)})
 
+    # /robots/{robot_id} 보다 먼저 등록해야 /robots/availability 가 로봇 id 로 읽히지 않는다.
+    from . import schedule
+    schedule.install(app, DB, Identity, fail)
+
     @app.get(prefix + '/robots', response_model=C.RobotList)
-    def robots(auth: Identity, db: DB, scope: Literal['mine', 'all'] = 'mine',
+    def robots(auth: Identity, db: DB, scope: Literal['mine', 'all'] | None = None,
                limit: Limit = 50, cursor: str | None = None):
         user = auth[0]
         authorize(user, 'O')
+        if scope is None:  # 운영 결정 2026-11-28: 총괄 기본은 조직 전체, 운영자는 mine.
+            scope = 'all' if user.role == 'ORG_ADMIN' else 'mine'
         query = select(Robot).where(Robot.org_id == user.org_id, Robot.archived_at.is_(None))
         if scope == 'mine':
             query = query.where(Robot.owner_user_id == user.id)
@@ -690,12 +698,9 @@ def create_app(settings: Settings | None = None):
             # Full live viewing has the same scope as existing ROBOT_READ.
             # Check it first so inaccessible robot existence stays hidden.
             authorize(user, 'ROBOT_READ', row)
-            # Real admin access stays disabled for the simulation-only first release.
             authorize(user, 'ROBOT_STOP', row)
             authorize(user, 'O_OWN' if body.purpose == 'control' else 'ROBOT_READ', row)
-        except APIError as exc:
-            if exc.code == 'ADMIN_NO_REAL_CONTROL':
-                raise
+        except APIError:
             issuer.deny(db, user, 404, 'NOT_FOUND')
         response.headers['Cache-Control'] = 'no-store'
         return issuer.issue(db, user, row, body)
@@ -707,6 +712,8 @@ def create_app(settings: Settings | None = None):
             fail(400, 'VALIDATION', '담당 운영 관리자를 확인하세요.')
 
     def robot_event(db, user, row, code, data):
+        # 한 사람(user_id)과 그때 담당을 함께 남긴다. 총괄이 남의 로봇을 다뤄도 원래 담당이 보인다.
+        data = {'owner_user_id': str(row.owner_user_id) if row.owner_user_id else None, **data}
         db.add(render(db, Event(org_id=user.org_id, robot_id=row.id, user_id=user.id,
             category='ACCOUNT', severity='INFO', code=code, data=data)))
 
@@ -719,12 +726,7 @@ def create_app(settings: Settings | None = None):
         user = auth[0]
         rt, rid = app.state.realtime, str(robot_id)
         row = await asyncio.to_thread(find_robot, db, user, robot_id)
-        if user.role == 'ORG_ADMIN' and not row.simulation and row.owner_user_id is None:
-            authorize(user, 'ROBOT_ASSIGN_UNOWNED', row)
-            if body.model_fields_set != {'owner_user_id'} or body.owner_user_id is None:
-                fail(403, 'FORBIDDEN', '담당 없는 실기는 운영 담당 지정만 할 수 있습니다.')
-        else:
-            authorize(user, 'ROBOT_WRITE', row)
+        authorize(user, 'ROBOT_WRITE', row)
         if row.simulation and 'owner_user_id' in body.model_fields_set:
             fail(409, 'SIM_ROBOT_MANAGED', '시뮬 관리자에서만 담당자를 관리합니다.')
         changing_owner = ('owner_user_id' in body.model_fields_set
@@ -743,6 +745,10 @@ def create_app(settings: Settings | None = None):
                 old_owner = row.owner_user_id
                 if changing_owner and old_owner is not None:
                     phone_pass.revoke(db, user.org_id, user_id=old_owner, robot_id=row.id,clock=issuer.clock)
+                if changing_owner:
+                    # 총괄도 실기 조종 출입증을 받는다(운영 결정 2026-11-28). 담당이 바뀌면 누구의 것이든
+                    # 이 로봇의 조종 출입증을 거둔다. 회수 묶음은 에이전트에 phone.revoke 로 간다.
+                    phone_pass.revoke(db, user.org_id, robot_id=row.id, purpose='control', clock=issuer.clock)
                 for key, value in values.items():
                     setattr(row, key, value)
                 if changing_owner:
@@ -905,6 +911,9 @@ def create_app(settings: Settings | None = None):
     voxel_maps.install(app, DB, Identity, UploadIdentity, upload_write, fail, authorize, event, settings)
     from .realtime import install
     install(app, settings, factory, authorize, APIError)
+    from . import scheduler
+    app.state.scheduler = scheduler.Scheduler(app.state.realtime, factory, settings.org_id,
+                                              real_enabled=settings.schedule_real_robots)
     from . import mapping
     mapping.install(app, DB, Identity, factory, settings, fail, event, lock_organization)
     trash.install(app, DB, Identity, fail, authorize, event)

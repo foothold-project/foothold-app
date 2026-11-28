@@ -1,0 +1,59 @@
+{
+  "$id": "fh-app/1/AgentRunControl",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "lease_id": {
+      "format": "uuid",
+      "title": "Lease Id",
+      "type": "string"
+    },
+    "op": {
+      "enum": [
+        "pause",
+        "resume",
+        "abort"
+      ],
+      "title": "Op",
+      "type": "string"
+    },
+    "request_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "screen_id": {
+      "format": "uuid",
+      "title": "Screen Id",
+      "type": "string"
+    },
+    "t": {
+      "const": "run.control",
+      "default": "run.control",
+      "title": "T",
+      "type": "string"
+    },
+    "user_id": {
+      "format": "uuid",
+      "title": "User Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "t",
+    "request_id",
+    "user_id",
+    "lease_id",
+    "run_id",
+    "screen_id",
+    "op"
+  ],
+  "title": "AgentRunControl",
+  "type": "object"
+}

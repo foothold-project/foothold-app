@@ -1178,6 +1178,44 @@
           "default": null,
           "title": "Devices Changed"
         },
+        "field_gate": {
+          "anyOf": [
+            {
+              "enum": [
+                "OPEN",
+                "CLOSED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Field Gate"
+        },
+        "gait": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GaitState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "gait_result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GaitResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "latched": {
           "title": "Latched",
           "type": "boolean"
@@ -1238,6 +1276,17 @@
           "anyOf": [
             {
               "$ref": "#/$defs/Go2RobotInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "run_result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunCommandResult"
             },
             {
               "type": "null"
@@ -1656,6 +1705,104 @@
         "confirmed_sim_t"
       ],
       "title": "FloorContext",
+      "type": "object"
+    },
+    "GaitResult": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 64,
+          "title": "Code",
+          "type": "string"
+        },
+        "gait": {
+          "enum": [
+            "classic",
+            "sport",
+            "start",
+            "ame2"
+          ],
+          "title": "Gait",
+          "type": "string"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "sdk_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sdk Code"
+        },
+        "status": {
+          "enum": [
+            "RUNNING",
+            "SUCCEEDED",
+            "REJECTED",
+            "FAILED"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "gait",
+        "status",
+        "code",
+        "sdk_code"
+      ],
+      "title": "GaitResult",
+      "type": "object"
+    },
+    "GaitState": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "items": {
+            "enum": [
+              "classic",
+              "sport",
+              "start",
+              "ame2"
+            ],
+            "type": "string"
+          },
+          "maxItems": 4,
+          "title": "Available",
+          "type": "array"
+        },
+        "gait": {
+          "anyOf": [
+            {
+              "enum": [
+                "classic",
+                "sport",
+                "start",
+                "ame2"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Gait"
+        }
+      },
+      "required": [
+        "gait",
+        "available"
+      ],
+      "title": "GaitState",
       "type": "object"
     },
     "Go2Attitude": {
@@ -3140,6 +3287,54 @@
         "sample_count"
       ],
       "title": "RobotResponseHealth",
+      "type": "object"
+    },
+    "RunCommandResult": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 64,
+          "title": "Code",
+          "type": "string"
+        },
+        "op": {
+          "enum": [
+            "start",
+            "pause",
+            "resume",
+            "abort"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "SUCCEEDED",
+            "REJECTED"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "op",
+        "run_id",
+        "status",
+        "code"
+      ],
+      "title": "RunCommandResult",
       "type": "object"
     },
     "RunCopy": {

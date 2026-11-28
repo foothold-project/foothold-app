@@ -1,6 +1,10 @@
 # ADR-003 ④ 웹 시뮬 출입증 두 겹 관문
 
 기준 `origin/dev f894b77` (PR #95 포함), 브랜치 `feature/web-sim-gate`.
+
+> 주의: 이 문서는 지난 검증 기록이다. 아래의 총괄 `ADMIN_NO_REAL_CONTROL` 403 관련 줄은
+> 운영 결정 2026-11-28로 대체되었다(PR #544). 지금은 총괄도 실기 출입증을 받고,
+> PC+실기 요청은 총괄에게도 `WEB_SIM_ONLY`로 막힌다.
 서버·에이전트·공유 출입증 계약만 변경했다. `apps/web` 변경은 없다.
 
 ## 동작과 호환
@@ -8,7 +12,7 @@
 - 요청 `surface`는 `phone | pc`, 기본값 `phone`이며 서버는 항상 서명한다.
 - 기존 접근 권한 검사 뒤 발급기에서 PC+서버 simulation 미설정을 403
   `WEB_SIM_ONLY`로 막는다(control·view 모두). 총괄 실기의 PR #95
-  `ADMIN_NO_REAL_CONTROL` 403은 유지한다.
+  `ADMIN_NO_REAL_CONTROL` 403은 유지한다. (운영 결정 2026-11-28로 대체됨)
 - 에이전트는 서명 검증 후 PC+로컬 simulation 미설정을 hello 4403
   `WEB_SIM_ONLY`로 막는다. 승인된 연결에서도 조종권·조종 요청마다 다시 확인한다.
   서버가 시뮬이라고 등록한 실제 서명 토큰을 로컬 실기 모드에 넣는 시험도 포함한다.
@@ -94,7 +98,8 @@ Core/Session·안전 셀프테스트 기대값 변경은 없다.
   기존 재판정 시험4개에서도 별도 STOP을 제거하고 움직이던 owner의 즉시 정리를 확인한다.
 - 집중 시험: 기존 224개 묶음 + 안전 요청6개 + 총괄 우선순위1개 = **231 passed**,
   116.64초, 기존 FastAPI/Starlette 경고1개. 총괄+pc+실기 요청은
-  `WEB_SIM_ONLY`보다 `ADMIN_NO_REAL_CONTROL`이 먼저임을 확인했다.
+  `WEB_SIM_ONLY`보다 `ADMIN_NO_REAL_CONTROL`이 먼저임을 확인했다. (운영 결정 2026-11-28로 대체됨:
+  지금은 총괄+pc+실기도 `WEB_SIM_ONLY`, `test_web_sim_gate::test_admin_pc_physical_hits_surface_gate`)
 - 관련 변이 **2/2 KILLED**. 메모리 안에서 거부 직전 반납 또는 0 명령 뒤 반납만
   각각 제거하고 강화한 시험10개를 실행했다. 정상 기준10개 통과, 각 변이에서
   단언 실패7개/1개, 수집·준비·종료·실행 오류0이다. 저장소 코드는 변이하지 않았다.

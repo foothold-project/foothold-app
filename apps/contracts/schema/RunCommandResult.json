@@ -1,0 +1,50 @@
+{
+  "$id": "fh-app/1/RunCommandResult",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "maxLength": 64,
+      "title": "Code",
+      "type": "string"
+    },
+    "op": {
+      "enum": [
+        "start",
+        "pause",
+        "resume",
+        "abort"
+      ],
+      "title": "Op",
+      "type": "string"
+    },
+    "request_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "SUCCEEDED",
+        "REJECTED"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id",
+    "op",
+    "run_id",
+    "status",
+    "code"
+  ],
+  "title": "RunCommandResult",
+  "type": "object"
+}

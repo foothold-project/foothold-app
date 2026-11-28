@@ -210,6 +210,7 @@ const char* event_name(Event event) {
     case Event::app_key: return "APP_KEY";
     case Event::app_drop: return "APP_DROP";
     case Event::handover_refused: return "HANDOVER_REFUSED";
+    case Event::gait_cancelled: return "GAIT_CANCELLED";
     }
     return "UNKNOWN";
 }
@@ -523,6 +524,13 @@ void Runner::recover_gait(Tick now) {
         stopped_ = true;
         return;
     }
+    if (gait_ == Gait::none && !fall_recovery_) {
+        // Handover cancelled (app STOP): let an in-flight call return, then stay in factory.
+        if (mode_pending_ && !mode_step(now, *mode_pending_, gait_)) return;
+        recovery_stand_pending_ = false;
+        phase_ = Phase::high;
+        return;
+    }
     if (now < next_attempt_) return;
     if (recovery_stand_pending_) {
         const auto result = mode_step(now, ModeCall::recovery_stand);
@@ -574,8 +582,9 @@ void Runner::infer(Tick now, Tick scheduled, const LowState& state, const Vec3& 
     next_policy_ += 20ms;
     if (next_policy_ <= scheduled) next_policy_ = scheduled + 20ms;
     if (inference_pending_) return;
-    const auto want = state.app_want && !remote_active(state.remote) ? *state.app_want
-                                                                     : remote_want(state.remote, options_.fwd_max);
+    const auto want = state.app_stop ? Wanted{}
+                      : state.app_want && !remote_active(state.remote) ? *state.app_want
+                                                                       : remote_want(state.remote, options_.fwd_max);
     const auto shaped = shape_command(want, options_.fwd_max);
     slew_command(command_, shaped.command);
     const auto dq = to_policy(state.dq);
@@ -600,6 +609,12 @@ void Runner::tick(Tick now, const LowState& state, const Depth* frame, bool shut
     const auto scheduled = scheduled_slot.value_or(now);
     if (stopped_) return;
     shutdown_ = shutdown_ || shutdown;
+    // App STOP cancels a factory handover in progress (Codex pr550 H1): finish the sit and the return to
+    // factory, but never stand up again for it. A fall recovery stand is not a handover and is kept.
+    if (state.app_stop && gait_ != Gait::none && !fall_recovery_) {
+        gait_ = Gait::none;
+        observer_.event(now, Event::gait_cancelled);
+    }
     const auto keys = state.remote.keys;
     const bool emergency = pressed(keys, l2_button | b_button);
     const bool lie = pressed(keys, l2_button | a_button);

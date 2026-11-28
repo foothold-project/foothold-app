@@ -1,6 +1,6 @@
 // 탭 본문 — 03 UX §5 배치 뼈대 수준. 관제 요약·로봇 목록·상세는 서버 값(설정 탭은 screens/settings.tsx, 기록 탭은 screens/history.tsx, 지도 탭·관제 지도 칸은 screens/maps.tsx, 결재 탭은 screens/approvals.tsx, 임무 탭은 screens/missions.tsx), 폰 시나리오 시트는 이 층 시나리오 고르기(screens/missions.tsx ScenarioPick).
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { driveBlock, ownerName, robotStatus, toRobot, type Robot, type Tone, type User } from './fake';
+import { ADMIN_LATER, driveBlock, ownerName, robotStatus, toRobot, type Robot, type Tone, type User } from './fake';
 import type { Dashboard, Device, RobotSummary, User as ApiUser } from '../../contracts/ts';
 import { api, type ApiFail } from './api';
 import { Drive, holderText } from './drive';
@@ -8,6 +8,7 @@ import { rt, useRt, withLive } from './rt';
 import { Approvals } from './screens/approvals';
 import { History, RecentEvents } from './screens/history';
 import { FloorMap, Maps } from './screens/maps';
+import { MissionTab } from './screens/missiontab';
 import { Guard } from './App';
 import { Settings } from './screens/settings';
 import { ScenarioPick } from './screens/missions';
@@ -19,7 +20,7 @@ import { PhoneRelay, useRelayExpiry } from './phoneRelay';
 import { RobotInfo, pickInfo } from './go2status';
 import { Empty } from './empty';
 import { AdminFleet, OperatorRobot, realDash } from './screens/fleet';
-import { AddRobot, AssignOwner } from './pairing';
+import { AddRobot, AssignOwner, ManageRobot } from './pairing';
 import { Control } from './screens/control';
 
 /** go(t, id): id 를 주면 그 로봇 화면을 바로 연다(#/drive/<id>). open = PC 조종 탭에서 로봇 화면이 열림. robots = 서버가 준 로봇 목록 그대로 */
@@ -77,23 +78,22 @@ export function useDash(cancel?: AbortSignal): Dash {
 
 /** 로봇 0대의 관제. 총괄: 요약·빈 목록 안내(children)·지도·운영 관리자 표. 운영 관리자: 등록·담당 요청·시뮬 띄우기 입구(요약 숫자 없이 — 한 대 집중 화면과 같게).
  *  robots = 끝낸 시뮬 슬롯까지 든 목록 — 요약은 로봇 탭처럼 실기만 센다(realDash) */
-/** 로봇 0대(U11-04 빈 화면): 아이콘 · 한 줄 까닭 · 다음 할 일 하나. 운영자 = «+ 새 로봇 추가», 총괄 = «시뮬 탭 열기»(총괄은 실기를 연결하지 않음) */
+/** 로봇 0대(U11-04 빈 화면): 아이콘 · 한 줄 까닭 · 칠한 다음 할 일 하나. 운영자 = «+ 새 로봇 추가» + 칠하지 않은 «시뮬 탭 열기»(시뮬 탭은 메뉴에 없음 · 08:27), 총괄 = «시뮬 탭 열기»(총괄은 실기를 연결하지 않음) */
 export function EmptyFleet({ user, cancel, dash, robots, refresh }: { user: User; cancel?: AbortSignal; dash: Dash; robots: Robot[]; refresh: () => void }) {
   const d = realDash(dash.d, robots), { err } = dash;
   if (user.role !== 'ORG_ADMIN') return <Pair user={user} mine={[]} refresh={refresh} cancel={cancel}>
-    {(add) => <Empty kind="robots" title="담당 로봇이 없습니다" why="연결 코드로 실기를 등록하거나 총괄에게 담당 지정을 요청하세요. 시뮬 로봇은 «시뮬» 탭에서 띄웁니다.">{add}</Empty>}</Pair>;
+    {(add) => <Empty kind="robots" title="담당 로봇이 없습니다" why="연결 코드로 실기를 등록하거나 총괄에게 담당 지정을 요청하세요. 시뮬 로봇은 «시뮬 탭 열기»에서 띄웁니다.">{add}<a className="btn" href="#/sim">시뮬 탭 열기</a></Empty>}</Pair>;
   return <><Kpi user={user} d={d} err={err} />
-    <Empty kind="robots" title="등록된 로봇이 없습니다" why="운영 관리자가 실기 로봇을 연결하거나 «시뮬» 탭에서 띄우면 여기에 보입니다."><a className="btn pri" href="#/sim">시뮬 탭 열기</a></Empty>
+    <Empty kind="robots" title="등록된 로봇이 없습니다" why="운영 관리자가 실기 로봇을 연결하거나 «시뮬 탭 열기»에서 띄우면 여기에 보입니다."><a className="btn pri" href="#/sim">시뮬 탭 열기</a></Empty>
     <MapCard cancel={cancel} /><Operators user={user} d={d} /></>;
 }
 
-/** PC 웹 운영 관리자의 «새 로봇 추가»(폰과 같은 화면 · pairing.tsx). 펼치면 children(목록 칸) 자리에. 총괄은 실기를 연결하지 않아 없음
+/** PC 웹 «새 로봇 추가»(폰과 같은 화면 · pairing.tsx). 펼치면 children(목록 칸) 자리에. 총괄도 붙인다(11/28 · 서버 #544)
  *  children 이 함수면 «+ 새 로봇 추가» 단추를 받아 그 칸 안에 둔다(빈 화면의 다음 할 일 하나) */
 export function Pair({ user, mine, refresh, cancel, children }: { user: User; mine: string[]; refresh: () => void; cancel?: AbortSignal; children: ReactNode | ((add: ReactNode) => ReactNode) }) {
   const [on, setOn] = useState(false), fn = typeof children === 'function';
   const add = <button type="button" className={fn ? 'btn pri' : 'btn'} onClick={() => setOn(true)} data-pair-start>+ 새 로봇 추가</button>;
-  if (user.role === 'ORG_ADMIN') return <>{fn ? children(null) : children}</>;
-  if (on) return <AddRobot mine={mine} close={() => setOn(false)} refresh={refresh} cancel={cancel} />;
+  if (on) return <AddRobot user={user} mine={mine} close={() => setOn(false)} refresh={refresh} cancel={cancel} />;
   return fn ? <>{children(add)}</> : <>{children}<div className="fh-row" style={{ flexBasis: '100%' }}>{add}</div></>;
 }
 
@@ -195,8 +195,10 @@ export function Detail({ close, solo, ...c }: Ctx & { close?: () => void; solo?:
     <Line k="담당"><span>{ownerName(r)}</span></Line>
     {!r.sim && r.serial && <Line k="기체번호"><span className="mono">{r.serial}</span></Line>}
     {!hidden && attn(c.robot, SHOWN) && <Line k="주의"><span>{attn(c.robot, SHOWN)}</span></Line>}
-    {/* 총괄: 담당 없는 실기에만 담당 지정(그 밖 실기 쓰기 없음 — 서버 403). 담당 운영(PC 웹): 내 로봇 관리 */}
+    {/* 총괄: 담당 없는 실기에 담당 지정, 내가 담당인 실기는 관리(11/28). 남 담당 실기의 이름 · 지우기 · 끊기 · 담당 바꾸기는 서버 2 차 전이라 까닭 한 줄 */}
     {c.user.role === 'ORG_ADMIN' && !r.sim && !c.robot.owner && <AssignOwner r={c.robot} refresh={c.refresh} cancel={c.cancel} />}
+    {c.user.role === 'ORG_ADMIN' && !r.sim && c.robot.owner === c.user.id && <ManageRobot key={`${r.id}-${r.owner}`} r={c.robot} refresh={c.refresh} cancel={c.cancel} />}
+    {c.user.role === 'ORG_ADMIN' && !r.sim && !!c.robot.owner && c.robot.owner !== c.user.id && <p className="lbl" data-admin-later>{ADMIN_LATER}</p>}
   </>;
   useRelayExpiry(r.phoneRelay, r.phoneRelayAt);   // 폰 경유 값이 새 state 없이 낡아도 아래 묶음을 다시 고른다
   const info = pickInfo(r);   // 실기 Go2 자세·상태 번호·넘어짐 추정(표시만) — 배터리 옆, 시뮬은 숨김
@@ -232,5 +234,4 @@ const RUN: Record<string, string> = { QUEUED: '대기열', PREPARING: '준비 �
 /** 폰 조종 화면의 시나리오 시트 — 이 로봇이 있는 층의 실기 시나리오에서 고른다(배정 없음, RB-MAP-NO-SCEN 11-18) */
 export const Scenario = (c: Ctx) => <ScenarioPick robot={c.robot} cancel={c.cancel} />;
 
-/** missions 는 tabFromHash 가 지도 탭으로 바꿔 열리지 않는다(임무 탭 #530 전까지) */
-export const BODY: Record<Exclude<TabId, 'missions'>, (c: Ctx) => JSX.Element> = { control: Control, fleet: Fleet, drive: Drive, approval: Approvals, history: History, map: Maps, trash: Trash, sim: SimTab, terrain: Terrain, settings: Settings };
+export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { control: Control, fleet: Fleet, missions: MissionTab, drive: Drive, approval: Approvals, history: History, map: Maps, trash: Trash, sim: SimTab, terrain: Terrain, settings: Settings };

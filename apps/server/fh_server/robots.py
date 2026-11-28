@@ -161,6 +161,10 @@ def robot_objects(db, robots, user, realtime):
                 if not server_drive_blocked and not realtime.field_approved(str(robot.id)):
                     server_drive_blocked.append('AGENT_OFFLINE')
         online, state = snapshots[str(robot.id)] if full else (False, {})
+        if server_drive_blocked == [] and state.get('field_gate') == 'CLOSED':
+            # Only when no server-side reason explains it: the fresh agent report
+            # says its local gate is closed, so app STOP does not reach the robot.
+            server_drive_blocked.append('FIELD_GATE_CLOSED')
         inventory = devices.get(robot.id, {})
         live_devices = reported_devices(realtime, str(robot.id)) if full else None
         if live_devices is not None:
