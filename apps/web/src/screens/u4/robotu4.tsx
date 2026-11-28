@@ -26,6 +26,7 @@ import { Guide, RealView, prepSteps } from '../fleet';
 import { Empty as EmptyCard } from '../../empty';
 import { mount, type Go2Api } from './go2view';
 import { Detail } from './detail';
+import { stageRect, sx, sy } from '../../stage';
 import { FACTORY_H, FACTORY_PNG, FACTORY_W, attach, factoryFrame, factoryPx, site, siteKey } from './simcam';
 import { nextIdx, remaining, ro, runOf, useRoute, type Route, type Run } from './route';
 import { STATUS as RUN_STATUS } from '../missionrun';
@@ -236,9 +237,9 @@ function Stage({ r, q, drive, hot }: { r: Robot; q: number[] | null; drive: Go2A
 function Stick({ side, put, blocked }: { side: 'L' | 'R'; put: (p: number, el: HTMLElement, t: Tok[]) => void; blocked: (m: string) => void }) {
   const own = useRef<number | null>(null), [xy, setXy] = useState([0, 0]);
   const move = (e: PEv<HTMLDivElement>) => {
-    // 화면 맞춤(PC 틀이 1920x1080 무대를 창에 맞춰 scale)에서도 맞게: 손가락 거리는 보이는 크기(b.width), 손잡이 이동은 css 크기(clientWidth)로
-    const el = e.currentTarget, b = el.getBoundingClientRect(), ms = b.width * 0.3 || 1, m = (el.clientWidth || b.width) * 0.3 || 1;
-    let x = (e.clientX - b.left - b.width / 2) / ms, y = (e.clientY - b.top - b.height / 2) / ms; const n = Math.hypot(x, y); if (n > 1) { x /= n; y /= n; }
+    // 화면 맞춤(PC 틀이 1920x1080 무대를 창에 맞춰 scale)에서도 맞게: 포인터 · 판 상자 모두 무대 px(stage.ts) = 손잡이 css px
+    const el = e.currentTarget, b = stageRect(el), m = b.width * 0.3 || 1;
+    let x = (sx(e) - b.left - b.width / 2) / m, y = (sy(e) - b.top - b.height / 2) / m; const n = Math.hypot(x, y); if (n > 1) { x /= n; y /= n; }
     if (side === 'L') { if (y > 0.3) blocked('후진은 아직 지원하지 않습니다'); const v = Math.max(0, -y); setXy([0, -v * m]); put(e.pointerId, el, v > 0.3 ? ['up'] : []); }
     else { setXy([x * m, 0]); put(e.pointerId, el, x < -0.3 ? ['rotl'] : x > 0.3 ? ['rotr'] : []); }
   };
