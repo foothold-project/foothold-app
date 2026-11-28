@@ -284,11 +284,11 @@ export function tileBadge(f: TileFacts): Badge | null {
   if (f.charging) return { key: 'charging', text: '충전 중', icon: 'bolt', col: 'var(--u5-ok)', blink: true };   // 배터리 아이콘 대신 점검 중과 같은 점 펄스 · 초록(팀장 01:51)
   if (f.job) return { key: 'swap', text: '배터리 교체', icon: 'bat', col: GREY };
   if (f.onRun) return f.paused ? { key: 'paused', text: '임무 멈춤', icon: 'warn', col: 'var(--u5-amb)', blink: true, why: f.paused }
-    : f.sim ? { key: 'simrun', text: '시뮬 중', icon: 'box', col: GREY } : { key: 'run', text: '임무 중', icon: 'flag', col: 'var(--u5-ok)' };
+    : f.sim ? { key: 'simrun', text: '시뮬 중', icon: 'box', col: 'var(--u5-sim)', blink: true } : { key: 'run', text: '임무 중', icon: 'flag', col: 'var(--u5-ok)' };
   return { key: 'idle', text: '대기 · 임무 전', icon: 'home', col: GREY };
 }
-/** 배지 점 색은 여기 한 곳에서 고른다. 지금은 배지 글 색 그대로(점 색 규칙은 팀장 결정 뒤 이 함수만 바꿈) */
-export const badgeDot = (b: Badge): string => b.col;
+/** 배지 점 색은 여기 한 곳에서 고른다. 충전 = 초록 · 시뮬 = 파랑(팀장 01:51 · 02:07), 나머지는 배지 글 색 그대로 */
+export const badgeDot = (b: Badge): string => (b.key === 'charging' ? 'var(--u5-ok)' : b.key === 'simrun' ? 'var(--u5-sim)' : b.col);
 function BadgeTag({ b }: { b: Badge }) {
   return <span className={`stb${b.blink ? ' chk' : ''}`} style={{ color: b.col }} title={b.why} data-badge={b.key} {...{ [`data-${b.key}`]: '' }}>{I(14, IC[b.icon])}{b.text}
     {b.blink ? <i style={{ background: badgeDot(b) }}></i> : null}</span>;

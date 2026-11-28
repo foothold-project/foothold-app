@@ -48,7 +48,8 @@
 .u5 .nm{display:flex;align-items:center;gap:7px}
 .u5 .nm b{font-size:18px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 .u5 .chip{height:21px;padding:0 7px;border-radius:6px;display:inline-flex;align-items:center;font-size:11px;font-weight:700;color:rgba(232,235,240,.78);background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.10);white-space:nowrap}
-.u5 .chip.sim{border-style:dashed;border-color:rgba(138,147,163,.7)}
+/* 시뮬 태그 = 파랑(팀장 02:07 · foothold-brand DESIGN.md sim #2F6FE0 · dark-sim #4C9BFF) */
+.u5 .chip.sim{border-style:dashed;border-color:var(--u5-sim);color:var(--u5-sim)}
 .u5 .md{margin-left:auto;display:flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:rgba(232,235,240,.78);white-space:nowrap}
 .u5 .md .ic{color:var(--mu2)}
 .u5 .ln{display:flex;align-items:center;gap:7px;font-size:13.5px;font-weight:600;color:rgba(232,235,240,.78);white-space:nowrap;min-width:0}
@@ -124,14 +125,14 @@
 /* ── 밝은 판(.proto.light) · 정본 foothold-brand app-tone-1126 DESIGN.md 「밝음 1」 ──
    바탕 #F6F7F6 · 칸 #FFFFFF · 글자 #1F2421 · 흐린 #5E6662 · 선 #DCE0DE · 강조 #18A07E · 강조 글자 #0E7F63 · 경고 #E04A2F · 경고 글자 #B8361F · 예행 #2F6FE0 · 주의(온도 채움) #D9A21F.
    어두운 판 글자색(흰 78 %)이 밝은 바탕에 남아 안 보이던 칸(수 칸 · 타일 줄 · 칩 · 모드)과 시안 어둠 색(#ff4d4f · #f2b705 · #00c389)을 바꾼다. 글자에는 온도 색을 쓰지 않는다 */
-.u5{--u5-red:#ff4d4f;--u5-amb:#f2b705;--u5-ok:#00c389;--u5-ok-bg:rgba(0,195,137,.16);--u5-ok-line:rgba(0,195,137,.45)}
-.proto.light .u5{--u5-red:#B8361F;--u5-amb:#D9A21F;--u5-ok:#0E7F63;--u5-ok-bg:rgba(24,160,126,.12);--u5-ok-line:#18A07E}
+.u5{--u5-red:#ff4d4f;--u5-amb:#f2b705;--u5-ok:#00c389;--u5-sim:#4C9BFF;--u5-ok-bg:rgba(0,195,137,.16);--u5-ok-line:rgba(0,195,137,.45)}
+.proto.light .u5{--u5-red:#B8361F;--u5-amb:#D9A21F;--u5-ok:#0E7F63;--u5-sim:#2F6FE0;--u5-ok-bg:rgba(24,160,126,.12);--u5-ok-line:#18A07E}
 .proto.light .u5 .cnt,.proto.light .u5 .tgl,.proto.light .u5 .md,.proto.light .u5 .ln{color:#5E6662}
 .proto.light .u5 .cnt b{color:#1F2421}
 .proto.light .u5 .tgl i{background:#DCE0DE}
 .proto.light .u5 .tgl.on i{background:#18A07E}
 .proto.light .u5 .chip{color:#5E6662;background:#F6F7F6;border-color:#DCE0DE}
-.proto.light .u5 .chip.sim{color:#2F6FE0;border-color:#2F6FE0}
+.proto.light .u5 .chip.sim{color:var(--u5-sim);border-color:var(--u5-sim)}
 .proto.light .u5 .pinf i{border-color:#18A07E;background:rgba(24,160,126,.18)}
 .proto.light .u5 .pinf i::after{background:#18A07E}
 .proto.light .u5 .pg{background:#DCE0DE}
