@@ -8,7 +8,7 @@ import type { User } from '../fake';
 import { KEYS } from '../simdrive';
 import { KEY_GUIDE, NO_SAVE, PHONE_BASIS } from '../screens/controls';
 import driveSrc from '../drive.tsx?raw';
-import { Settings } from '../screens/settings';
+import { Settings, simOut } from '../screens/settings';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -16,12 +16,12 @@ const LEE = { id: 'o1', username: 'lee', display_name: '이운영', role: 'OPERA
 let root: Root | null = null, box: HTMLDivElement | null = null;
 afterEach(() => { act(() => root?.unmount()); box?.remove(); root = null; box = null; vi.unstubAllGlobals(); });
 
-async function open(more: object = {}) {
+async function open(more: object = {}, who: User = LEE) {
   vi.stubGlobal('fetch', async (url: string) => new Response(JSON.stringify(String(url).includes('/org/settings')
     ? { battery_low_pct: 20, run_min_battery_pct: 30, deviation_m: 1.5, lease_request_timeout_s: 10, link_loss_wait_s: 30, ...more }
     : { error: { code: 'NOT_FOUND', message: '없음', detail: {} } }), { status: String(url).includes('/org/settings') ? 200 : 404, headers: { 'Content-Type': 'application/json' } }));
   box = document.createElement('div'); document.body.append(box);
-  await act(async () => { root = createRoot(box!); root.render(<Settings user={LEE} setMe={() => {}} refresh={() => {}} />); });
+  await act(async () => { root = createRoot(box!); root.render(<Settings user={who} setMe={() => {}} refresh={() => {}} />); });
   const tab = [...box.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((b) => b.textContent?.trim() === '조작')!;
   await act(async () => { tab.click(); });
   return box.querySelector<HTMLElement>('#st-p-ctl')!;
@@ -70,6 +70,20 @@ describe('설정 › 조작 설명 칸 (u9_7)', () => {
     const p = await open({ sim_max_vx: 0.5 });
     const vx = p.querySelector<HTMLInputElement>('input[name="sim_max_vx"]')!.closest('label')!.querySelector('output')!;
     expect(vx.textContent).toBe('0.50 m/s');
+  });
+
+  it('#573 후속: 총괄이라도 값이 빈 시뮬 속도 슬라이더는 잠김, 값이 오면 풀림', async () => {
+    const KIM = { ...LEE, id: 'a1', role: 'ORG_ADMIN' } as unknown as User;
+    const slider = (p: HTMLElement) => p.querySelector<HTMLInputElement>('input[type="range"][name="sim_max_vx"]')!;
+    expect(slider(await open({}, KIM)).disabled).toBe(true);
+    act(() => root?.unmount()); box?.remove(); root = null;
+    expect(slider(await open({ sim_max_vx: 0.5 }, KIM)).disabled).toBe(false);
+  });
+
+  it('#573 후속: simOut 은 숫자가 아닌 값(NaN · 무한 · 글 · 빈 값 · null)을 0.00 으로 그리지 않음', () => {
+    for (const v of ['', null, undefined, 'abc', NaN, Infinity, '1e999']) expect(simOut(v, 'm/s')).toBe('값을 받지 못했습니다');
+    expect(simOut('0', 'm/s')).toBe('0.00 m/s');
+    expect(simOut(1.2, '라디안/초')).toBe('1.20 라디안/초');
   });
 
   it('스틱 자리: 앞뒤 스틱(.dv-stick.v) 은 왼쪽, 돌기 스틱(.dv-stick.h) 은 오른쪽', () => {
