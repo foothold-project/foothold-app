@@ -22,7 +22,7 @@ function serve(r: typeof routes) {
     const method = init.method ?? 'GET', path = url.replace(/^\/api\/v1/, '');
     calls.push({ method, path, body: init.body ? JSON.parse(String(init.body)) : undefined });
     const hit = routes[`${method} ${path.split('?')[0]}`];
-    if (hit === undefined && path.startsWith('/auth/login') && routes.NET) throw new TypeError('fail');
+    if (hit === undefined && (path.startsWith('/auth/login') || path.startsWith('/auth/session')) && routes.NET) throw new TypeError('fail');
     const rep = typeof hit === 'function' ? await hit() : hit ?? err(404, 'NOT_FOUND', '찾을 수 없습니다.');
     return new Response(rep.status === 204 ? null : JSON.stringify(rep.body), { status: rep.status, headers: { 'Content-Type': 'application/json' } });
   });
@@ -123,6 +123,29 @@ describe('로그인 오류 보기 (u10_3)', () => {
     expect($('[data-login-note]')).toBeNull();
     expect(band()!.textContent).toBe(BAD);
     expect(band()!.getAttribute('style')).toContain('--bad');
+  });
+
+  it('처음 세션 확인이 401 이 아닌 까닭(500 · 연결 실패)으로 실패하면 빨간 오류 띠 · 칸 표시 없음 (REVIEW-PR580 §7)', async () => {
+    serve({ 'GET /auth/session': err(500, 'INTERNAL', '서버 오류입니다.') });
+    await open();
+    expect($('main[aria-label="로그인"]')).not.toBeNull();
+    expect($('[data-login-note]')).toBeNull();
+    expect(band()!.textContent).toBe('서버 오류입니다.');
+    expect(band()!.getAttribute('style')).toContain('--bad');
+    expect(box.querySelectorAll('[aria-invalid]').length).toBe(0);
+    act(() => root?.unmount()); root = null; box.remove();
+    serve({ NET: { status: 0 } });
+    await open();
+    expect($('[data-login-note]')).toBeNull();
+    expect(band()!.textContent).toContain('서버에 연결하지 못했습니다');
+    expect(box.querySelectorAll('[aria-invalid]').length).toBe(0);
+  });
+
+  it('처음 세션 확인 401(세션 없음)은 띠 없음 (쓰는 중 401 의 중립 안내는 위 시험)', async () => {
+    serve({ 'GET /auth/session': NO_LOGIN });
+    await open();
+    expect($('[data-login-note]')).toBeNull();
+    expect(band()).toBeNull();
   });
 
   it('비밀번호 보기 단추: 눌러도 제출 안 함 · 보기/숨기기 · aria-pressed', async () => {
