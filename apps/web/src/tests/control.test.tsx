@@ -68,7 +68,7 @@ describe('관제 탭', () => {
     expect($$('.u5 .tb .seg2 [data-v]').map((e) => e.textContent)).toEqual(['타일 보기', '지도 보기']);
     expect($('.u5 .tb .pinf').textContent).toBe('첫 화면으로');
     expect($$('.u5 .tb .cnt').map((e) => e.dataset.sum)).toEqual(['임무 중', '충전', '점검', '연결 중', '시뮬 대기', '경고']);
-    expect($('[data-sum="임무 중"] b').textContent).toBe('7');
+    expect($('[data-sum="임무 중"] b').textContent).toBe('6');   // 타일이 «임무 중» 인 로봇 = RUNNING · 끊기지 않음(K-07 끊김 · K-08 시뮬 대기 빼고)
     expect($('[data-sum="충전"] b').textContent).toBe('');   // 가용(GET /robots/availability)을 받지 못함 = 수를 비움(em dash 없음)
     expect($('[data-sum="충전"]').dataset.none).toBe('true');
     expect($('[data-sum="점검"] b').textContent).toBe('');   // 서버에 점검 상태 값이 없음
@@ -118,6 +118,9 @@ describe('관제 탭', () => {
   it('배치: 4 대 이하 2×2 (u5_6), 8 대 이하 4×2 (u5_1), 22 대 = 줄인 칸이 1472×900 안에 다 들어감', () => {
     expect(wallGrid(3)).toEqual({ cols: 2, rows: 2, zoom: 1 });
     expect(wallGrid(8)).toEqual({ cols: 4, rows: 2, zoom: 1 });
+    // 9 대(실서버 Go2 X + 시뮬 8): 5 × 2 칸에 한 칸이 비지 않게 줄마다 5 · 4 대로 나눠 꽉 채움(열 20 · 윗줄 4 칸씩 · 아랫줄 5 칸씩)
+    expect(wallGrid(9)).toMatchObject({ cols: 5, rows: 2, units: 20, span: [4, 4, 4, 4, 4, 5, 5, 5, 5] });
+    for (let n = 9; n <= 22; n++) { const g = wallGrid(n); if (g.span) { expect(g.span.length, `${n}`).toBe(n); let row = 0, rows = 0; for (const s of g.span) { row += s; if (row === g.units) { rows++; row = 0; } } expect([row, rows], `${n}`).toEqual([0, g.rows]); } }
     for (const n of [9, 12, 16, 22, 40]) {
       const g = wallGrid(n);
       expect(g.cols * g.rows, `${n}`).toBeGreaterThanOrEqual(n);
@@ -326,11 +329,12 @@ describe('관제 탭', () => {
   });
 
 
-  it('총괄 요약 = 수 칸(서버 GET /dashboard · 시뮬 몫은 뺌): 임무 중 · 경고, 결재 대기 = 머리줄 메뉴 끝 작은 표', async () => {
+  it('총괄 요약 = 수 칸: 임무 중 = 타일 실행 상태로 셈(시뮬 포함 · 서버 요약은 실기만이라 안 씀) · 경고 = 서버 GET /dashboard(시뮬 몫은 뺌), 결재 대기 = 머리줄 메뉴 끝 작은 표', async () => {
     dashOk({ robots_running: 5, robots_attention: 2, approvals_pending: 4 });
     mount('u-kim', TWENTY); feed(TWENTY);
     await act(async () => {});
-    expect([$('[data-sum="임무 중"]').dataset.src, $('[data-sum="임무 중"] b').textContent]).toEqual(['dashboard', '4']);   // 서버 5 - 시뮬 g2(임무 중) 1
+    expect([$('[data-sum="임무 중"]').dataset.src, $('[data-sum="임무 중"] b').textContent]).toEqual([undefined, String(TWENTY.filter((r) => r.status === 'RUNNING' && r.online).length)]);
+    expect($('[data-sum="경고"]').dataset.src).toBe('dashboard');
     expect($('[data-sum="경고"] b').textContent).toBe('2');
     const ap = $('.bar .tabs [data-approvals]');
     expect([ap.dataset.approvals, ap.hidden, ap.textContent]).toEqual(['4', false, '결재 4']);
@@ -340,15 +344,15 @@ describe('관제 탭', () => {
   it('요약을 10 s 마다 다시 받아 수 칸을 바꾼다', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     try {
-      const d = dashOk({ robots_running: 1 });
+      const d = dashOk({ robots_attention: 1 });
       mount('u-kim', EIGHT); feed(EIGHT);
       await act(async () => {});
-      expect($('[data-sum="임무 중"] b').textContent).toBe('1');
-      d.mockResolvedValue({ ...DASH, robots_running: 3 } as never);
+      expect($('[data-sum="경고"] b').textContent).toBe('1');
+      d.mockResolvedValue({ ...DASH, robots_attention: 3 } as never);
       const n = d.mock.calls.length;
       await act(async () => { vi.advanceTimersByTime(10_000); });
       expect(d.mock.calls.length).toBe(n + 1);
-      expect($('[data-sum="임무 중"] b').textContent).toBe('3');
+      expect($('[data-sum="경고"] b').textContent).toBe('3');
     } finally { vi.useRealTimers(); }
   });
   it('요약 실패(403 · 500 · 형식 틀림) → 수를 지어내지 않고 «—» + 까닭(칸 title · 화면 읽기 한 줄), 결재 표는 숨김', async () => {
@@ -357,7 +361,7 @@ describe('관제 탭', () => {
       if ('code' in rep) d.mockRejectedValue(rep); else d.mockResolvedValue(rep as never);
       mount('u-kim', EIGHT); feed(EIGHT);
       await act(async () => {});
-      expect(['임무 중', '경고'].map((k) => $(`[data-sum="${k}"] b`).textContent)).toEqual(['', '']);
+      expect(['임무 중', '경고'].map((k) => $(`[data-sum="${k}"] b`).textContent)).toEqual(['6', '']);   // 임무 중은 타일로 셈 · 경고만 서버 요약
       expect($('[data-sum="경고"]').title).toContain(`요약을 받지 못했습니다. ${says}`);
       expect($('[data-dash-err]').textContent).toContain(says);
       expect($('.bar [data-approvals]').dataset.approvals).toBe('');
@@ -915,5 +919,12 @@ describe('관제 탭', () => {
     mount('u-kim', EIGHT); feed(EIGHT);
     expect(tile('k8').querySelector('.ln span')!.textContent).toBe('임무 전 · 시뮬 등록');
     expect([fact('k8', 'battery'), small('k8', 'battery')]).toEqual(['시뮬', '배터리 해당 없음']);
+  });
+  it('최근 경고 제목은 경고 종류대로: 정지 잠금(관절 온도는 보통)이면 «정지 잠금», 관절 이름 · 온도 아이콘을 붙이지 않음', () => {
+    mount('u-kim', EIGHT); feed(EIGHT, { k2: { ...temp([30, 31, 32, 30, 31, 32, 30, 31, 32, 30, 31, 32]), latched: true, status: 'STOP_LATCHED' } as never });
+    const al = $('[data-alert="k2"]');
+    expect(al).not.toBeNull();
+    expect(al.querySelector('div')!.firstChild!.textContent).not.toContain('관절');
+    expect(al.textContent).not.toContain('관절');
   });
 });
