@@ -137,25 +137,25 @@ describe('관제 탭', () => {
       demo(9, { status: 'ERROR' })]);
     const got = wallPick(list).map((f) => f.x.id);
     expect(got).toHaveLength(8);
-    for (const id of ['d9', 'go2', 'd6', 'd7', 's1', 'd8']) expect(got, id).toContain(id);   // 위험 · 실기 · 점검 · 충전 · 시뮬 하나 · 끊김
-    expect(got).not.toContain('s2');   // 시뮬은 한 대
+    for (const id of ['d9', 'go2', 'd6', 'd7', 'd8']) expect(got, id).toContain(id);   // 위험 · 실기 · 점검 · 충전 · 끊김
+    expect(got).not.toContain('s1'); expect(got).not.toContain('s2');   // 데모가 8 칸을 채우면 대기 시뮬은 밖(팀장 01:08: 데모는 대기여도 시뮬보다 먼저)
     expect(got).toEqual(list.map((f) => f.x.id).filter((id) => got.includes(id)));   // 줄 차례 그대로
     expect(wallPick(list.slice(0, 5)).map((f) => f.x.id)).toEqual(list.slice(0, 5).map((f) => f.x.id));   // 8 대 이하면 전부
   });
-  it('서버 구성(팀장 00:37 · K-01 시뮬 · K-02~07 데모 · Go2 X 실기 · K-08 은 8 칸 밖) = 시안 u5_1 과 같은 8 칸 · 같은 차례(위험 → 실기 → 데모 → 시뮬)', () => {
+  it('서버 구성(팀장 01:08 · K-01 대기 시뮬 · K-02~07 데모 · Go2 X 실기 · K-08 임무 시뮬): 8 칸 = Go2 X · 02~07 · K-08 · 시뮬은 하나(임무 중 먼저)', () => {
     const base = { owner: 'u-kim', ownerName: '김OO', battery: 70, online: true, seenAt: '14:05:20' };
     const av = (demo: boolean, x: object = {}) => ({ demo, label: null, charging: false, job: null, ...x });
-    const F = (r: Partial<Robot>, a: ReturnType<typeof av>) => facts({ ...base, ...r } as Robot, 'u-kim', new Map(), a);
+    const F = (r: Partial<Robot>, a: ReturnType<typeof av>, run = false) => facts({ ...base, ...r, mission: run ? '공정 순찰 A 2/4' : undefined, run: run ? { run_id: `r-${r.id}`, scenario_name: '공정 순찰 A', status: 'MOVING', progress: { done: 2, total: 4 } } as unknown as Robot['run'] : null } as Robot, 'u-kim', new Map(), a);
     const go2 = F({ id: 'go2', name: 'Go2 X', status: 'IDLE' }, av(false));
-    const k01 = F({ id: 'k01', name: 'K-01', sim: true, status: 'RUNNING' }, av(false));   // 사용자 시뮬
-    const D = (n: number, x: Partial<Robot> = {}, a: object = {}) => F({ id: `k0${n}`, name: `K-0${n}`, sim: true, status: 'RUNNING', ...x }, av(true, a));
-    // 시안 u5_1: K-05 경고(빨간 칸) · K-04 충전 · K-06 점검 · 나머지 데모 임무 중, 시뮬 K-08 자리 = 서버 K-01
-    const demos = (k08: Partial<Robot>, k08demo: boolean) => [D(2), D(3), D(4, { status: 'IDLE' }, { charging: true }), D(5, { status: 'ERROR' }), D(6, { status: 'IDLE' }, { job: { kind: 'maint', text: '점검 중' } }), D(7),
-      F({ id: 'k08', name: 'K-08', sim: true, ...k08 }, av(k08demo))];
-    for (const [k08, dm] of [[{ status: 'IDLE' }, true], [{ status: 'RUNNING' }, true], [{ status: 'IDLE' }, false]] as [Partial<Robot>, boolean][]) {
-      const got = wallPick(order([k01, ...demos(k08, dm), go2])).map((f) => f.x.name);
-      expect(got, JSON.stringify([k08, dm])).toEqual(['K-05', 'Go2 X', 'K-02', 'K-03', 'K-04', 'K-06', 'K-07', 'K-01']);
-    }
+    const D = (n: number, x: Partial<Robot> = {}, a: object = {}, run = false) => F({ id: `k0${n}`, name: `K-0${n}`, sim: true, status: run ? 'RUNNING' : 'IDLE', ...x }, av(true, a), run);
+    const demos = [D(2, {}, {}, true), D(3, {}, {}, true), D(4, {}, { charging: true }), D(5, {}, {}, true), D(6, {}, { job: { kind: 'maint', text: '점검 중' } }), D(7)];
+    const k01 = F({ id: 'k01', name: 'K-01', sim: true, status: 'IDLE' }, av(false)), k08 = F({ id: 'k08', name: 'K-08', sim: true, status: 'RUNNING' }, av(false), true);
+    expect(wallPick(order([k01, ...demos, k08, go2])).map((f) => f.x.name)).toEqual(['Go2 X', 'K-02', 'K-03', 'K-04', 'K-05', 'K-06', 'K-07', 'K-08']);
+    // 시뮬이 대기 하나뿐이면 그 대기 시뮬, 임무 중 시뮬이 둘이면 앞의 하나만
+    const k09 = F({ id: 'k09', name: 'K-09', sim: true, status: 'RUNNING' }, av(false), true);
+    expect(wallPick(order([k01, ...demos.slice(0, 5), go2, k08, k09])).map((f) => f.x.name).filter((n) => ['K-01', 'K-08', 'K-09'].includes(n))).toEqual(['K-08']);
+    const k10 = F({ id: 'k10', name: 'K-10', sim: true, status: 'IDLE' }, av(false));
+    expect(wallPick(order([k01, ...demos, go2, k10])).map((f) => f.x.name).filter((n) => ['K-01', 'K-10'].includes(n))).toEqual(['K-01']);
   });
   it('배치: 4 대 이하 2×2 (u5_6), 8 대 이하 4×2 (u5_1), 22 대 = 줄인 칸이 1472×900 안에 다 들어감', () => {
     expect(wallGrid(3)).toEqual({ cols: 2, rows: 2, zoom: 1 });
