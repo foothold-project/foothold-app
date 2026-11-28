@@ -85,7 +85,7 @@ class Manager:
         except ValueError:
             raise SimError('SIM_VALIDATION', 400) from None
         key = (request.world_id + '/' + request.spawn_floor_id
-               if request.world_id == 'v5_building' else request.world_id)
+               if request.spawn_floor_id is not None else request.world_id)
         return request.world_id, request.spawn_floor_id, key
 
     async def start_world(self, world_id, spawn_floor_id=None):

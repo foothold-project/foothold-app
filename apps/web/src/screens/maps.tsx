@@ -2,6 +2,8 @@
 // 나무·판·그림·요소는 서버 값 그대로 그린다. 편집 도구는 screens/mapedit.tsx(W4b), 판 비교·되돌리기는 screens/mapdiff.tsx(W4c), 로봇 점은 위치-판 묶기(D5) 뒤.
 // 편집 저장·되돌리기·올리기는 누구나 바로 새 승인 판(10-27 결재 없음). 옛 PENDING 판은 «저장 기록»에 «적용 안 됨»으로 보인다. 화면 글에는 «판»을 쓰지 않는다(11-04 — 저장 시각·만든 사람으로 부름).
 // 큰 그림은 <image> 가 쿠키로 따로 받는다 — 불러오기·실패는 이 칸 안 글로만, 머리줄·STOP 은 경계(App Guard) 밖.
+import { Map3D, modelOf } from './map3d';
+import { Empty } from '../empty';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { MapBuilding, MapFeatures, MapFloor, MapSite, MapUpload, MapVersion, Scenario, SiteTree } from '../../../contracts/ts';
@@ -385,6 +387,7 @@ function Chooser({ sim, maker, t, places, vers, choose, make, note, cancel, chil
     {!sim && b.floors.some((f) => f.approved_version_id && voxelOf(vers[f.approved_version_id])) && <span className="lv-chip" data-voxel-chip title="3D 지도 파일에서 만든 지도 · 시뮬 지형 연결됨">3D</span>}</small>; };
   const thumb = (b: MapBuilding) => { const id = picFloor(b)?.approved_version_id; return <Thumb key={id ?? ''} id={id} v={id ? vers[id] : undefined} />; };
   const shown = places.filter(hit), sites = t.tree?.items.filter((s) => shown.some((p) => p.site.id === s.id)) ?? [];
+  const none = !!t.tree && !sim && !places.length;   // 지도 0 개(U11-04 빈 화면)
   return <section className="mx" aria-label="지도 고르기">
     <div className="mx-scroll"><div className="mx-choose">
       <h2>{sim ? '어느 지도로 시뮬할까요?' : '어느 지도에서 일할까요?'}</h2>
@@ -393,15 +396,20 @@ function Chooser({ sim, maker, t, places, vers, choose, make, note, cancel, chil
       <Note m={note} />
       <div className="fh-row"><input className="inp fh-grow" type="search" aria-label="지도 찾기" placeholder="장소·건물·층 이름으로 찾기" value={q} onChange={(e) => setQ(e.target.value)} />
         {sim ? <button type="button" className="btn" onClick={() => make('fix')}>장소 고치기</button>
-          : <>{maker && <button type="button" className="btn pri" data-make-robot onClick={() => make('robot')}>+ 지도 만들기</button>}
-            <button type="button" className={`btn${maker ? '' : ' pri'}`} data-make-file onClick={() => make('file')}>+ 파일 올리기</button>
+          // 지도 0 개면 빈 칸(아래)의 단추와 같은 위 단추는 숨긴다. 칠한 단추는 STOP 말고 하나(U11-04 검수)
+          : <>{maker && !none && <button type="button" className="btn pri" data-make-robot onClick={() => make('robot')}>+ 지도 만들기</button>}
+            {(maker || !none) && <button type="button" className={`btn${maker ? '' : ' pri'}`} data-make-file onClick={() => make('file')}>+ 파일 올리기</button>}
             {!inApp() && <a className="btn" href="#/terrain" style={{ textDecoration: 'none' }} data-terrain-enter>+ 지형 만들기</a>}</>}</div>
       {sites.map((s) => <section key={s.id} className="mx-site" aria-label={`장소 ${s.name}`}><h3 className="lbl">{s.name}</h3>
         <div className="mx-cards">{s.buildings.filter((b) => shown.some((p) => p.building.id === b.id)).map((b) =>
           <button key={b.id} type="button" className="card mx-bld" data-building={b.id} onClick={() => choose(firstFloor(b).id)}>{thumb(b)}<b>{b.name}</b>{facts(s, b)}</button>)}</div></section>)}
       {/* 시뮬 탭: 실기 카드는 보이되 시뮬로 쓸 지도(시뮬 장소·3D 실기)가 하나도 없으면 안내 — 판을 아직 못 받은 층(null)은 모름이라 안내 안 함 */}
-      {t.tree && (sim ? places.every((p) => runOf(p, vers) === 'real') : !places.length) && <p className="lv-note" data-empty>{sim ? '서버 시뮬 지도가 없습니다. 지도 탭의 «+ 지형 만들기»로 지형을 저장하면 여기에 보입니다.'
-        : '등록된 지도가 없습니다. «+ 지도 만들기»로 담당 실기 로봇이 돌아다니며 그리거나, «+ 파일 올리기»로 지도 파일을 올리면 여기에 보입니다.'}</p>}
+      {t.tree && sim && places.every((p) => runOf(p, vers) === 'real') && <p className="lv-note" data-empty>서버 시뮬 지도가 없습니다. 지도 탭의 «+ 지형 만들기»로 지형을 저장하면 여기에 보입니다.</p>}
+      {/* 지도 0 개(U11-04 빈 화면 · u11_7): 아이콘 · 한 줄 까닭 · 다음 할 일 하나(담당 실기가 있으면 로봇으로 그리기, 없으면 파일 올리기) */}
+      {none && <Empty kind="map" title="아직 지도가 없습니다" card={false}
+        why={maker ? '담당 실기 로봇이 돌아다니며 그리거나 지도 파일을 올리면 여기에 보입니다.' : '지도 파일(그림 · yaml)을 올리면 여기에 보입니다.'}>
+        {maker ? <button type="button" className="btn pri" onClick={() => make('robot')}>+ 지도 만들기</button>
+          : <button type="button" className="btn pri" onClick={() => make('file')}>+ 파일 올리기</button>}</Empty>}
       {t.tree && !!places.length && !shown.length && <p className="lv-note">«{q.trim()}»에 맞는 지도가 없습니다.</p>}
       {t.err && <div className="fh-row"><p className="fh-msg" role="alert">장소 목록을 받지 못했습니다. {t.err}</p><button type="button" className="btn" onClick={t.again}>다시 시도</button></div>}
       {!t.tree && !t.err && <p className="lv-note" role="status">장소 목록을 불러오는 중…</p>}
@@ -506,6 +514,8 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, scenN
   // 3D 지도(RB-VOXEL-VIEW): 3D 파일에서 만든 판이면 «3D 로 보기»·«시뮬 지형 수정하기». vu = 올리기 창에서 3D 파일 고름(총괄만 — 서버 권한)
   // 로봇으로 만든 지도(RB-SLAM-WEB2): 저장 묶음(slam_bundle)이 있고 내가 그 로봇의 담당 운영자면 «3D 로 보기» = 저장된 3D 칸·2D 격자(서버 묶음 — 담당 운영자만 받음)
   const sb = v?.slam_bundle && makers(user, robots).some((r) => r.id === v.slam_bundle!.robot_id) ? v.slam_bundle : null;
+  // 실내 3D 모형(W3 MAP3D): 판에 model_sha256 이 있으면 «2D / 3D»(null = 없음 · 거절 → 2D 만). 404 면 2D 로 + 서버 까닭 한 줄
+  const model = modelOf(v), [m3, setM3] = useState(false), show3 = m3 && !!model && !editing && !cmp;
   const vox = voxelOf(v), [d3, setD3] = useState(false), [vu, setVu] = useState(false), [vbusy, setVbusy] = useState(false), on3d = d3 && (!!vox || !!sb) && !editing && !cmp;
   // 시뮬 탭(SIM-PAIR 11-09): 편집·새 지도 올리기·되돌리기 없음(지형 판은 «지형 만들기» 저장만 바꾼다), 짝 없는 시뮬 층은 안내.
   // 실기 장소 층(RB-SCEN-SIMTAB 11-11)은 지도 편집·올리기가 지도 탭 — 짝 없음 안내 대신 «시뮬 열기» 이유(«실기만»)
@@ -524,7 +534,10 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, scenN
       {drop && !editing && <div className="fh-row" role="group" aria-label="확인" data-drop><span>다른 층에 저장하지 않은 지도 편집이 남아 있습니다. 이 지도를 편집하면 그 편집을 잃습니다(그 층을 열면 이어 씁니다).</span>
         <button type="button" className="btn pri" onClick={() => { kept.d = null; setDrop(false); begin(); }}>버리고 편집</button>
         <button type="button" className="btn" onClick={() => setDrop(false)}>취소</button></div>}
-      {(vox || sb) && !editing && <button type="button" className="btn" aria-pressed={on3d} data-voxel-toggle onClick={() => { setD3(!on3d); setCmp(false); }}>{on3d ? '지도 보기' : '3D 로 보기'}</button>}
+      {model && !editing && !on3d && <span className="mx-seg" role="group" aria-label="2D·3D">
+        <button type="button" className="btn" aria-pressed={!show3} data-model-toggle="2D" onClick={() => setM3(false)}>2D</button>
+        <button type="button" className="btn" aria-pressed={show3} data-model-toggle="3D" onClick={() => { setM3(true); setCmp(false); setDone(null); }}>3D</button></span>}
+      {(vox || sb) && !editing && <button type="button" className="btn" aria-pressed={on3d} data-voxel-toggle onClick={() => { setD3(!on3d); setCmp(false); setM3(false); }}>{on3d ? '지도 보기' : '3D 로 보기'}</button>}
       {editing && <span className="mx-tag mx-edit" data-editing>▲ 편집 중</span>}
       <span className="fh-grow" />
       {!editing && <Menu label={<span aria-hidden="true">···</span>} title="더 보기" end className="more">
@@ -542,11 +555,13 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, scenN
       <div className="mx-map">
         {v && cmp ? <div className="mx-scroll"><Compare key={v.id} v={v} list={list!} name={savedAs} cancel={cancel} gone={() => { setCmp(false); setDone({ text: '비교할 기록을 찾을 수 없습니다. 지워졌을 수 있어 저장 기록을 다시 받았습니다.' }); reload(); }} />
             <div className="fh-row"><button type="button" className="btn" onClick={() => setCmp(false)}>비교 닫기</button></div></div>
+          : v && show3 && !on3d ? <Map3D key={v.id} v={v} robots={robots} missing={(why) => { setM3(false); setDone({ text: `${why || '이 층은 3D 모형이 없습니다.'} 2D 지도로 봅니다.` }); }} />
           : v && on3d ? (vox ? <VoxelView key={v.id} v={v} cancel={cancel} /> : <SlamSavedView key={v.id} robot={sb!.robot_id} session={sb!.session_id} cancel={cancel} />)
           : v ? <MapView key={v.id} v={v} fill terrain={!!p.floor.terrain_id}>{hov && <Route v={v} x={hov} floor={p.floor.id} />}</MapView>
-          : list && !err && (sim ? <div className="mx-center">{real ? <p className="lv-note">아직 지도가 없습니다. 실기 지도는 «지도» 탭에서 올립니다.</p> : LONE}</div> : <div className="mx-center"><p className="lv-note">아직 지도가 없습니다. 지도 파일(그림·yaml)을 올리면 이 층 지도가 됩니다.</p>
-            <div className="fh-row"><button type="button" className="btn pri" disabled={!canUp} onClick={() => upBtn()}>새 지도 올리기…</button>
-              {canMake && <button type="button" className="btn" data-make-open onClick={() => mkBtn()}>지도 만들기</button>}</div></div>)}
+          : list && !err && (sim ? <div className="mx-center">{real ? <p className="lv-note">아직 지도가 없습니다. 실기 지도는 «지도» 탭에서 올립니다.</p> : LONE}</div> : <div className="mx-center">
+            {/* 층에 지도 0 개(U11-04 빈 화면): 다음 할 일 하나 = 올리기. «지도 만들기»는 ··· 메뉴에 그대로 */}
+            <Empty kind="floor" title="이 층에 아직 지도가 없습니다" why="지도 파일(그림 · yaml)을 올리면 이 층 지도가 됩니다." card={false}>
+              <button type="button" className="btn pri" disabled={!canUp} onClick={() => upBtn()}>새 지도 올리기…</button></Empty></div>)}
         <div className="mx-over">
           {done && <Note m={done} />}
           {bad && v && LONE}
@@ -555,7 +570,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, name, scenN
           {err && <div className="fh-row"><p className="fh-msg" role="alert">{err}</p><button type="button" className="btn" onClick={() => setN(n + 1)}>다시 시도</button></div>}
           {!list && !err && <p className="lv-note" role="status">지도를 불러오는 중…</p>}
         </div>
-        {v && !cmp && !on3d && <Hint text={now && !sim ? '보기만 — «편집»을 누르면 도구가 나옵니다' : '보기만'} more={`휠·두 손가락으로 확대, 끌어서 옮깁니다.${sim ? (real ? ' 구역·벽은 «지도» 탭에서 고칩니다.' : '') : ' 구역·벽은 «편집»에서 고칩니다.'}`} />}
+        {v && !cmp && !on3d && !show3 && <Hint text={now && !sim ? '보기만. «편집»을 누르면 도구가 나옵니다' : '보기만'} more={`휠·두 손가락으로 확대, 끌어서 옮깁니다.${sim ? (real ? ' 구역·벽은 «지도» 탭에서 고칩니다.' : '') : ' 구역·벽은 «편집»에서 고칩니다.'}`} />}
       </div>
       {/* 오른쪽 창: 지도 탭 = 지도 요소 N, 시뮬 탭 = 시나리오 N(RB-SIM-NO-MAPEL 11-18 — 지도 요소는 지도 탭) */}
       {!cmp && <Pane open={pane} setOpen={setPane} bar={sim ? `시나리오 ${scenN}` : `요소 ${keys.length}`} label={sim ? '시나리오 창' : '요소 창'} pick={sim ? head : <SideTitle n={keys.length} />} name={name}>
