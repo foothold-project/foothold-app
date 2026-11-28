@@ -6,7 +6,8 @@ import { createContext, useContext, useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import type { MapVersion } from '../../../contracts/ts';
 import { ApiFail } from '../api';
-import { CLAY_CAM, clayCam, clayCoat, clayBox, clayShade, claySpan, withDraco } from '../clay3d';
+import { useTheme } from '../theme';
+import { CLAY_CAM, clayCam, clayCoat, clayBox, clayFocus, clayLight, clayShade, claySpan, withDraco } from '../clay3d';
 import { floorZ, modelBytes, modelOf, worldGroup } from './map3d';
 import type { Route } from './missiontab';
 
@@ -57,7 +58,9 @@ export const has3D = (v?: MapVersion | null) => !!modelOf(v);
 
 /** 점토 3D 칸: 모형을 받아 시안 시점으로 한 번 그리고(칸 크기가 바뀌면 다시), 투영을 ready 로 넘긴다. 못 그리면 off */
 export function MissionMap3D({ v, ready, off }: { v: MapVersion; ready: (p: Proj | null) => void; off: (why: string) => void }) {
-  const host = useRef<HTMLDivElement>(null);
+  const host = useRef<HTMLDivElement>(null), look = useRef<((light: boolean) => void) | null>(null), [, light] = useTheme(), lightNow = useRef(light);
+  lightNow.current = light;
+  useEffect(() => { look.current?.(light); }, [light]);   // 판이 바뀌면 빛만 다시 입히고 다시 그림
   useEffect(() => {
     let live = true, gl: THREE.WebGLRenderer | null = null, ro: ResizeObserver | null = null;
     const stop = new AbortController(), scene = new THREE.Scene();
@@ -79,9 +82,8 @@ export function MissionMap3D({ v, ready, off }: { v: MapVersion; ready: (p: Proj
         el.prepend(gl.domElement);
         const z = floorZ(g.scene, v), model = worldGroup(); model.add(g.scene); scene.add(model);
         clayCoat(g.scene);
-        const box = clayBox(model), c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
-        const hemi = new THREE.HemisphereLight(0xffffff, 0x8a8580, 1.6), sun = new THREE.DirectionalLight(0xffffff, 1.4);
-        sun.position.set(c.x - size.x * 0.3, c.y - size.y * 0.6, z + 30); sun.target.position.copy(c); scene.add(hemi, sun, sun.target);
+        const { c, size } = clayFocus(g.scene, clayBox(model));
+        const hemi = new THREE.HemisphereLight(), sun = new THREE.DirectionalLight(); scene.add(hemi, sun, sun.target);
         if ('localClippingEnabled' in gl) gl.localClippingEnabled = true;
         clayShade(scene, sun, size, z, v, c);
         const cam = clayCamera(c, claySpan(size), z, 1);
@@ -90,12 +92,15 @@ export function MissionMap3D({ v, ready, off }: { v: MapVersion; ready: (p: Proj
           gl.setSize(w, h); cam.aspect = w / h; cam.updateProjectionMatrix(); gl.render(scene, cam);
           ready({ w, h, to: (q) => toScreen(cam, [q.x, q.y], z, w, h) ?? [-9999, -9999], from: (s) => fromScreen(cam, s, z, w, h) });
         };
+        const g0 = gl;
+        look.current = (l) => { clayLight(g0, hemi, sun, g.scene, l); draw(); };
+        clayLight(g0, hemi, sun, g.scene, lightNow.current);
         ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(draw); ro?.observe(el);
         draw();
       } catch { if (live) off('3D 모형을 읽지 못했습니다.'); }
     })();
     return () => {
-      live = false; stop.abort(); ro?.disconnect();
+      live = false; stop.abort(); ro?.disconnect(); look.current = null;
       scene.traverse((o) => { const m = o as THREE.Mesh; m.geometry?.dispose(); const mt = m.material as (THREE.Material & { map?: THREE.Texture }) | undefined; mt?.map?.dispose(); mt?.dispose?.(); });
       if (gl) { gl.dispose(); gl.forceContextLoss(); gl.domElement.remove(); }
     };
