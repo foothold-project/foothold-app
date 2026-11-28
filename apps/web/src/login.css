@@ -1,0 +1,51 @@
+/* 시안 로그인(proto screens/u10_1 · u10_3). 값은 시안 ui.css .g.dk · u10 화면 <style> 그대로.
+   카드 .card(480 폭 · 둥글기 28 · 안 여백 40/40/34) · 입력 .inp(52 높이 · 둥글기 12) · 오류 줄 .line1.err · 로그인 단추 .btnp(56 높이).
+   칸 · 오류 · 초점 · 보기 단추의 동작은 loginform.tsx 그대로이고, 여기서는 모양만 바꾼다(loginform 의 인라인 모양은 이 카드 안에서만 덮는다).
+   바탕: 시안은 공장 조감 사진 위 왼쪽 어둠 그러데이션. 사진은 저장소에 넣지 않아(사진 커밋 금지) 같은 그러데이션 + 옅은 격자.
+   밝은 판: 같은 구조에 공식 토큰(foothold.tokens.css, 값 수정 없음). */
+.fh.lg { position: relative; min-height: 100vh; overflow: hidden; background: #0c0f14; }
+.fh.lg .lg-bg { position: absolute; inset: 0; background:
+  linear-gradient(90deg, rgba(12,15,20,.94) 0%, rgba(12,15,20,.82) 34%, rgba(12,15,20,.25) 62%, rgba(12,15,20,.05) 100%),
+  repeating-linear-gradient(0deg, rgba(255,255,255,.035) 0 1px, transparent 1px 48px),
+  repeating-linear-gradient(90deg, rgba(255,255,255,.035) 0 1px, transparent 1px 48px),
+  radial-gradient(900px 600px at 72% 46%, #2a3a36, #121820 70%); }
+.fh.lg .fh-login { position: relative; z-index: 2; justify-content: flex-start; padding: 48px 16px 48px clamp(16px, 9.4vw, 180px); }
+.fh.lg .lg-card { width: 100%; max-width: 480px; box-sizing: border-box; padding: 40px 40px 34px; border-radius: 28px; display: flex; flex-direction: column; gap: 0; color: #fff;
+  background: linear-gradient(180deg, rgba(28,32,40,.52), rgba(18,20,26,.38)); border: 1px solid rgba(255,255,255,.22);
+  box-shadow: 0 10px 28px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.28); backdrop-filter: blur(22px) saturate(1.8); -webkit-backdrop-filter: blur(22px) saturate(1.8); }
+.fh.lg .lg-logo { font-weight: 900; letter-spacing: .08em; font-size: 18px; }
+.fh.lg .lg-card h2 { margin: 26px 0 0; font-size: 28px; font-weight: 800; letter-spacing: -.02em; }
+.fh.lg .lg-sub { margin: 6px 0 0; font-size: 14.5px; font-weight: 600; color: #9aa19d; }
+.fh.lg .lg-fields { display: flex; flex-direction: column; gap: 16px; margin-top: 24px; }
+.fh.lg .lg-fields .fh-field { display: block; }
+.fh.lg .lg-fields .fh-field .lbl { display: block; font-size: 13px; font-weight: 700; color: #9aa19d; margin-bottom: 8px; }
+.fh.lg .lg-fields .inp { width: 100%; box-sizing: border-box; height: 52px; border-radius: 12px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); padding: 0 14px;
+  font: inherit; font-size: 15.5px; font-weight: 600; color: #fff; box-shadow: inset 0 1px 2px rgba(0,0,0,.25); outline: none; }
+.fh.lg .lg-fields .inp:focus { border-color: rgba(0,195,137,.7); box-shadow: 0 0 0 3px rgba(0,195,137,.18); }
+.fh.lg .lg-fields .inp[aria-invalid="true"] { border-color: rgba(255,77,79,.8); box-shadow: 0 0 0 3px rgba(255,77,79,.16); }
+.fh.lg .lg-fields [data-pw-eye] { color: #9aa19d !important; min-width: 44px !important; min-height: 44px !important; }
+/* 오류 줄 = 시안 .line1.err · 안내 줄(세션 끝남 등) = 같은 꼴 중립 */
+.fh.lg .lg-fields [data-login-err], .fh.lg .lg-fields [data-login-note] { margin: 0; display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 18px !important; border-radius: 16px !important; font-size: 14px; font-weight: 700; box-sizing: border-box; color: #fff !important; }
+.fh.lg .lg-fields [data-login-err] { background: linear-gradient(180deg, rgba(255,77,79,.22), rgba(255,77,79,.14)) !important; border: 1px solid rgba(255,77,79,.5) !important; box-shadow: 0 10px 26px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.12); }
+.fh.lg .lg-fields [data-login-note] { background: rgba(255,255,255,.07) !important; border: 1px solid rgba(255,255,255,.14) !important; }
+.fh.lg .lg-fields .btn.pri { height: 56px; margin-top: 10px; border: 0; border-radius: 14px; font: inherit; font-weight: 800; font-size: 16px; cursor: pointer;
+  background: linear-gradient(180deg, #00c389, #00c389); color: #1f2421; box-shadow: 0 10px 24px rgba(0,195,137,.35), inset 0 1px 0 rgba(255,255,255,.4); }
+.fh.lg .lg-fields .btn.pri:disabled { opacity: .6; cursor: default; }
+.fh.lg .lg-card > div:has(> [data-pw-link]) { margin-top: 22px; }
+.fh.lg [data-pw-link] { color: #00c389 !important; font-weight: 700 !important; font-size: 14px; min-height: 44px !important; }
+.fh.lg [data-account-ask] { font-size: 13px; font-weight: 600; color: #9aa19d; }
+.fh.lg [data-pw-hint] { margin-top: 10px !important; border-radius: 12px !important; background: rgba(255,255,255,.07) !important; border-color: rgba(255,255,255,.14) !important; color: #fff !important; }
+.fh.lg .lg-note { margin-top: 12px; font-size: 12px; font-weight: 600; color: #7d8581; }
+@media (max-width: 600px) { .fh.lg .fh-login { justify-content: center; padding: 24px 16px; } .fh.lg .lg-card { padding: 28px 22px 24px; } }
+
+.fh.lg.light { background: var(--paper); }
+.fh.lg.light .lg-bg { background: linear-gradient(90deg, color-mix(in srgb, var(--paper) 96%, transparent) 0%, color-mix(in srgb, var(--paper) 80%, transparent) 40%, transparent 75%),
+  repeating-linear-gradient(0deg, rgba(22,28,38,.05) 0 1px, transparent 1px 48px), repeating-linear-gradient(90deg, rgba(22,28,38,.05) 0 1px, transparent 1px 48px), var(--paper-2); }
+.fh.lg.light .lg-card { color: var(--ink); background: color-mix(in srgb, var(--card) 86%, transparent); border-color: var(--rule); box-shadow: 0 8px 24px rgba(20,30,50,.10); }
+.fh.lg.light .lg-sub, .fh.lg.light .lg-fields .fh-field .lbl, .fh.lg.light [data-account-ask], .fh.lg.light .lg-note, .fh.lg.light .lg-fields [data-pw-eye] { color: var(--ink-2) !important; }
+.fh.lg.light .lg-fields .inp { background: var(--card); border-color: var(--rule); color: var(--ink); box-shadow: inset 0 1px 2px rgba(0,0,0,.05); }
+.fh.lg.light .lg-fields .btn.pri { background: var(--brand); color: #fff; box-shadow: 0 6px 16px rgba(14,122,110,.22); }
+.fh.lg.light [data-pw-link] { color: var(--brand) !important; }
+.fh.lg.light .lg-fields [data-login-err], .fh.lg.light .lg-fields [data-login-note], .fh.lg.light [data-pw-hint] { color: var(--ink) !important; }
+.fh.lg.light .lg-fields [data-login-err] { background: rgba(255,77,79,.10) !important; }
+.fh.lg.light .lg-fields [data-login-note], .fh.lg.light [data-pw-hint] { background: var(--paper-2) !important; border-color: var(--rule) !important; }
