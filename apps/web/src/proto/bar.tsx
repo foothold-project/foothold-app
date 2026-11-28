@@ -18,8 +18,8 @@ export const whoFace = (role: Role, name: string): [string, string] => (role ===
 
 export function PcBar({ light, tabs, cur, go, role, name, roleName, online, net, bell, stop, menu, approvals, driving = [] }: {
   light: boolean; tabs: BarTab[]; cur: string; go: (id: string) => void; role: Role; name: string; roleName: string; online: number; net: string;
-  /** 알림 종 자리(시안 종 · 빨간 수) */ bell: ReactNode; /** 시안 «모두 정지» 자리 — 없으면 비움 */ stop: ReactNode; /** 나 칸을 누르면 여는 차림(로그아웃 · 화면 밝기) */ menu: ReactNode;
-  /** 총괄: 결재 대기 수(GET /dashboard). 시안 머리줄에 자리가 없어 메뉴 끝에 작은 표(0 이면 숨김 · 받지 못하면 «—» 값만 남김) */ approvals?: { n: number | null; why?: string };
+  /** 알림 종 자리(시안 종 · 빨간 수) */ bell: ReactNode; /** 시안 «모두 정지» 자리 · 없으면 비움 */ stop: ReactNode; /** 나 칸을 누르면 여는 차림(로그아웃 · 화면 밝기) */ menu: ReactNode;
+  /** 총괄: 결재 대기 수(GET /dashboard). 시안 머리줄에 자리가 없어 메뉴 끝에 작은 표(0 이면 숨김 · 받지 못하면 값을 비움) */ approvals?: { n: number | null; why?: string };
   /** 내 조종권(서버 lease)이 있는 로봇 이름들 · 시안 «K-01 조종 중» 칩(없으면 칩 없음) */ driving?: string[];
 }) {
   const [i, label] = whoFace(role, name), [open, setOpen] = useState(false), who = useRef<HTMLSpanElement>(null);
@@ -33,7 +33,7 @@ export function PcBar({ light, tabs, cur, go, role, name, roleName, online, net,
   return <div className="bar"><span className="logo">FOOTHOLD</span><div className="tabs" role="navigation" aria-label="주 메뉴">
     {tabs.map((t) => <span key={t.id} className={t.id === cur ? 'on' : ''} role="link" tabIndex={0} data-href={`#/${t.id}`} aria-current={t.id === cur ? 'page' : undefined}
       onClick={() => go(t.id)} onKeyDown={key(() => go(t.id))}>{t.label}</span>)}
-    {approvals && <b className="ap-appr" data-approvals={approvals.n ?? '—'} hidden={!approvals.n} role="link" tabIndex={approvals.n ? 0 : -1} title={approvals.why ?? `결재 대기 ${approvals.n ?? '—'}`}
+    {approvals && <b className="ap-appr" data-approvals={approvals.n ?? ''} hidden={!approvals.n} role="link" tabIndex={approvals.n ? 0 : -1} title={approvals.why ?? `결재 대기 ${approvals.n ?? ''}`}
       onClick={() => go('approval')} onKeyDown={key(() => go('approval'))}>결재 {approvals.n}</b>}
   </div>{' '}<div className="rt">
     <span className="row" style={{ gap: '7px' }} data-link-count={online}><i className="dot" style={online ? undefined : { background: '#5e6662', boxShadow: 'none' }}></i>{linkText(role, online)}</span>
@@ -47,7 +47,7 @@ export function PcBar({ light, tabs, cur, go, role, name, roleName, online, net,
   </div></div>;
 }
 
-/** 시안 알림 종(svg 20px · 빨간 수 17px) — 안 읽은 수가 0 이면 수 칸을 그리지 않는다 */
+/** 시안 알림 종(svg 20px · 빨간 수 17px) · 안 읽은 수가 0 이면 수 칸을 그리지 않는다 */
 export function BellFace({ unread }: { unread: number }) {
   return <span style={{ position: 'relative', display: 'flex', padding: '7px 8px 0 0', marginTop: '-7px' }}><svg className="ic" viewBox="0 0 24 24" style={{ width: '20px', height: '20px' }}><path d="M10.268 21a2 2 0 0 0 3.464 0" /><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" /></svg>
     {unread > 0 && <span className="badge" style={{ position: 'absolute', right: '0', top: '0', minWidth: '17px', height: '17px', borderRadius: '9px', background: '#ff4d4f', color: '#fff', fontSize: '10px', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px' }}>{unread > 99 ? '99+' : unread}</span>}</span>;

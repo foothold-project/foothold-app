@@ -30,6 +30,8 @@ import { ScanPanel, ScanStart } from './screens/scanentry';
 import { ThemeNav, ThemePick, useTheme } from './theme';
 import { BellFace, PcBar, STOP_FACE } from './proto/bar';
 import { EmptyRobots, PcAsk } from './proto/u11';
+import { setStage } from './stage';
+import { Control5 } from './proto/u5';
 
 /** STOP 결과 한 줄 — 서버가 받았는지와 로봇이 알린 잠금을 나눠 쓴다. 확인 안 된 «정지됨»은 쓰지 않는다(F-COM-01) */
 function stopText(r: Robot, l: Live) {
@@ -171,7 +173,17 @@ export class Guard extends Component<{ children: ReactNode; quiet?: boolean }, {
 /** user·robots = 서버 /me·/robots?scope=<listScope> 값(시험은 가짜 자료) — 운영 관리자는 내게 배정된 로봇만. 남은 남의 로봇은 보는 중(조종 비활성 + 이유, STOP 은 됨). fresh = 그 목록을 요청한 시각(rt.now()).
  *  logout 이 있으면 머리줄에 로그아웃. setMe = 내 정보가 서버에서 바뀌었을 때(설정 탭). refresh = 로봇 목록 다시 받기. cancel = 이 로그인 세션의 취소 신호(화면 요청용).
  *  note = 띠에 올릴 한 줄(로그아웃 실패 등). */
+/** PC 무대 = 시안 1920 × 1080. 창 크기에 맞춰 비율 그대로 줄이거나 늘리고(transform scale) 남는 쪽은 바탕색. 어떤 창에서도 스크롤 바 없음 */
+export const STAGE_W = 1920, STAGE_H = 1080;
+export function stageFit(w: number, h: number) { const s = Math.min(w / STAGE_W, h / STAGE_H); return { s, x: (w - STAGE_W * s) / 2, y: (h - STAGE_H * s) / 2 }; }
+function useStage() {
+  const [v, setV] = useState(() => stageFit(innerWidth, innerHeight));
+  useEffect(() => { const on = () => setV(stageFit(innerWidth, innerHeight)); addEventListener('resize', on); return () => removeEventListener('resize', on); }, []);
+  return v;
+}
+
 export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refresh = () => {}, stale = false, logout, setMe = () => {}, cancel, note }: { user?: User; robots?: Robot[]; fresh?: number; refresh?: () => void; stale?: boolean; logout?: () => void; setMe?: (u: ApiUser) => void; cancel?: AbortSignal; note?: string }) {
+  const stage = useStage();
   // 마우스 쓰는 총괄은 좁은 창(PC 200% 확대·반쪽 창)에서도 PC 틀 — 지도·시뮬·설정은 폰 틀에 없다(11-11 현민님, WCAG 1.4.4)
   const coarse = useCoarse(), phone = usePhone() && !(user.role === 'ORG_ADMIN' && !coarse), full = useFull();
   useRt();
@@ -413,17 +425,24 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         <p id="fh-soon" className="lv-note" style={{ flexBasis: '100%' }}>흐린 단추는 아직 준비 중인 기능입니다(권한 때문인 비활성은 단추 옆에 이유가 따로 나옵니다).</p></main>;
   if (!phone) {
     // PC = 시안 틀(.proto · proto/bar): 머리줄 .bar 그대로, 그 아래 STOP 결과 띠 · 정지 고르기는 모든 화면 위. 시안으로 옮긴 탭은 .proto 바로 아래 화면, 아직이면 옛 본문
+    // 시안으로 옮긴 탭: 관제(u5). 로봇 0 대 · 시뮬 창 · 상세 서랍이면 옛 본문
+    const proto5 = tab === 'control' && !!ctx && !simOpen && !open;
+    /** 경보 칸 «K-05 정지» = 그 로봇 한 대에 기존 정지(halt · rt.stop), STOP 단추가 대상 로봇에 하는 것과 같은 길 */
+    const stopOne = (id: string) => { const r = stops.find((x) => x.id === id); if (r) halt([r]); };
     const goTab = (id: string) => { const h = `#/${id}`; if (!leaving.ask) { away.current = null; setWant(h); } location.hash = h; };
     const barTabs = [...PC_TABS.filter((t) => !t.hidden), PC_BOTTOM].map((t) => ({ id: t.id, label: labelOf(t, user.role) }));
-    return <div className={`proto${light ? ' light' : ''}`} data-layout="pc">
+    setStage(stage);   // 끌기 좌표 도우미(stage.ts)가 이 무대 배율을 쓴다
+    return <div className="fit" data-fit style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: light ? '#F6F7F6' : '#000000' }}>
+      <div className={`proto${light ? ' light' : ''}`} data-layout="pc" data-scale={stage.s.toFixed(4)} style={{ position: 'absolute', left: 0, top: 0, width: STAGE_W, height: STAGE_H, transform: `translate(${stage.x}px,${stage.y}px) scale(${stage.s})`, transformOrigin: '0 0' }}>
       <PcBar light={light} tabs={barTabs} cur={navTab} go={goTab} role={user.role} name={user.name} roleName={ROLE_NAME[user.role]} online={pool.filter((r) => r.online).length} net={net.at}
         bell={<Guard quiet><Bell cancel={cancel} face={(n) => <BellFace unread={n} />} pop={`fh${light ? ' light' : ''}`} /></Guard>}
         stop={(canStop || toSim) && <button type="button" className="allstop" aria-label="비상 정지" data-stop style={{ minHeight: 44 }} {...barStop}>{STOP_FACE}</button>}
         approvals={user.role === 'ORG_ADMIN' ? { n: dash.d ? dash.d.approvals_pending : null, why: dash.err ? `요약을 받지 못했습니다. ${dash.err}` : undefined } : undefined}
         driving={pool.filter((r) => !!rt.get(r.id).lease).map((r) => r.name)}
         menu={<>{logout && <button type="button" className="btn" onClick={logout}>로그아웃</button>}<ThemeNav /></>} />
-      {/* 시안 u11_6: 로봇 0 대 관제 = 시안 빈 화면(.pane.empty). 그 밖은 옛 본문 */}
-      {tab === 'control' && !ctx && !simOpen ? <><EmptyRobots control />
+      {proto5 ? <><Guard key="u5"><Control5 {...ctx!} stop={stopOne} mayStop={(id) => stops.some((r) => r.id === id)} /></Guard>
+        <div className={`fh ap-in${light ? ' light' : ''}`}><h1 className="ap-sr">{title}</h1>{pickEl}{bandEl}</div></>
+        : tab === 'control' && !ctx && !simOpen ? <><EmptyRobots control />   {/* 시안 u11_6: 로봇 0 대 관제 = 시안 빈 화면 */}
         <div className={`fh ap-in${light ? ' light' : ''}`}><h1 className="ap-sr">{title}</h1>{pickEl}{bandEl}</div></>
         : <div className={`fh ap-in old${light ? ' light' : ''}`}>
         <h1 className="ap-sr">{title}</h1>
@@ -434,8 +453,9 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       {/* 시안 u11_1: 내가 조종 중인 로봇에 조종권 요청이 오면 어느 탭에서나 창(머리줄 STOP 은 창 위에 그대로) */}
       <Guard quiet><PcAsk robots={pool} /></Guard>
       {!inApp() && <Guard quiet><SimWindow /></Guard>}
-    </div>;
+    </div></div>;
   }
+  setStage(null);
   return <div className={`fh${light ? ' light' : ''}${phone ? ' phone' : ''}`} data-layout={phone ? 'phone' : 'pc'} data-drive={open || simOpen ? '' : undefined}>
     {/* 시뮬 조종 화면(10-26): 머리줄은 STOP 만 — 영상 위 오른쪽 위에 뜬다(drive.css .fh-head[data-bare]). 시뮬 끝내기·연결 표시는 조종 화면 메뉴·알약으로 */}
     <header className="fh-head" data-bare={simOpen || undefined}>{simOpen ? (canStop || toSim) && <Stop phone onStop={stop} /> : <>

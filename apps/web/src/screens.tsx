@@ -229,7 +229,7 @@ export function Detail({ close, solo, ...c }: Ctx & { close?: () => void; solo?:
 }
 
 /** 실행 단계(contracts CurrentRun.status) → 짧은 글. 일시정지 까닭은 서버 요약에 없어 쓰지 않는다 */
-const RUN: Record<string, string> = { QUEUED: '대기열', PREPARING: '준비 중', MOVING: '이동 중', AT_WAYPOINT: '지점 도착', PERFORMING: '작업 중', WAIT_CONFIRM: '확인 기다림', PAUSED: '일시정지' };
+export const RUN: Record<string, string> = { QUEUED: '대기열', PREPARING: '준비 중', MOVING: '이동 중', AT_WAYPOINT: '지점 도착', PERFORMING: '작업 중', WAIT_CONFIRM: '확인 기다림', PAUSED: '일시정지' };
 
 /** 폰 조종 화면의 시나리오 시트 — 이 로봇이 있는 층의 실기 시나리오에서 고른다(배정 없음, RB-MAP-NO-SCEN 11-18) */
 export const Scenario = (c: Ctx) => <ScenarioPick robot={c.robot} cancel={c.cancel} />;
