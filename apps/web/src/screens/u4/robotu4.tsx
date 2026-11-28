@@ -425,7 +425,8 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   const rl = useRobotLine(r.id, c.user.id), line = tab === 'drive' ? rl : null;   // 시안 u11_2 ~ u11_5 한 줄. 뜨면 아래 옛 글은 비켜 섬
   const now = rt.now(), fresh = !!s && now - l.stateAt < REPORT_STALE_MS;
   const pose = go2Pose(s, fresh), temps = go2Temps(s, fresh, s ? (now - l.stateAt) / 1000 : 0);
-  const link = rt.link(), ms = link.at === 'open' && link.latencyMs != null ? `${Math.round(link.latencyMs)} ms` : '';
+  // 시안 u11_5: 서버와 실시간이 끊기거나 거절되면 연결 칸 = 「서버 연결 안 됨」(노랑). 덧말 「현장 Wi-Fi」 는 줄 값이 없어 비움(지어내지 않음)
+  const link = rt.link(), cut = link.at === 'lost' || link.at === 'denied', ms = link.at === 'open' && link.latencyMs != null ? `${Math.round(link.latencyMs)} ms` : '';
   const online = s?.connection === 'ONLINE';
   const lowlevel = s?.control === 'LOWLEVEL', mode = GAITS.find((x) => x.g === d.gait.cur)?.name ?? NONE;   // 걷기 모드(로봇 보고 state.gait) · Shift+1~4 는 useServerDrive
   const modeTap = () => (noGait ? say(NO_GAIT) : !mine ? say(MODE_NEED_DRIVE) : openMode());
@@ -482,7 +483,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   const small = view === 'map' ? <Cam fs={fs} big={false} can={can} b={b} /> : map;
   return <>
     <div className="hdr" data-robot-head={r.id}><span className="ttl" style={{ fontSize: '26px', marginRight: '6px' }}>{r.name}{demo && DEMO}</span>
-      <span className="g dk st" data-cell="link"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M12 20h.01" /><path d="M2 8.82a15 15 0 0 1 20 0" /><path d="M5 12.859a10 10 0 0 1 14 0" /><path d="M8.5 16.429a5 5 0 0 1 7 0" /></svg>{sim && online ? '시뮬' : online ? '연결' : r.online ? '연결 중' : '끊김'}<small>{sim && online ? '서버 계산' : ms}</small></span>
+      <span className="g dk st" data-cell="link"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M12 20h.01" /><path d="M2 8.82a15 15 0 0 1 20 0" /><path d="M5 12.859a10 10 0 0 1 14 0" /><path d="M8.5 16.429a5 5 0 0 1 7 0" /></svg>{cut ? <span style={{ color: '#f2b705' }}>서버 연결 안 됨</span> : sim && online ? '시뮬' : online ? '연결' : r.online ? '연결 중' : '끊김'}<small>{cut ? '' : sim && online ? '서버 계산' : ms}</small></span>
       <span data-go="u4_7_mode" className="g dk st" data-cell="mode" aria-disabled={noGait || undefined} title={noGait ? NO_GAIT : undefined} role="button" tabIndex={0}
         onClick={modeTap} onKeyDown={(e) => { if (e.key === 'Enter') modeTap(); }}><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="m8 3 4 8 5-5 5 15H2L8 3z" /></svg>{mode}<small {...(noGait ? { 'data-gait-none': '' } : {})}>{noGait ? '바꿀 수 있는 모드 없음' : 'Shift + 1 ~ 4'}</small></span>
       <span className="g dk st" data-cell="battery"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M10 14v-4" /><path d="M22 14v-4" /><path d="M6 14v-4" /><rect x="2" y="6" width="16" height="12" rx="2" /></svg>{r.unknown === 'summary' ? '확인 안 됨' : soc == null ? NONE : `${Math.round(soc)} %`}<small>{sim ? '시뮬' : soc == null ? '배터리' : left != null ? `약 ${left} 분` : ''}</small></span>

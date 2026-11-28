@@ -9,6 +9,7 @@ import { FakeWS, lease, state } from './fakeWs';
 import { simTune } from '../phone';
 import { SIDE_BLOCK, canDrive } from '../serverdrive';
 import { checkShort, railOrder } from '../screens/u4/robotu4';
+import { rt } from '../rt';
 import { api } from '../api';
 import u4css from '../screens/u4/u4.css?raw';
 import u4src from '../screens/u4/robotu4.tsx?raw';
@@ -359,6 +360,17 @@ describe('로봇 탭 보기 칸 · 지도 경로 · 시뮬 시점(서버 값만)
     expect($$('[data-u4-wp]').length).toBe(0);
     expect(api.plan).not.toHaveBeenCalled();
     expect(text($('[data-u4-job] span'))).toBe('할 일 2 / 4 · 이동 중');
+  });
+});
+
+describe('머리 연결 칸 = 시안 u11_5', () => {
+  for (const [code, at] of [[1006, 'lost'], [4403, 'denied']] as const) it(`실시간 ${at}(${code}) → 「서버 연결 안 됨」 · 덧말 비움(현장 Wi-Fi 값 없음), 열려 있을 땐 「연결」`, () => {
+    mount('u-park'); serve('r7');
+    expect(text($('[data-cell="link"]'))).toMatch(/^연결/);
+    act(() => { w.drop(code); });
+    expect(rt.link().at).toBe(at);
+    expect(text($('[data-cell="link"]'))).toBe('서버 연결 안 됨');
+    expect($('[data-cell="link"] small')!.textContent).toBe('');
   });
 });
 
