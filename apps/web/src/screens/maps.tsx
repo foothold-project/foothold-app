@@ -24,6 +24,7 @@ import { TerrainLink, VoxelUpload, VoxelView, voxelOf } from './voxelmap';
 import { makers } from './mapmake';
 import { ScanScreen } from './u7/scan';
 import { UploadScreen } from './u7/upload';
+import { PickU7 } from './u7/pick';
 import { SlamSavedView } from './slammap';
 
 export type Place = { site: MapSite; building: MapBuilding; floor: MapFloor };
@@ -194,7 +195,7 @@ export const stateOf = (v: MapVersion, approved: string | null): { tone: Tone; t
 const asked: Msg = { text: '저장했지만 서버가 아직 적용하지 않았습니다. 적용되기 전에는 지금 지도를 그대로 씁니다.', ok: true };
 const SAVED: Msg = { text: '저장했습니다. 다음 실행부터 이 지도를 씁니다.', ok: true };
 /** 건물을 열 때 층: 층 번호 1, 없으면 가장 낮은 층 */
-const byLevel = (l: MapFloor[]) => [...l].sort((a, b) => a.level - b.level);
+export const byLevel = (l: MapFloor[]) => [...l].sort((a, b) => a.level - b.level);
 const firstFloor = (b: MapBuilding) => b.floors.find((f) => f.level === 1) ?? byLevel(b.floors)[0];
 
 type Kind = 'sites' | 'buildings' | 'floors';
@@ -373,9 +374,13 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   if (!sim && make === 'robot') return <ScanScreen place={null} back={shut0} toList={shut0} pick={(id) => choose(id, 'robot')}
     floors={places.filter((x) => purposeOf(x.site) === 'REAL' && x.floor.provenance !== 'SIMULATION')}
     a={{ floor: '', approved: null, list: null, user: c.user, robots, places, cancel: c.cancel, made: () => {} }} />;
-  if (!sim) return <Pick maker={maker} t={t} places={places} vers={vers} choose={choose} make={mk} note={found} manage={manage} setManage={setManage} edit={!make && placeBody}>
+  if (!sim) return <PickU7 maker={maker} t={t} places={places} vers={vers} choose={choose} make={mk} note={found} manage={manage} setManage={setManage}
+    ed={{ own, busy, edits: !make && edits,
+      rename: (kind, x) => open({ kind, id: x.id, title: `${WHAT[kind]} 이름 바꾸기 — ${x.name}`, name: x.name, level: x.level }),
+      del: (kind, x) => { setAsk({ kind, id: x.id, name: x.name }); setForm(null); setMsg(null); },
+      add: (kind, parent) => open(kind === 'sites' ? { kind, title: '새 장소' } : { kind, parent: parent!.id, title: `${parent!.name} 에 새 ${WHAT[kind]}` }) }}>
     {pop}
-  </Pick>;
+  </PickU7>;
   return <Chooser sim={sim} maker={maker} t={t} places={places} vers={vers} choose={choose} make={mk} note={found} cancel={c.cancel}>
     {pop}
   </Chooser>;
@@ -390,7 +395,7 @@ export function SimPlaces({ user, robots }: { user: User; robots: Robot[] }) {
 
 /** 카드 위 작은 지도(SIM-CARDS-WIDE 11-09): 승인 판 그림(MapImage, 벽 범위로 자른 처음 화면) — 카드가 화면 가까이 올 때만 받는다.
  *  판이 없거나 그림이 실패하면 같은 높이 회색 칸 «지도 없음»(판 받는 중은 빈 회색 칸) — 카드 높이는 CSS(.mx-thumb) 고정 */
-function Thumb({ id, v, demo }: { id?: string | null; v?: MapVersion; demo?: boolean }) {
+export function Thumb({ id, v, demo }: { id?: string | null; v?: MapVersion; demo?: boolean }) {
   const ref = useRef<HTMLSpanElement>(null), [near, setNear] = useState(typeof IntersectionObserver === 'undefined'), [bad, setBad] = useState(false), { fit } = useFit(near ? v : undefined);
   useEffect(() => {
     if (near || !ref.current) return;
@@ -401,106 +406,18 @@ function Thumb({ id, v, demo }: { id?: string | null; v?: MapVersion; demo?: boo
     <MapImage id={v.id} width={v.width} height={v.height} onError={() => setBad(true)} />{demo && <FactoryImage v={v} />}</svg>}</span>;
 }
 /** 카드 그림 층: 1층, 그 층에 지도가 없으면 지도 있는 가장 낮은 층 */
-const picFloor = (b: MapBuilding) => [firstFloor(b), ...byLevel(b.floors)].find((x) => x?.approved_version_id);
+export const picFloor = (b: MapBuilding) => [firstFloor(b), ...byLevel(b.floors)].find((x) => x?.approved_version_id);
 
 /** 판 크기(m) · 넓이(m²) · 날짜 · 판 번호 — 시안 u7 의 「50 만 m² (900 × 560 m) · 11/20 · v3」 를 받은 값으로만 */
-const meters = (v: MapVersion) => { const w = v.width * v.resolution, h = v.height * v.resolution, r = (x: number) => (x >= 10 ? Math.round(x) : Math.round(x * 10) / 10);
+export const meters = (v: MapVersion) => { const w = v.width * v.resolution, h = v.height * v.resolution, r = (x: number) => (x >= 10 ? Math.round(x) : Math.round(x * 10) / 10);
   return { wh: `${r(w)} × ${r(h)} m`, area: areaText(w * h) }; };
 /** 넓이 글(시안 u7 꼴): 1 만 m² 부터 「50 만 m²」 「4.2 만 m²」(10 만 이상은 정수, 그 아래는 소수 한 자리), 그 아래는 「8,400 m²」 */
 export const areaText = (a: number) => { if (a < 10000) return `${(a >= 10 ? Math.round(a) : Math.round(a * 10) / 10).toLocaleString('ko-KR')} m²`;
   const m = a / 10000; return `${m >= 10 ? Math.round(m) : Math.round(m * 10) / 10} 만 m²`; };
-const md = (at: string) => { const d = new Date(at); return Number.isNaN(d.getTime()) ? '' : `${d.getMonth() + 1}/${d.getDate()}`; };
+export const md = (at: string) => { const d = new Date(at); return Number.isNaN(d.getTime()) ? '' : `${d.getMonth() + 1}/${d.getDate()}`; };
 /** 만든 방법(판 source · 3D 파일 · 시뮬 지형) */
-const howMade = (v: MapVersion) => (v.provenance === 'SIMULATION' ? '시뮬 지형' : voxelOf(v) ? '3D 지도 파일' : v.source === 'SLAM' ? '로봇으로 그림' : v.source === 'EDIT' ? '지도 고침' : v.source === 'ROLLBACK' ? '되돌림' : '파일 올림');
-const NOGO = (v: MapVersion) => v.features.zones.filter((z) => z.type === 'NO_GO').length;
-
-/** 층 겹친 그림(시안 u7_1 가운데 아래): 받은 층 순서 그대로, 고른 층만 칠함. 장식이 아니라 층 고르기(누르면 그 층) */
-function Stack({ floors, sel, pick }: { floors: MapFloor[]; sel?: string; pick: (id: string) => void }) {
-  const l = [...floors].reverse(), H = 40 + l.length * 56;
-  return <svg className="mp-stack" viewBox={`0 0 520 ${H}`} role="group" aria-label="층 겹친 그림">{l.map((f, i) => { const y = 30 + i * 56, on = f.id === sel;
-    return <g key={f.id} data-stack={f.id} onClick={() => pick(f.id)} style={{ cursor: 'pointer' }}>
-      <path d={`M40 ${y + 28} L220 ${y} L400 ${y + 28} L220 ${y + 56} Z`} className={on ? 'on' : ''} />
-      <text x={420} y={y + 33} className={on ? 'on' : ''}>{f.name}</text></g>; })}</svg>;
-}
-
-/** ① 지도 고르기 · 관리(지도 탭 · 시안 u7_1 · u7_2). 왼쪽 = 장소별 건물, 가운데 = 고른 건물의 층(고르기) 또는 장소 편집(관리), 오른쪽 = 미리 보기(고르기) 또는 지형 · 올리기 · 휴지통(관리) */
-function Pick({ maker, t, places, vers, choose, make, note, manage, setManage, edit, children }: { maker: boolean; t: ReturnType<typeof useTree>; places: Place[]; vers: Record<string, MapVersion>;
-  choose: (id: string, then?: Intent) => void; make: (k: Make) => void; note: Msg; manage: boolean; setManage: (m: boolean) => void; edit: ReactNode; children: ReactNode }) {
-  const blds = places.reduce<{ site: MapSite; building: MapBuilding }[]>((a, p) => (a.some((x) => x.building.id === p.building.id) ? a : [...a, { site: p.site, building: p.building }]), []);
-  const [bid, setBid] = useState(() => places.find((p) => p.floor.id === keptPlan.floor)?.building.id ?? blds[0]?.building.id ?? '');
-  const cur = blds.find((x) => x.building.id === bid) ?? blds[0];
-  const [fid, setFid] = useState(''), floors = cur ? byLevel(cur.building.floors) : [];
-  const fl = floors.find((f) => f.id === fid) ?? (cur && (picFloor(cur.building) ?? firstFloor(cur.building))), v = fl?.approved_version_id ? vers[fl.approved_version_id] : undefined;
-  const maps = places.filter((p) => p.floor.approved_version_id).length;
-  const [no3, setNo3] = useState('');   // 미리 보기 3D(실제 현장 = 서버 모형)를 못 받은 판 → 그 판은 2D
-  const none = !!t.tree && !places.length;
-  const newMap = <Menu label={<>＋ 새 지도 만들기</>} title="새 지도 만들기" end className="mp-new">
-    {/* 지도 0 개면 빈 칸(아래)의 단추와 같은 것은 숨긴다(U11-04 검수 · 칠한 단추 하나) */}
-    {maker && !none && <button type="button" className="btn" data-make-robot onClick={(e) => { shut(e); make('robot'); }}>+ 지도 만들기</button>}
-    {(maker || !none) && <button type="button" className="btn" data-make-file onClick={(e) => { shut(e); make('file'); }}>+ 파일 올리기</button>}
-    {!inApp() && <a className="btn" href="#/terrain" style={{ textDecoration: 'none' }} data-terrain-enter>+ 지형 만들기</a>}
-  </Menu>;
-  return <section className="mx mp" aria-label="지도 고르기">
-    <aside className="lv-card mp-sites" aria-label="현장">
-      <div className="fh-row"><h2 className="fh-grow">현장</h2>{t.tree && <span className="lbl">지도 {maps} 개</span>}</div>
-      {t.tree?.items.filter((s) => blds.some((x) => x.site.id === s.id)).map((s) => <div key={s.id} className="mp-group mx-site" aria-label={`장소 ${s.name}`}><p className="lbl">{s.name}</p>
-        {blds.filter((x) => x.site.id === s.id).map(({ building: b }) => { const n = b.floors.filter((f) => f.approved_version_id).length;
-          return <button key={b.id} type="button" className="mp-site" data-building={b.id} aria-pressed={b.id === cur?.building.id} onClick={() => { setBid(b.id); setFid(''); }}>
-            <span className="mp-pin" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z" /><circle cx="12" cy="10" r="2.5" /></svg></span>
-            <span className="mp-sn"><b>{b.name}</b><small>{s.name} · {b.floors.length}층{n ? '' : ' · 지도 없음'}</small></span><span className="mp-cnt">{n}</span></button>; })}</div>)}
-      {t.tree && !blds.length && <p className="lv-note">아직 층이 있는 건물이 없습니다. «관리»에서 장소 · 건물 · 층을 만듭니다.</p>}
-      <p className="lv-note mp-foot">층마다 지도 하나입니다. 로봇으로 그리거나 지도 파일을 올려 만듭니다.</p>
-    </aside>
-    <div className="mp-main">
-      <div className="mp-head"><h2>지도 {cur && <small>{cur.building.name} · {cur.site.name}</small>}</h2><span className="fh-grow" />
-        <span className="mx-seg mp-seg" role="group" aria-label="고르기 · 관리"><button type="button" className="btn" aria-pressed={!manage} onClick={() => setManage(false)}>고르기</button>
-          <button type="button" className="btn" aria-pressed={manage} onClick={() => setManage(true)}>관리</button></span>
-        {newMap}</div>
-      <Note m={note} />
-      {t.err && <div className="fh-row"><p className="fh-msg" role="alert">장소 목록을 받지 못했습니다. {t.err}</p><button type="button" className="btn" onClick={t.again}>다시 시도</button></div>}
-      {!t.tree && !t.err && <p className="lv-note" role="status">장소 목록을 불러오는 중…</p>}
-      {none && !manage && <Empty kind="map" title="아직 지도가 없습니다" card={false}
-        why={maker ? '담당 실기 로봇이 돌아다니며 그리거나 지도 파일을 올리면 여기에 보입니다.' : '지도 파일(그림 · yaml)을 올리면 여기에 보입니다.'}>
-        {maker ? <button type="button" className="btn pri" onClick={() => make('robot')}>+ 지도 만들기</button>
-          : <button type="button" className="btn pri" onClick={() => make('file')}>+ 파일 올리기</button>}</Empty>}
-      {manage ? <div className="mp-cols mp-manage">
-        <section className="lv-card mp-edit" aria-label="장소 · 건물 · 층 편집"><div className="fh-row"><h2 className="fh-grow">장소 · 건물 · 층 편집</h2></div>
-          <p className="lv-note">이름 바꾸기 · 삭제는 바로 서버에 저장됩니다. 지운 것은 휴지통에서 되돌립니다.</p>{edit}</section>
-        <div className="mp-right">
-          <section className="lv-card" data-manage-terrain><h2>시뮬 지형 만들기</h2><p className="lv-note">실측 지도 없이 시험할 지형을 시뮬 지도로 만듭니다.</p>
-            {!inApp() && <a className="btn" href="#/terrain" style={{ textDecoration: 'none' }} data-terrain-enter>+ 새 시뮬 지형</a>}</section>
-          <section className="lv-card" data-manage-up><h2>지도 올리기</h2><p className="lv-note">지도 그림 · yaml 또는 3D 지도 파일(.pcd · .ply, 총괄)을 층에 올립니다. 층을 고르는 창이 열립니다.</p>
-            <div className="fh-row"><button type="button" className="btn" data-make-file onClick={() => make('file')}>지도 파일 올리기</button>
-              {maker && <button type="button" className="btn" data-make-robot onClick={() => make('robot')}>로봇으로 그리기</button>}</div></section>
-          <section className="lv-card" data-manage-trash><h2>휴지통</h2><p className="lv-note">지운 장소 · 건물 · 층 · 지도는 휴지통에서 되돌립니다.</p><TrashLink /></section>
-        </div></div>
-      : cur && <div className="mp-cols">
-        <section className="lv-card mp-floors" aria-label="층 목록"><div className="fh-row"><h2 className="fh-grow">{cur.building.name} · 층</h2><span className="lbl">층마다 지도 하나</span></div>
-          <div className="mp-rows">{floors.map((f) => { const x = f.approved_version_id ? vers[f.approved_version_id] : undefined;
-            return <button key={f.id} type="button" className="mp-row" data-floor-row={f.id} aria-pressed={f.id === fl?.id} onClick={() => setFid(f.id)}>
-              <Thumb id={f.approved_version_id} v={x} demo={demoBoard(cur.site, cur.building)} />
-              <span className="mp-rt"><span className="fh-row"><b>{f.name}</b>{x ? <span className="lv-chip ok">{howMade(x)}</span> : f.approved_version_id ? null : <span className="lv-chip off">지도 없음</span>}
-                {x && voxelOf(x) && <span className="lv-chip" data-voxel-chip title="3D 지도 파일에서 만든 지도 · 시뮬 지형 연결됨">3D</span>}</span>
-                {x && <small>{meters(x).area} ({meters(x).wh}) · {md(x.created_at)} · v{x.number}</small>}</span><span className="mp-chev" aria-hidden="true">›</span></button>; })}</div>
-          {floors.length >= 2 && <Stack floors={floors} sel={fl?.id} pick={setFid} />}
-        </section>
-        {fl && <section className="lv-card mp-prev" aria-label="미리 보기">
-          <div className="mp-pv">{v && demoBoard(cur.site, cur.building) ? <DemoSite3D key="site3d" preview />
-            : v && modelOf(v) && no3 !== v.id ? <Map3D key={v.id} v={v} robots={[]} still missing={() => setNo3(v.id)} />
-            : v ? <MapView key={v.id} v={v} fill demo={demoBoard(cur.site, cur.building)} />
-            : <div className="mx-center"><p className="lv-note">{fl.approved_version_id ? '지도를 불러오는 중…' : '이 층에 아직 지도가 없습니다. 지도를 열어 올리거나 로봇으로 그립니다.'}</p></div>}
-            {v && (demoBoard(cur.site, cur.building) || (modelOf(v) && no3 !== v.id) ? <span className="mp-tag" data-tag3d><svg viewBox="0 0 24 24" aria-hidden="true" style={{ width: 16, height: 16, fill: 'none', stroke: 'currentColor', strokeWidth: 1.8 }}><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" /><path d="M4 7.5l8 4.5 8-4.5M12 12v9" /></svg>3D 보기 · 미리 보기</span>
-              : <span className="mp-tag">위에서 본 지도 · {meters(v).wh}{modelOf(v) ? ' · 3D 모형 있음' : ''}</span>)}</div>
-          <div className="mp-pf"><div className="fh-row"><b className="mp-pt" data-prev-title>{cur.building.name} · {fl.name}</b>{v && <span className="lv-chip ok">{howMade(v)}</span>}</div>
-            {v && <p className="mp-facts"><span>{meters(v).area}</span><span>{meters(v).wh}</span><span>{md(v.created_at)} · v{v.number}</span><span>금지 구역 {NOGO(v)}</span></p>}
-            <div className="fh-row"><button type="button" className="btn pri fh-grow" data-open-map onClick={() => choose(fl.id)}>지도 열기</button>
-              {fl.approved_version_id && <button type="button" className="btn" data-open-history onClick={() => choose(fl.id, 'history')}>버전 기록</button>}</div></div>
-        </section>}
-      </div>}
-    </div>
-    {children}
-  </section>;
-}
+export const howMade = (v: MapVersion) => (v.provenance === 'SIMULATION' ? '시뮬 지형' : voxelOf(v) ? '3D 지도 파일' : v.source === 'SLAM' ? '로봇으로 그림' : v.source === 'EDIT' ? '지도 고침' : v.source === 'ROLLBACK' ? '되돌림' : '파일 올림');
+export const nogo = (v: MapVersion) => v.features.zones.filter((z) => z.type === 'NO_GO').length;
 
 /** ① 지도 고르기(첫 화면): «어느 지도에서 일할까요?» + 장소별 건물 카드(11-11 «마지막에 본 지도» 카드 뺌·그림 크게)(카드 전체가 단추 — 그 건물 1층을 연다) + 찾기·휴지통.
  *  지도 탭 = «+ 지도 만들기»(로봇, 담당 운영자만)·«+ 파일 올리기» — 둘 다 «어느 층에?»(11-12 현민님), 장소 고치기는 층 화면 + «+ 지형 만들기»(11-19 시뮬 탭에서 옮김). 시뮬 탭 = «장소 고치기» */

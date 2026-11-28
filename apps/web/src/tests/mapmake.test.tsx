@@ -126,7 +126,8 @@ describe('지도 만들기 — 보이는 조건', () => {
   it('고르기 화면 «+ 지도 만들기»(담당 운영자만) → 바로 시안 u7_6(옛 «어느 층에?» 창 없음) · 층 칩에서 고르기 전에는 스캔 시작 막힘 · 고르면 그 층의 u7_6', async () => {
     for (const me of [KIM, PARK]) {
       serve(signedIn(me, true, () => null)); await open(); await click($('[data-to-chooser]'));
-      expect($('[data-make-robot]')).toBeNull(); expect($('[data-make-file]')).toBeTruthy();
+      expect($('[data-make-robot]')!.getAttribute('aria-disabled')).toBe('true');   // 담당 실기 없음 = 누르면 까닭 한 줄 · u7_6 안 열림
+      await click($('[data-make-robot]')); expect($('[data-u7="u7_6_scan"]')).toBeNull();
       act(() => root?.unmount()); box.remove();
     }
     serve(signedIn(LEE, true, () => null)); await open(); await live(true); await click($('[data-to-chooser]'));

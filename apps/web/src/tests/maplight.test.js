@@ -19,4 +19,13 @@ describe('지도 탭 밝은 판 = DESIGN.md 밝음 1', () => {
     const all = rules.map((m) => m[2]).join(';');
     for (const k of ['--bg', '--panel', '--text', '--muted', '--line', '--accent', '--sh-pr3', '--sh-on-pr', '--paper', '--ink', '--rule']) expect(all, k).toMatch(new RegExp(`${k}:`));
   });
+  it('u7.css 밝은 판(시안 u7_1 · u7_2 현장 · 층 줄 · 꼬리표)', () => {
+    const css = readFileSync(join(__dirname, '..', 'screens', 'u7', 'u7.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => m[1].includes('.proto.light'));
+    expect(rules.map((m) => m[1].trim())).toEqual(expect.arrayContaining(['.proto.light .u7 .site .av', '.proto.light .u7 .tag', '.proto.light .u7 .tag.m']));
+    for (const m of rules) {
+      for (const h of m[2].match(/#[0-9A-Fa-f]{3,8}\b/g) ?? []) expect(TABLE.has(h.toUpperCase()), `${m[1].trim()} ${h}`).toBe(true);
+      for (const r of m[2].matchAll(/rgba?\((\d+),\s*(\d+),\s*(\d+)/g)) expect(RGB.has(`${r[1]},${r[2]},${r[3]}`), `${m[1].trim()} ${r[0]}`).toBe(true);
+    }
+  });
 });

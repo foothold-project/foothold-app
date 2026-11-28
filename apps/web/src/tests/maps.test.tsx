@@ -135,7 +135,7 @@ const img = () => $<SVGImageElement>('[aria-label="지도 보기"] svg image');
 /** 층 단추: 지도 세부면 위 줄, 첫 화면이면 장소 창의 층 줄 */
 const floorBtn = (name: string) => btns($('[aria-label="층"]') ?? card('장소')).find((b) => b.textContent!.startsWith(name))!;
 /** 지도 세부 → «모든 지도 보기» → 첫 화면 «+ 파일 올리기»의 «어느 층에?» 창(층 고르기·장소·건물·층 만들기, 11-12) */
-const toWhere = async () => { if ($('[data-to-chooser]')) await click($('[data-to-chooser]')); await click($('[data-make-file]')); };
+const toWhere = async () => { if ($('[data-to-chooser]')) await click($('[data-to-chooser]')); await click($('[data-seg="관리"]')); await click($('[data-make-file]')); };   // 시안 u7_2 관리 「3D 지도 올리기」 칸
 /** 층 화면 «···» → «이름 바꾸기·삭제…» 창(11-12 — 고르기 화면에서 옮김) */
 const fixHere = async () => { await click($('[data-fix-open]')); expect(card('고치기')).toBeTruthy(); };
 const fixRow = (k: 'sites' | 'buildings' | 'floors') => $(`[data-fix="${k}"]`)!;
@@ -200,10 +200,10 @@ describe('지도 탭 — 장소 나무', () => {
     await open('#/map');
     await click($('[data-to-chooser]'));
     const c = $<HTMLButtonElement>('[aria-label="지도 고르기"] [data-building]')!;
-    expect(c.tagName).toBe('BUTTON');                                                     // 버튼이라 Enter·Space 도 눌림
+    expect(c.getAttribute('role')).toBe('button'); expect(c.tabIndex).toBe(0);            // 시안 u7_1 .site 줄 · 눌림
     expect($$('[aria-label="지도 고르기"] [data-building]')).toHaveLength(1);
     expect($('[aria-label="지도 고르기"]')!.textContent).not.toMatch(/판 \d|결재 대기/);
-    expect(c.textContent).toContain('본동'); expect(c.textContent).toContain('2층');   // 시안 u7_1: 왼쪽 현장 줄 «본관 · 2층»
+    expect(c.textContent).toContain('본동'); expect(c.textContent).toContain('2 층');   // 시안 u7_1: 왼쪽 현장 줄 «본관 · 2층»
     await click(c); await click($('[data-open-map]'));                                    // 건물 = 고르기, «지도 열기»로 연다
     expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층');      // 목록 순서와 무관하게 층 번호 1
   });
@@ -228,7 +228,7 @@ describe('지도 탭 — 장소 나무', () => {
     await open('#/map');
     await click($('[data-to-chooser]'));
     // 시안 u7_1: 그림은 가운데 층 줄마다(고른 건물의 층)
-    const pic = (s: string) => $(`${s} > .mx-thumb`)!;
+    const pic = (s: string) => $(`${s} .mx-thumb`)!;
     expect(pic('[data-floor-row="f1"]').querySelector('image')!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
     expect($('[data-last]')).toBeNull();                                                   // 11-11 «마지막에 본 지도» 카드 뺌
     expect(pic('[data-floor-row="f1"]').querySelector('svg')!.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');   // 비율 유지(contain)
@@ -371,9 +371,11 @@ describe('지도 탭 — 장소 나무', () => {
     serve(signedIn(LEE));
     await open('#/map');
     await click($('[data-to-chooser]'));
-    expect(btn('+ 지도 만들기')).toBeTruthy(); expect(btn('+ 파일 올리기')).toBeTruthy();
-    expect(btn('장소 고치기')).toBeUndefined(); expect($('[data-terrain-enter]')!.getAttribute('href')).toBe('#/terrain');
-    await click(btn('+ 파일 올리기'));
+    expect($('[data-make-robot]')!.textContent).toBe('새 지도 만들기'); expect($('[data-make-robot]')!.getAttribute('aria-disabled')).toBeNull();   // 시안 u7_1 btnp 하나
+    expect(btn('장소 고치기')).toBeUndefined(); expect($('[data-make-file]')).toBeNull();
+    await click($('[data-seg="관리"]'));                                                     // 시안 u7_2: 지형 만들기 · 3D 지도 올리기는 관리 칸
+    expect($('[data-terrain-enter]')!.getAttribute('href')).toBe('#/terrain');
+    await click($('[data-make-file]'));
     expect($('dialog[open]')).toBeNull();   // 떠 있는 창 없음 = 시안 u7 틀 화면
     expect(card('파일 올리기 — 어느 층에? 화면').textContent).toContain('지도 파일을 올릴 층을 고르세요.');
     expect($('[data-u7="u7_upload"] [data-chip="floor"] select')).toBeTruthy();
@@ -385,8 +387,8 @@ describe('지도 탭 — 장소 나무', () => {
     for (const me of [KIM, LEE]) {
       serve(signedIn(me));
       await open('#/map');
-      await click($('[data-to-chooser]'));
-      expect(btn('+ 파일 올리기')).toBeTruthy(); expect($('[data-terrain-enter]')).toBeNull();
+      await click($('[data-to-chooser]')); await click($('[data-seg="관리"]'));
+      expect($('[data-make-file]')).toBeTruthy(); expect($('[data-terrain-enter]')).toBeNull();
       act(() => root?.unmount()); root = null; box?.remove();
     }
   });
@@ -426,7 +428,10 @@ describe('지도 탭 — 장소 나무', () => {
     serve(signedIn(KIM));
     await open('#/map');
     await click($('[data-to-chooser]'));
-    expect(btn('+ 지도 만들기')).toBeUndefined(); expect(btn('+ 파일 올리기')).toBeTruthy();
+    expect($('[data-make-robot]')!.getAttribute('aria-disabled')).toBe('true');
+    await click($('[data-make-robot]'));
+    expect(alertText()).toContain('지도 만들기는 담당 실기 로봇이 있어야 합니다.'); expect($('[data-u7="u7_6_scan"]')).toBeNull();
+    await click($('[data-seg="관리"]')); expect($('[data-make-file]')).toBeTruthy();
   });
   it('파일 올리기 → 새 층 만들기 → 그 층으로 들어가 «새 지도 올리기» 창이 바로 열림', async () => {
     let made = false;
@@ -449,10 +454,9 @@ describe('지도 탭 — 장소 나무', () => {
     serve(signedIn(LEE, { 'GET /sites': { status: 200, body: { items: [], next_cursor: null } } }));
     await open('#/map');
     expect($('[data-empty="map"]')!.textContent).toContain('아직 지도가 없습니다담당 실기 로봇이 돌아다니며 그리거나 지도 파일을 올리면 여기에 보입니다.');   // U11-04 빈 화면
-    expect([...$('[data-empty="map"]')!.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['+ 지도 만들기']);
+    expect($('[data-empty="map"] [data-empty-act]')!.textContent).toBe('지도 만들기');
     expect(card('지도 고르기').textContent).not.toMatch(/SLAM/);
-    expect(btn('+ 파일 올리기')!.disabled).toBe(false);
-    await click(btn('+ 파일 올리기'));
+    await click($('[data-seg="관리"]')); await click($('[data-make-file]'));
     expect(card('장소').textContent).toContain('등록된 장소가 없습니다. «+ 장소»로 만드세요.');
     expect(btn('+ 장소')).toBeTruthy();
   });
@@ -461,9 +465,9 @@ describe('지도 탭 — 장소 나무', () => {
     serve(signedIn(KIM, { 'GET /sites': () => (++n === 1 ? { status: 200, body: { items: [{ id: 's1' }] } } : n === 2 ? (() => { throw new TypeError('x'); })() : { status: 200, body: TREE }) }));
     await open('#/map');
     expect(alertText()).toContain('장소 목록을 받지 못했습니다. 받은 지도 형식이 맞지 않습니다.');
-    await click(btn('다시 시도', card('지도 고르기')));
+    await click($('[data-retry]'));
     expect(alertText()).toContain('서버에 연결하지 못했습니다');
-    await click(btn('다시 시도', card('지도 고르기')));
+    await click($('[data-retry]'));
     expect(alertText()).toBe('');
     expect($('[data-building="b1"]')).toBeTruthy();
     await stopSends();
@@ -472,7 +476,7 @@ describe('지도 탭 — 장소 나무', () => {
     serve(signedIn(KIM, { 'GET /sites': { status: 200, body: { items: [], next_cursor: null } } }));
     await open('#/map');
     expect($('[data-empty="map"]')!.textContent).toContain('지도 파일(그림 · yaml)을 올리면 여기에 보입니다.');
-    expect([...$('[data-empty="map"]')!.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['+ 파일 올리기']);
+    expect($('[data-empty="map"] [data-empty-act]')!.textContent).toBe('파일 올리기');
   });
 });
 
@@ -1515,7 +1519,7 @@ describe('지도 편집 — PR #30 검토(B1~B4)', () => {
     serve(editSrv());
     await startEdit();
     await tool('연결점'); await tap(1, 1);
-    expect(btn('+ 파일 올리기')).toBeUndefined();
+    expect($('[data-make-file]')).toBeNull();
     expect($('[data-to-chooser]')).toBeNull();   // 편집 화면엔 «모든 지도 보기» 없음
     await click($('[data-u7-back]'));
     expect(card('확인').textContent).toContain('편집한 내용을 버리고 보기로 나갈까요?');
@@ -1525,7 +1529,7 @@ describe('지도 편집 — PR #30 검토(B1~B4)', () => {
     await click($('[data-u7-back]'));
     await click(btn('버리고 나가기', card('확인')));
     await click($('[data-to-chooser]'));
-    expect($('[aria-label="지도 고르기"]')).toBeTruthy(); expect(btn('+ 파일 올리기')).toBeTruthy();
+    expect($('[aria-label="지도 고르기"]')).toBeTruthy(); expect($('[data-make-robot]')).toBeTruthy();
     expect(unload()).toBe(false);
   });
   it('B3 폰 틀로 바뀌어 지도 탭이 내려가도 층·기준 판·요소·그리던 점·도구·이유를 남겨 PC 로 돌아오면 이어 씀, 그동안 새로고침은 묻는다', async () => {
@@ -2176,7 +2180,7 @@ describe('지도 탭 REAL · 시뮬 탭 SIM', () => {
   const OLD = { id: 's8', name: '옛 장소(purpose 없음)', buildings: [{ id: 'b8', site_id: 's8', name: '창고', floors: [floor('f8', '1층', 1, null, 'b8')] }] };
   const BOTH = { items: [TREE.items[0], SIMS, OLD], next_cursor: null } as unknown as SiteTree;
   const toChooser = async () => { if ($('[data-to-chooser]')) await click($('[data-to-chooser]')); };
-  const sitesShown = () => $$('[aria-label="지도 고르기"] .mx-site').map((s) => s.getAttribute('aria-label'));
+  const sitesShown = () => $$('[aria-label="지도 고르기"] .mx-site, [data-u7="u7_1_pick"] .side [aria-label^="장소 "]').map((s) => s.getAttribute('aria-label'));
   const empty = { 'GET /floors/f8/map-versions': { status: 200, body: { items: [], next_cursor: null } }, 'GET /floors/f9/map-versions': { status: 200, body: { items: [], next_cursor: null } } };
   it('지도 탭은 REAL 만', async () => {
     serve(signedIn(KIM, { 'GET /sites': { status: 200, body: BOTH }, ...empty }));
@@ -2527,8 +2531,8 @@ describe('지도 탭 · 시안 u7', () => {
     await toPick();
     const sites = card('현장');
     expect([...sites.querySelectorAll<HTMLElement>('[data-building]')].map((b) => b.dataset.building)).toEqual(['b9a']);
-    expect(sites.querySelector('[data-building="b9a"]')!.textContent).toContain('시뮬 월드 · 1층');
-    expect(sites.querySelector('.lbl')!.textContent).toBe('지도 1 개');
+    expect(sites.querySelector('[data-building="b9a"]')!.textContent).toContain('시뮬 월드 · 1 층');
+    expect(sites.querySelector('[data-map-count]')!.textContent).toBe('지도 1 개');
     expect([...box.querySelectorAll<HTMLElement>('[aria-label="층 목록"] [data-floor-row]')].map((r) => r.dataset.floorRow)).toEqual(['f9a']);
   });
 
@@ -2543,14 +2547,19 @@ describe('지도 탭 · 시안 u7', () => {
   it('u7_2 관리: 장소 · 건물 · 층 편집(이름 바꾸기 · 삭제 · 더하기) + 지형 만들기 · 지도 올리기 · 휴지통', async () => {
     serve(signedIn(KIM));
     await toPick();
-    await click(btn('관리', card('고르기 · 관리')));
+    await click($('[data-seg="관리"]'));
+    expect($('[data-u7="u7_2_manage"]')).not.toBeNull(); expect($('[data-seg="관리"]')!.className).toBe('on');
     const ed = card('장소 · 건물 · 층 편집');
     expect(ed.querySelector('[aria-label="장소 본관"]')).toBeTruthy();
-    expect(btns(ed).filter((b) => b.textContent === '이름 바꾸기').length).toBeGreaterThan(0);
-    expect(btn('+ 건물', ed)).toBeTruthy();
+    expect(ed.querySelector('[data-manage-floor="f1"]')!.textContent).toContain('10/20 · v2');   // 시안 u7_2 층 줄: 그림 · 이름 · 꼬리표 · 날짜 · 판
+    await click(ed.querySelector('[data-rename="f2"]'));                                   // 연필 = 이름 바꾸기 칸
+    expect(card('층 이름 바꾸기 — 2층')).toBeTruthy();
+    await click(ed.querySelector('[data-del="b1"]'));                                       // 휴지통 = 확인 칸 뒤에만 지움
+    expect(card('확인').textContent).toContain('«본동» 건물을 휴지통으로 옮길까요?');
+    expect(sent('DELETE', '/buildings/b1')).toHaveLength(0);
     expect($('[data-manage-terrain] [data-terrain-enter]')).toBeTruthy();
     expect($('[data-manage-up] [data-make-file]')).toBeTruthy();
-    expect($('[data-manage-trash] a')).toBeTruthy();
+    expect($('[data-manage-trash] [data-trash-link]')).toBeTruthy();
     expect($('[aria-label="미리 보기"]')).toBeNull();
   });
 
