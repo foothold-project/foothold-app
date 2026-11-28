@@ -54,4 +54,5 @@ export function BellFace({ unread }: { unread: number }) {
 }
 
 /** 시안 «모두 정지» 단추 겉모양(속은 App 의 STOP 처리) */
-export const STOP_FACE = <><svg className="ic" viewBox="0 0 24 24" style={{ width: '16px', height: '16px' }}><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z" /><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" /></svg>모두 정지</>;
+/** name 이 있으면 시안 u5_2 처럼 «K-01 정지»(관제에서 고른 로봇 한 대), 없으면 «모두 정지» */
+export const stopFace = (name?: string | null) => <><svg className="ic" viewBox="0 0 24 24" style={{ width: '16px', height: '16px' }}><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z" /><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" /></svg>{name ? `${name} 정지` : '모두 정지'}</>;

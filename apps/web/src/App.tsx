@@ -32,7 +32,7 @@ import { Terrain } from './screens/terrain';
 import { Trash } from './screens/trash';
 import { ScanPanel, ScanStart } from './screens/scanentry';
 import { ThemeNav, ThemePick, useTheme } from './theme';
-import { BellFace, PcBar, STOP_FACE } from './proto/bar';
+import { BellFace, PcBar, stopFace } from './proto/bar';
 import { setStage } from './stage';
 import { Control5 } from './proto/u5';
 import { EmptyRobots, PcAsk } from './proto/u11';
@@ -443,7 +443,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       <div className={`proto${light ? ' light' : ''}`} data-layout="pc" data-scale={stage.s.toFixed(4)} style={{ position: 'absolute', left: 0, top: 0, width: STAGE_W, height: STAGE_H, transform: `translate(${stage.x}px,${stage.y}px) scale(${stage.s})`, transformOrigin: '0 0' }}>
       <PcBar light={light} tabs={barTabs} cur={navTab} go={goTab} role={user.role} name={user.name} roleName={ROLE_NAME[user.role]} online={pool.filter((r) => r.online).length} net={net.at}
         bell={<Guard quiet><Bell cancel={cancel} face={(n) => <BellFace unread={n} />} pop={`fh${light ? ' light' : ''}`} /></Guard>}
-        stop={(canStop || toSim) && <button type="button" className="allstop" aria-label="비상 정지" data-stop style={{ minHeight: 44 }} {...barStop}>{STOP_FACE}</button>}
+        stop={(canStop || toSim) && <button type="button" className="allstop" aria-label="비상 정지" data-stop style={{ minHeight: 44 }} {...barStop}>{stopFace(ctlPick?.name)}</button>}
         approvals={user.role === 'ORG_ADMIN' ? { n: dash.d ? dash.d.approvals_pending : null, why: dash.err ? `요약을 받지 못했습니다. ${dash.err}` : undefined } : undefined}
         driving={pool.filter((r) => !!rt.get(r.id).lease).map((r) => r.name)}
         menu={<>{logout && <button type="button" className="btn" onClick={logout}>로그아웃</button>}<ThemeNav /></>} />
