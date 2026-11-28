@@ -78,6 +78,8 @@ export function endDrive(id: string, go: Ctx['go']) {
 /** 실기 조종 안내: 비례가 아니라 켜짐/꺼짐 */
 export const REAL_STICK = '실기는 손잡이를 30 % 넘게 밀면 정해진 속도로 움직입니다. 한 손잡이는 큰 쪽 한 방향만 보냅니다.';
 export { REAL_WAIT };
+/** 설정을 모를 때 입력이 0 이 되는 순간만 뜨는 작은 알약(시안 밖 · 새로 그림 · app-lead 11-28 22:26). 10 초 넘게 모르면 위 띠 REAL_WAIT */
+export const REAL_WAIT_PILL = '설정 확인 중 · 입력 0';
 const RELEASING = '조종권 반납을 확인하는 중입니다. 확인되면 다시 누르세요.';
 
 export function Drive(c: Ctx) {
@@ -198,6 +200,7 @@ function Screen(c: Ctx) {
   };
   /** 손잡이 까닭 한 줄(PC 로봇 탭 useServerDrive stick 과 같은 순서): 표 밖 조합 · 옆 상한 · 그 밖 상한 */
   const [padWhy, setPadWhy] = useState('');
+  const [zero, setZero] = useState(false), [long, setLong] = useState(false);   // zero = 누르는데 설정을 몰라 0 을 보냄 · long = 10 초 넘게 모름
   const stickSay = () => {
     const t = toks();
     setPadWhy(!readyRef.current || !t || !(input.current.st[0].length || input.current.st[1].length) ? ''
@@ -209,7 +212,8 @@ function Screen(c: Ctx) {
   const send = () => {
     if (!rt.get(r.id).lease) return;
     gen.tick(r.id);
-    const t = toks(), cmd = t && real && gotRef.current && isSettings(settingsRef.current) ? command(t) : TABLE[''];
+    const t = toks(), known = real && gotRef.current && isSettings(settingsRef.current), cmd = t && known ? command(t) : TABLE[''];
+    setZero(!known && !!t && t.length > 0);
     const [vx, vy, wz] = permitted(cmd, settingsRef.current) ? cmd : TABLE[''];   // 표 밖 · 조직 상한 밖이면 0
     rt.cmd(r.id, [vx, wz], vy, !t);
   };
@@ -302,6 +306,8 @@ function Screen(c: Ctx) {
     {([['rgb', 'RGB'], ['depth', '뎁스'], ['map', '지도']] as const).map(([v, t]) =>
       <button key={v} type="button" aria-pressed={view === v} onClick={() => setView(v)}>{t}</button>)}
   </div>;
+  const unknown = ready && !(real && ok);
+  useEffect(() => { setLong(false); if (!unknown) return; const id = window.setTimeout(() => setLong(true), 10000); return () => clearTimeout(id); }, [unknown]);
   const ban = (cls: string, x: ReactNode, p: Record<string, string | boolean> = {}) => <p className={`ban ${cls}`} role="status" {...p}>{x}</p>;
   // 정지 잠금 중(시안 u1_3): 조이스틱 · 동작 줄은 숨긴다(visibility · u1.app.css). 지우지 않는 까닭: 누른 손가락 · 세대(RV-425)는 부품이 붙어 있어야 그대로 판정
   const u1 = <div className={`proto pv u1d${light ? ' light' : ''}`} data-u1d data-stop-held={stopHeld ? '' : undefined}>
@@ -354,7 +360,7 @@ function Screen(c: Ctx) {
       {stalled && ban('red', STALLED, { 'data-stalled': true })}
       <DriveInputNote devices={rt.now() - l.stateAt < 3000 ? l.state?.devices : null} cls="ban amb" />
       {l.notice && ban('u1-info', l.notice)}
-      {ready && (real && ok ? ban('u1-info', REAL_STICK, { 'data-real-stick': true }) : ban('u1-info', REAL_WAIT, { 'data-real-wait': true }))}
+      {ready && (real && ok ? ban('u1-info', REAL_STICK, { 'data-real-stick': true }) : long && ban('u1-info', REAL_WAIT, { 'data-real-wait': true }))}
       {actMsg && ban('u1-info', actMsg, { 'data-act-msg': true })}
       {padWhy && mine && ban('amb', padWhy, { 'data-stick-why': true })}
       {back && mine && real && ok && !combo && !padWhy && !permitted(TABLE.down, settings) && ban('amb', CAP_BLOCK, { 'data-back-block': true })}
@@ -367,6 +373,8 @@ function Screen(c: Ctx) {
     {/* 손잡이(팀장 11-28 17:33 · PC 로봇 탭과 같은 robotact stickTok): 왼쪽 = 이동(앞 · 뒤 · 옆 · 큰 축 하나), 오른쪽 = 돌기. 문턱 0.3 */}
     {mine && <><Stick cls="stick" label="이동" both on={ready} epoch={0} gen={gen} press={nowRef.current} set={(y, x) => { input.current.st[0] = stickTok('L', -x, -y); stickSay(); }} grip={(o) => { input.current.sg[0] = o; }} lift={send} />
       <Stick cls="stick" label="회전" on={ready} epoch={0} gen={gen} press={nowRef.current} set={(x) => { input.current.st[1] = stickTok('R', -x, 0); stickSay(); }} grip={(o) => { input.current.sg[1] = o; }} lift={send} /></>}
+    {/* 설정 확인 알약: 시안 밖 · 새로 그림. 설정을 몰라 입력이 0 이 되는 순간만 동작 줄 위 가운데(10 초 넘으면 위 띠로) */}
+    {unknown && zero && !long && <p className="u1-pill" role="status" data-real-wait-pill data-off-proto="settings-pill">{REAL_WAIT_PILL}</p>}
     {/* 아래 동작 줄(시안 u1_2 .act 일곱): 지금 못 누르는 것(순정 확인 전 · 저수준 중 · START 중 일어서기)은 흐리게(.na), 눌러도 보내지 않고 까닭 */}
     <div className="act" aria-label="동작">{ACTS.map(([name, t, em, ic]) => {
       const off = actOff(name, lowlevel), running = l.state?.action_result?.status === 'RUNNING' ? l.state.action_result.action : null;   // 지금 하는 동작 = 로봇 보고(시안 .act .run 초록 테)

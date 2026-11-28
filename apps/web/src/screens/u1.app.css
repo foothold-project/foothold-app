@@ -99,3 +99,6 @@
 .u1d .pane .u1-sheets{position:static;transform:none;gap:6px;height:auto;padding-top:8px}   /* .dv-sheets(drive.css 아래 줄 절대 위치)를 칩 펼침 안 제 줄로 */
 .u1d .pane .u1-sheets button{flex:1;height:32px;border-radius:10px;background:rgba(20,30,50,.06);color:var(--ink);font-size:11.5px;font-weight:700;text-align:center}
 .u1d .pane .u1-sheets button[aria-expanded="true"]{background:rgba(24,160,126,.16);color:#0e7f63}
+/* 설정 확인 알약(시안 밖 · 새로 그림 · app-lead 11-28 22:26): 동작 줄(.act bottom 18px) 위 가운데 · 손가락을 막지 않음 */
+.u1d .u1-pill{position:absolute;left:50%;bottom:84px;transform:translateX(-50%);margin:0;padding:4px 12px;border-radius:999px;font-size:11.5px;font-weight:600;line-height:1.3;white-space:nowrap;color:#fff;background:rgba(14,17,22,.72);border:1px solid rgba(255,255,255,.18);z-index:2;pointer-events:none}
+.proto.light.u1d .u1-pill{background:rgba(255,255,255,.86);border-color:rgba(20,30,50,.12);color:#16191f}
