@@ -8,7 +8,7 @@ import type { User as ApiUser } from '../../contracts/ts';
 import { BrandLogo } from './BrandLogo';
 import { ROBOTS, ROLE_NAME, USERS, idleSim, lost, lostText, myRobots, robotsFor, type Robot, type User } from './fake';
 import { PC_BOTTOM, PC_TABS, PHONE_SCAN, labelOf, leaving, oldScenario, tabFromHash, tabsFor, type Tab, type TabId } from './menu';
-import { rt, useRt, withLive, type Live } from './rt';
+import { rt, undelivered, useRt, withLive, type Live } from './rt';
 import { BODY, EmptyFleet, inApp, useDash, type Ctx } from './screens';
 import { Connect, NO_ROBOT, endDrive } from './drive';
 import { sim, useSim } from './phone';
@@ -20,7 +20,7 @@ import { Approvals } from './screens/approvals';
 import { Bell, History } from './screens/history';
 import { kept } from './screens/mapedit';
 import { Maps } from './screens/maps';
-import { keptPlan } from './screens/missions';
+import { MissionTab, keptMission } from './screens/missiontab';
 import { Settings } from './screens/settings';
 import { SettingsU9 } from './screens/settingsu9';
 import { EmptyControl, useControlPick } from './screens/control';
@@ -37,6 +37,7 @@ function stopText(r: Robot, l: Live) {
   if (s.phase === 'sending') return `■ ${r.name} 정지 요청을 보내는 중입니다.`;
   if (s.phase === 'failed') return `▲ ${r.name} 정지 요청을 보내지 못했습니다. ${s.why ?? ''} 현장에서 로봇을 직접 멈추세요.`;
   if (s.phase === 'unsure') return `▲ ${r.name} 정지 요청을 보냈지만 서버 접수를 확인하지 못했습니다. ${s.why ?? ''} 현장에서 로봇을 직접 멈추세요.`;
+  const no = undelivered(s, st); if (no) return `▲ ${r.name} ${no}`;
   // 대체 경로로 보낸 뒤에는 다시 연결되어 요청 뒤 state 가 와야 로봇 확인을 본다
   if (s.phase === 'fallback' && !(st && l.stateAt > s.at)) return `■ ${r.name} 정지 요청됨(대체 경로) — 실시간 연결이 끊겨 로봇 확인은 보이지 않습니다. 현장을 확인하세요.`;
   if (!st || l.stateAt <= s.at) return `■ ${r.name} 정지 요청됨 — 서버가 받았습니다. 로봇 확인을 기다립니다.`;
@@ -79,8 +80,8 @@ function groupStops(rs: Robot[], live: (id: string) => Live, off: string[], now:
 // 마우스 쓰는 낮은 PC 창(1440×400 등)은 PC 틀 유지(10-19 조정 결정 R1)
 /** 알림 링크가 여는 항목(주소 매개변수 이름) */
 const FOCUS: Partial<Record<TabId, string>> = { history: 'event_id', approval: 'approval_id' };
-/** 옛 시나리오 탭 주소(#/mission·#/mission/<id>·?scenario_id=)면 지도 탭 시나리오 쪽으로, id 가 있으면 그 시나리오를 연 채(그 층은 지도 탭이 찾음) — 북마크·알림 링크가 깨지지 않게(MAP-TAB-MERGE 11-03). 옛 주소였으면 true */
-const toMap = (h: string) => { const id = oldScenario(h); if (id == null) return false; keptPlan.kind = 'scenarios'; if (id) { keptPlan.sel = id; keptPlan.find = true; } return true; };
+/** 임무 탭 주소(옛 #/mission·#/mission/<id>·?scenario_id= 포함)면 임무 탭이 그 임무를 고르게. 북마크·알림 링크가 깨지지 않게(W2). 임무 탭 주소였으면 true */
+const toMission = (h: string) => { const id = oldScenario(h); if (id == null) return false; if (id) keptMission.sel = id; return true; };
 
 export const PHONE_Q = '(max-width: 767.98px), (pointer: coarse) and (orientation: landscape) and (max-height: 480px)';
 const watchQ = (q: string) => (f: () => void) => { const m = matchMedia(q); m.addEventListener('change', f); return () => m.removeEventListener('change', f); };
@@ -179,7 +180,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   useEffect(() => { rt.connect(mine ? mine.split(',') : []); return () => rt.disconnect(); }, []);
   useEffect(() => rt.follow(mine ? mine.split(',') : [], fresh), [mine, fresh]);   // 목록 갱신으로 담당이 바뀌면 구독도(소켓은 그대로)
   // 원하는 탭(주소)과 보이는 탭을 나눈다: 보이는 탭은 렌더마다 지금 틀(PC/폰)에서 도출 — 폭이 바뀌어 틀에 없는 탭이면 첫 탭(B1)
-  const [want, setWant] = useState(() => (toMap(location.hash), location.hash)), tab = tabFromHash(want, phone), sub = want.split('/')[2];
+  const [want, setWant] = useState(() => (toMission(location.hash), location.hash)), tab = tabFromHash(want, phone), sub = want.split('/')[2];
   // 알림 링크 #/history?event_id=<id> — 기록 탭이면 그 사건을 위에 보인다, #/approvals?approval_id=<id> — 결재 탭이면 그 결재를 연다(주소에도 남김)
   const fk = FOCUS[tab], focus = fk ? new URLSearchParams(want.split('?')[1] ?? '').get(fk) ?? undefined : undefined;
   // 고를 수 있는 로봇: PC 는 받은 목록(총괄 전체, 운영 관리자 내 로봇), 폰은 내 로봇(총괄은 전체 · 11/28). 끝낸 시뮬 슬롯(idleSim)은 둘 다 뺀다. 고른 값이 범위 밖이면 첫 로봇
@@ -197,6 +198,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   // 두 영상 채널은 조종 화면·작은 창이 바뀌는 사이에도 받는다(일회 토큰 — 받는 칸이 0 이 되면 닫혀 부모 연결을 다시 열어야 함). 구독은 안 함(App 다시 그림 0)
   useEffect(() => { if (!simUp) return; media.want('external', 1); media.want('rgb', 1); return () => { media.want('external', -1); media.want('rgb', -1); }; }, [simUp]);
   useEffect(() => () => sim.clear(), []);
+  useEffect(() => sim.as(user.name), [user.name]);   // 폰 · 시뮬 탭 hello.display_name(#537) · 받는 쪽 LEASE_HELD 안내의 «OO 님»
   const [rid, setRid] = useState(''), robot: Robot | undefined = pool.find((r) => r.id === (open ? sub : rid)) ?? pool[0];   // 0대면 undefined — 본문은 «로봇 없음»
   useEffect(() => { if (robot) setRid(robot.id); }, [robot?.id]);
   const dash = useDash(cancel);   // 관제 칸과 결재 탭 배지가 같은 값(한 곳에서 받음)
@@ -264,7 +266,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       const back = (e.oldURL && new URL(e.oldURL).hash) || '#/map';
       // 옛 시나리오 주소도 지도 탭을 다시 그리고 층을 옮기므로 같은 확인을 거친다(REVIEW-260 B1) — 취소하면 지금 편집·선택 그대로
       if (ask && (tabFromHash(h, false) !== tabFromHash(back, false) || oldScenario(h) != null)) { history.replaceState(null, '', back); ask(() => { location.hash = h; }); return; }
-      if (toMap(h)) setMapN((x) => x + 1);   // 옛 시나리오 주소 — 지도 탭을 다시 그려 그 시나리오를 연다
+      if (toMission(h)) setMapN((x) => x + 1);   // 임무 탭 주소면 임무 탭을 다시 그려 그 임무를 고른다
       away.current = null; setWant(h);
     };
     addEventListener('hashchange', f); return () => removeEventListener('hashchange', f);
@@ -342,7 +344,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   const shut = (e: { currentTarget: Element }, f: () => void) => { e.currentTarget.closest('details')?.removeAttribute('open'); f(); };
   const problems = pool.filter(lost);
   const ctx: Ctx | null = robot ? { user, robot, robots: tab === 'history' || tab === 'map' || tab === 'fleet' ? withSlots : pool, pick: setRid, go, open, phone, setMe, refresh, cancel, focus, dash } : null;
-  const Body = BODY[tab === 'missions' ? 'map' : tab];
+  const Body = BODY[tab];
   const none = <section className="lv-card" aria-label="로봇 없음"><h2>로봇이 없습니다</h2><p className="lv-note">{user.role === 'ORG_ADMIN' ? '등록된 로봇이 없습니다. 운영 관리자가 실기 로봇을 연결하거나 «시뮬» 탭에서 띄우면 여기에 보입니다.' : NO_ROBOT}</p></section>;
 
   const navTab = tab === 'terrain' ? 'map' : tab;   // 지형 만들기는 지도 탭 안 화면(11-19)
@@ -430,11 +432,12 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         : tab === 'settings' ? phone ? <Settings key={user.id} user={user} setMe={setMe} refresh={refresh} cancel={cancel} />
           : <SettingsU9 key={user.id} user={user} setMe={setMe} refresh={refresh} cancel={cancel} logout={logout} />   // PC = 시안 u9 1920 화면, 폰 = 지금 판   // 로봇 목록이 바뀌어도 다시 그리지 않음(한 번만 보이는 토큰 칸 유지)
         : tab === 'terrain' ? <Terrain />   // 로봇과 무관 — 로봇 0대여도, 로봇을 바꿔도 다시 그리지 않음
-        : ctx ? <Body key={`${tab}-${tab === 'control' || tab === 'fleet' || tab === 'approval' || tab === 'trash' ? '' : tab === 'map' ? mapN : ctx.robot.id}-${user.id}`} {...ctx} />   // 관제·지도·결재는 로봇을 골라도 다시 그리지 않음(층·지도 그림·고른 결재 유지 — 상세 서랍은 자기 key)
+        : ctx ? <Body key={`${tab}-${tab === 'control' || tab === 'fleet' || tab === 'approval' || tab === 'trash' ? '' : tab === 'map' || tab === 'missions' ? mapN : ctx.robot.id}-${user.id}`} {...ctx} />   // 관제·지도·결재는 로봇을 골라도 다시 그리지 않음(층·지도 그림·고른 결재 유지 — 상세 서랍은 자기 key)
         : tab === 'drive' ? <Connect user={user} robots={pool} go={go} refresh={refresh} cancel={cancel} />   // 로봇 0대여도 시뮬 로봇 띄우기 자리
         : tab === 'control' ? <EmptyControl />   // 로봇 0대 관제 = 한 줄 + 로봇 탭 링크
         : tab === 'fleet' ? <EmptyFleet user={user} cancel={cancel} dash={dash} robots={withSlots} refresh={refresh} />   // 로봇 0대여도 관제 요약·운영 관리자 표
         : tab === 'history' ? <History key={`history-${user.id}`} user={user} robots={withSlots} go={go} phone={phone} cancel={cancel} focus={focus} />   // 로봇 0대여도 계정·내 행동 기록과 알림 링크
+        : tab === 'missions' ? <MissionTab key={`missions-${mapN}-${user.id}`} user={user} robots={pool} cancel={cancel} />   // 로봇 0대여도 임무 목록·짜기
         : tab === 'map' ? <Maps key={`map-${mapN}-${user.id}`} user={user} cancel={cancel} dash={dash} robots={withSlots} />   // 로봇 0대여도 장소·지도·시나리오
         : tab === 'approval' ? <Approvals key={`approval-${user.id}`} user={user} cancel={cancel} focus={focus} dash={dash} />   // 로봇 0대여도 결재
         : tab === 'sim' ? <SimTab user={user} robots={robots} refresh={refresh} />   // 로봇 0대여도 시뮬 띄우기

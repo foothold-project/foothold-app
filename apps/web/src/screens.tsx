@@ -8,6 +8,7 @@ import { rt, useRt, withLive } from './rt';
 import { Approvals } from './screens/approvals';
 import { History, RecentEvents } from './screens/history';
 import { FloorMap, Maps } from './screens/maps';
+import { MissionTab } from './screens/missiontab';
 import { Guard } from './App';
 import { Settings } from './screens/settings';
 import { ScenarioPick } from './screens/missions';
@@ -77,13 +78,13 @@ export function useDash(cancel?: AbortSignal): Dash {
 
 /** 로봇 0대의 관제. 총괄: 요약·빈 목록 안내(children)·지도·운영 관리자 표. 운영 관리자: 등록·담당 요청·시뮬 띄우기 입구(요약 숫자 없이 — 한 대 집중 화면과 같게).
  *  robots = 끝낸 시뮬 슬롯까지 든 목록 — 요약은 로봇 탭처럼 실기만 센다(realDash) */
-/** 로봇 0대(U11-04 빈 화면): 아이콘 · 한 줄 까닭 · 다음 할 일 하나. 운영자 = «+ 새 로봇 추가», 총괄 = «시뮬 탭 열기»(총괄은 실기를 연결하지 않음) */
+/** 로봇 0대(U11-04 빈 화면): 아이콘 · 한 줄 까닭 · 칠한 다음 할 일 하나. 운영자 = «+ 새 로봇 추가» + 칠하지 않은 «시뮬 탭 열기»(시뮬 탭은 메뉴에 없음 · 08:27), 총괄 = «시뮬 탭 열기»(총괄은 실기를 연결하지 않음) */
 export function EmptyFleet({ user, cancel, dash, robots, refresh }: { user: User; cancel?: AbortSignal; dash: Dash; robots: Robot[]; refresh: () => void }) {
   const d = realDash(dash.d, robots), { err } = dash;
   if (user.role !== 'ORG_ADMIN') return <Pair user={user} mine={[]} refresh={refresh} cancel={cancel}>
-    {(add) => <Empty kind="robots" title="담당 로봇이 없습니다" why="연결 코드로 실기를 등록하거나 총괄에게 담당 지정을 요청하세요. 시뮬 로봇은 «시뮬» 탭에서 띄웁니다.">{add}</Empty>}</Pair>;
+    {(add) => <Empty kind="robots" title="담당 로봇이 없습니다" why="연결 코드로 실기를 등록하거나 총괄에게 담당 지정을 요청하세요. 시뮬 로봇은 «시뮬 탭 열기»에서 띄웁니다.">{add}<a className="btn" href="#/sim">시뮬 탭 열기</a></Empty>}</Pair>;
   return <><Kpi user={user} d={d} err={err} />
-    <Empty kind="robots" title="등록된 로봇이 없습니다" why="운영 관리자가 실기 로봇을 연결하거나 «시뮬» 탭에서 띄우면 여기에 보입니다."><a className="btn pri" href="#/sim">시뮬 탭 열기</a></Empty>
+    <Empty kind="robots" title="등록된 로봇이 없습니다" why="운영 관리자가 실기 로봇을 연결하거나 «시뮬 탭 열기»에서 띄우면 여기에 보입니다."><a className="btn pri" href="#/sim">시뮬 탭 열기</a></Empty>
     <MapCard cancel={cancel} /><Operators user={user} d={d} /></>;
 }
 
@@ -233,5 +234,4 @@ const RUN: Record<string, string> = { QUEUED: '대기열', PREPARING: '준비 �
 /** 폰 조종 화면의 시나리오 시트 — 이 로봇이 있는 층의 실기 시나리오에서 고른다(배정 없음, RB-MAP-NO-SCEN 11-18) */
 export const Scenario = (c: Ctx) => <ScenarioPick robot={c.robot} cancel={c.cancel} />;
 
-/** missions 는 tabFromHash 가 지도 탭으로 바꿔 열리지 않는다(임무 탭 #530 전까지) */
-export const BODY: Record<Exclude<TabId, 'missions'>, (c: Ctx) => JSX.Element> = { control: Control, fleet: Fleet, drive: Drive, approval: Approvals, history: History, map: Maps, trash: Trash, sim: SimTab, terrain: Terrain, settings: Settings };
+export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { control: Control, fleet: Fleet, missions: MissionTab, drive: Drive, approval: Approvals, history: History, map: Maps, trash: Trash, sim: SimTab, terrain: Terrain, settings: Settings };

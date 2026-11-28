@@ -109,6 +109,10 @@ function Installer({ cancel, phone }: Cancel & { phone: boolean }) {
 }
 
 type Step = { at: 'code' } | { at: 'name'; p: PairingClaimed } | { at: 'done'; name: string; again: boolean; robot: Robot } | { at: 'scan'; robot: Robot };
+/** 단계 막대(U2-01): 코드 1 · 이름 2 · 끝 3(붙인 뒤 지도 스캔도 3). 지난 칸과 지금 칸을 채운다 */
+const STEP_N: Record<Step['at'], number> = { code: 1, name: 2, done: 3, scan: 3 };
+const Steps = ({ n }: { n: number }) => <span className="pair-steps" role="img" aria-label={`3 단계 중 ${n} 단계`} data-pair-steps>
+  {[1, 2, 3].map((i) => <i key={i} data-on={i <= n || undefined} />)}<b>{n} / 3</b></span>;
 
 /** 새 로봇 추가(운영 관리자). mine = 지금 내 로봇 id(확정 답의 id 가 이미 있으면 재연결).
  *  PC(넓은 화면·마우스)는 «설치 파일 받기 | 코드 넣기» 두 칸, 6자리 코드가 주 동작이고 QR(노트북 카메라)은 보조. 폰·앱은 한 줄로 QR 먼저(11-12) */
@@ -162,7 +166,7 @@ export function AddRobot({ user, mine, close, refresh, cancel }: { user?: User; 
   // 붙이기 끝 → 지도 스캔: 새 로봇 추가 카드를 스캔 칸으로 바꾼다(닫기 = 내 로봇으로와 같이 목록 다시 받기)
   if (step.at === 'scan' && user) return <ScanPanel user={user} robots={[step.robot]} close={() => { refresh(); close(); }} cancel={cancel} />;
   return <section className={phone ? 'lv-card' : 'lv-card pair-pc'} style={{ flexBasis: '100%' }} aria-label="새 로봇 추가" data-pair={step.at}>
-    <div className="fh-row"><h2 className="fh-grow">새 로봇 추가</h2><button type="button" className="btn" onClick={close}>닫기</button></div>
+    <div className="fh-row"><h2>새 로봇 추가</h2><Steps n={STEP_N[step.at]} /><span className="fh-grow" /><button type="button" className="btn" onClick={close}>닫기</button></div>
     {step.at === 'code' && (phone ? <><Installer cancel={cancel} phone />{note}{qr}{form}{again}</>
       : <div className="pair-cols">
         <Installer cancel={cancel} phone={false} />
@@ -174,7 +178,12 @@ export function AddRobot({ user, mine, close, refresh, cancel }: { user?: User; 
           {scan ? qr : <div className="fh-row">{qr}<span className="lbl">노트북 카메라로 QR 을 읽을 때</span></div>}{again}</div>
       </div>)}
     {step.at === 'name' && <form className="fh-form pair-one" noValidate onSubmit={(e) => confirm(e, step.p)}>
-      <span className="lbl">기체번호 <span className="mono" data-pair-serial>{step.p.robot_serial}</span> — 노트북 화면과 다르면 «처음으로»</span>
+      {/* 확인 칸(u2_2): claim 답에 있는 값만. 기종은 답에 없어 칸을 두지 않는다 */}
+      <dl className="pair-check" data-pair-check>
+        <div><dt>기체번호</dt><dd className="mono" data-pair-serial>{step.p.robot_serial}</dd></div>
+        <div><dt>담당</dt><dd>나 (등록하는 사람)</dd></div>
+      </dl>
+      <span className="lbl">노트북 화면의 기체번호와 같은지 보세요. 다르면 «처음으로».</span>
       <label className="fh-field"><span>로봇 이름</span><input className="inp" name="name" value={name} maxLength={128} autoComplete="off" onChange={(e) => setName(e.target.value)} /></label>
       <div className="fh-row"><button type="submit" className="btn pri" disabled={busy}>{busy ? '등록 중…' : '등록'}</button><button type="button" className="btn" onClick={restart}>처음으로</button></div>
       <span className="lbl">등록한 사람(나)이 이 로봇의 담당이 됩니다. 연결 키는 노트북 연결 프로그램이 받아 저장하며 화면에는 보이지 않습니다.</span>
