@@ -933,6 +933,19 @@ describe('관제 탭', () => {
       expect(t.textContent).not.toContain('시뮬 등록');
     } finally { av.mockRestore(); sc.mockRestore(); }
   });
+  it('실기 타일 카메라: 받은 영상(drive-media rgb)이 있으면 그 그림, 없으면 «카메라 신호 없음 · 까닭» · 시뮬 · 데모는 열지 않음', () => {
+    mount('u-kim', EIGHT); feed(EIGHT);
+    const sock = (id: string) => FakeWS.all.filter((w) => w.url.endsWith(`/api/v1/robots/${id}/drive-media/rgb`)).pop();
+    expect(sock('k8')).toBeUndefined();   // 시뮬은 모형 그대로
+    const k1 = sock('k1')!;
+    expect(k1).toBeTruthy();
+    expect(tile('k1').querySelector('[data-cam="none"]')!.textContent).toContain('카메라 신호 없음');
+    act(() => { k1.open(); k1.recv({ t: 'media.status', version: 'media/1', channel: 'rgb', robot: 'k1', epoch: 0, reason: 'No fresh source sample within 1 second' }); });
+    expect(tile('k1').querySelector('[data-cam="none"]')!.textContent).toMatch(/^카메라 신호 없음 · ./);   // 까닭이 붙음
+    act(() => { k1.recv({ t: 'media.video', version: 'media/1', channel: 'rgb', robot: 'k1', epoch: 1, episode_id: null, seq: 1, mime: 'image/jpeg', jpeg: 'AAAA' }); });
+    expect(tile('k1').querySelector<HTMLImageElement>('img[data-cam="live"]')!.getAttribute('src')).toBe('data:image/jpeg;base64,AAAA');
+    expect(tile('k1').querySelector('[data-cam="none"]')).toBeNull();
+  });
   it('최근 경고 제목은 경고 종류대로: 정지 잠금(관절 온도는 보통)이면 «정지 잠금», 관절 이름 · 온도 아이콘을 붙이지 않음', () => {
     mount('u-kim', EIGHT); feed(EIGHT, { k2: { ...temp([30, 31, 32, 30, 31, 32, 30, 31, 32, 30, 31, 32]), latched: true, status: 'STOP_LATCHED' } as never });
     const al = $('[data-alert="k2"]');
