@@ -271,6 +271,13 @@ describe('관제 탭', () => {
     expect(order([a, d, c, e].map(F)).map((f) => f.x.id)).toEqual(['g7', 'g9', 'g3', 'g5']);
   });
 
+  it('order (팀장 11-28 17:34): 긴급이 아니면 실기 → 데모 → 사용자 시뮬', () => {
+    const real = { ...TWENTY[3], id: 'x', sim: false }, sim = { ...TWENTY[5], id: 's', sim: true }, demo = { ...TWENTY[3], id: 'd', sim: true };
+    const G = (r: Robot, dm = false) => facts(r, 'u-kim', new Map(), { demo: dm, label: null, charging: false, job: null });
+    expect(order([G(sim), G(demo, true), G(real)]).map((f) => f.x.id)).toEqual(['x', 'd', 's']);
+    expect(order([G(sim), G(demo, true), G({ ...real, status: 'ERROR' as const }), G({ ...sim, id: 's2', status: 'ERROR' as const })]).map((f) => f.x.id)).toEqual(['x', 's2', 'd', 's']);
+  });
+
   it('끊긴 로봇(u5_1 K-07): 칸 위 «다시 연결 중 · 마지막 화면 HH:MM» · 배터리는 값만(시안 «49 %») · 끊긴 시각은 연결 칸 «연결 중 HH:MM 끊김»', () => {
     mount('u-kim', TWENTY); feed(TWENTY);
     expect(tile('g15').querySelector('.lk')!.textContent).toBe('다시 연결 중마지막 화면 14:05');
