@@ -122,6 +122,17 @@ def test_operator_summary_scope_and_cross_org_404(client, seeded):
     assert second['next_cursor'] is None
 
 
+def test_robot_list_default_scope_follows_role(client, seeded):
+    # 운영 결정 2026-11-28: 총괄은 가장 상위 계정. scope 를 안 주면 조직 전체, 운영자는 mine.
+    org_robots = {str(seeded['robots'][x]) for x in ('mine', 'theirs')}
+    login(client)
+    assert [r['id'] for r in client.get(P + '/robots').json()['items']] == [str(seeded['robots']['mine'])]
+    login(client, 'admin')
+    assert {r['id'] for r in client.get(P + '/robots').json()['items']} == org_robots
+    assert client.get(P + '/robots?scope=mine').json()['items'] == []
+    assert {r['id'] for r in client.get(P + '/robots?scope=all').json()['items']} == org_robots
+
+
 @pytest.mark.parametrize('permission,role,owns,allowed', [
     ('A', 'ORG_ADMIN', False, True), ('A', 'OPERATOR', True, False),
     ('O', 'OPERATOR', False, True), ('O_OWN', 'OPERATOR', True, True),

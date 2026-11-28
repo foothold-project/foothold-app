@@ -249,8 +249,8 @@ def test_cached_http_stop_is_invalidated_immediately_by_account_or_session_chang
     assert rt.stop_cache_epoch > epoch and not rt.stop_cache
     response = client.post(f'/api/v1/robots/{rid}/stop', headers=headers)
     assert response.status_code == (403 if change == 'role' else 401)
-    if change == 'role':
-        assert response.json()['error']['code'] == 'ADMIN_NO_REAL_CONTROL'
+    if change == 'role':  # 총괄로 바뀌어도 서버 조종 꺼진 실기는 현장 폰 관문에 걸린다.
+        assert response.json()['error']['code'] == 'PHONE_DIRECT_REQUIRED'
 
 
 def test_warm_http_stop_never_waits_for_db_and_saturation_is_explicit(client, seeded, rt, monkeypatch):

@@ -1,4 +1,4 @@
-"""PC passes cannot target hardware; phone and admin boundaries stay intact."""
+"""PC passes cannot target hardware, for admins too (운영 결정 2026-11-28: 총괄도 실기 조종)."""
 import base64
 import json
 from uuid import uuid4
@@ -6,7 +6,6 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.orm import Session
 
-from apps.server.fh_server.api import ADMIN_NO_REAL_CONTROL
 from apps.server.fh_server.models import PhonePass, Robot
 from .test_api import csrf
 from .test_phone_pass import pc, rows
@@ -68,7 +67,7 @@ def test_agent_does_not_trust_server_simulation_flag(pc, seeded, tmp_path, purpo
         verifier.close()
 
 
-def test_admin_pc_physical_denial_precedes_surface_gate(pc, seeded):
+def test_admin_pc_physical_hits_surface_gate(pc, seeded):
     with Session(pc.app.state.engine) as db:
         db.get(Robot, seeded['robots']['mine']).simulation = False
         db.commit()
@@ -76,6 +75,5 @@ def test_admin_pc_physical_denial_precedes_surface_gate(pc, seeded):
                      headers=csrf(pc, 'admin'),
                      json=dict(device=str(uuid4()), purpose='control', surface='pc'))
     assert result.status_code == 403
-    assert result.json()['error'] == dict(
-        code='ADMIN_NO_REAL_CONTROL', message=ADMIN_NO_REAL_CONTROL, detail={})
+    assert result.json()['error']['code'] == 'WEB_SIM_ONLY'
     assert not rows(seeded, PhonePass)

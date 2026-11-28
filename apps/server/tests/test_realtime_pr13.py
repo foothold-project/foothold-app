@@ -449,7 +449,9 @@ def test_live_rows_still_control_memoized_rights_and_session_validity(client, se
         db.get(User, seeded['users']['one']).role = 'ORG_ADMIN'
         db.commit()
     promoted = run(client, snapshot).rights[rid]
-    assert 'O_OWN' not in promoted and 'ADMIN_NO_REAL_CONTROL' in promoted
+    # 운영 결정 2026-11-28: 총괄 승격이 실기 조종을 막지 않는다. 서버 조종 꺼진 실기는 현장 폰 관문만 남는다.
+    assert 'ADMIN_NO_REAL_CONTROL' not in promoted and 'PHONE_DIRECT_REQUIRED' in promoted
+    assert 'O_OWN' not in promoted
     assert 'ROBOT_READ' in promoted
     with DBSession(client.app.state.engine) as db:
         db.get(DBUserSession, actor.session).revoked_at = now()
