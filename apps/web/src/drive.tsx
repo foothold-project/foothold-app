@@ -1,6 +1,6 @@
 // 폰 조종(09 ADR-002 §3 — 02 기능 F-TO-01~05, 03 UX §5.7): 로봇 연결 → 조종(가로, 카메라 전체·양쪽 조이스틱·아래 줄 시트).
 // 조종권·잠금·STOP 은 실시간 연결(rt.ts → 관제 서버)만 부른다 — 판정은 서버 중재기. 시뮬 로봇은 폰 ↔ 에이전트 직결(phone.ts·simdrive.tsx).
-// 영상·지도·시나리오 제어는 자리만(가짜). 키보드(한 배치 · 11-28 17:25): W·↑ 전진, ← / → 옆걸음(조직 옆 상한이 허락할 때), A / D 회전, S·↓ 후진(조직 뒤 상한이 허락할 때 · 손잡이와 같은 규칙). Space = STOP 은 App 공통 층(모든 화면).
+// 카메라·라이다·뎁스는 서버 drive-media(PC 와 같은 drivemedia.ts · 받기만), 시나리오 제어는 자리만. 키보드(한 배치 · 11-28 17:25): W·↑ 전진, ← / → 옆걸음(조직 옆 상한이 허락할 때), A / D 회전, S·↓ 후진(조직 뒤 상한이 허락할 때 · 손잡이와 같은 규칙). Space = STOP 은 App 공통 층(모든 화면).
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { ADMIN_LATER, ROLE_NAME, driveBlock, robotStatus, type Holder, type Robot, type Role, type Tone } from './fake';
 import { CMD_MS, inputGen, metaCut, rt, useLive, useRt, type Live } from './rt';
@@ -14,7 +14,9 @@ import { NoRobot } from './screens/norobot';
 import { TakeoverAsk } from './screens/takeover';
 import { useTheme } from './theme';
 import { simTune, useSim, useTuneSettings } from './phone';
-import { COMBO_BLOCK, command, isSettings, permitted, REAL_WAIT, SIDE_BLOCK, TABLE, unknownCombo, type Tok } from './serverdrive';
+import { COMBO_BLOCK, DriveView, command, isSettings, permitted, REAL_WAIT, SIDE_BLOCK, TABLE, unknownCombo, type Tok } from './serverdrive';
+import { driveFeedText, useDriveFeed, type DriveFeed } from './drivemedia';
+import { LidarMap } from './lidarmap';
 import type { OrgSettings } from '../../contracts/ts';
 import { MissionCards, MissionMap, missionChip, missionOn, useMission, type MapSight } from './screens/u1mission';
 import { ACTS, RESTART_ASK, RESTART_TEXT, actOff, actWhy, shape, stickTok, useRestartAsk } from './robotact';
@@ -215,6 +217,8 @@ function Screen(c: Ctx) {
   // got = 이 화면이 조직 설정을 받음. 받기 전(앞 화면이 남긴 값 포함)·못 받으면 실기 입력은 0 — 서버가 상한 밖이라 거절·STOP 하지 않게
   const [got, setGot] = useState(false), gotRef = useRef(got); gotRef.current = got;
   const [view, setView] = useState<'rgb' | 'depth' | 'map'>('rgb');
+  // 카메라 · 라이다 · 뎁스(시안 u1_2): PC 로봇 탭과 같은 서버 drive-media 를 받기만. 서버 경유 실기 · 데모만 연다. 뎁스는 고른 동안만
+  const fs = { rgb: useDriveFeed(r.id, 'rgb', real), lidar: useDriveFeed(r.id, 'lidar', real), depth: useDriveFeed(r.id, 'depth', real && view === 'depth') };
   const [mview, setMview] = useState<MapSight>('follow'), [d3, setD3] = useState(false);   // 임무 바탕 지도 시점(시안 u1_1 왼쪽 고르개 · 보이기만)
   useEffect(() => { if (!d3) return; const id = window.setTimeout(() => setD3(false), 3000); return () => clearTimeout(id); }, [d3]);
   const [ask, setAsk] = useState(false);   // 시나리오 일시정지 확인창(F-TO-03, 03 §2 U10)
@@ -394,7 +398,7 @@ function Screen(c: Ctx) {
     {/* 작은 지도(시안 .mm 자리 · 꼴). 누르면 큰 보기를 지도 ↔ 영상으로. 반납 중에는 숨김(보기 단추로 같은 일) */}
     {!l.releasing && !mrun && <button type="button" className="g dk mm dv-mini" style={{ left: '12px', top: '64px', width: '140px', height: '96px', borderRadius: '16px', overflow: 'hidden', padding: 0 }}
       aria-label={view === 'map' ? '영상 크게' : '지도 크게'} onClick={() => setView(view === 'map' ? 'rgb' : 'map')}>
-      {view === 'map' ? <Video small /> : <MapView />}</button>}
+      {view === 'map' ? <Video fs={real ? fs : null} small /> : <MapView fs={real ? fs : null} />}</button>}
     {/* 오른쪽 줄(시안 .col): 첫 줄(연결 · ⋯)은 머리줄 겹 .u1-top, 아래로 걷기 모드(START 자리) · 보기 · 조종 */}
     <div className="col u1-col">
       <button type="button" className="g dk u1-mode" aria-expanded={sheet === 'policy'} onClick={() => pick(sheet === 'policy' ? null : 'policy')}>
@@ -461,7 +465,7 @@ function Screen(c: Ctx) {
   return <section className="dv ph" style={{ flexBasis: '100%' }} aria-label="조종" onContextMenu={(e) => e.preventDefault()}>
     <div className="dv-body">
       <div className={`dv-stage ${view}`}>
-        {view === 'map' ? <MapView big /> : <Video depth={view === 'depth'} />}
+        {view === 'map' ? <MapView fs={real ? fs : null} big /> : <Video fs={real ? fs : null} depth={view === 'depth'} />}
         {c.scan}{/* 지도 스캔 겹(시안 u14_2): 시안 겹 · 조종권 요청 창보다 아래 */}
         {u1}
         {q && <TakeoverAsk id="dv-ask-t" title={`${[ROLE_NAME[q.role as Role], q.name].filter(Boolean).join(' ') || '다른 사람'} 님이 ${r.name} 조종권을 요청했습니다`}
@@ -474,16 +478,19 @@ function Screen(c: Ctx) {
 }
 const Ic = ({ s, children }: { s: number; children: ReactNode }) => <svg className="ic" viewBox="0 0 24 24" style={{ width: `${s}px`, height: `${s}px` }} aria-hidden="true">{children}</svg>;
 
-/** 실기 RGB·뎁스·지도: 실기 영상 어댑터·지도·라이다 자료가 아직 없다 — 연결·명령 시도 없이 이유만(가짜 그림 0).
- *  예전 지도 칸은 고정 벽·계산한 라이다 점을 그려 실제 센서로 읽힐 수 있었다(critique 11-10) — 받은 값이 없으면 그리지 않는다 */
+/** RGB·뎁스·지도 칸. fs = 서버 drive-media 로 받은 자료(PC serverdrive DriveView · LidarMap 그대로). 받은 값이 없으면 «… 신호 없음 · 까닭» 만(가짜 그림 0 · critique 11-10).
+ *  fs 가 없으면(서버 경유가 아닌 로봇) 연결 시도 없이 이유만. 지도 칸 = 라이다 한 판을 위에서 본 그림(지도 만들기는 지도 탭) */
 export const REAL_RGB = '실기 영상 준비 중(미연결)';
 export const REAL_DEPTH = '뎁스 영상 없음 · 기능 준비 중';
 export const REAL_MAP = '지도·라이다 자료 없음 · 기능 준비 중';
-function Video({ depth, small }: { depth?: boolean; small?: boolean }) {
+type Fs = Record<'rgb' | 'lidar' | 'depth', DriveFeed>;
+function Video({ fs, depth, small }: { fs: Fs | null; depth?: boolean; small?: boolean }) {
+  if (fs) return <DriveView f={depth ? fs.depth : fs.rgb} ch={depth ? 'depth' : 'rgb'} big={!small} />;
   return <div className="dv-video" role="img" aria-label={depth ? '뎁스 영상' : 'RGB 영상'}>
     {!small && <span>{depth ? REAL_DEPTH : REAL_RGB}</span>}</div>;
 }
-function MapView({ big }: { big?: boolean }) {
+function MapView({ fs, big }: { fs: Fs | null; big?: boolean }) {
+  if (fs) return <LidarMap feed={fs.lidar} empty={driveFeedText(fs.lidar, 'lidar')} small={!big} start="top" bare />;
   return <div className="dv-video" role="img" aria-label="지도·라이다 없음" data-map-none>{big ? <span>{REAL_MAP}</span> : <span>지도 없음</span>}</div>;
 }
 

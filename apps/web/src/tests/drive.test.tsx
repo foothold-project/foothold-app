@@ -122,6 +122,37 @@ function ready() {
   expect($('.u1-chip .u1-st')!.textContent).toBe('조종 중');
 }
 
+describe('폰 실기 조종 화면 영상 (시안 u1_2 · PC 와 같은 drive-media)', () => {
+  const media = (ch: string) => FakeWS.all.filter((x) => x.url.endsWith(`/api/v1/robots/r7/drive-media/${ch}`) && x.readyState !== 3).pop();
+  const video = (p: object = {}) => ({ t: 'media.video', version: 'media/1', channel: 'rgb', robot: 'r7', epoch: 1, episode_id: null, seq: 1, mime: 'image/jpeg', jpeg: 'AAAA', ...p });
+  it('서버 경유 실기는 카메라 · 라이다를 받아 그리고, 뎁스는 고른 동안만 연다. 보내는 것 0', () => {
+    mount(true, 'u-kim', '#/drive');
+    serve(KIM, 'r3', 'r7', 'r1');
+    click(card('Go2-7').querySelector('button')!);
+    const rgb = media('rgb')!, lid = media('lidar')!;
+    expect(rgb.url).toBe(`ws://${location.host}/api/v1/robots/r7/drive-media/rgb`);
+    expect(lid).toBeTruthy();
+    expect(media('depth')).toBeUndefined();
+    act(() => { rgb.open(); rgb.recv(video()); });
+    expect($('.dv-stage img[data-sd-cam]').getAttribute('src')).toBe('data:image/jpeg;base64,AAAA');
+    click(btn('지도'));   // 큰 칸 = 라이다(위에서 본 그림) · 작은 칸 = 같은 카메라
+    expect($('.dv-stage > [data-lidar-map]')).toBeTruthy();
+    expect($('.dv-mini img[data-sd-cam]').getAttribute('src')).toBe('data:image/jpeg;base64,AAAA');
+    click(btn('뎁스'));
+    expect(media('depth')).toBeTruthy();
+    expect($('[data-sd-depth]').textContent).toContain('뎁스 카메라 신호 없음');
+    click(btn('RGB'));
+    expect(media('depth')).toBeUndefined();
+    expect(rgb.sent.length + lid.sent.length).toBe(0);
+  });
+  it('서버 경유가 아닌 로봇은 영상 연결을 열지 않는다', () => {
+    mount(true, 'u-kim', '#/drive', ROBOTS);
+    serve(KIM, 'r3', 'r7', 'r1');
+    click(card('Go2-7').querySelector('button')!);
+    expect(FakeWS.all.some((x) => x.url.includes('/drive-media/'))).toBe(false);
+  });
+});
+
 describe('조종 화면', () => {
   it('주소 #/drive/<로봇> 은 폰 조종, PC 에는 조종 탭이 없어 로봇 탭', () => {
     expect(tabFromHash('#/drive/r7', true)).toBe('drive');
@@ -133,13 +164,13 @@ describe('조종 화면', () => {
     serve(KIM, 'r3', 'r7', 'r1');
     click(card('Go2-7').querySelector('button')!);
     expect(location.hash).toBe('#/drive/r7');
-    // 실기 RGB: 영상 어댑터·media capability 전 — 이유만, 실기 쪽 영상 연결 시도 0
-    expect($('[aria-label="RGB 영상"]').textContent).toBe('실기 영상 준비 중(미연결)');
+    // 실기 RGB: 서버 drive-media 를 받기 전이면 «카메라 신호 없음»(가짜 그림 0) · 폰 직결 영상 연결 시도 0
+    expect($('[data-sd-cam]').textContent).toBe('카메라 신호 없음');
     expect(FakeWS.all.some((x) => /\/phone\/(media|camera)\/ws/.test(x.url))).toBe(false);
-    // 지도·라이다 자료가 없으면 그리지 않는다(critique 11-10: 고정 벽·계산한 점이 실제 센서로 읽힘) — 작은 칸·큰 칸 모두 «없음»
-    expect($('.dv-mini [data-map-none]')!.textContent).toBe('지도 없음');
+    // 지도·라이다 자료가 없으면 그리지 않는다(critique 11-10: 고정 벽·계산한 점이 실제 센서로 읽힘) — 작은 칸·큰 칸 모두 «신호 없음»
+    expect($('.dv-mini [data-lidar-map]')!.textContent).toContain('라이다 신호 없음');
     click(btn('지도'));
-    expect($('.dv-stage > [data-map-none]')!.textContent).toBe('지도·라이다 자료 없음 · 기능 준비 중');
+    expect($('.dv-stage > [data-lidar-map]')!.textContent).toContain('라이다 신호 없음');
     expect([...box.querySelectorAll('.dv-stage circle')].filter((x) => !x.closest('svg.ic'))).toHaveLength(0);   // 단추 그림(svg.ic) 말고는 원(라이다 점) 없음
     click(btn('RGB'));
     click(btn('조종'));
