@@ -2,7 +2,7 @@
 // 브라우저 쪽 main.js (DOM · three · Worker) 는 쓰지 않고, 이미 Node 겸용인 sim.js 핵심만 부른다.
 // 자산 묶는 법은 mobile/scripts/scenario-headless.mjs 와 같다 (FH_SIM_SRC = RS-6 시뮬 자산 폴더).
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createSim, ISAAC_LIKE } from '../../mobile/sim/sim.js';
@@ -17,6 +17,14 @@ export const START_M15500 = {
   reconstruction: { file: 'start-m15500_map_on.onnx', sha256: 'df91c2d772c7d054e33c74fca479e79550cfd228d7682402f7eef4a0865e279f' },
 };
 let ort; // onnxruntime-node 는 한 번만
+
+// MuJoCo wasm 입구. 개발 묶음 (mobile 과 같은 npm 배치) 과 배포 묶음 FH_SIM_ASSETS (deploy/prepare_sim.py: mujoco/) 둘 다.
+export function mujocoEntry(simSrc) {
+  const candidates = [join(simSrc, 'node_modules/@mujoco/mujoco/mujoco.js'), join(simSrc, 'mujoco/mujoco.js')];
+  const found = candidates.find((path) => existsSync(path));
+  if (!found) throw new Error(`MuJoCo wasm 을 찾지 못함: ${candidates.join(' · ')}`);
+  return found;
+}
 
 const SIM = new URL('../../mobile/sim/', import.meta.url);
 const read = (rel) => readFileSync(new URL(rel, SIM));
@@ -37,7 +45,7 @@ export async function loadWorld({ simSrc, mapId, seed = 0, policyDir = process.e
   if (!ortNode) throw new Error('FH_SIM_ORT_NODE (onnxruntime-node 입구 파일) 필요');
   if (!/^[a-z0-9-]+$/.test(mapId) || !JSON.parse(read('maps.json')).some((m) => m.id === mapId)) throw new Error(`목록에 없는 지도: ${mapId}`);
   if (!mujoco) {
-    const { default: load } = await import(pathToFileURL(join(simSrc, 'node_modules/@mujoco/mujoco/mujoco.js')));
+    const { default: load } = await import(pathToFileURL(mujocoEntry(simSrc)));
     mujoco = await load();
     mujoco.FS.mkdir('/go2'); mujoco.FS.mkdir('/go2/assets');
     const meshes = join(simSrc, 'assets/unitree_go2/assets');

@@ -36,3 +36,20 @@ test('같은 씨앗은 같은 결과 · 다른 씨앗은 다른 결과', { skip 
   assert.deepEqual(a, b);
   assert.notDeepEqual(a, c);
 });
+
+test('MuJoCo wasm 입구: npm 배치와 FH_SIM_ASSETS mujoco/ 배치 둘 다 찾음', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { mujocoEntry } = await import('../world.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'fh-mujoco-entry-'));
+  try {
+    const npm = join(root, 'npm'), bundle = join(root, 'bundle'), empty = join(root, 'empty');
+    mkdirSync(join(npm, 'node_modules/@mujoco/mujoco'), { recursive: true }); writeFileSync(join(npm, 'node_modules/@mujoco/mujoco/mujoco.js'), '');
+    mkdirSync(join(bundle, 'mujoco'), { recursive: true }); writeFileSync(join(bundle, 'mujoco/mujoco.js'), '');
+    mkdirSync(empty);
+    assert.equal(mujocoEntry(npm), join(npm, 'node_modules/@mujoco/mujoco/mujoco.js'));
+    assert.equal(mujocoEntry(bundle), join(bundle, 'mujoco/mujoco.js'));
+    assert.throws(() => mujocoEntry(empty), /MuJoCo wasm/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
