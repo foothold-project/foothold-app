@@ -29,8 +29,8 @@ export const RECEIVED_TEXT = '받은 범위만 보관했습니다 · 저장 확�
 /** 이 사람이 지도를 만들 수 있는 로봇 = 내가 담당 운영자인 실기 로봇(총괄·남의 로봇은 서버도 403 MAPPING_OWNER_ONLY) */
 export const makers = (u: User, robots: Robot[]) => (u.role === 'OPERATOR' ? robots.filter((r) => r.owner === u.id && !r.sim) : []);
 
-const failText = (p: MappingProgress) => (p.error_code === 'STALE' ? STALE_TEXT : p.error_code === 'LINK_LOST' ? LINK_LOST : p.reason || '지도를 저장하지 못했습니다.');
-const actFail = (e: ApiFail) => (e.code === 'STALE' ? STALE_TEXT : e.code === 'ROBOT_OFFLINE' ? OFF : e.message);
+export const failText = (p: MappingProgress) => (p.error_code === 'STALE' ? STALE_TEXT : p.error_code === 'LINK_LOST' ? LINK_LOST : p.reason || '지도를 저장하지 못했습니다.');
+export const actFail = (e: ApiFail) => (e.code === 'STALE' ? STALE_TEXT : e.code === 'ROBOT_OFFLINE' ? OFF : e.message);
 /** SAVED 알림 글 — 시뮬 지형은 저장 뒤 따로 만든다(terrain_status) */
 const savedText = (p: MappingProgress) => (p.terrain_id || p.terrain_status === 'READY' ? MADE
   : p.terrain_status === 'FAILED' ? '로봇으로 만든 지도를 저장했습니다. 시뮬 지형은 만들지 못했습니다.' : '로봇으로 만든 지도를 저장했습니다. 시뮬 지형은 이어서 만듭니다.');
@@ -88,9 +88,9 @@ export function Sources({ st, s }: { st: MappingProgress['status'] | null; s?: M
 /** 걸은 시간 · 거리 · 로봇이 모은 점(U7-06): 서버 진행 값 그대로, 없거나 이상한 값(음수 · NaN)은 칸째 뺀다 */
 const ok = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x) && x >= 0;
 const two = (n: number) => String(n).padStart(2, '0');
-const clock = (s: number) => { const t = Math.floor(s), h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60; return h ? `${h}:${two(m)}:${two(t % 60)}` : `${two(m)}:${two(t % 60)}`; };
-const meters = (m: number) => `${m < 10 ? m.toFixed(1) : Math.round(m).toLocaleString('ko-KR')} m`;
-const points = (n: number) => (n >= 1e8 ? `${(n / 1e8).toFixed(1)} 억` : n >= 1e4 ? `${n < 1e5 ? (n / 1e4).toFixed(1) : Math.round(n / 1e4).toLocaleString('ko-KR')} 만` : Math.round(n).toLocaleString('ko-KR'));
+export const clock = (s: number) => { const t = Math.floor(s), h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60; return h ? `${h}:${two(m)}:${two(t % 60)}` : `${two(m)}:${two(t % 60)}`; };
+export const meters = (m: number) => `${m < 10 ? m.toFixed(1) : Math.round(m).toLocaleString('ko-KR')} m`;
+export const points = (n: number) => (n >= 1e8 ? `${(n / 1e8).toFixed(1)} 억` : n >= 1e4 ? `${n < 1e5 ? (n / 1e4).toFixed(1) : Math.round(n / 1e4).toLocaleString('ko-KR')} 만` : Math.round(n).toLocaleString('ko-KR'));
 const WALK: ['elapsed_s' | 'distance_m' | 'point_count', string, (n: number) => string][] = [['elapsed_s', '걸은 시간', clock], ['distance_m', '걸은 거리', meters], ['point_count', '로봇이 모은 점', points]];
 const WALK_KEY = { elapsed_s: 'time', distance_m: 'dist', point_count: 'points' } as const;
 export function MapBox({ robot, p, link }: { robot: string; p: MappingProgress; link: number }) {
