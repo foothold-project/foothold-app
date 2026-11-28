@@ -26,6 +26,13 @@ describe('지도 탭 밝은 판 = DESIGN.md 밝음 1', () => {
     expect(at('.proto.light .u7 .pv-ttl')).toBe('color:#1F2421'); expect(at('.proto.light .u7 .pv-meta')).toBe('color:#5E6662');
     expect(at('.proto.light .u7 .pv-hist')).toMatch(/color:#1F2421/);
   });
+  it('u7_1 층 겹친 그림 밝은 판: 면 · 선 · 글자가 흰 칸 위에 보이는 밝음 1 값(흰 선 · 흰 면 아님), 고른 층 = 민트', () => {
+    const css = readFileSync(join(__dirname, '..', 'screens', 'u7', 'u7.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const at = (sel) => [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find((m) => m[1].split(',').map((x) => x.trim()).includes(sel))?.[2] ?? '';
+    for (const k of ['sk-l', 'sk-r', 'sk-t']) expect(at(`.proto.light .u7 .sk .${k}`), k).toMatch(/stroke:#5E6662/);
+    expect(at('.proto.light .u7 .sk .sk-tx')).toBe('fill:#5E6662');
+    expect(at('.proto.light .u7 .sk.on .sk-t')).toMatch(/fill:#18A07E/); expect(at('.proto.light .u7 .sk.on .sk-tx')).toBe('fill:#0E7F63');
+  });
   it('u7.css 밝은 판(시안 u7_1 · u7_2 현장 · 층 줄 · 꼬리표)', () => {
     const css = readFileSync(join(__dirname, '..', 'screens', 'u7', 'u7.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
     const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => m[1].includes('.proto.light'));

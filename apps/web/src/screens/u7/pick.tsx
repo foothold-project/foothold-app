@@ -45,12 +45,12 @@ function Stack({ floors, sel, pick }: { floors: MapFloor[]; sel?: string; pick: 
   return <svg viewBox="0 0 760 330" style={{ position: 'absolute', left: '24px', right: '24px', bottom: '66px', width: 'calc(100% - 48px)', height: '300px' }} role="group" aria-label="층 겹친 그림">
     {l.map((f, i) => { const y = 250 - i * 78, on = f.id === sel, line = on ? '#00c389' : 'rgba(255,255,255,.22)';
       if (y < top) return null;
-      return <g key={f.id} data-stack={f.id} onClick={() => pick(f.id)} style={{ cursor: 'pointer' }}>
-        <polygon points={`60,${y} 300,${y + 60} 300,${y + 72} 60,${y + 12}`} fill="rgba(255,255,255,.05)" stroke={line} strokeWidth="1" />
-        <polygon points={`300,${y + 60} 540,${y} 540,${y + 12} 300,${y + 72}`} fill="rgba(0,0,0,.25)" stroke={line} strokeWidth="1" />
-        <polygon points={`60,${y} 300,${y - 60} 540,${y} 300,${y + 60}`} fill={on ? 'rgba(0,195,137,.28)' : 'rgba(255,255,255,.06)'} stroke={line} strokeWidth={on ? 1.6 : 1} />
-        <path d={`M540 ${y}h30`} stroke={line} strokeWidth="1" />
-        <text x="580" y={y + 7} fontSize="19" fontWeight={on ? 800 : 600} fill={on ? '#00c389' : '#9aa19d'}>{f.name}</text></g>; })}</svg>;
+      return <g key={f.id} data-stack={f.id} className={on ? 'sk on' : 'sk'} onClick={() => pick(f.id)} style={{ cursor: 'pointer' }}>
+        <polygon points={`60,${y} 300,${y + 60} 300,${y + 72} 60,${y + 12}`} fill="rgba(255,255,255,.05)" stroke={line} strokeWidth="1" className="sk-l" />
+        <polygon points={`300,${y + 60} 540,${y} 540,${y + 12} 300,${y + 72}`} fill="rgba(0,0,0,.25)" stroke={line} strokeWidth="1" className="sk-r" />
+        <polygon points={`60,${y} 300,${y - 60} 540,${y} 300,${y + 60}`} fill={on ? 'rgba(0,195,137,.28)' : 'rgba(255,255,255,.06)'} stroke={line} strokeWidth={on ? 1.6 : 1} className="sk-t" />
+        <path d={`M540 ${y}h30`} stroke={line} strokeWidth="1" className="sk-ln" />
+        <text className="sk-tx" x="580" y={y + 7} fontSize="19" fontWeight={on ? 800 : 600} fill={on ? '#00c389' : '#9aa19d'}>{f.name}</text></g>; })}</svg>;
 }
 
 /** 관리 칸 휴지통(시안 u7_2 오른쪽 아래): 서버 휴지통 목록 그대로 · 「복원」 = 서버 복원. 「30 일 뒤 지움」 은 서버 값이 없어 뺌 */

@@ -100,3 +100,12 @@
 .proto.light .u7 .pv-ttl{color:#1F2421}
 .proto.light .u7 .pv-meta{color:#5E6662}
 .proto.light .u7 .pv-hist{background:#FFFFFF;color:#1F2421;border-color:#DCE0DE}
+/* u7_1 층 겹친 그림 밝은 판: 흰 선 · 흰 면(어둠 값)이 흰 칸에서 사라지던 것 → 밝음 1 면 · 선 · 글자(CSS 가 svg 칠 속성보다 앞섬) */
+.proto.light .u7 .sk .sk-l{fill:#F6F7F6;stroke:#5E6662;stroke-opacity:.45}
+.proto.light .u7 .sk .sk-r{fill:#DCE0DE;stroke:#5E6662;stroke-opacity:.45}
+.proto.light .u7 .sk .sk-t{fill:#FFFFFF;stroke:#5E6662;stroke-opacity:.6}
+.proto.light .u7 .sk .sk-ln{stroke:#5E6662;stroke-opacity:.6}
+.proto.light .u7 .sk .sk-tx{fill:#5E6662}
+.proto.light .u7 .sk.on .sk-l,.proto.light .u7 .sk.on .sk-r,.proto.light .u7 .sk.on .sk-ln{stroke:#18A07E;stroke-opacity:1}
+.proto.light .u7 .sk.on .sk-t{fill:#18A07E;fill-opacity:.28;stroke:#18A07E;stroke-opacity:1}
+.proto.light .u7 .sk.on .sk-tx{fill:#0E7F63}
