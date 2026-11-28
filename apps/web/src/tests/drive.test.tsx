@@ -18,6 +18,7 @@ import { simTune } from '../phone';
 import { REAL_STICK, REAL_WAIT } from '../drive';
 import driveCss from '../drive.css?raw';
 import frameCss from '../frame.css?raw';
+import u1AppCss from '../screens/u1.app.css?raw';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -2668,5 +2669,83 @@ describe('RV-426: 폰 입력 세대 마무리', () => {
     mk('keyup', 'MetaLeft', { key: 'Meta' }); tick(200); expect(lastAxes()).toEqual([0, 0, 0]);
     key('keydown', 'KeyW'); tick(60); expect(lastAxes()).toEqual([1.5, 0, 0]);
     key('keyup', 'KeyW'); expect(lastAxes()).toEqual([0, 0, 0]);
+  });
+});
+
+// 시안 u1: 폰 실기 조종 화면은 머리줄 없이 정지가 화면 오른쪽 아래(.stop · 92 × 68). 같은 Stop 부품(같은 onStop · 누름 처리 · Space · 결과 띠)을 자리만 옮긴다.
+// 어느 상태(조종권 요청 창 · 스캔 겹 · 시나리오 시작 확인 · 끊김 · 반납 중)에서도 보이고 · 맨 위(z)이고 · 눌린다. jsdom 은 배치를 계산하지 않아 구조 · css 규칙을 보고, 실제 자리는 Chrome 사진
+describe('폰 실기 조종 화면 정지 자리 (시안 u1)', () => {
+  const stopBtn = () => $<HTMLButtonElement>('[data-stop]');
+  const head = () => $('header.fh-head');
+  /** 화면 안 정지: 머리줄 겹(data-u1) 안 마지막 · 조종 판(.dv-stage) · 시트 · 창 밖 · 누를 수 있음 · 글 「정지」 */
+  const inScreen = () => {
+    expect(head().hasAttribute('data-u1')).toBe(true);
+    expect(stopBtn().parentElement).toBe(head());
+    expect(head().lastElementChild).toBe(stopBtn());
+    expect(stopBtn().closest('.dv-stage, [data-sheet], [role="dialog"]')).toBeNull();
+    expect(stopBtn().disabled).toBe(false);
+    expect(stopBtn().dataset.place).toBe('screen');
+    expect(stopBtn().textContent).toBe('정지');
+    expect(stopBtn().getAttribute('aria-label')).toBe('비상 정지');
+  };
+  const press = (robot: string) => { const n = w.of('stop').length; click(stopBtn()); expect(w.of('stop').slice(n).map((m) => m.robot)).toEqual([robot]); };
+
+  it('css: 머리줄 겹은 화면 전체 · 손가락은 제 칸만 · z 는 조종 판 안 모든 층(작은 지도 펼침 60 · 창 · 스캔 겹)보다 위, 정지는 오른쪽 아래 92 × 68', () => {
+    const z = Number(u1AppCss.match(/\.fh\.phone \.fh-head\[data-u1\]\{[^}]*z-index:(\d+)/)![1]);
+    expect(z).toBeGreaterThan(60);
+    expect(u1AppCss).toMatch(/\.fh\.phone \.fh-head\[data-u1\]\{[^}]*position:absolute;inset:0;[^}]*pointer-events:none/);
+    expect(u1AppCss).toMatch(/\.fh-head\[data-u1\] \.fh-stop\{[^}]*pointer-events:auto;[^}]*right:12px;bottom:12px;width:92px;height:68px/);
+  });
+
+  it('조종 전 · 조종 중 · 시트 · 시나리오 시작 확인 · 조종권 요청 창: 정지는 화면 안 그 자리 · 누르면 이 로봇 정지', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    inScreen();
+    ready();
+    inScreen();
+    click(btn('자세')); inScreen(); click(btn('자세'));
+    recv(ask());
+    expect($('[data-takeover]')).toBeTruthy();
+    inScreen();
+    press('r7');
+  });
+
+  it('시나리오가 쥔 로봇 «조종 시작» 확인 창 위에서도', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    recv(lease('r7', { id: null, name: '', type: 'RUN' }));
+    click(btn('조종 시작'));
+    expect($('.dv-ask[role="dialog"]')).toBeTruthy();
+    inScreen();
+    press('r7');
+  });
+
+  it('⋯ 지도 스캔 겹 위에서도', () => {
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: '없음', detail: {} } }), { status: 404, headers: { 'Content-Type': 'application/json' } }));
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    click(btn('지도 스캔'));
+    expect($('[data-scan]')).toBeTruthy();
+    inScreen();
+    press('r7');
+  });
+
+  it('서버 끊김 · 조종권 반납 중에도 그 자리(누름은 기존 길 그대로)', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    ready();
+    w.auto = (m) => (m.t === 'lease.release' ? null : { ok: true });
+    click(btn('끝내기'));
+    expect($('[data-ending]')).toBeTruthy();
+    inScreen();
+    act(() => w.drop(1006));
+    inScreen();
+  });
+
+  it('조종 화면 밖(로봇 연결 · 기록)은 머리줄 STOP 그대로', () => {
+    mount(true, 'u-kim', '#/drive');
+    serve(KIM, 'r3', 'r7', 'r1');
+    expect(head().hasAttribute('data-u1')).toBe(false);
+    expect(stopBtn().textContent).toBe('STOP');
   });
 });

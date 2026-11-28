@@ -273,11 +273,5 @@ describe('폰 로봇 붙이기 확인 · 완료 = 시안 u2_2 · u2_3', () => {
     expect(s.querySelector('.g.kv2')!.textContent).toContain('71 %');
     expect(s.querySelector('.lv-card, .btn, .fh-msg')).toBeNull();
   });
-
-  it('PC 는 옛 카드 그대로(시안 u2 아님)', async () => {
-    await toName(false);
-    expect(card().dataset.pair).toBe('name');
-    expect($('.u2')).toBeNull();
-    expect(card().querySelector('[data-pair-check]')).not.toBeNull();
-  });
+  // PC 로봇 추가는 로봇 탭 u4_6 → u2 흐름 시험이 맡음 (옛 카드 없음)
 });

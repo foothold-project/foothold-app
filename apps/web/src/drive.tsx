@@ -12,6 +12,7 @@ import { Nearby } from './nearby';
 import { AddRobot, ManageRobot } from './pairing';
 import { NoRobot } from './screens/norobot';
 import { TakeoverAsk } from './screens/takeover';
+import './screens/u1.app.css';
 import { useTheme } from './theme';
 import { simTune, useSim, useTuneSettings } from './phone';
 import { COMBO_BLOCK, command, isSettings, permitted, REAL_WAIT, SIDE_BLOCK, TABLE, unknownCombo } from './serverdrive';
