@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { padGroup, padTick } from '../../proto/padanim';
 import { applyWalk, loadWalk, type Walk } from '../../proto/site';
-import { LIGHT_FLOOR, feetUp, lightFloor, lightRobot, simLook } from '../../proto/tileview';
+import { LIGHT_FLOOR, feetUp, greyPadBody, lightFloor, lightRobot, simLook } from '../../proto/tileview';
 
 export const GO2_GLB = '/proto-assets/shared/go2_isaac.glb';
 const SIM = 0x4c9bff;
@@ -190,7 +190,8 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
       if (padG) { scene.remove(padG); padG.traverse((o) => { const m = o as THREE.Line; m.geometry?.dispose(); (m.material as THREE.Material | undefined)?.dispose(); }); padG = null; }
       padNow = api.pad; if (padNow) { padG = padMesh(padNow, !!lit); scene.add(padG); }
     }
-    if (padG) padTick(padG, t);   // 바닥 위로 같은 꼴이 한 박씩 오름(움직임 줄이기면 바닥만)
+    if (padG) padTick(padG, t);
+    lightRobot(!!lit, hemi, key, rims); greyPadBody(!!api.pad && !opt.cyber, hemi, rims);   // 충전 · 점검 몸 회색(테두리 빛 뺌 · 관제 타일과 같은 값)   // 바닥 위로 같은 꼴이 한 박씩 오름(움직임 줄이기면 바닥만)
     const d = api.drive;
     if (d) { gpos = flow(gpos, d, dt); gm.uniforms.off.value.set(gpos.x, gpos.z); grid.rotation.y = gpos.th; }
     const q = api.q;

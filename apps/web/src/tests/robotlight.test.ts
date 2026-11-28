@@ -31,3 +31,20 @@ describe('로봇 라이팅 판마다 따로', () => {
     expect(tileSrc).toContain('1.0-smoothstep(0.35,1.9,length(u))');
   });
 });
+
+describe('충전 · 점검 로봇 몸 회색(테두리 빛 뺌 · 04:05)', () => {
+  it('기본 grey: 테두리 빛 0 · 하늘 빛 PAD_GREY 배 · ?padBody=lit 이면 그대로 · 바닥 표시 없으면 그대로', async () => {
+    const { greyPadBody, padBodyOf, PAD_GREY } = await import('../proto/tileview');
+    const mk = () => { const h = new THREE.HemisphereLight(), k = new THREE.DirectionalLight(), a = new THREE.DirectionalLight(); const rims: [THREE.DirectionalLight, number, number][] = [[a, 1.6, 0x00c389]]; lightRobot(false, h, k, rims); return { h, a, rims }; };
+    let x = mk(); greyPadBody(true, x.h, x.rims, 'grey'); expect(x.a.intensity).toBe(0); expect(x.h.intensity).toBeCloseTo(0.9 * PAD_GREY.hemi, 6);
+    x = mk(); greyPadBody(true, x.h, x.rims, 'lit'); expect(x.a.intensity).toBe(1.6);
+    x = mk(); greyPadBody(false, x.h, x.rims, 'grey'); expect(x.a.intensity).toBe(1.6);
+    expect(padBodyOf('?padBody=lit')).toBe('lit'); expect(padBodyOf('')).toBe('grey');
+    expect(tileSrc).toContain('greyPadBody(!!look.pad && !look.cyber'); expect(go2Src).toContain('greyPadBody(!!api.pad && !opt.cyber');
+  });
+});
+
+it('밝은 판 회색 바닥 진하기 견주기 ?floor=', async () => {
+  const { floorOpOf } = await import('../proto/tileview');
+  expect(floorOpOf('?floor=0.24')).toBe(0.24); expect(floorOpOf('')).toBe(0.32); expect(floorOpOf('?floor=x')).toBe(0.32); expect(floorOpOf('?floor=2')).toBe(0.32);
+});

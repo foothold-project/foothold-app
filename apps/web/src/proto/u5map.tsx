@@ -48,8 +48,8 @@ export const shotMix = (a: SiteShot, b: SiteShot, t: number): SiteShot => { cons
 /** 움직임 시간: 움직임 줄이기면 0(바로 끝) */
 export const flyTime = () => (calm() ? 0 : FLY_S);
 /** 「전체 보기」 시점(팀장 03:19 · 03:42 «꽉»): 정북 · 아래로 첫 시점과 같은 각(SITE_EL · 팀장 좋은 예도 이 각).
- *  가까운 변(앞 모서리 둘)이 칸 폭을 FULL_OVER 만큼 넘치게(양옆 몇 % 잘림 허용) 하는 가장 가까운 거리 · 먼 변(높이 FULL_H)은 FULL_TOP 아래 · 앞 변은 FULL_BOT 위. 거리 · 바라볼 점은 반 가르기 */
-export const FULL_TOP = 0.93, FULL_OVER = 1.12, FULL_BOT = -0.97, FULL_H = 25, FULL_EL = SITE_EL, FULL_UP = 0.2;
+ *  가까운 변(앞 모서리 둘)이 칸 폭을 FULL_OVER(1.3 · 팀장 좋은 예처럼 양옆이 잘림) 만큼 넘치게 하는 가장 가까운 거리 · 먼 변(높이 FULL_H)은 FULL_TOP 아래 · 앞 변은 FULL_BOT 위. 거리 · 바라볼 점은 반 가르기 */
+export const FULL_TOP = 0.93, FULL_OVER = 1.3, FULL_BOT = -0.97, FULL_H = 25, FULL_EL = SITE_EL, FULL_UP = 0.2;
 export function fullShot(aspect: number, elDeg = FULL_EL, over = FULL_OVER): SiteShot {
   const W = SITE_PX_W / K, H = SITE_PX_H / K, x0 = -OX / K, z0 = -OY / K, el = (elDeg * Math.PI) / 180;
   const cam = new THREE.PerspectiveCamera(SITE_FOV, aspect, 1, 1e5), v = new THREE.Vector3(), tgt = new THREE.Vector3();
