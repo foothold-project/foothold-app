@@ -199,7 +199,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       // 옛 시나리오 주소도 지도 탭을 다시 그리고 층을 옮기므로 같은 확인을 거친다(REVIEW-260 B1) — 취소하면 지금 편집·선택 그대로
       if (ask && (tabFromHash(h, false) !== tabFromHash(back, false) || oldScenario(h) != null)) { history.replaceState(null, '', back); ask(() => { location.hash = h; }); return; }
       if (toMission(h)) setMapN((x) => x + 1);   // 임무 탭 주소면 임무 탭을 다시 그려 그 임무를 고른다
-      setWant(h);
+      away.current = null; setWant(h);
     };
     addEventListener('hashchange', f); return () => removeEventListener('hashchange', f);
   }, []);
@@ -207,8 +207,18 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   // 폰에서 담당 밖 로봇 주소(#/drive/<남의 로봇 id>)는 로봇 연결로 돌리며 한 줄 알린다 — 말없이 돌아가지 않게
   const [foreign, setForeign] = useState(false);
   useEffect(() => { if (phone && tab === 'drive' && sub && !pool.some((r) => r.id === sub)) setForeign(true); }, [want]);
-  useEffect(() => { if (want !== path) { history.replaceState(null, '', path); setWant(path); } }, [path, want]);   // 주소·원하는 탭도 보이는 탭으로 맞춤
-  const go = (t: TabId, id?: string) => { const h = `#/${t}${id ? `/${id}` : ''}`; setWant(h); location.hash = h; };
+  // 폭이 바뀌어(창 줄이기·태블릿 돌리기) 고른 탭이 새 배치에 없으면 첫 탭을 보이되 그 주소를 기억해 두고, 그 탭이 있는 배치로 돌아오면 되돌린다.
+  // 그 사이 사용자가 탭을 직접 고르면(주소 바꿈·메뉴·go) 기억을 지운다 — 고름이 이김
+  const away = useRef<{ h: string; phone: boolean } | null>(null), was = useRef(phone);
+  useEffect(() => {
+    const flip = was.current !== phone; was.current = phone;
+    const k = away.current;
+    if (flip && k && tabFromHash(k.h, phone) === tabFromHash(k.h, k.phone)) { away.current = null; history.replaceState(null, '', k.h); setWant(k.h); return; }
+    if (want === path) return;
+    if (flip && !k && tabFromHash(want, !phone) !== tabFromHash(want, phone)) away.current = { h: want, phone: !phone };
+    history.replaceState(null, '', path); setWant(path);   // 주소·원하는 탭도 보이는 탭으로 맞춤
+  }, [path, want, phone]);
+  const go = (t: TabId, id?: string) => { const h = `#/${t}${id ? `/${id}` : ''}`; away.current = null; setWant(h); location.hash = h; };
   useEffect(() => { if (!phone && kept.d) go('map'); }, [phone]);   // 폰 틀에서 PC 로 돌아오면 남겨 둔 지도 편집으로
   // 끝내기(drive.tsx endDrive) = 입력 0 → 조종권 반납 → 서버가 반납을 확인하면(rt releasing 이 지워지면) 로봇 연결로.
   // 거절·무응답이면 이 화면에 머물러 [다시 시도]·[연결 화면]. 연결 화면으로 가도 반납 확인 중은 그 로봇 카드에 남는다
@@ -245,7 +255,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   const link = (t: Tab, cls: string) => {
     const badge = t.id === 'approval' ? dash.d?.approvals_pending ?? 0 : 0;   // 서버 수 그대로: 총괄 = 조직 전체 대기, 운영 관리자 = 내 대기 요청
     return <a key={t.id} className={`${cls}${t.id === navTab ? ' cur' : ''}`} href={`#/${t.id}`} aria-current={t.id === navTab ? 'page' : undefined}
-      aria-label={badge ? `${labelOf(t, user.role)} ${badge}건` : undefined} onClick={() => { if (!leaving.ask) setWant(`#/${t.id}`); }}>
+      aria-label={badge ? `${labelOf(t, user.role)} ${badge}건` : undefined} onClick={() => { if (!leaving.ask) { away.current = null; setWant(`#/${t.id}`); } }}>
       {t.icon}{labelOf(t, user.role)}{badge > 0 && <span className="fh-badge" aria-hidden="true">{badge}</span>}</a>;
   };
 

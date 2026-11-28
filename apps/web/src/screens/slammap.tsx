@@ -261,7 +261,7 @@ function SlamGrid({ pic, over, hideBase = false }: { pic: SlamPic; over?: Over |
 function SlamBoxes({ pic, fail }: { pic: SlamPic; fail: () => void }) {
   const feed = useMemo<DriveFeed>(() => ({ state: 'live', why: '', at: 0, seq: pic.ver, img: '', xyz: pic.xyz, n: pic.n, frame: 'map', truncated: false, ver: pic.ver,
     range: null, pose: pic.pose }), [pic.ver]);   // eslint-disable-line react-hooks/exhaustive-deps
-  return <Lidar3D feed={feed} small={false} look="boxes" ratio={1} onFail={fail} />;
+  return <Lidar3D feed={feed} small={false} look="boxes" ratio={1} views={false} onFail={fail} />;
 }
 
 /** 지도 칸(부모 크기를 채움): «위에서 2D» / «3D 상자» 고르기 + 그 그림(first3d = 3D 로 시작). 아무것도 안 왔으면 안내만.

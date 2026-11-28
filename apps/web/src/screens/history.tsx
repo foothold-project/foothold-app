@@ -9,6 +9,7 @@ import { Chip, Line, inApp, type Ctx } from '../screens';
 import './history.css';
 import { Empty } from '../empty';
 import { Clip, MarkNow } from './records';
+import { RunReport } from './runreport';
 
 /** 분류 7종(02 F-LG-01) — '' = 전체 */
 const KINDS: [Ev['category'] | '', string][] = [['', '전체'], ['RUN', '임무'], ['ROUTE', '이탈'], ['LINK', '연결'], ['LEASE', '조종권'], ['APPROVAL', '결재'], ['SAFETY', '안전'], ['ACCOUNT', '계정']];
@@ -71,11 +72,12 @@ const span = (a: Ev, b: Ev) => { const x = when(stamp(a)), y = when(stamp(b)); r
 const Row = ({ e, n = 1, lo, hi }: { e: Ev; n?: number; lo?: Ev; hi?: Ev }) => <li className="hs-item"><span className="hs-said"><Sev e={e} /><Said e={e} /></span>
   <span className="lbl hs-meta"><span className="mono">{n > 1 && lo && hi ? span(lo, hi) : when(stamp(e))}</span> · <Kind e={e} />{n > 1 && <span data-repeat={n}> · {n}번</span>}</span></li>;
 /** 기록 표: 시각 · 종류 · 상태 · 내용 · 로봇·사람. 좁으면(history.css 컨테이너 질의) 줄마다 카드로 — 가로로 넘치지 않게 */
-const Table = ({ items, who, label }: { items: Ev[]; who: (e: Ev) => string; label?: string }) => <div className="hs-wrap">
+/** run = 「실행 기록 보기」(run_id 있는 줄만, 누른 단추를 넘겨 닫으면 초점을 돌려줌) */
+const Table = ({ items, who, label, run }: { items: Ev[]; who: (e: Ev) => string; label?: string; run?: (id: string, from: HTMLElement) => void }) => <div className="hs-wrap">
   <table className="hs-table" aria-label={label} hidden={!items.length}>
     <thead><tr><th scope="col">시각</th><th scope="col">종류</th><th scope="col">상태</th><th scope="col">내용</th><th scope="col">로봇·사람</th></tr></thead>
     <tbody>{items.map((e) => { const w = who(e);
-      return <tr key={e.id}><td className="mono">{when(stamp(e))}</td><td><Kind e={e} /></td><td><Sev e={e} /></td><td><Said e={e} /><Photo e={e} /><Clip e={e} /></td><td className="lbl" data-none={!w || undefined}>{w || '—'}</td></tr>; })}</tbody>
+      return <tr key={e.id}><td className="mono">{when(stamp(e))}</td><td><Kind e={e} /></td><td><Sev e={e} /></td><td><Said e={e} /><Photo e={e} /><Clip e={e} />{run && e.run_id && <button type="button" className="btn rr-open" onClick={(x) => run(e.run_id!, x.currentTarget)}>실행 기록 보기</button>}</td><td className="lbl" data-none={!w || undefined}>{w || '—'}</td></tr>; })}</tbody>
   </table></div>;
 /** 사건의 로봇·사람 이름 — 화면이 아는 것만(로봇 목록·나·담당자). 모르면 빈 글 */
 const whoOf = (c: Pick<Ctx, 'user' | 'robots'>) => (e: Ev) => {
@@ -207,6 +209,7 @@ export function History(c: HistoryCtx) {
       if (url) setTimeout(() => URL.revokeObjectURL(url), 0);   // 내려받기가 시작된 뒤 정리
     }
   };
+  const [runOf, setRunOf] = useState<{ id: string; from: HTMLElement } | null>(null);   // 열린 실행 기록(u15_3)
   const filtered = !c.phone && params(f)?.toString() !== '', who = whoOf(c);
   return <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="기록">
     {c.focus && <Focus key={c.focus} id={c.focus} cancel={c.cancel} who={who} close={() => c.go('history')} />}
@@ -233,7 +236,8 @@ export function History(c: HistoryCtx) {
       {dayErr && <p id="hs-day-err" className="fh-msg" role="alert">{dayErr} 고칠 때까지 기간은 이전 값 그대로입니다.</p>}
       {out && <p className={`fh-msg${out.ok ? ' ok' : ''}`} role={out.ok ? 'status' : 'alert'}>{out.text}</p>}
     </>}
-    <Table items={ev.items} who={who} label="사건" />
+    {runOf && <RunReport key={runOf.id} id={runOf.id} cancel={c.cancel} close={() => { runOf.from.focus(); setRunOf(null); }} />}
+    <Table items={ev.items} who={who} label="사건" run={(id, from) => setRunOf({ id, from })} />
     {ev.err && <p className="fh-msg" role="alert">기록을 받지 못했습니다. {why(ev.err)}</p>}
     {ev.busy && <p className="lv-note" role="status">기록을 불러오는 중…</p>}
     {!ev.busy && !ev.err && !ev.items.length && (c.phone && c.robot || filtered ? <p className="lv-note">{c.phone && c.robot ? '이 로봇의 기록이 아직 없습니다.' : '조건에 맞는 기록이 없습니다.'}</p>

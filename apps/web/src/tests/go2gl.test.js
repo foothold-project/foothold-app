@@ -28,6 +28,8 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const glb = () => new Uint8Array(readFileSync(process.cwd() + '/../../apps/web/public/go2/go2.glb')).buffer;
 afterEach(() => { resetGo2Cache(); vi.unstubAllGlobals(); });
 const listeners = (x) => x._listeners?.dispose?.length ?? 0;
+/** 조건이 맞을 때까지(최대 max ms) 한 틱씩 act 로 흘림. 틱마다 act 를 닫아야 React 가 그 사이 바뀐 것을 DOM 에 반영한다 */
+const until = async (ok, max = 3000) => { const end = Date.now() + max; while (!ok() && Date.now() < end) await act(async () => { await new Promise((r) => setTimeout(r, 5)); }); };
 
 describe('Go2 그림 자원', () => {
   it('열고 닫기 3번: 닫을 때마다 남은 모양·재질 0, 리스너는 모양마다 1개를 넘지 않음, 캐시는 배열만 같이 씀', async () => {
@@ -38,7 +40,7 @@ describe('Go2 그림 자원', () => {
       const box = document.createElement('div'); document.body.append(box);
       let root;
       act(() => { root = createRoot(box); root.render(h(Go2Figure, { pose: { q: JOINTS.map(() => 0.3), wxyz: [1, 0, 0, 0] } })); });
-      await act(async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0)); });
+      await until(() => box.querySelector('[data-go2-model]')?.dataset.go2Model === 'mesh');   // 첫 그림은 GLB 읽기(fetch · 동적 import · 파싱)를 기다림. 정한 틱 수가 아니라 조건으로(전체 실행의 CPU 경합에서 20 틱 안에 못 끝나 'box' 로 흔들렸음)
       expect(box.querySelector('[data-go2-model]').dataset.go2Model).toBe('mesh');
       expect(box.querySelector('[data-go2-sketch]')).toBeNull();   // WebGL 있음 = 선 그림 없음
       act(() => root.render(h(Go2Figure, { pose: { q: JOINTS.map(() => 0.4), wxyz: [1, 0, 0, 0] } })));   // 한 번 더 그림

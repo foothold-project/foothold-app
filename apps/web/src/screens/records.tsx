@@ -24,7 +24,10 @@ export function MarkNow({ c, done }: { c: Pick<Ctx, 'user' | 'robots' | 'cancel'
   const mine = myRobots(c.user, c.robots);
   const [open, setOpen] = useState(false), [robot, setRobot] = useState(''), [grade, setGrade] = useState<Grade>('WARN'), [clip, setClip] = useState(true);
   const [note, setNote] = useState(''), [busy, setBusy] = useState(false), [err, setErr] = useState(''), [out, setOut] = useState<RecordMarkResult | null>(null);
-  const sending = useRef(false);
+  const sending = useRef(false), opener = useRef<HTMLButtonElement>(null), first = useRef<HTMLSelectElement>(null), closer = useRef<HTMLButtonElement>(null);
+  // 초점(reviewer N3): 열면 창 첫 칸(로봇), 남긴 뒤면 「닫기」, 닫으면 「지금 남기기」 단추로
+  useEffect(() => { if (open) (out ? closer : first).current?.focus(); }, [open, !!out]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const close = () => { setOpen(false); opener.current?.focus(); };
   const start = () => {
     const here = c.robot?.id;
     setRobot(here && mine.some((r) => r.id === here) ? here : mine[0]?.id ?? '');
@@ -43,15 +46,15 @@ export function MarkNow({ c, done }: { c: Pick<Ctx, 'user' | 'robots' | 'cancel'
     } finally { sending.current = false; setBusy(false); }
   };
   // 단추 아래에 뜨는 창(필터 줄을 밀지 않음). 열린 동안 단추는 눌림으로
-  return <span className="rc-anchor"><button type="button" className="btn" aria-expanded={open} disabled={!mine.length} title={mine.length ? undefined : '남길 로봇이 없습니다'} onClick={() => (open ? setOpen(false) : start())}>지금 남기기</button>
-  {open && <div className="lv-card rc-mark" role="dialog" aria-label="지금 남기기" onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false); }}>
+  return <span className="rc-anchor"><button ref={opener} type="button" className="btn" aria-expanded={open} disabled={!mine.length} title={mine.length ? undefined : '남길 로봇이 없습니다'} onClick={() => (open ? close() : start())}>지금 남기기</button>
+  {open && <div className="lv-card rc-mark" role="dialog" aria-label="지금 남기기" onKeyDown={(e) => { if (e.key === 'Escape') close(); }}>
     <b>지금 남기기</b>
     {out ? <>
       <p className="rc-out" role="status" data-mark-out>기록을 남겼습니다. {out.clip ? out.clip.status === 'READY' ? '클립이 준비됐습니다.' : reason(out.clip) : '영상 없이 기록만 남겼습니다.'}</p>
-      <div className="fh-row"><span className="fh-grow" /><button type="button" className="btn" onClick={() => setOpen(false)}>닫기</button></div>
+      <div className="fh-row"><span className="fh-grow" /><button ref={closer} type="button" className="btn" onClick={close}>닫기</button></div>
     </> : <>
       <label className="fh-row"><span className="lbl">로봇</span>
-        <select className="fh-user" aria-label="로봇" value={robot} onChange={(e) => setRobot(e.target.value)}>{mine.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
+        <select ref={first} className="fh-user" aria-label="로봇" value={robot} onChange={(e) => setRobot(e.target.value)}>{mine.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
       <div className="fh-row" role="group" aria-label="남길 등급"><span className="lbl">등급</span>
         {MARK_GRADES.map(([k, name]) => <button key={k} type="button" className="btn" aria-pressed={grade === k} onClick={() => setGrade(k)}>{name}</button>)}</div>
       <label className="rc-clip"><input type="checkbox" aria-label="영상 클립 남기기" checked={on} disabled={lock !== null} onChange={(e) => setClip(e.target.checked)} />
@@ -60,7 +63,7 @@ export function MarkNow({ c, done }: { c: Pick<Ctx, 'user' | 'robots' | 'cancel'
       <p className="lv-note">지금 시각의 10 초 전부터 5 초 뒤까지{on ? ' 영상 클립 · ' : ' '}메모 · 남긴 사람이 남습니다. 클립은 서버가 만듭니다.</p>
       {err && <p className="fh-msg" role="alert">{err}</p>}
       <div className="fh-row"><span className="fh-grow" />
-        <button type="button" className="btn" onClick={() => setOpen(false)}>취소</button>
+        <button type="button" className="btn" onClick={close}>취소</button>
         <button type="button" className="btn pri" disabled={busy || !robot} onClick={send}>{busy ? '남기는 중…' : '남기기'}</button></div>
     </>}
   </div>}</span>;
