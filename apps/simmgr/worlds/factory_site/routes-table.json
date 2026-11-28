@@ -1,0 +1,1078 @@
+{
+  "speed_mps": 0.5,
+  "lengths": "design_length_m = 시안 선 (꼭짓점 직선, 빠진 지점 포함) · walk_from_start = 시작 위치에서 출발해 남긴 지점을 막힘을 돌아 (앱 시뮬 다리, 둘레 0.35 m) 잇고 복귀까지",
+  "via_m": 40.0,
+  "routes": [
+    {
+      "id": "patrol-a",
+      "name": "공정 순찰 A",
+      "status": "시안",
+      "robot": "K-01",
+      "points": 7,
+      "kept": 7,
+      "via": 29,
+      "design_length_m": 506.3,
+      "design_minutes_at_0_5": 16.9,
+      "walk_from_start_m": 1070.7,
+      "walk_minutes_at_0_5": 35.7,
+      "schedule": [
+        {
+          "start": "14:00",
+          "end": "14:30",
+          "source": "u6_1 일정에 추가 칸 (시작 14:00 · 마감 14:30 · 예상 끝 14:27)"
+        },
+        {
+          "start": "12:54",
+          "end": "13:51",
+          "source": "u6_1 K-01 막대 (진행 중, 막대 위치 환산)"
+        }
+      ]
+    },
+    {
+      "id": "gas-check",
+      "name": "가스 점검",
+      "status": "시안",
+      "robot": "K-02",
+      "points": 4,
+      "kept": 4,
+      "via": 42,
+      "design_length_m": 149.1,
+      "design_minutes_at_0_5": 5.0,
+      "walk_from_start_m": 1395.6,
+      "walk_minutes_at_0_5": 46.5,
+      "schedule": [
+        {
+          "start": "12:54",
+          "end": "13:54",
+          "source": "u6_1 K-02 막대 (진행 중, 막대 위치 환산)"
+        }
+      ]
+    },
+    {
+      "id": "gauge-read",
+      "name": "게이지 읽기",
+      "status": "시안",
+      "robot": "K-03",
+      "points": 3,
+      "kept": 3,
+      "via": 23,
+      "design_length_m": 120.0,
+      "design_minutes_at_0_5": 4.0,
+      "walk_from_start_m": 841.9,
+      "walk_minutes_at_0_5": 28.1,
+      "schedule": [
+        {
+          "start": "12:48",
+          "end": "13:57",
+          "source": "u6_1 K-03 막대 (진행 중, 막대 위치 환산)"
+        }
+      ]
+    },
+    {
+      "id": "valve-3f",
+      "name": "철골 3 층 밸브",
+      "status": "시안",
+      "robot": "K-05",
+      "points": 3,
+      "kept": 3,
+      "via": 22,
+      "design_length_m": 91.4,
+      "design_minutes_at_0_5": 3.0,
+      "walk_from_start_m": 657.5,
+      "walk_minutes_at_0_5": 21.9,
+      "schedule": [
+        {
+          "start": "12:42",
+          "end": "13:51",
+          "source": "u6_1 K-05 막대 (진행 중, 막대 위치 환산)"
+        }
+      ]
+    },
+    {
+      "id": "new-k08",
+      "name": "새 동선 (K-08 시뮬 등록)",
+      "status": "시안",
+      "robot": "K-08",
+      "points": 5,
+      "kept": 5,
+      "via": 28,
+      "design_length_m": 520.0,
+      "design_minutes_at_0_5": 17.3,
+      "walk_from_start_m": 1040.6,
+      "walk_minutes_at_0_5": 34.7,
+      "schedule": []
+    },
+    {
+      "id": "patrol-b",
+      "name": "공정 순찰 B",
+      "status": "제안",
+      "robot": [
+        "K-02",
+        "K-05"
+      ],
+      "points": 8,
+      "kept": 8,
+      "via": 8,
+      "design_length_m": 509.0,
+      "design_minutes_at_0_5": 17.0,
+      "walk_from_start_m": 558.0,
+      "walk_minutes_at_0_5": 18.6,
+      "schedule": [
+        {
+          "start": "14:54",
+          "end": "15:30",
+          "robot": "K-05",
+          "source": "u6_2 (14:54 ~ 15:30 공정 순찰 B)"
+        }
+      ]
+    },
+    {
+      "id": "patrol-c",
+      "name": "공정 순찰 C",
+      "status": "제안",
+      "robot": [
+        "K-01"
+      ],
+      "points": 10,
+      "kept": 10,
+      "via": 15,
+      "design_length_m": 859.0,
+      "design_minutes_at_0_5": 28.6,
+      "walk_from_start_m": 908.0,
+      "walk_minutes_at_0_5": 30.3,
+      "schedule": [
+        {
+          "start": "15:03",
+          "end": "15:30",
+          "robot": "K-01",
+          "source": "u6_8 일정에 추가 (15:03 ~ 15:30)"
+        }
+      ]
+    },
+    {
+      "id": "gas-check-k03",
+      "name": "가스 점검",
+      "status": "제안",
+      "robot": [
+        "K-03",
+        "K-02"
+      ],
+      "points": 4,
+      "kept": 4,
+      "via": 42,
+      "design_length_m": 149.1,
+      "design_minutes_at_0_5": 5.0,
+      "walk_from_start_m": 1395.6,
+      "walk_minutes_at_0_5": 46.5,
+      "schedule": [
+        {
+          "start": "14:10",
+          "robot": "K-03",
+          "source": "u6_1 (14:10 부터 가스 점검)"
+        },
+        {
+          "start": "14:12",
+          "end": "14:48",
+          "robot": "K-02",
+          "source": "u6_9 재배정안"
+        }
+      ]
+    },
+    {
+      "id": "valve-3f-k07",
+      "name": "철골 3 층 밸브",
+      "status": "제안",
+      "robot": [
+        "K-07"
+      ],
+      "points": 3,
+      "kept": 3,
+      "via": 22,
+      "design_length_m": 91.4,
+      "design_minutes_at_0_5": 3.0,
+      "walk_from_start_m": 657.5,
+      "walk_minutes_at_0_5": 21.9,
+      "schedule": [
+        {
+          "start": "17:36",
+          "end": "18:12",
+          "robot": "K-07",
+          "source": "u6_9 재배정안"
+        }
+      ]
+    },
+    {
+      "id": "battery-swap",
+      "name": "배터리 교체",
+      "status": "결정",
+      "via": 14,
+      "walk_from_start_m": 523.7,
+      "walk_minutes_at_0_5": 17.5
+    }
+  ],
+  "moved_points": [
+    {
+      "route": "patrol-a",
+      "label": "할 일 1",
+      "px": [
+        1300,
+        880
+      ],
+      "world_from": [
+        364.2857,
+        -245.7143
+      ],
+      "world_to": [
+        364.2857,
+        -278.5
+      ],
+      "moved_m": 32.79,
+      "note": "제어실 출입구 앞 도로 (출입구 자리는 SVG 에 없어 가장 가까운 도로 점)"
+    },
+    {
+      "route": "gas-check",
+      "label": "꺾는 점",
+      "px": [
+        3090,
+        700
+      ],
+      "world_from": [
+        875.7143,
+        -194.2857
+      ],
+      "world_to": [
+        884.5,
+        -194.2857
+      ],
+      "moved_m": 8.79,
+      "note": "탱크 마당 테두리 밖 도로"
+    },
+    {
+      "route": "valve-3f",
+      "label": "출발",
+      "px": [
+        860,
+        560
+      ],
+      "world_from": [
+        238.5714,
+        -154.2857
+      ],
+      "world_to": [
+        209.5,
+        -154.2857
+      ],
+      "moved_m": 29.07,
+      "note": "금지 구역 경계 밖 가장 가까운 도로"
+    }
+  ],
+  "dropped_points": [],
+  "corridor_legs": {
+    "note": "곧은 다리가 몸 반지름 0.45 m 안에서 장비 · 벽에 걸린 길이 (blocked_m) 와, 가장 가까운 빈 통로 (격자 A*, 둘레 0.5 m) 꺾는 점을 끼워 늘어난 길이 (extra_m) · 원래 선에서 가장 멀리 비킨 거리 (max_shift_m). app-design-lx 13:09",
+    "legs": [
+      {
+        "route": "patrol-a",
+        "to": "공정 순찰 A · 꺾는 점",
+        "blocked_m": 1.6,
+        "corners": 1,
+        "extra_m": 0.6,
+        "max_shift_m": 0.4
+      },
+      {
+        "route": "patrol-a",
+        "to": "공정 순찰 A · 할 일 3",
+        "blocked_m": 28.5,
+        "corners": 2,
+        "extra_m": 1.5,
+        "max_shift_m": 1.5
+      },
+      {
+        "route": "gas-check",
+        "to": "가스 점검 · 꺾는 점",
+        "blocked_m": 19.0,
+        "corners": 2,
+        "extra_m": 0.5,
+        "max_shift_m": 0.9
+      },
+      {
+        "route": "gas-check",
+        "to": "가스 점검 · 꺾는 점",
+        "blocked_m": 5.7,
+        "corners": 2,
+        "extra_m": 0.2,
+        "max_shift_m": 0.9
+      },
+      {
+        "route": "gas-check",
+        "to": "가스 점검 · 꺾는 점",
+        "blocked_m": 22.2,
+        "corners": 1,
+        "extra_m": 4.8,
+        "max_shift_m": 8.0
+      },
+      {
+        "route": "gas-check",
+        "to": "도로 경유",
+        "blocked_m": 10.9,
+        "corners": 1,
+        "extra_m": 0.0,
+        "max_shift_m": 0.8
+      },
+      {
+        "route": "gauge-read",
+        "to": "게이지 읽기 · 출발",
+        "blocked_m": 21.0,
+        "corners": 1,
+        "extra_m": 0.0,
+        "max_shift_m": 0.4
+      },
+      {
+        "route": "gauge-read",
+        "to": "게이지 읽기 · 꺾는 점",
+        "blocked_m": 24.0,
+        "corners": 2,
+        "extra_m": 0.2,
+        "max_shift_m": 1.4
+      },
+      {
+        "route": "valve-3f",
+        "to": "철골 3 층 밸브 · 꺾는 점",
+        "blocked_m": 2.2,
+        "corners": 1,
+        "extra_m": 1.5,
+        "max_shift_m": 4.0
+      },
+      {
+        "route": "valve-3f",
+        "to": "철골 3 층 밸브 · 꺾는 점",
+        "blocked_m": 21.8,
+        "corners": 3,
+        "extra_m": 1.6,
+        "max_shift_m": 4.8
+      },
+      {
+        "route": "valve-3f",
+        "to": "도로 경유",
+        "blocked_m": 11.4,
+        "corners": 2,
+        "extra_m": 15.5,
+        "max_shift_m": 10.0
+      },
+      {
+        "route": "new-k08",
+        "to": "새 동선 (K-08 시뮬 등록) · 꺾는 점",
+        "blocked_m": 1.6,
+        "corners": 1,
+        "extra_m": 0.6,
+        "max_shift_m": 0.4
+      },
+      {
+        "route": "new-k08",
+        "to": "새 동선 (K-08 시뮬 등록) · 꺾는 점",
+        "blocked_m": 59.9,
+        "corners": 2,
+        "extra_m": 0.0,
+        "max_shift_m": 0.7
+      },
+      {
+        "route": "gas-check-k03",
+        "to": "가스 점검 · 꺾는 점",
+        "blocked_m": 19.0,
+        "corners": 2,
+        "extra_m": 0.5,
+        "max_shift_m": 0.9
+      },
+      {
+        "route": "gas-check-k03",
+        "to": "가스 점검 · 꺾는 점",
+        "blocked_m": 5.7,
+        "corners": 2,
+        "extra_m": 0.2,
+        "max_shift_m": 0.9
+      },
+      {
+        "route": "gas-check-k03",
+        "to": "가스 점검 · 꺾는 점",
+        "blocked_m": 22.2,
+        "corners": 1,
+        "extra_m": 4.8,
+        "max_shift_m": 8.0
+      },
+      {
+        "route": "gas-check-k03",
+        "to": "도로 경유",
+        "blocked_m": 10.9,
+        "corners": 1,
+        "extra_m": 0.0,
+        "max_shift_m": 0.8
+      },
+      {
+        "route": "valve-3f-k07",
+        "to": "철골 3 층 밸브 · 꺾는 점",
+        "blocked_m": 2.2,
+        "corners": 1,
+        "extra_m": 1.5,
+        "max_shift_m": 4.0
+      },
+      {
+        "route": "valve-3f-k07",
+        "to": "철골 3 층 밸브 · 꺾는 점",
+        "blocked_m": 21.8,
+        "corners": 3,
+        "extra_m": 1.6,
+        "max_shift_m": 4.8
+      },
+      {
+        "route": "valve-3f-k07",
+        "to": "도로 경유",
+        "blocked_m": 11.4,
+        "corners": 2,
+        "extra_m": 15.5,
+        "max_shift_m": 10.0
+      }
+    ]
+  },
+  "off_road_legs": {
+    "note": "지점 to 로 들어가는 다리 (앱 시뮬 다리) 중 도로 19 개 밖 길이 1 m 이상. to_kind design 은 시안 다리이거나 도로 밖 시안 지점에 드나드는 연결",
+    "legs": [
+      {
+        "route": "patrol-a",
+        "to": "factory_site-patrol-a-v0 · 도로 경유",
+        "to_kind": "via",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "patrol-a",
+        "to": "factory_site-patrol-a-p1 · 공정 순찰 A · 꺾는 점",
+        "to_kind": "design",
+        "off_road_m": 4.9
+      },
+      {
+        "route": "patrol-a",
+        "to": "factory_site-patrol-a-v2 · 경유",
+        "to_kind": "via",
+        "off_road_m": 40.0
+      },
+      {
+        "route": "patrol-a",
+        "to": "factory_site-patrol-a-v3 · 경유",
+        "to_kind": "via",
+        "off_road_m": 40.0
+      },
+      {
+        "route": "patrol-a",
+        "to": "factory_site-patrol-a-p2 · 공정 순찰 A · 꺾는 점",
+        "to_kind": "design",
+        "off_road_m": 40.0
+      },
+      {
+        "route": "patrol-a",
+        "to": "factory_site-patrol-a-v4 · 경유",
+        "to_kind": "via",
+        "off_road_m": 40.0
+      },
+      {
+        "route": "patrol-a",
+        "to": "factory_site-patrol-a-v5 · 경유",
+        "to_kind": "via",
+        "off_road_m": 40.0
+      },
+      {
+        "route": "patrol-a",
+        "to": "factory_site-patrol-a-v6 · 통로 경유",
+        "to_kind": "via",
+        "off_road_m": 34.5
+      },
+      {
+        "route": "patrol-a",
+        "to": "factory_site-patrol-a-v7 · 경유",
+        "to_kind": "via",
+        "off_road_m": 40.0
+      },
+      {
+        "route": "patrol-a",
+        "to": "factory_site-patrol-a-p4 · 공정 순찰 A · 할 일 2",
+        "to_kind": "design",
+        "off_road_m": 21.2
+      },
+      {
+        "route": "patrol-a",
+        "to": "factory_site-patrol-a-v8 · 경유",
+        "to_kind": "via",
+        "off_road_m": 34.5
+      },
+      {
+        "route": "patrol-a",
+        "to": "factory_site-patrol-a-p5 · 공정 순찰 A · 꺾는 점",
+        "to_kind": "design",
+        "off_road_m": 17.1
+      },
+      {
+        "route": "patrol-a",
+        "to": "factory_site-patrol-a-v9 · 통로 경유",
+        "to_kind": "via",
+        "off_road_m": 2.7
+      },
+      {
+        "route": "patrol-a",
+        "to": "factory_site-patrol-a-v10 · 경유",
+        "to_kind": "via",
+        "off_road_m": 29.1
+      },
+      {
+        "route": "patrol-a",
+        "to": "factory_site-patrol-a-v11 · 경유",
+        "to_kind": "via",
+        "off_road_m": 40.0
+      },
+      {
+        "route": "patrol-a",
+        "to": "factory_site-patrol-a-v12 · 경유",
+        "to_kind": "via",
+        "off_road_m": 40.0
+      },
+      {
+        "route": "patrol-a",
+        "to": "factory_site-patrol-a-v13 · 통로 경유",
+        "to_kind": "via",
+        "off_road_m": 3.5
+      },
+      {
+        "route": "patrol-a",
+        "to": "factory_site-patrol-a-p6 · 공정 순찰 A · 할 일 3",
+        "to_kind": "design",
+        "off_road_m": 1.0
+      },
+      {
+        "route": "patrol-a",
+        "to": "factory_site-patrol-a-v14 · 도로 경유",
+        "to_kind": "via",
+        "off_road_m": 2.4
+      },
+      {
+        "route": "patrol-a",
+        "to": "factory_site-patrol-a-p7 · 복귀 · 시작 위치 (제어실 앞)",
+        "to_kind": "return",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "gas-check",
+        "to": "factory_site-gas-check-v0 · 도로 경유",
+        "to_kind": "via",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "gas-check",
+        "to": "factory_site-gas-check-v22 · 통로 경유",
+        "to_kind": "via",
+        "off_road_m": 6.7
+      },
+      {
+        "route": "gas-check",
+        "to": "factory_site-gas-check-p4 · 복귀 · 시작 위치 (제어실 앞)",
+        "to_kind": "return",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "gauge-read",
+        "to": "factory_site-gauge-read-v0 · 도로 경유",
+        "to_kind": "via",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "gauge-read",
+        "to": "factory_site-gauge-read-v12 · 통로 경유",
+        "to_kind": "via",
+        "off_road_m": 33.8
+      },
+      {
+        "route": "gauge-read",
+        "to": "factory_site-gauge-read-p0 · 게이지 읽기 · 출발",
+        "to_kind": "design",
+        "off_road_m": 30.3
+      },
+      {
+        "route": "gauge-read",
+        "to": "factory_site-gauge-read-v13 · 통로 경유",
+        "to_kind": "via",
+        "off_road_m": 5.4
+      },
+      {
+        "route": "gauge-read",
+        "to": "factory_site-gauge-read-v14 · 통로 경유",
+        "to_kind": "via",
+        "off_road_m": 27.5
+      },
+      {
+        "route": "gauge-read",
+        "to": "factory_site-gauge-read-p1 · 게이지 읽기 · 꺾는 점",
+        "to_kind": "design",
+        "off_road_m": 30.1
+      },
+      {
+        "route": "gauge-read",
+        "to": "factory_site-gauge-read-v15 · 경유",
+        "to_kind": "via",
+        "off_road_m": 40.0
+      },
+      {
+        "route": "gauge-read",
+        "to": "factory_site-gauge-read-p2 · 게이지 읽기 · 꺾는 점",
+        "to_kind": "design",
+        "off_road_m": 17.1
+      },
+      {
+        "route": "gauge-read",
+        "to": "factory_site-gauge-read-v16 · 도로 경유",
+        "to_kind": "via",
+        "off_road_m": 6.0
+      },
+      {
+        "route": "gauge-read",
+        "to": "factory_site-gauge-read-p3 · 복귀 · 시작 위치 (제어실 앞)",
+        "to_kind": "return",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "valve-3f",
+        "to": "factory_site-valve-3f-v0 · 도로 경유",
+        "to_kind": "via",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "valve-3f",
+        "to": "factory_site-valve-3f-v9 · 경유",
+        "to_kind": "via",
+        "off_road_m": 39.0
+      },
+      {
+        "route": "valve-3f",
+        "to": "factory_site-valve-3f-v10 · 통로 경유",
+        "to_kind": "via",
+        "off_road_m": 4.4
+      },
+      {
+        "route": "valve-3f",
+        "to": "factory_site-valve-3f-p1 · 철골 3 층 밸브 · 꺾는 점",
+        "to_kind": "design",
+        "off_road_m": 6.5
+      },
+      {
+        "route": "valve-3f",
+        "to": "factory_site-valve-3f-v11 · 통로 경유",
+        "to_kind": "via",
+        "off_road_m": 11.1
+      },
+      {
+        "route": "valve-3f",
+        "to": "factory_site-valve-3f-v12 · 통로 경유",
+        "to_kind": "via",
+        "off_road_m": 17.0
+      },
+      {
+        "route": "valve-3f",
+        "to": "factory_site-valve-3f-v13 · 통로 경유",
+        "to_kind": "via",
+        "off_road_m": 21.4
+      },
+      {
+        "route": "valve-3f",
+        "to": "factory_site-valve-3f-p2 · 철골 3 층 밸브 · 꺾는 점",
+        "to_kind": "design",
+        "off_road_m": 3.6
+      },
+      {
+        "route": "valve-3f",
+        "to": "factory_site-valve-3f-v14 · 통로 경유",
+        "to_kind": "via",
+        "off_road_m": 11.1
+      },
+      {
+        "route": "valve-3f",
+        "to": "factory_site-valve-3f-v15 · 통로 경유",
+        "to_kind": "via",
+        "off_road_m": 23.6
+      },
+      {
+        "route": "valve-3f",
+        "to": "factory_site-valve-3f-p3 · 복귀 · 시작 위치 (제어실 앞)",
+        "to_kind": "return",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "new-k08",
+        "to": "factory_site-new-k08-p1 · 새 동선 (K-08 시뮬 등록) · 꺾는 점",
+        "to_kind": "design",
+        "off_road_m": 13.1
+      },
+      {
+        "route": "new-k08",
+        "to": "factory_site-new-k08-v0 · 경유",
+        "to_kind": "via",
+        "off_road_m": 40.0
+      },
+      {
+        "route": "new-k08",
+        "to": "factory_site-new-k08-v1 · 경유",
+        "to_kind": "via",
+        "off_road_m": 40.0
+      },
+      {
+        "route": "new-k08",
+        "to": "factory_site-new-k08-v2 · 경유",
+        "to_kind": "via",
+        "off_road_m": 40.0
+      },
+      {
+        "route": "new-k08",
+        "to": "factory_site-new-k08-v3 · 경유",
+        "to_kind": "via",
+        "off_road_m": 40.0
+      },
+      {
+        "route": "new-k08",
+        "to": "factory_site-new-k08-v4 · 경유",
+        "to_kind": "via",
+        "off_road_m": 40.0
+      },
+      {
+        "route": "new-k08",
+        "to": "factory_site-new-k08-v5 · 경유",
+        "to_kind": "via",
+        "off_road_m": 40.0
+      },
+      {
+        "route": "new-k08",
+        "to": "factory_site-new-k08-v6 · 통로 경유",
+        "to_kind": "via",
+        "off_road_m": 8.8
+      },
+      {
+        "route": "new-k08",
+        "to": "factory_site-new-k08-v7 · 통로 경유",
+        "to_kind": "via",
+        "off_road_m": 21.8
+      },
+      {
+        "route": "new-k08",
+        "to": "factory_site-new-k08-v8 · 경유",
+        "to_kind": "via",
+        "off_road_m": 40.0
+      },
+      {
+        "route": "new-k08",
+        "to": "factory_site-new-k08-v9 · 경유",
+        "to_kind": "via",
+        "off_road_m": 40.0
+      },
+      {
+        "route": "new-k08",
+        "to": "factory_site-new-k08-v10 · 통로 경유",
+        "to_kind": "via",
+        "off_road_m": 34.5
+      },
+      {
+        "route": "new-k08",
+        "to": "factory_site-new-k08-v11 · 경유",
+        "to_kind": "via",
+        "off_road_m": 29.0
+      },
+      {
+        "route": "new-k08",
+        "to": "factory_site-new-k08-v12 · 경유",
+        "to_kind": "via",
+        "off_road_m": 40.0
+      },
+      {
+        "route": "new-k08",
+        "to": "factory_site-new-k08-p4 · 새 동선 (K-08 시뮬 등록) · 꺾는 점",
+        "to_kind": "design",
+        "off_road_m": 28.6
+      },
+      {
+        "route": "new-k08",
+        "to": "factory_site-new-k08-v13 · 도로 경유",
+        "to_kind": "via",
+        "off_road_m": 12.9
+      },
+      {
+        "route": "new-k08",
+        "to": "factory_site-new-k08-p5 · 복귀 · 시작 위치 (제어실 앞)",
+        "to_kind": "return",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "patrol-b",
+        "to": "factory_site-patrol-b-p0 · 공정 순찰 B · 도로 지점",
+        "to_kind": "design",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "patrol-b",
+        "to": "factory_site-patrol-b-p8 · 복귀 · 시작 위치 (제어실 앞)",
+        "to_kind": "return",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "patrol-c",
+        "to": "factory_site-patrol-c-p0 · 공정 순찰 C · 도로 지점",
+        "to_kind": "design",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "patrol-c",
+        "to": "factory_site-patrol-c-p10 · 복귀 · 시작 위치 (제어실 앞)",
+        "to_kind": "return",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "gas-check-k03",
+        "to": "factory_site-gas-check-k03-v0 · 도로 경유",
+        "to_kind": "via",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "gas-check-k03",
+        "to": "factory_site-gas-check-k03-v22 · 통로 경유",
+        "to_kind": "via",
+        "off_road_m": 6.7
+      },
+      {
+        "route": "gas-check-k03",
+        "to": "factory_site-gas-check-k03-p4 · 복귀 · 시작 위치 (제어실 앞)",
+        "to_kind": "return",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "valve-3f-k07",
+        "to": "factory_site-valve-3f-k07-v0 · 도로 경유",
+        "to_kind": "via",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "valve-3f-k07",
+        "to": "factory_site-valve-3f-k07-v9 · 경유",
+        "to_kind": "via",
+        "off_road_m": 39.0
+      },
+      {
+        "route": "valve-3f-k07",
+        "to": "factory_site-valve-3f-k07-v10 · 통로 경유",
+        "to_kind": "via",
+        "off_road_m": 4.4
+      },
+      {
+        "route": "valve-3f-k07",
+        "to": "factory_site-valve-3f-k07-p1 · 철골 3 층 밸브 · 꺾는 점",
+        "to_kind": "design",
+        "off_road_m": 6.5
+      },
+      {
+        "route": "valve-3f-k07",
+        "to": "factory_site-valve-3f-k07-v11 · 통로 경유",
+        "to_kind": "via",
+        "off_road_m": 11.1
+      },
+      {
+        "route": "valve-3f-k07",
+        "to": "factory_site-valve-3f-k07-v12 · 통로 경유",
+        "to_kind": "via",
+        "off_road_m": 17.0
+      },
+      {
+        "route": "valve-3f-k07",
+        "to": "factory_site-valve-3f-k07-v13 · 통로 경유",
+        "to_kind": "via",
+        "off_road_m": 21.4
+      },
+      {
+        "route": "valve-3f-k07",
+        "to": "factory_site-valve-3f-k07-p2 · 철골 3 층 밸브 · 꺾는 점",
+        "to_kind": "design",
+        "off_road_m": 3.6
+      },
+      {
+        "route": "valve-3f-k07",
+        "to": "factory_site-valve-3f-k07-v14 · 통로 경유",
+        "to_kind": "via",
+        "off_road_m": 11.1
+      },
+      {
+        "route": "valve-3f-k07",
+        "to": "factory_site-valve-3f-k07-v15 · 통로 경유",
+        "to_kind": "via",
+        "off_road_m": 23.6
+      },
+      {
+        "route": "valve-3f-k07",
+        "to": "factory_site-valve-3f-k07-p3 · 복귀 · 시작 위치 (제어실 앞)",
+        "to_kind": "return",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "battery-swap",
+        "to": "factory_site-battery-swap-v0 · 도로 경유",
+        "to_kind": "via",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "battery-swap",
+        "to": "factory_site-battery-swap-p0 · 배터리 교체 · 충전소 1 (정비동 옆)",
+        "to_kind": "place",
+        "off_road_m": 16.7
+      },
+      {
+        "route": "battery-swap",
+        "to": "factory_site-battery-swap-v7 · 도로 경유",
+        "to_kind": "via",
+        "off_road_m": 16.7
+      },
+      {
+        "route": "battery-swap",
+        "to": "factory_site-battery-swap-p1 · 복귀 · 시작 위치 (제어실 앞)",
+        "to_kind": "return",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "charge-wait-1",
+        "to": "factory_site-charge-wait-1-v0 · 도로 경유",
+        "to_kind": "via",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "charge-wait-2",
+        "to": "factory_site-charge-wait-2-v0 · 도로 경유",
+        "to_kind": "via",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "charge-wait-3",
+        "to": "factory_site-charge-wait-3-v0 · 도로 경유",
+        "to_kind": "via",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "charge-wait-4",
+        "to": "factory_site-charge-wait-4-v0 · 도로 경유",
+        "to_kind": "via",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "charge-wait-5",
+        "to": "factory_site-charge-wait-5-v0 · 도로 경유",
+        "to_kind": "via",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "charge-wait-6",
+        "to": "factory_site-charge-wait-6-v0 · 도로 경유",
+        "to_kind": "via",
+        "off_road_m": 18.0
+      },
+      {
+        "route": "charge-wait-7",
+        "to": "factory_site-charge-wait-7-v0 · 도로 경유",
+        "to_kind": "via",
+        "off_road_m": 18.0
+      }
+    ]
+  },
+  "charge_queue": {
+    "status": "제안",
+    "cells": [
+      [
+        564.3,
+        -289.0
+      ],
+      [
+        562.3,
+        -289.0
+      ],
+      [
+        560.3,
+        -289.0
+      ],
+      [
+        558.3,
+        -289.0
+      ],
+      [
+        556.3,
+        -289.0
+      ],
+      [
+        554.3,
+        -289.0
+      ],
+      [
+        552.3,
+        -289.0
+      ]
+    ],
+    "distances": [
+      {
+        "x": 564.3,
+        "y": -289.0,
+        "nearest_nogo": "변전소",
+        "nogo_m": 7.0,
+        "nearest_blocked_cell_m": 6.5,
+        "body_half_m": 0.45,
+        "overlaps": false
+      },
+      {
+        "x": 562.3,
+        "y": -289.0,
+        "nearest_nogo": "변전소",
+        "nogo_m": 7.0,
+        "nearest_blocked_cell_m": 6.5,
+        "body_half_m": 0.45,
+        "overlaps": false
+      },
+      {
+        "x": 560.3,
+        "y": -289.0,
+        "nearest_nogo": "변전소",
+        "nogo_m": 7.0,
+        "nearest_blocked_cell_m": 6.5,
+        "body_half_m": 0.45,
+        "overlaps": false
+      },
+      {
+        "x": 558.3,
+        "y": -289.0,
+        "nearest_nogo": "변전소",
+        "nogo_m": 7.0,
+        "nearest_blocked_cell_m": 6.5,
+        "body_half_m": 0.45,
+        "overlaps": false
+      },
+      {
+        "x": 556.3,
+        "y": -289.0,
+        "nearest_nogo": "변전소",
+        "nogo_m": 7.0,
+        "nearest_blocked_cell_m": 6.5,
+        "body_half_m": 0.45,
+        "overlaps": false
+      },
+      {
+        "x": 554.3,
+        "y": -289.0,
+        "nearest_nogo": "변전소",
+        "nogo_m": 7.0,
+        "nearest_blocked_cell_m": 6.5,
+        "body_half_m": 0.45,
+        "overlaps": false
+      },
+      {
+        "x": 552.3,
+        "y": -289.0,
+        "nearest_nogo": "변전소",
+        "nogo_m": 7.0,
+        "nearest_blocked_cell_m": 6.5,
+        "body_half_m": 0.45,
+        "overlaps": false
+      }
+    ]
+  }
+}

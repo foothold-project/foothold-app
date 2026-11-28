@@ -330,3 +330,24 @@ def test_step_stats_file_only_when_asked(tmp_path, monkeypatch):
     path, slot = asyncio.run(run('on'))
     assert path is not None and path.endswith(slot.robot_id + '/step-stats.jsonl')
     assert asyncio.run(run('off'))[0] is None
+
+
+def test_factory_site_map_name_is_listed_and_neighbours_are_refused(tmp_path):
+    """공장 터: 서버 키 factory_site/f1 -> MuJoCo 지도 factory-site (maps.json 에 있음). 비슷한 이름은 목록에 없어 거절."""
+    from apps.simmgr.mujoco_launcher import mujoco_map, mujoco_maps
+    assert mujoco_map('factory_site/f1') == 'factory-site' and 'factory-site' in mujoco_maps()
+
+    async def run():
+        _, launch = launcher(tmp_path, 'ready')
+        await launch.start_world(World('factory_site/f1', Path('/p/a'), Path('/p/b')))
+        assert launch.world.id == 'factory_site/f1'
+        for key in ('factory_site_x/f1', 'factory/f1', 'site/f1'):
+            cfg, launch = launcher(tmp_path, 'ready')
+            cfg = replace(cfg, worlds={key: World(key, Path('/p/a'), Path('/p/b'))})
+            launch.settings = cfg
+            manager = Manager(cfg, launch)
+            slot = next(iter(cfg.slots.values()))
+            with pytest.raises(SimError) as error:
+                await manager.add(key, slot.robot_id, str(uuid4()), slot.org_id, 'x' * 32, 1)
+            assert error.value.code == 'SIM_WORLD_INVALID' and launch.children == {}
+    asyncio.run(run())
