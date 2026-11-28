@@ -115,3 +115,5 @@
 .u7 .frow .th .mx-thumb{height:100%;background:transparent;border:0;border-radius:0}
 .u7 .frow .th .mx-thumb image{filter:url(#u7-line-d)}
 .proto.light .u7 .frow .th .mx-thumb image{filter:url(#u7-line-l)}
+.u7 .frow .th[data-ink=dark] .mx-thumb image{filter:url(#u7-line-d-i)}
+.proto.light .u7 .frow .th[data-ink=dark] .mx-thumb image{filter:url(#u7-line-l-i)}

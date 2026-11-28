@@ -39,10 +39,27 @@ export type Ed = { own: (s: Place['site']) => boolean; busy: boolean; edits: Rea
   del: (kind: 'sites' | 'buildings' | 'floors', x: { id: string; name: string }) => void;
   add: (kind: 'sites' | 'buildings' | 'floors', parent?: { id: string; name: string }) => void };
 
-/** 층 줄 썸네일 선 그림 거름(u7.css): 알파 = 원래 알파 − 밝기, 0.6 넘는 곳(밝기 < 0.4)만 남김 · 색 = 어둠 흰색 / 밝음 글자색 #1F2421 */
-const LINE = (id: string, r: number, g: number, b: number) => `<filter id="${id}" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0 0 0 0 ${r} 0 0 0 0 ${g} 0 0 0 0 ${b} -0.299 -0.587 -0.114 1 0"/>`
+/** 층 줄 썸네일 선 그림 거름(u7.css). 판 그림 바탕이 밝으면(점유 격자 · 흰 빈 곳) 어두운 픽셀(밝기 < 0.4)이 선, 바탕이 어두우면(어두운 색 그림) 밝은 픽셀(밝기 > 0.6)이 선.
+ *  알파 = ±밝기 로 0.6 넘는 곳만 남김 · 색 = 어둠 흰색 / 밝음 글자색 #1F2421. id 끝 -i = 어두운 바탕 그림용 */
+const LINE = (id: string, [r, g, b]: number[], inv: boolean) => `<filter id="${id}" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0 0 0 0 ${r} 0 0 0 0 ${g} 0 0 0 0 ${b} ${inv ? '0.299 0.587 0.114 0 0' : '-0.299 -0.587 -0.114 1 0'}"/>`
   + '<feComponentTransfer><feFuncA type="discrete" tableValues="0 0 0 0 0 0 1 1 1 1"/></feComponentTransfer></filter>';
-export const LINE_DEFS = LINE('u7-line-d', 1, 1, 1) + LINE('u7-line-l', 31 / 255, 36 / 255, 33 / 255);
+const WHITE = [1, 1, 1], INK = [31 / 255, 36 / 255, 33 / 255];
+export const LINE_DEFS = LINE('u7-line-d', WHITE, false) + LINE('u7-line-l', INK, false) + LINE('u7-line-d-i', WHITE, true) + LINE('u7-line-l-i', INK, true);
+/** 판 그림 바탕 밝기(작게 줄여 평균): 'light' = 밝은 바탕, 'dark' = 어두운 바탕. 그리기가 없거나 못 받으면 'light'(점유 격자 기본) */
+export const inkOf = (px: Uint8ClampedArray) => { let s = 0, n = 0; for (let i = 0; i < px.length; i += 4) if (px[i + 3] > 0) { s += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]; n++; } return n && s / n < 128 ? 'dark' : 'light'; };
+function useInk(id?: string | null) {
+  const [ink, setInk] = useState<'light' | 'dark'>('light');
+  useEffect(() => {
+    if (!id) return;
+    let live = true; const img = new Image(); img.crossOrigin = 'use-credentials';
+    img.onload = () => { if (!live) return; const c = document.createElement('canvas'); c.width = c.height = 48; const g = c.getContext('2d'); if (!g) return; try { g.drawImage(img, 0, 0, 48, 48); setInk(inkOf(g.getImageData(0, 0, 48, 48).data)); } catch { /* 읽을 수 없는 그림 = 밝은 바탕 기본 */ } };
+    img.src = api.imageUrl(id);
+    return () => { live = false; img.onload = null; };
+  }, [id]);
+  return ink;
+}
+/** 층 줄 썸네일 칸: 판 그림 바탕 밝기를 data-ink 로(u7.css 가 거름을 고름) */
+const Th = ({ children, id }: { children: ReactNode; id?: string | null }) => <div className="th" data-ink={useInk(id)}>{children}</div>;
 const LineDefs = () => <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true" data-u7-linedefs dangerouslySetInnerHTML={{ __html: `<defs>${LINE_DEFS}</defs>` }} />;
 
 /** 층 겹친 그림(시안 u7_1 가운데 아래 svg 값 그대로): 위층이 위, 고른 층만 민트. 누르면 그 층 */
@@ -133,7 +150,7 @@ export function PickU7({ maker, t, places, vers, choose, make, note, manage, set
         <div className="row" style={{ justifyContent: 'space-between', padding: '0 6px 12px' }}><span className="ttl">{cur.building.name} · 층</span><span className="mu2" style={{ fontSize: '12.5px', fontWeight: 600 }}>층마다 지도 하나</span></div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>{floors.map((f) => { const x = f.approved_version_id ? vers[f.approved_version_id] : undefined, [tc, tt] = x ? tagOf(x) : ['', ''];
           return <div key={f.id} className={`frow${f.id === fl?.id ? ' on' : ''}`} role="button" tabIndex={0} aria-pressed={f.id === fl?.id} data-floor-row={f.id} onClick={() => setFid(f.id)}>
-            <div className="th"><Thumb id={f.approved_version_id} v={x} demo={demo} /></div>
+            <Th id={f.approved_version_id}><Thumb id={f.approved_version_id} v={x} demo={demo} /></Th>
             <div style={{ flex: 1, minWidth: 0 }}><div className="row" style={{ gap: '10px' }}><b>{f.name}</b>{x ? <span className={tc}>{tt}</span> : !f.approved_version_id && <span className="tag">지도 없음</span>}
               {x && voxelOf(x) && <span className="tag m" style={{ marginLeft: '8px' }} data-voxel-chip>3D</span>}</div>
               {x && <div className="meta"><span>{meters(x).area} ({meters(x).wh})</span><span>{md(x.created_at)} · v{x.number}</span></div>}</div>

@@ -2,7 +2,7 @@
 // fetch 는 가짜 서버, WebSocket 은 FakeWS. 나무·권한별 단추, 409/403/404/422/413/네트워크 실패, 좌표 변환·y 뒤집힘,
 // 두 단계 올리기 순서·실패 중단, STALE, 판 전환, 승인 판 없음, 로봇 점 없음, 어떤 실패에도 STOP 이 보이고 실제로 정지 요청이 나가는지 본다.
 import { CLAY_CAM, cellAt, clayCam, occGrid } from '../screens/u7/clay';
-import { railGroups } from '../screens/u7/pick';
+import { inkOf, railGroups } from '../screens/u7/pick';
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
@@ -2620,7 +2620,9 @@ describe('지도 탭 고르기 첫 줄 · 썸네일 거름', () => {
     act(() => { root = createRoot(box); root.render(<Root />); }); await flush();
     expect($('[data-u7="u7_1_pick"] .side .site.on')!.getAttribute('data-building')).not.toBe('ba');
     expect($('[data-u7="u7_1_pick"] [data-rail-group="late"] [data-building="ba"]')).not.toBeNull();
-    expect([...box.querySelectorAll('[data-u7-linedefs] filter')].map((f) => f.id)).toEqual(['u7-line-d', 'u7-line-l']);
+    expect([...box.querySelectorAll('[data-u7-linedefs] filter')].map((f) => f.id)).toEqual(['u7-line-d', 'u7-line-l', 'u7-line-d-i', 'u7-line-l-i']);
+    const px = (v: number) => new Uint8ClampedArray([v, v, v, 255, v, v, v, 255, 0, 0, 0, 0]);
+    expect([inkOf(px(250)), inkOf(px(30)), inkOf(new Uint8ClampedArray(4))]).toEqual(['light', 'dark', 'light']);   // 흰 빈 곳 판 · 어두운 색 그림 · 투명뿐
   });
 });
 
