@@ -7,6 +7,7 @@ import { ROLE_NAME, robotName, type Role, type User } from '../fake';
 import orgSettingsSchema from '../../../contracts/schema/OrgSettings.json';
 import { REAL_CAPS as phoneCaps, simTune } from '../phone';
 import { Chip, type Ctx } from '../screens';
+import { ControlsGuide } from './controls';
 import { THEMES, setThemePref, useTheme } from '../theme';
 import './settings.css';
 
@@ -109,6 +110,7 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) 
     </>)}
     {panel('clip', <Later label="기록과 클립" items={[['클립 보관 기간', '사건 클립은 서버 클립 기능이 생긴 뒤 보관 기간을 여기서 바꿉니다.']]} />)}
     {panel('ctl', <>
+      <ControlsGuide />
       <div className="st-modelbar">
         <div className="st-tabs" role="group" aria-label="값을 고칠 모델">
           {[['', '공통'] as const, ...SIM_MODELS].map(([id, name]) => <button key={id} type="button" aria-pressed={model === id} onClick={() => pickModel(id)}>{name}</button>)}
@@ -255,7 +257,7 @@ function OrgCard({ org, admin, id, model, label, note, bad, cap, confirm, fields
     const head = <span className="st-lab">{f.label} <span className="lbl">({range(f)}{f.hint ? `, ${f.hint}` : ''})</span>{tags}</span>;
     if (f.kind === 'range') return <label key={f.key} className="fh-field">{head}
       <span className="st-rng"><input type="range" name={f.key} min={f.min} max={f.max} step={f.step} value={String(v)} disabled={!admin} aria-describedby={desc} onChange={(e) => edit(f, e.target.value)} />
-        <output>{Number(v).toFixed(2)} {f.unit}</output></span>{tail}</label>;
+        <output>{v === '' || v == null || !Number.isFinite(Number(v)) ? '값을 받지 못했습니다' : `${Number(v).toFixed(2)} ${f.unit}`}</output></span>{tail}</label>;
     return <label key={f.key} className="fh-field">{head}
       <span className="st-unit"><input className="inp" name={f.key} type="number" inputMode="decimal" min={f.min} max={f.max} step={f.step} readOnly={!admin} aria-describedby={desc}
         aria-invalid={er ? true : undefined} value={String(v)} onChange={(e) => edit(f, e.target.value)} />{f.unit && <span className="lbl">{f.unit}</span>}</span>{tail}</label>;
