@@ -63,7 +63,7 @@
 .u5 .s.r .ic{color:#ff4d4f}
 .u5 .side{position:absolute;right:24px;top:156px;width:380px;bottom:24px;display:flex;flex-direction:column;gap:14px}
 .u5 .side .pane{position:relative}
-.u5 .mini{position:relative;height:250px;border-radius:14px;overflow:hidden;background:#0e1116 url(/proto-assets/shared/map_large_factory.png) no-repeat;background-size:400px 250px;background-position:center}
+.u5 .mini{position:relative;height:250px;border-radius:14px;overflow:hidden;background:#0e1116 url(/proto-assets/assets/maps_v2/factory_kr/top_dark.png) no-repeat;background-size:400px 250px;background-position:center}
 .u5 .dotm{position:absolute;width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%;background:#00c389;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
 .u5 .dotm.sim{background:transparent;border:2px dashed #5e6662}
 .u5 .dotm.r{background:#ff4d4f}
@@ -152,7 +152,7 @@
 /* 3D 현장(지도 보기) · 작은 지도 · 타일 3D 바탕: 밝은 판은 시안 흰 점토 정사영(shared/map_large_factory_top.jpg) 결로 */
 .u5 .big.st3{background:#07090b}
 .proto.light .u5 .big.st3{background:#F6F7F6}
-.proto.light .u5 .mini{background:#F6F7F6 url(/proto-assets/shared/map_large_factory_top.jpg) no-repeat;background-size:400px 250px;background-position:center}
+.proto.light .u5 .mini{background:#F6F7F6 url(/proto-assets/assets/maps_v2/factory_kr/top_light.png) no-repeat;background-size:400px 250px;background-position:center}
 .proto.light .u5 .cv{background:radial-gradient(120% 95% at 50% 78%,#FFFFFF 0%,#F6F7F6 55%,#DCE0DE 100%);box-shadow:inset 0 0 0 1px #DCE0DE}
 .proto.light .u5 .cv.st{background:radial-gradient(260px 180px at 50% 45%,#FFFFFF,#F6F7F6 75%)}
 .proto.light .u5 .mk3 .lb{color:#1F2421;background:rgba(255,255,255,.92);border-color:#DCE0DE}

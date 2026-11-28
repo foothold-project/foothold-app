@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { MapVersion } from '../../../../contracts/ts';
 import { floorZ, modelBytes, modelOf, worldGroup } from '../map3d';
+import { SITE_TOP } from '../../proto/site';
 
 /** Go2 앞 카메라 높이(m, 바닥 위). 제조사 제원 서 있는 몸 크기 70 × 31 × 40 cm(높이 0.40 m), 앞 카메라는 머리 앞면 위쪽이라 몸 위끝보다 조금 아래 */
 export const CAM_H = 0.36;
@@ -15,9 +16,9 @@ export const CAM_FOV = 62, CAM_PITCH = 0.08;
 /** 시안 공장 터 3D(저장소 밖 자산 · vite FH_ASSET_DIR → /proto-assets/) */
 export const FACTORY_GLB = '/proto-assets/assets/maps_large/3d/factory_site.glb';
 /** 시안 공장 터 지도 그림(3200 × 2000 px · 3.5 px/m · 그림 원점 (25, 20) px · 900 m × 560 m) */
-export const FACTORY_PNG = '/proto-assets/shared/map_large_factory.png';
+export const FACTORY_PNG = SITE_TOP.dark;   // 공장 질감판 위 그림(어둠) · 경로는 proto/site.ts SITE_TOP 한 곳(관제 작은 지도와 같음)
 /** 밝은 판 공장 그림: 시안 build_scene.py 가 같은 3200 × 2000 px 에 정사영으로 뽑은 흰 점토 결 그림(지도 탭 · 관제와 같은 파일) */
-export const FACTORY_LIGHT = '/proto-assets/shared/map_large_factory_top.jpg';
+export const FACTORY_LIGHT = SITE_TOP.light;   // 같은 질감판 위 그림(밝음)
 const K = 3.5, OX = 25, OY = 20, FW = 3200, FH = 2000;
 /** 서버 판 m(x 동 · y 북) → 시안 공장 그림 px. 시안 design 변환 그대로(px = 25 + 3.5 x, py = 20 − 3.5 y) · 데모 현장 판에만 쓴다 */
 export const factoryPx = (x: number, y: number) => [OX + K * x, OY - K * y] as const;
