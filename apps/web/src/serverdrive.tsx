@@ -18,7 +18,7 @@ import { api } from './api';
 import { ActionTrial } from './screens/actiontrial';
 import { GAIT_KEYS, gaitKey, useGait } from './gait';
 import { realCaps, simTune, useTuneSettings } from './phone';
-import type { OrgSettings, UnlockRefused } from '../../contracts/ts';
+import type { GaitName, OrgSettings, UnlockRefused } from '../../contracts/ts';
 import orgSettingsSchema from '../../contracts/schema/OrgSettings.json';
 import { keyCode } from './padkeys';
 
@@ -210,6 +210,8 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   const [g] = useState(inputGen), keys = useRef(new Map<string, number>()), pads = useRef(new Map<number, { n: number; t: Tok[]; el: HTMLElement }>());
   // 걷기 모드(u03): 누른 키 · 단추가 있거나 로봇이 0 아닌 명령을 적용 중이면 «움직이는 중» · 보내지 않고 까닭
   const gait = useGait(r.id, () => keys.current.size + pads.current.size > 0 || !!rt.get(r.id).state?.applied?.some((v) => v !== 0)), gaitRef = useRef(gait.press); gaitRef.current = gait.press;
+  /** 화면이 Shift+1~4 를 가로챔(로봇 탭 PC: 시안 u4_7 확인 창을 먼저 연다) · 비어 있으면 바로 보냄(폰 · 옛 화면) */
+  const gaitAsk = useRef<((g: GaitName) => void) | null>(null);
   // pose = 내가 보낸 자세 명령(결과가 올 때까지 두 단추 잠금), prev = 누를 때 보이던 앞 결과(같은 것을 내 결과로 읽지 않게)
   const [pose, setPose] = useState<{ k: PoseKey; prev: string | null; at: number } | null>(null), [poseMsg, setPoseMsg] = useState('');
   const posture = s?.posture?.state ?? null, res = s?.posture_result ?? null;
@@ -284,7 +286,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
       const t = KEY[keyCode(e.code)], k = keys.current;
       // 글 입력 중·반복(e.repeat)은 새 누름이 아니다 — 모르는 키면 앞 세대로 적어 뗄 때까지 0
       if (typing(e.target) || e.repeat) { if (t && !k.has(e.code)) { k.set(e.code, -1); changed(); } return; }
-      const gk = gaitKey(e); if (gk) { e.preventDefault(); gaitRef.current(gk); return; }   // Shift+1~4 걷기 모드 · 이동 키가 아님(입력칸 · 반복은 위에서 거름)
+      const gk = gaitKey(e); if (gk) { e.preventDefault(); (gaitAsk.current ?? gaitRef.current)(gk); return; }   // Shift+1~4 걷기 모드 · 이동 키가 아님(입력칸 · 반복은 위에서 거름)
       if (e.code === 'Space') return zero(SD_NOTE.stop);   // STOP 은 App 머리줄이 보낸다 — 여기는 입력만 먼저 0
       if (!t) return;
       if (!e.ctrlKey && !e.altKey) e.preventDefault();   // Ctrl·Alt 조합도 같은 누름으로 적는다(브라우저 단축키는 막지 않음)
@@ -394,7 +396,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   const trial = <ActionTrial robot={r} allowed={!!r.serverDrive && !r.sim} beforeSend={zero} />;
   const releasing = l.releasing?.why && <div className="fh-row" role="status"><span className="fh-why">조종권 반납을 확인하지 못했습니다. {l.releasing.why}</span>
     <button type="button" className="btn" onClick={() => rt.release(r.id)}>다시 시도</button></div>;
-  return { l, s, mine, off, link, posture, shifting, stalled, refused, age, lock, zero, stop, stopNote, unlock, pad, status, latency, notes, hint, end, begin, poseRow, gaitRow: gait.row, trial, releasing,
+  return { gaitAsk, l, s, mine, off, link, posture, shifting, stalled, refused, age, lock, zero, stop, stopNote, unlock, pad, status, latency, notes, hint, end, begin, poseRow, gaitRow: gait.row, trial, releasing,
     take, takeWhy: driveBlock(c.user, r) ?? (wait || ''), stick, stopPress, why, on, ready, askPose, poseNow, poseMsg: poseMsg || lost, gait,
     unlockAsk: () => { setAsked(rt.now()); rt.unlock(r.id); }, unlockState: asked == null ? null : late ? 'unconfirmed' as const : 'wait' as const, stopLine: sl };
 }

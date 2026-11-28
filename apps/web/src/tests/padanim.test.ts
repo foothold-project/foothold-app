@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest';
 import { PAD_BEATS, PAD_RISE, padGroup, padStep, padTick } from '../proto/padanim';
 import tileSrc from '../proto/tileview.ts?raw';
 import go2Src from '../screens/u4/go2view.ts?raw';
-import u4Src from '../screens/u4/robotu4.tsx?raw';
 
 const layers = (g: THREE.Object3D) => g.getObjectByName('rise')!.children;
 const shown = (g: THREE.Object3D) => layers(g).filter((l) => l.visible).length;
@@ -51,12 +50,11 @@ describe('바닥 표시 오르는 층', () => {
     expect(shown(g)).toBe(0); expect(g.children[0].visible && g.children[1].visible).toBe(true);
   });
 
-  it('관제 타일 · 로봇 탭 큰 무대가 같은 함수(padGroup · padTick) · 로봇 탭은 tilePad 규칙', () => {
+  it('관제 타일 · 로봇 탭 큰 무대가 같은 함수(padGroup · padTick) · 로봇 탭 padMesh = padGroup 한 줄', () => {
     expect(tileSrc).toContain("import { padGroup, padTick } from './padanim';");
     expect(tileSrc).toContain('padTick(this.pads[look.pad], this.t)');
     expect(go2Src).toContain("import { padGroup, padTick } from '../../proto/padanim';");
-    expect(go2Src).toContain('padTick(pads[k], t)');
-    expect(u4Src).toContain('g.current.pad = pad;');
-    expect(u4Src).toContain("const pad = tilePad({ sim, charging: !!a0?.charging, job: a0?.maint ? { kind: 'maint', text: '' } : null });");
+    expect(go2Src).toContain("export const padMesh = (kind: PadKind, light = false): THREE.Group => padGroup(kind === 'maint' ? 'check' : kind, light);");
+    expect(go2Src).toContain('if (padG) padTick(padG, t);');
   });
 });

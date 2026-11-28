@@ -45,6 +45,16 @@ describe('사전 · 규칙', () => {
   });
 });
 
+describe('조종 단추 글 「조종」 · 「다시 시작」 · 확인 창 · 이어 가기 안내', () => {
+  it('화면 글(robotact · run.tsx · phone.ts RESUME_REJECTED · screens/sim.tsx)이 모두 사전 · 규칙에 있음', async () => {
+    const { RESTART_ASK, RESTART_TEXT } = await import('../robotact');
+    for (const k of ['조종', '다시 시작', '일어서기', '취소', RESTART_TEXT, '먼저 «조종»을 누르세요.', '먼저 «다시 시작»을 누르세요.', '이어가려면 «조종»을 누르세요.',
+      '이어가려면 STOP 을 확인한 뒤 «다시 시작»을 누르세요.', '조종 → 다시 시작 뒤 키보드로 움직입니다', '아직 이어갈 수 없습니다. 로봇의 목표 취소 확인을 기다렸다가 «조종» → «다시 시작» → 손을 뗀 뒤 다시 누르세요.',
+      '실행 중에는 수동 조종이 막혀 있습니다. 수동으로 바꾸려면 «일시정지» → 로봇이 멈춘 뒤 «조종» → «다시 시작».']) expect(en(k), k).toBeTruthy();
+    expect(en(RESTART_ASK('K-01'))).toBe('Stand K-01 up?');
+  });
+});
+
 describe('그려진 글 바꾸기', () => {
   function Demo() {
     const [n, setN] = useState(0);

@@ -48,8 +48,10 @@ export function PhoneLogin({ msg, bad, tick, busy, note, light, submit, done }: 
   </main>;
 }
 
+/** 시안 u13_2 아래 안내 둘째 문장 */
+const PW_ALL = '바꾸면 모든 기기에서 로그아웃됩니다.';
 /** 시안 u13_2 비밀번호 바꾸기 창(가림 .veil · 560 폭 .g · 두 줄 두 칸). 값 확인 · 요청은 PC 창과 같은 usePwChange.
- *  시안 밖: 오류 한 줄(.msg.err 결). 아래 안내 글은 PC 와 같은 규칙 글(시안의 «모든 기기에서 로그아웃» 은 서버 확인 전이라 쓰지 않음) */
+ *  시안 밖: 오류 한 줄(.msg.err 결). 아래 안내 글 = PC 와 같은 규칙 글 + 시안 「모든 기기에서 로그아웃」(서버 /me/password 가 그 사용자의 모든 세션을 끊음 · revoke_user_sessions) */
 function PhonePw({ close, done }: { close: () => void; done: () => void }) {
   const { err, bad, busy, refs, submit } = usePwChange(done), title = useId();
   const field = (k: 'id' | 'cur' | 'new' | 'again', label: string, name: string, type: string, auto: string) => <div><label className="lab" htmlFor={`u132-${k}`}>{label}</label>
@@ -68,7 +70,7 @@ function PhonePw({ close, done }: { close: () => void; done: () => void }) {
         {field('again', '새 비밀번호 확인', 'pw-again', 'password', 'new-password')}
       </div>
       {err && <p className="msg err" role="alert" data-pw-err style={{ marginTop: '10px' }}><svg className="ic" viewBox="0 0 24 24" style={{ width: '16px', height: '16px' }} aria-hidden="true">{WARN}</svg>{err}</p>}
-      <p style={{ fontSize: '11.5px', fontWeight: 600, color: '#5e6662', marginTop: '10px' }}>{PW_RULE}</p>
+      <p style={{ fontSize: '11.5px', fontWeight: 600, color: '#5e6662', marginTop: '10px' }} data-pw-rule>{PW_RULE} {PW_ALL}</p>
       <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}><button type="button" className="sec" style={{ flex: 1 }} id="go-cancel" onClick={close} disabled={busy}>취소</button>
         <button type="submit" className="prim" style={{ flex: 1 }} id="go-change" disabled={busy}>{busy ? '바꾸는 중…' : '바꾸기'}</button></div>
     </form>

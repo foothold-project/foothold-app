@@ -24,3 +24,6 @@
 .u134 .g{max-width:calc(100% - 24px);max-height:calc(100% - 16px);overflow-y:auto}
 .u134 .u134-btns{display:flex;gap:8px}
 .u134 .u134-btns button{flex:1;width:auto}
+
+/* 로그인 바탕(시안 u13_1 .bg 의 그림)을 저장소 밖 /proto-assets 대신 앱 public/login 에서(팀장 11-28 23:53) · 자리 · 크기는 u13.css 그대로 */
+.u13 .bg{background-image:url(/login/factory_k01.jpg)}

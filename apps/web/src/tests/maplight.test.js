@@ -38,6 +38,8 @@ describe('지도 탭 밝은 판 = DESIGN.md 밝음 1', () => {
     const at = (sel) => [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find((m) => m[1].trim() === sel)?.[2] ?? '';
     expect(at('.u7 .frow .th .mx-thumb image')).toBe('filter:url(#u7-line-d)');
     expect(at('.proto.light .u7 .frow .th .mx-thumb image')).toBe('filter:url(#u7-line-l)');
+    expect(at('.u7 .frow .th[data-ink=dark] .mx-thumb image')).toBe('filter:url(#u7-line-d-i)');   // 어두운 바탕 판 그림 = 밝은 픽셀이 선
+    expect(at('.proto.light .u7 .frow .th[data-ink=dark] .mx-thumb image')).toBe('filter:url(#u7-line-l-i)');
     expect(at('.u7 .frow .th .mx-thumb')).toMatch(/background:transparent/);
   });
   it('u7.css 밝은 판(시안 u7_1 · u7_2 현장 · 층 줄 · 꼬리표)', () => {

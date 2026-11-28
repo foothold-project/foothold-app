@@ -122,9 +122,9 @@ describe('실기 연결 흐름', () => {
     expect($('[data-real-range]')?.textContent).toContain('후진 없음');
     expect($('[data-stop]')).toBeTruthy();   // STOP 늘 보임
     act(() => a.recv(st())); await flush();
-    await click(btn('조종 시작'));
+    await click(btn('조종'));
     act(() => a.recv(st({ lease_id: LEASE, controller: 'u-lee', controller_connected: true }))); await flush();
-    await click(btn('잠금 해제'));
+    await click(btn('다시 시작')); await click($('[data-restart-go]'));
     act(() => a.recv(st({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: false }))); await flush();
     // 회전만(제자리) = wz 0, 앞 끝까지 = 1.5
     sim.axes([0, 1]); await wait(120);
@@ -302,9 +302,9 @@ describe('실기 직결 조종 — 새로 누른 입력만', () => {
     serve();
     const a = await connected();
     act(() => a.recv(st())); await flush();
-    await click(btn('조종 시작'));
+    await click(btn('조종'));
     act(() => a.recv(st(ST))); await flush();
-    await click(btn('잠금 해제'));
+    await click(btn('다시 시작')); await click($('[data-restart-go]'));
     act(() => a.recv(st({ ...ST, latched: false }))); await flush();
     return a;
   }
@@ -350,7 +350,7 @@ describe('서버 끊긴 폰의 STOP(d2)', () => {
   const server = () => FakeWS.all.filter((w) => !w.url.startsWith('ws://127.0.0.1:40123/'));
   /** 서버 실시간을 열었다가 끊음(연결 끊김 띠까지) */
   const cut = async () => { for (const w of server()) { act(() => w.open()); } await flush(); for (const w of server()) act(() => w.drop(1006)); await flush();
-    expect($('[data-link-band]')).toBeTruthy(); };
+    expect($('[data-link-band]') ?? $('[data-off-proto="reconnect"]')).toBeTruthy(); };   // 폰 실기 조종(u1)은 조종 판 띠 「서버 연결 안 됨 · 다시 연결」(시안 u1_8)
   const greyStops = () => [...box.querySelectorAll<HTMLButtonElement>('.fh-stop')].filter((b) => b.disabled);
   /** 직결 없이 폰 로봇 연결 화면 */
   async function home(robots = ROBOTS, hash = '#/drive') {

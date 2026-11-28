@@ -71,6 +71,8 @@ const click = async (el: Element | null | undefined) => { expect(el).toBeTruthy(
 const agents = () => FakeWS.all.filter((w) => /\/phone\/ws$/.test(w.url) && w.url.startsWith('ws://127.0.0.1:948'));
 const cams = () => FakeWS.all.filter((w) => w.url.endsWith('/phone/camera/ws'));
 const recv = async (w: FakeWS, m: object) => { act(() => w.recv(m)); await flush(); };
+/** 옛 「잠금 해제」 한 번 누름 = 「다시 시작」 → 확인 창 「일어서기」. 단추가 막혀 있으면(busy) 예전처럼 아무 일 없음 */
+const unlockTap = async () => { const b = btn('다시 시작'); await click(b); if (!b!.disabled) await click($('[data-restart-go]')); };
 /** 에이전트 흉내: lease.take → lease_id, 그 밖 요청 → ok. hello·cmd·ping·stop 은 답 없음(state 로 확인) */
 const agentAuto = ((m: Msg) => (m.t === 'lease.take' ? { lease_id: LEASE } : ['hello', 'cmd', 'ping', 'stop'].includes(m.t) ? undefined : {})) as FakeWS['auto'];
 const last = <T,>(xs: T[]) => xs[xs.length - 1];
@@ -91,9 +93,9 @@ async function launch(hello = welcome(), more: typeof routes = {}) {
 /** 조종 시작 → 잠금 해제 → state latched=false */
 async function drive(a: FakeWS) {
   await recv(a, phoneState());
-  await click(btn('조종 시작'));
+  await click(btn('조종'));
   await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true }));
-  await click(btn('잠금 해제'));
+  await unlockTap();
   await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: false, stop_gen: 1 }));
 }
 const stick = (label: string) => {
@@ -219,7 +221,7 @@ describe('시뮬 조종 화면 — 컴퓨터 키(10-29 «컴퓨터는 화살표,
     await key('keydown', 'KeyD');
     await wait(60);
     expect(a.of('cmd').slice(n).every((m) => m.vx === 0 && m.wz === 0)).toBe(true);
-    await click(btn('잠금 해제'));
+    await unlockTap();
     await recv(a, phoneState({ ...held, latched: false, stop_gen: 2 }));
     await key('keydown', 'KeyW', { repeat: true });
     expect(await cmd()).toMatchObject({ vx: 0, wz: 0 });
@@ -741,7 +743,7 @@ describe('시뮬 직결 실패', () => {
     expect(text).toContain('로봇 연결이 끊겼습니다 (1006). 로봇은 입력이 끊기면 스스로 멈춥니다.');   // 마침표 뒤 띄어쓰기(코드는 마침표 앞 괄호)
     expect(text).toContain('연결 끊김');
     expect(text).not.toContain('조종 중(나)');   // 끊긴 뒤 지난 state 로 조종자라 쓰지 않음
-    expect(btn('조종 시작')).toBeUndefined();
+    expect(btn('조종')).toBeUndefined();
     expect($('[aria-label="전후 조이스틱"]')).toBeNull();
     const n = a.sent.length, count = FakeWS.all.length;
     await wait(120);
@@ -973,7 +975,7 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
     expect(a.url).toBe(AGENT);
     act(() => a.open()); await flush(); await recv(a, welcome()); await recv(a, phoneState());
     expect($('[data-sim-drive]')).toBeTruthy();
-    expect(btn('조종 시작')).toBeTruthy();
+    expect(btn('조종')).toBeTruthy();
     await wait(120);
     expect(a.of('lease.take')).toHaveLength(0);
     expect(a.of('unlock')).toHaveLength(0);
@@ -1062,7 +1064,7 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
     expect($('[data-sim-drive]')).toBeTruthy();
     expect($('[data-sim-pip]')).toBeNull();
     expect(agents()).toHaveLength(1);
-    expect(btn('조종 시작')).toBeTruthy();
+    expect(btn('조종')).toBeTruthy();
     await wait(120);
     expect(a.of('lease.take')).toHaveLength(1);   // drive() 의 한 번뿐 — 크게 보기가 조종권을 다시 받지 않음
     expect(a.of('cmd')).toHaveLength(c0);
@@ -1082,7 +1084,7 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
     const b = last(agents()); b.auto = agentAuto;
     expect(b).not.toBe(a);
     act(() => b.open()); await flush(); await recv(b, welcome()); await recv(b, phoneState());
-    expect(btn('조종 시작')).toBeTruthy();
+    expect(btn('조종')).toBeTruthy();
     await wait(120);
     expect(b.of('lease.take')).toHaveLength(0);
     expect(b.of('cmd')).toHaveLength(0);
@@ -1115,7 +1117,7 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
   it('«조종 시작» 답 대기 중 나가기(#329 검토): 답까지 기다렸다 받은 조종권을 입력 0 으로 반납한 뒤 작은 창 — 조종권 안 남음, 답이 2 s 안 오면 조종 화면 «다시 반납»', async () => {
     const a = await launch(); await recv(a, phoneState());
     a.auto = ((m: Msg) => m.t === 'lease.take' || m.t === 'lease.release' ? undefined : agentAuto!(m)) as FakeWS['auto'];
-    await click(btn('조종 시작'));
+    await click(btn('조종'));
     expect(sim.get().link?.busy).toBe('take');
     await click($('[data-sim-leave]'));
     expect($('[data-sim-pip]')).toBeNull();   // 취득 답 전엔 줄지 않음
@@ -1130,7 +1132,7 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
     expect(a.of('cmd').every((m) => m.vx === 0 && m.vy === 0 && m.wz === 0)).toBe(true);   // 명령 값 0
     // 크게 보기 → 다시 «조종 시작» 답 대기 중 나가기, 답이 안 오면 2 s 뒤 조종 화면에 남는다
     await click($('[data-sim-pip-big]'));
-    await click(btn('조종 시작'));
+    await click(btn('조종'));
     await click($('[data-sim-leave]'));
     await wait(2100);
     expect($('[data-sim-pip]')).toBeNull();
@@ -1277,11 +1279,11 @@ describe('시뮬 조종 화면 구도·시나리오 띠(10-23 — 아래 단추 
     const card = $('[data-sim-card]')!;
     expect(card.querySelectorAll('.dv-note').length).toBeGreaterThan(1);
     expect(card.textContent).toContain(STALLED);
-    expect(btn('잠금 해제')).toBeTruthy();
+    expect(btn('다시 시작')).toBeTruthy();
     await stopOk(3);
     await click($('[data-sim-card-close]'));   // 닫기: 글은 빠지고 지금 눌러야 할 단추는 남음
     expect(box.querySelectorAll('.dv-act .dv-note')).toHaveLength(0);
-    expect(btn('잠금 해제')).toBeTruthy();
+    expect(btn('다시 시작')).toBeTruthy();
     await stopOk(4);
     await click($('[data-sim-menu]'));          // 메뉴 열림
     expect($('.dv-menu')).toBeTruthy();
@@ -1315,11 +1317,11 @@ describe('시뮬 조종 화면 구도·시나리오 띠(10-23 — 아래 단추 
     expect(notes()).toContain(STALLED);
     expect(cam()).toBe(false);
     expect($('[data-sim-pill]')!.textContent).toBe('시뮬 · 정지 잠금 · 0.00 m/s');
-    expect(btn('잠금 해제')).toBeTruthy();
+    expect(btn('다시 시작')).toBeTruthy();
     expect([...document.querySelectorAll('button')].some((b) => b.textContent?.includes('STOP'))).toBe(true);
     await recv(a, phoneState({ ...held, safety_reason: null }));
     expect(notes()).not.toContain(STALLED);
-    expect(btn('잠금 해제')).toBeTruthy();
+    expect(btn('다시 시작')).toBeTruthy();
     await recv(a, phoneState({ ...held, latched: false, safety_reason: 'OUTPUT_STALLED' }));   // 잠금이 풀렸으면 사유가 남아도 안내 0
     expect(notes()).not.toContain(STALLED);
     expect(cam()).toBe(true);
@@ -1348,7 +1350,7 @@ describe('시뮬 조종 화면 구도·시나리오 띠(10-23 — 아래 단추 
     expect(box.textContent).toContain(warn);                              // 잠금을 못 받았으면 계속 경고
     await recv(a, phoneState({ ...held, latched: true, stop_gen: 2 }));
     expect(box.textContent).toContain('정지 잠금 · 로봇이 잠금과 멈춤 출력을 알렸습니다');
-    await click(btn('잠금 해제'));
+    await unlockTap();
     await recv(a, phoneState({ ...held, latched: false, stop_gen: 2, applied: [0.6, 0, 0] }));
     expect(sim.get().stop).toBeNull();
     expect(box.textContent).not.toContain(warn);
@@ -1643,18 +1645,58 @@ describe('폰 시뮬 조종 RUN 이 쥐면 (#537 state.holder_type · 08:04)', (
     const a = await launch();
     a.auto = ((m: Msg) => (['hello', 'cmd', 'ping', 'stop', 'lease.take'].includes(m.t) ? undefined : {})) as FakeWS['auto'];
     await recv(a, phoneState({ holder_type: 'RUN', holder_name: null, run: { run_id: 'run-o', status: 'MOVING', step: 0, progress: { done: 0, total: 3 }, wait_reason: null, fail_code: null } }));
-    expect(btn('조종 시작')!.disabled).toBe(true);
+    expect(btn('조종')!.disabled).toBe(true);
     expect($('[data-sim-card] [data-held-run] button')).toBeNull();
     expect(box.textContent!.split('예약 임무가 조종 중입니다 · 임무가 끝나거나 멈춘 뒤 조종할 수 있습니다.')).toHaveLength(2);   // 한 곳
     await click($<HTMLButtonElement>('[data-notes-more]')!);   // 등급 3 실행 안내는 «+N 더 보기» 뒤(PHONE-CLUTTER #548). 조종 시작이 막힌 까닭(data-held-run)은 접지 않음
     expect(box.textContent!.split('이 화면에서는 일시정지할 수 없습니다')).toHaveLength(2);   // 실행 칸 한 곳
     expect($('[data-sim-card] [data-held-run]')!.textContent).toBe('예약 임무가 조종 중입니다 · 임무가 끝나거나 멈춘 뒤 조종할 수 있습니다.');
     expect([...box.querySelectorAll<HTMLButtonElement>('[data-sim-card] .btn.pri')].filter((b) => !b.disabled).map((b) => b.textContent)).toEqual([]);
-    await click(btn('조종 시작'));
+    await click(btn('조종'));
     expect(a.sent.filter((m) => m.t === 'lease.take')).toEqual([]);
     await recv(a, phoneState({ holder_type: null, holder_name: null }));
-    expect(btn('조종 시작')!.disabled).toBe(false);
+    expect(btn('조종')!.disabled).toBe(false);
     expect($('[data-held-run]')).toBeNull();
   });
 });
 
+
+// 19:57 · 20:47 결정: 직결 시뮬도 단추 글 「조종」 · 「다시 시작」, 「다시 시작」 은 u4_10 확인 창을 거쳐 unlock 한 번 · 창은 연 때의 stop_gen · 조종권에 묶음(reviewer H1)
+describe('시뮬 직결 「다시 시작」 확인 창', () => {
+  const ask = () => $('[data-restart-ask]');
+  const unlocks = (a: FakeWS) => a.sent.filter((m) => m.t === 'unlock');
+  const HELD = { lease_id: LEASE, controller: 'u-lee', controller_connected: true };
+  async function held() {
+    const a = await launch();
+    await recv(a, phoneState());
+    await click(btn('조종'));
+    await recv(a, phoneState(HELD));
+    return a;
+  }
+  it('창을 거쳐야 unlock · 취소면 0 · 글은 u4_10 그대로', async () => {
+    const a = await held();
+    await click(btn('다시 시작'));
+    expect(unlocks(a)).toHaveLength(0);
+    expect(ask()?.getAttribute('role')).toBe('dialog');
+    expect(ask()?.textContent).toContain('을 일으킬까요?');
+    expect(ask()?.textContent).toContain('주변에 사람이 없는지 보세요');
+    await click(btn('취소'));
+    expect(ask()).toBeNull();
+    expect(unlocks(a)).toHaveLength(0);
+    await click(btn('다시 시작'));
+    await click($('[data-restart-go]'));
+    expect(unlocks(a)).toMatchObject([{ lease_id: LEASE, stop_gen: 1 }]);
+  });
+  it('[H1] 창을 연 뒤 다른 곳에서 풀림 → 새 STOP(stop_gen 2): 창이 다시 뜨지 않고 unlock 0 · 잠긴 채 stop_gen 만 바뀌어도 닫힘', async () => {
+    const a = await held();
+    await click(btn('다시 시작'));
+    await recv(a, phoneState({ ...HELD, latched: false }));
+    expect(ask()).toBeNull();
+    await recv(a, phoneState({ ...HELD, latched: true, stop_gen: 2 }));
+    expect(ask()).toBeNull();
+    await click(btn('다시 시작'));
+    await recv(a, phoneState({ ...HELD, latched: true, stop_gen: 3 }));
+    expect(ask()).toBeNull();
+    expect(unlocks(a)).toHaveLength(0);
+  });
+});

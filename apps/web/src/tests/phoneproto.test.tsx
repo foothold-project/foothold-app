@@ -1,8 +1,9 @@
 // 폰 화면 시안 꼴(u13_1 로그인 · u13_4 로봇 없음 · u13_5 조종권 요청 창): 시안 DOM(.proto.pv + 시안 class)이 나오고 옛 부품(lv-card · fh-empty · .btn · dv-ask)이 없는지,
 // 동작(로그인 요청 본문 · 칸 표시 · 로봇 연결 입구 · 넘기기 / 계속 조종)은 그대로인지. 가짜 서버(fetch 가짜 · /api/v1 만) · FakeWS · 실기 없음.
+import { PW_RULE } from '../loginform';
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Event as Ev, RobotSummary, User } from '../../../contracts/ts';
 import { Root } from '../session';
 import { NO_ROBOT_WHY } from '../screens/norobot';
@@ -87,6 +88,8 @@ describe('폰 로그인 = 시안 u13_1', () => {
     expect([...dlg.querySelectorAll('.lab')].map((x) => x.textContent)).toEqual(['아이디', '현재 비밀번호', '새 비밀번호', '새 비밀번호 확인']);
     expect([...dlg.querySelectorAll('button.sec, button.prim')].map((x) => x.textContent)).toEqual(['취소', '바꾸기']);
     expect(box.querySelector('.lg-modal')).toBeNull();
+    // 안내 글 = 규칙 + 시안 「바꾸면 모든 기기에서 로그아웃됩니다」(서버 /me/password 는 그 사용자의 모든 세션을 끊는다 · revoke_user_sessions)
+    expect(dlg.querySelector('[data-pw-rule]')!.textContent).toBe(`${PW_RULE} 바꾸면 모든 기기에서 로그아웃됩니다.`);
     const set = (n: string, v: string) => type(dlg.querySelector<HTMLInputElement>(`input[name="${n}"]`)!, v);
     set('pw-id', 'op-a'); set('pw-cur', 'old-pass-1'); set('pw-new', 'new-pass-1'); set('pw-again', 'new-pass-1');
     act(() => { (dlg as HTMLFormElement).requestSubmit(); }); await flush();
@@ -176,6 +179,17 @@ describe('폰 알림 목록 = 시안 u3_3', () => {
       scenario_name_snapshot: null, floor_name_snapshot: null, status: 'COMPLETED', started_at: AT, ended_at: AT } } });
   const tiles = () => [...box.querySelectorAll<HTMLButtonElement>('.u33 .g.list button.tile')];
   const segs = () => [...box.querySelectorAll<HTMLButtonElement>('.u33 .g.seg button')];
+  // 「오늘이면 시각, 아니면 날짜」(phonehistory clock) — 날짜만 고정(Date 만 가짜 · 다른 타이머는 진짜). 자정이 지나도 결과가 같게
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date(2026, 10, 28, 15, 0)); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('시각 칸 경계: 오늘 00:01 은 「00:01」 · 어제 23:59 는 「11/28」 (지금 = 11/29 00:10)', async () => {
+    vi.setSystemTime(new Date(2026, 10, 29, 0, 10));
+    const today = ev('a', { at: new Date(2026, 10, 29, 0, 1).toISOString(), message: '오늘 일' }), yday = ev('b', { at: new Date(2026, 10, 28, 23, 59).toISOString(), message: '어제 일' });
+    serve({ ...routes(), 'GET /events': () => page([today, yday]) });
+    await open(true, '#/history');
+    expect(tiles().map((t) => t.querySelector('.t')!.textContent)).toEqual(['00:01', '11/28']);
+  });
 
   it('시안 DOM(.proto.pv.u33 · .bg · .top 알림 · .seg 넷 · .list 타일 · .det), 옛 부품 없음, 첫 알림이 골라져 오른쪽 칸에', async () => {
     serve(routes());

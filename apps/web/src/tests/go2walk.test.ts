@@ -4,8 +4,7 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import tileviewSrc from '../proto/tileview.ts?raw';
 import go2viewSrc from '../screens/u4/go2view.ts?raw';
-import { stageLook, walkPose } from '../screens/u4/go2view';
-import { REAR_DIST } from '../proto/tileview';
+import { GRID_SPAN, UNIT, flow, jointOf, padMesh, walkPose } from '../screens/u4/go2view';
 
 /** 다리 넷(hip → thigh → calf · 종아리 끝 상자)만 있는 작은 모형. 몸 아래 0.3 m 에 발 */
 function body() {
@@ -40,15 +39,65 @@ describe('walkPose', () => {
   });
 });
 
-describe('stageLook (큰 무대 카메라) · 둥근 그림자 없음', () => {
-  it('현장 꼴 = 로봇 뒤 · 카메라 거리 = 관제 타일 「뒤」 값(REAR_DIST), 아니면 처음 자리', () => {
-    expect(stageLook(true, { yaw: 0, dist: 1.3 })).toEqual({ yaw: Math.PI, dist: REAR_DIST });
-    expect(stageLook(false, { yaw: 0, dist: 1.3 })).toEqual({ yaw: 0, dist: 1.3 });
-  });
+describe('둥근 그림자 없음', () => {
   it('로봇 아래 둥근 그림자 원(진짜 그림자 아님)을 관제 타일 · 로봇 탭 큰 무대 어디에도 그리지 않는다(팀장 01:37)', () => {
     for (const [f, src] of [['tileview', tileviewSrc], ['go2view', go2viewSrc]]) {
       expect(src.length, f).toBeGreaterThan(1000);
       expect(src, f).not.toMatch(/\bm?shadow\b|SHADOW|mapShadow/);
     }
+  });
+});
+
+// 팀장 23:48: 큰 로봇 바닥 점 = 로봇 기준으로 흐름(무대 앞 +z · 왼 +x). 점의 무대 자리 = 판을 th 돌린 뒤의 (x, z)
+describe('flow (바닥 점 흐름 · 서버 applied vx · vy · wz)', () => {
+  const at = (g: { x: number; z: number; th: number }) => ({ x: g.x * Math.cos(g.th) + g.z * Math.sin(g.th), z: -g.x * Math.sin(g.th) + g.z * Math.cos(g.th) });   // 판 → 무대(y 축 th 돌림)
+  const z0 = { x: 0, z: 0, th: 0 };
+  it('직진 = 점이 뒤로(-z) · 옆걸음(왼) = 오른쪽으로(-x) · 0.5 m/s 1 초 = 0.5 m × 모형 단위', () => {
+    const f = flow(z0, { v: 0.5, side: 0, turn: 0 }, 1);
+    expect(f.th).toBe(0); expect(f.x).toBeCloseTo(0, 9); expect(f.z).toBeCloseTo(-0.5 * UNIT, 9);
+    const s = flow(z0, { v: 0, side: 0.3, turn: 0 }, 1);
+    expect(s.x).toBeCloseTo(-0.3 * UNIT, 9); expect(s.z).toBeCloseTo(0, 9);
+  });
+  it('왼쪽으로 돌면(wz > 0) 점 판은 반대로 돎 · 돈 뒤에도 직진 흐름은 무대 -z(로봇 기준)', () => {
+    let g = flow(z0, { v: 0, side: 0, turn: 0.8 }, 1);
+    expect(g.th).toBeCloseTo(-0.8, 9);
+    const before = at(g); g = flow(g, { v: 0.4, side: 0, turn: 0 }, 0.5); const after = at(g);
+    expect(after.z - before.z).toBeCloseTo(-0.2 * UNIT, 9); expect(after.x - before.x).toBeCloseTo(0, 9);
+  });
+  it('판 안 좌표는 판 한 칸 안으로 감김(오래 걸어도 점이 사라지지 않음)', () => {
+    let g = z0; for (let i = 0; i < 400; i++) g = flow(g, { v: 1.2, side: 0.4, turn: 0.3 }, 0.05);
+    expect(Math.abs(g.x)).toBeLessThanOrEqual(GRID_SPAN / 2); expect(Math.abs(g.z)).toBeLessThanOrEqual(GRID_SPAN / 2);
+  });
+});
+
+// 시안 u5_1_tiles.html pad(): 충전 = 초록 고리 두 겹(0.34 · 0.40, 앞뒤 1.25 배) · 점검 = 회색 네모 두 겹(0.38 × 0.5 · 0.06 바깥)
+describe('padMesh (충전 · 점검 바닥 표시)', () => {
+  const lines = (g: THREE.Group) => g.children.filter((x) => x.type === 'LineLoop') as THREE.LineLoop[];   // 바닥 꼴 둘(오르는 층 무리 'rise' 는 padanim 시험)
+  const col = (l: THREE.LineLoop) => (l.material as THREE.LineBasicMaterial).color.getHex(), op = (l: THREE.LineLoop) => (l.material as THREE.LineBasicMaterial).opacity;
+  it('충전: 고리 둘 · 시안 색 · 진하기 · 반지름, 밝은 판 = 밝음 1 초록', () => {
+    const c = lines(padMesh('charge'));
+    expect(c.map(col)).toEqual([0x00c389, 0x00c389]); expect(c.map(op)).toEqual([0.85, 0.3]);
+    const p = c[0].geometry.getAttribute('position'); expect(p.getX(0)).toBeCloseTo(0.34, 6); expect(p.count).toBe(96);
+    expect(Math.max(...Array.from({ length: p.count }, (_, i) => p.getZ(i)))).toBeCloseTo(0.34 * 1.25, 3);
+    expect(lines(padMesh('charge', true)).map(col)).toEqual([0x18a07e, 0x18a07e]);
+  });
+  it('점검: 네모 둘 · 회색 · 안 0.38 × 0.5 · 밝은 판 = 흐린 글자색', () => {
+    const m = lines(padMesh('maint'));
+    expect(m.map(col)).toEqual([0xa9b8c6, 0xa9b8c6]); expect(m.map(op)).toEqual([0.75, 0.22]);
+    const p = m[0].geometry.getAttribute('position'); expect(p.getX(1)).toBeCloseTo(0.38, 6); expect(p.getZ(2)).toBeCloseTo(0.5, 6);
+    expect(lines(padMesh('maint', true)).map(col)).toEqual([0x5e6662, 0x5e6662]);
+  });
+});
+
+describe('마우스 관절 집기 (시안 u4_4)', () => {
+  it('맞은 물체에서 위로 올라가 처음 만나는 관절 이름 · 몸통이면 null', () => {
+    const base = new THREE.Group(); base.name = 'base';
+    const hip = new THREE.Group(); hip.name = 'FR_hip'; const calf = new THREE.Group(); calf.name = 'FR_calf';
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1)); const trunk = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+    base.add(hip, trunk); hip.add(calf); calf.add(foot);
+    expect(jointOf(foot)).toBe('FR_calf');
+    expect(jointOf(hip)).toBe('FR_hip');
+    expect(jointOf(trunk)).toBeNull();
+    expect(jointOf(null)).toBeNull();
   });
 });

@@ -60,7 +60,8 @@ describe('설정 › 조작 설명 칸 (u9_7)', () => {
     expect(PHONE_BASIS).not.toContain('—');
     // 실기 폰 조종(drive.tsx)이 PC 와 같은 손잡이 규칙 · 상한 검사를 쓰는 동안만 참
     expect(driveSrc).toContain("stickTok('L', -x, -y)");
-    expect(driveSrc).toContain('permitted(cmd, settingsRef.current) ? cmd : TABLE[\'\']');
+    expect(driveSrc).toContain('(demo ? demoPermitted : permitted)(a, settingsRef.current)');   // 실기 = PC 와 같은 permitted · 데모만 웹 상한(시뮬 값)
+    expect(driveSrc).toContain('allow(cmd) ? cmd : TABLE[\'\']');
   });
 
   it('시뮬 속도 값이 비면 0.00 이 아니라 「값을 받지 못했습니다」 (REVIEW-PR573 P2)', async () => {

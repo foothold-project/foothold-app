@@ -40,6 +40,8 @@ const flush = () => act(async () => { for (let i = 0; i < 10; i++) await Promise
 const $ = (s: string) => box.querySelector<HTMLElement>(s);
 const btn = (t: string) => [...box.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
 const click = async (el: Element | null | undefined) => { expect(el).toBeTruthy(); act(() => { (el as HTMLElement).click(); }); await flush(); };
+/** 옛 「잠금 해제」 한 번 누름 = 「다시 시작」 → 확인 창 「일어서기」. 단추가 막혀 있으면(busy) 예전처럼 아무 일 없음 */
+const unlockTap = async () => { const b = btn('다시 시작'); await click(b); if (!b!.disabled) await click($('[data-restart-go]')); };
 const link = () => (window as { fhGo2Link?: { seq: string } }).fhGo2Link;
 
 /** addr = 이 로봇의 media 주소가 있다고 둔다(지금 실기 경로는 robot_id 만 저장 — 주소 있는 경우는 앞으로의 길·시뮬 직결과 같음). exp = 출입증 남은 초 */
@@ -107,9 +109,9 @@ const ptr = (el: Element, type: string, x: number, y: number, id?: number, kind 
   el.dispatchEvent(e);
 });
 async function driving(a: FakeWS) {
-  await click(btn('조종 시작'));
+  await click(btn('조종'));
   act(() => a.recv(st(ST))); await flush();
-  await click(btn('잠금 해제'));
+  await unlockTap();
   act(() => a.recv(st({ ...ST, latched: false }))); await flush();
 }
 
@@ -247,10 +249,10 @@ describe('실기 직결 조종 화면 배치', () => {
     expect($('[data-real-range]')!.closest('[hidden]')).not.toBeNull();
     await click(info);
     expect($('.rd-card-t')!.hidden).toBe(false);
-    expect($('[data-real-band]')?.textContent).toBe('조종 시작');
-    await click(btn('조종 시작'));
+    expect($('[data-real-band]')?.textContent).toBe('조종');
+    await click(btn('조종'));
     act(() => a.recv(st(ST))); await flush();
-    expect($('[data-real-band]')?.textContent).toBe('잠금 해제');
+    expect($('[data-real-band]')?.textContent).toBe('다시 시작');
     expect(box.querySelectorAll('.dv-stick')).toHaveLength(2);
     act(() => a.recv(st({ ...ST, latched: false }))); await flush();
     expect($('[data-real-band]')).toBeNull();
@@ -302,7 +304,7 @@ describe('실기 직결 조종 화면 배치', () => {
     fakeLidar(() => live());
     const a = await connected(MEDIA, { addr: true });
     for (let round = 0; round < 2; round++) {
-      if (!btn('조종 시작')) { await click(btn('잠금 해제')); act(() => a.recv(st({ ...ST, latched: false }))); await flush(); }
+      if (!btn('조종')) { await unlockTap(); act(() => a.recv(st({ ...ST, latched: false }))); await flush(); }
       else await driving(a);
       const fwd = $('[aria-label="전후 조이스틱"]')!;
       fwd.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100, right: 100, bottom: 100, x: 0, y: 0, toJSON() {} }) as DOMRect;
@@ -476,5 +478,82 @@ describe('실기 직결 조종 화면 배치', () => {
     expect(main()).toBe('lidar');
     ptr(sw(), 'pointerdown', 20, 80, 1, 'mouse'); ptr(sw(), 'pointerup', 20, 80, 1, 'mouse'); await flush();   // 정상 누름은 바뀜
     expect(main()).toBe('rgb');
+  });
+});
+
+// 19:57 · 20:47 결정: 직결 실기도 단추 글 「조종」 · 「다시 시작」, 「다시 시작」 은 u4_10 확인 창을 거쳐 unlock 한 번 · 창은 연 때의 stop_gen · 조종권에 묶음(reviewer H1)
+describe('실기 직결 「다시 시작」 확인 창', () => {
+  const ask = () => $('[data-restart-ask]');
+  const unlocks = (a: FakeWS) => a.sent.filter((m) => m.t === 'unlock');
+  async function held(a: FakeWS) {
+    await click(btn('조종'));
+    act(() => a.recv(st(ST))); await flush();
+  }
+  it('창을 거쳐야 unlock · 취소면 0 · 글은 u4_10 그대로', async () => {
+    const a = await connected();
+    await held(a);
+    await click(btn('다시 시작'));
+    expect(unlocks(a)).toHaveLength(0);
+    expect(ask()?.getAttribute('role')).toBe('dialog');
+    expect(ask()?.textContent).toContain('GO2-friday 을 일으킬까요?');
+    expect(ask()?.textContent).toContain('주변에 사람이 없는지 보세요');
+    await click(btn('취소'));
+    expect(ask()).toBeNull();
+    expect(unlocks(a)).toHaveLength(0);
+    await click(btn('다시 시작'));
+    await click($('[data-restart-go]'));
+    expect(unlocks(a)).toMatchObject([{ lease_id: LEASE, stop_gen: 1 }]);
+    expect(ask()).toBeNull();
+  });
+  it('[H1] 창을 연 뒤 다른 곳에서 풀림 → 새 STOP(stop_gen 2): 창이 다시 뜨지 않고 unlock 0 · 잠긴 채 stop_gen 만 바뀌어도 닫힘', async () => {
+    const a = await connected();
+    await held(a);
+    await click(btn('다시 시작'));
+    act(() => a.recv(st({ ...ST, latched: false }))); await flush();
+    expect(ask()).toBeNull();
+    act(() => a.recv(st({ ...ST, latched: true, stop_gen: 2 }))); await flush();
+    expect(ask()).toBeNull();
+    await click(btn('다시 시작'));
+    act(() => a.recv(st({ ...ST, latched: true, stop_gen: 3 }))); await flush();
+    expect(ask()).toBeNull();
+    expect(unlocks(a)).toHaveLength(0);
+  });
+  it('[H1 · L1] 창을 연 채 연결 닫힘 → 창 닫힘 → 같은 lease · 같은 stop_gen 으로 다시 붙음: 창이 저절로 뜨지 않고 unlock 0', async () => {
+    const a = await connected();
+    await held(a);
+    await click(btn('다시 시작'));
+    expect(ask()).not.toBeNull();
+    act(() => a.drop(1006)); await flush();
+    expect(ask()).toBeNull();
+    await click(btn('다시 연결'));
+    act(() => { window.dispatchEvent(new CustomEvent('fh-go2-link', { detail: { seq: link()!.seq, port: 40123, nonce: '0123456789abcdef0123456789abcdef' } })); });
+    await flush();
+    const b = FakeWS.all.filter((w) => w.url.startsWith('ws://127.0.0.1:40123/') && !w.url.includes('media')).pop()!;
+    expect(b).not.toBe(a);
+    b.auto = a.auto;
+    act(() => b.open()); await flush();
+    act(() => b.recv(welcome())); await flush();
+    act(() => b.recv(st(ST))); await flush();
+    if (btn('조종')) { await click(btn('조종')); act(() => b.recv(st(ST))); await flush(); }   // 새 연결은 조종권부터(자동 재개 없음) — 같은 lease 를 다시 받음
+    expect(sim.get().link?.lease).toBe(LEASE);
+    expect(sim.get().link?.st?.stop_gen).toBe(1);
+    expect(btn('다시 시작')).toBeTruthy();
+    expect(ask()).toBeNull();
+    expect([...unlocks(a), ...unlocks(b)]).toHaveLength(0);
+  });
+  it('직결 창은 상태 알약 아래 (알약 위 8 + 높이 + 8) · 안전 카드보다 위', async () => {
+    const drive = (await import('../drive.css?raw')).default;
+    const real = (await import('../realdrive.css?raw')).default;
+    // 알약: top 8 · 높이 실기 30 / 시뮬 32 (min-height · 한 줄 고정)
+    expect(real).toMatch(/\[data-real-drive\] \.dv-top\{[^}]*min-height:30px/);
+    expect(drive).toMatch(/\.dv-top\{position:absolute;top:8px;[^}]*min-height:32px/);
+    expect(real).toMatch(/\[data-real-drive\] \.dv-ask\{top:46px\}/);
+    expect(drive).toMatch(/\[data-sim-drive\] \.dv-ask\{top:48px\}/);
+    // 세로(좁은 폭): STOP(top 8 · 높이 64) 아래끝 + 8 = 80 (가로는 위 46 / 48 그대로)
+    expect(real).toMatch(/@media \(orientation:portrait\)\{\[data-real-drive\] \.dv-ask\{top:80px\}\}/);
+    expect(drive).toMatch(/@media \(orientation:portrait\)\{\[data-sim-drive\] \.dv-ask\{top:80px\}\}/);
+    // 카드 z 1 · 창 z 2
+    expect(real).toMatch(/\.rd-card\{position:absolute;[^}]*z-index:1;/);
+    expect(drive).toMatch(/\.dv-ask\{[^}]*z-index:2;/);
   });
 });
