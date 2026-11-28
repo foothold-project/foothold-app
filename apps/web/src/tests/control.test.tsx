@@ -14,7 +14,7 @@ import { sim } from '../phone';
 import { rt } from '../rt';
 import { oldScenario } from '../menu';
 import { stopLine } from '../serverdrive';
-import { idleSim, toRobot } from '../fake';
+import { eunNeun, idleSim, toRobot } from '../fake';
 import u5Css from '../proto/u5.css?raw';
 import { fleetRow } from './fleetRow';
 import { en } from '../lang';
@@ -768,6 +768,9 @@ describe('관제 탭', () => {
     act(() => { tile('g6').click(); });
     expect(stopBtn().textContent).toBe('K-07 정지');
     expect($('[data-phone-only-pick]')!.textContent).toBe('K-07 은 현장 폰에서만 멈출 수 있습니다');
+    // 조사는 이름 끝 소리 받침대로(조정 22:34 · 「Go2 X 은」 이 틀렸던 것)
+    expect(['Go2 X', 'K-01', 'K-02', 'K-05', 'K-10', '데모', '현장', 'Go2-L', 'Robot A'].map(eunNeun)).toEqual(['는', '은', '는', '는', '은', '는', '은', '은', '는']);
+    expect(en('Go2 X 는 현장 폰에서만 멈출 수 있습니다')).toBe('Go2 X can only be stopped from the field phone');
     act(() => { tile('g4').click(); });   // 다른 로봇으로 바꾸면 안내가 사라짐
     expect($('[data-phone-only-pick]')).toBeNull();
   });
