@@ -262,3 +262,48 @@ def test_robot_cap_eight_for_mujoco_two_otherwise(tmp_path, count, backend, ok):
     else:
         with pytest.raises(ValueError):
             make()
+
+
+def test_owner_limit_default_one_robot(tmp_path):
+    async def run():
+        cfg = replace(settings(tmp_path), local_backend=None)
+        manager = Manager(cfg)
+        owner = str(uuid4())
+        a, b = list(cfg.slots.values())[:2]
+        await manager.add('collapsed-house-v2', a.robot_id, owner, a.org_id, 'x' * 32, 1)
+        with pytest.raises(SimError) as error:
+            await manager.add('collapsed-house-v2', b.robot_id, owner, b.org_id, 'x' * 32, 1)
+        assert error.value.code == 'SIM_OWNER_LIMIT'
+    asyncio.run(run())
+
+
+def test_owner_limit_two_for_local_demo_then_refused(tmp_path):
+    """demo-day 11/28 (app-design-lx 12:41): MuJoCo local may let one person hold several robots; above it refused."""
+    async def run():
+        org = str(uuid4())
+        slots = {s.robot_id: s for s in (Slot(str(uuid4()), org, '/k', f'/r{i}', 9433 + i) for i in range(3))}
+        cfg = Settings({'collapsed-house-v2': World('collapsed-house-v2', Path('/a'), Path('/b'))}, slots, 'x' * 32,
+                       run_dir=str(tmp_path), local_backend='mujoco', max_robots=3, max_per_owner=2)
+        manager = Manager(cfg, FakeLauncher())  # owner rule only; no child process
+        owner = str(uuid4())
+        a, b, c = slots.values()
+        await manager.add('collapsed-house-v2', a.robot_id, owner, org, 'x' * 32, 1)
+        await manager.add('collapsed-house-v2', b.robot_id, owner, org, 'x' * 32, 1)
+        with pytest.raises(SimError) as error:
+            await manager.add('collapsed-house-v2', c.robot_id, owner, org, 'x' * 32, 1)
+        assert error.value.code in ('SIM_OWNER_LIMIT', 'SIM_CAPACITY')
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('per_owner, backend, ok', [(3, 'mujoco', True), (8, 'mujoco', True), (9, 'mujoco', False),
+                                                     (0, 'mujoco', False), (2, None, False), (1, None, True)])
+def test_owner_limit_above_one_only_for_mujoco_local(tmp_path, per_owner, backend, ok):
+    org = str(uuid4())
+    slots = {s.robot_id: s for s in (Slot(str(uuid4()), org, '/k', f'/r{i}', 9433 + i) for i in range(2))}
+    make = lambda: Settings({'collapsed-house-v2': World('collapsed-house-v2', Path('/a'), Path('/b'))}, slots, 'x' * 32,
+                            run_dir=str(tmp_path), local_backend=backend, max_per_owner=per_owner)
+    if ok:
+        assert make().max_per_owner == per_owner
+    else:
+        with pytest.raises(ValueError):
+            make()

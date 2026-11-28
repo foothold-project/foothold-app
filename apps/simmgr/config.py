@@ -66,6 +66,9 @@ class Settings:
     scenario_data_origin: str | None = field(default=None, repr=False)
     arrival_pose_max_age_s: float | None = None
     local_backend: str | None = None  # 'mujoco': mujoco_launcher.MujocoLauncher (local only, no Gazebo)
+    # Robots one person may own at once (SIM_OWNER_LIMIT). 1 everywhere; MuJoCo local demo may raise it
+    # (app-design-lx 11/28 12:41) up to the robot cap.
+    max_per_owner: int = 1
 
     @property
     def unit_runtime_seconds(self):
@@ -97,6 +100,8 @@ class Settings:
             raise ValueError('manager requires loopback and approved port range')
         if not 32 <= len(self.secret) <= 256 or not self.secret.isascii() or any(ord(c) < 33 for c in self.secret) or not 1 <= self.max_robots <= robot_cap:
             raise ValueError('private service credential and robot cap 1..2 required')
+        if type(self.max_per_owner) is not int or not 1 <= self.max_per_owner <= (robot_cap if self.local_backend == 'mujoco' else 1):
+            raise ValueError('max_per_owner is 1, or 1..robot cap for the local MuJoCo backend')
         if not self.worlds or not self.slots or len(self.slots) > robot_cap:
             raise ValueError('catalogue requires worlds and at most two provisioned slots')
         ports = [slot.port for slot in self.slots.values()]
@@ -151,4 +156,5 @@ class Settings:
                    scenario_data_origin=env.get('FOOTHOLD_SCENARIO_DATA_ORIGIN'),
                    arrival_pose_max_age_s=(float(env['FH_RUN_ARRIVAL_POSE_MAX_AGE_S'])
                        if 'FH_RUN_ARRIVAL_POSE_MAX_AGE_S' in env else None),
-                   local_backend=env.get('FH_SIM_LOCAL_BACKEND') or None)
+                   local_backend=env.get('FH_SIM_LOCAL_BACKEND') or None,
+                   max_per_owner=int(env.get('FH_SIM_MAX_PER_OWNER', '1')))

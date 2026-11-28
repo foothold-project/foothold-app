@@ -205,7 +205,7 @@ class Manager:
                 if existing.generation == generation and existing.owner == owner_id and existing.world == world_id and existing.spawn_floor_id == spawn_floor_id and existing.state not in ('ERROR', 'STOPPING'):
                     return self.describe(existing)
                 raise SimError('SIM_SLOT_BUSY')
-            if any(r.owner == owner_id for r in self.robots.values()):
+            if sum(r.owner == owner_id for r in self.robots.values()) >= self.settings.max_per_owner:
                 raise SimError('SIM_OWNER_LIMIT')
             if self.launcher.real and self.robots:
                 raise SimError('SIM_NATIVE_SINGLE_ONLY')
