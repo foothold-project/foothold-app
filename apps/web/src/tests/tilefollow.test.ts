@@ -2,7 +2,7 @@
 // 타일 자리는 작은 지도와 같은 규칙: 데모 현장 승인 판(map_version_id)의 위치만 현장 3D 에 놓고, 아니면 null(점 바닥 + 까닭)
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { follow, showSite, simLook } from '../proto/tileview';
+import { follow, simLook } from '../proto/tileview';
 import { tilePose } from '../proto/u5';
 
 const P = (x: number, z: number, rot: number) => ({ x, z, rot });
@@ -44,14 +44,8 @@ describe('tilePose', () => {
     expect(tilePose(null, new Set(['v-demo']))).toBeNull();
   });
 });
-// 팀장 20:4x: 시뮬은 관제에서 전처럼 파랗게. 질감판(ddd053ba) 뒤로 밝은 땅 위 더하기 섞기가 하얗게 날아갔다
+// 팀장 20:4x: 시뮬은 관제에서 전처럼 파랗게. 질감판(ddd053ba) 뒤로 밝은 땅 위 더하기 섞기가 하얗게 날아갔다 · 땅은 지우지 않음(팀장 20:49)
 describe('시뮬 칸 모습(시안 u5_1 K-08)', () => {
-  it('시뮬 칸은 현장 질감판을 그리지 않음 · 실기 · 데모 칸은 자리와 현장이 있으면 그림', () => {
-    expect(showSite({ x: 0 }, {}, true)).toBe(false);
-    expect(showSite({ x: 0 }, {}, false)).toBe(true);
-    expect(showSite(null, {}, false)).toBe(false);
-    expect(showSite({ x: 0 }, null, false)).toBe(false);
-  });
   it('어둠 = 더하기 섞기 파랑(시안 그대로) · 밝음 = 보통 섞기 예행 #2F6FE0(흰 바탕에서 보이게)', () => {
     expect(simLook(false)).toEqual({ blend: THREE.AdditiveBlending, col: 0x4c9bff });
     expect(simLook(true)).toEqual({ blend: THREE.NormalBlending, col: 0x2f6fe0 });
