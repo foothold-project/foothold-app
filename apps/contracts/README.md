@@ -43,6 +43,17 @@ TS는 타입 선언이며 런타임 검증기가 아니다. bigint 사건 ID는 
 - 지금 서버: `mark-now` 는 실제 사건 행을 남기고 영상 상태는 `NOT_BUILT`. 영상 목록 · 영상 하나 · 관절 기록은
   501 `CLIP_PIPELINE_NOT_BUILT` · `JOINT_LOG_NOT_BUILT` 와 한 줄 글.
 
+## 폰 QR 페어링 (u08)
+
+경로는 API 명세 §3.1. 타입은 `PairingOffered` · `PairingOfferStatus` · `PairingOfferState` ·
+`PairingOfferClaim` · `PairingOfferClaimed`.
+
+- 폰(로그인한 운영)이 `PairingOffered.code` 를 QR `foothold-offer:<code>` 로 띄운다. 이 응답과
+  `PairingOfferStatus` 에는 poll_secret · 연결 키가 없다.
+- 로봇은 읽은 code 와 serial 로 `PairingOfferClaim` 을 보내고 `PairingOfferClaimed.poll_secret` 으로
+  기존 `PairingPollResult` 를 받는다. 키는 로봇 쪽에만 간다.
+- 상태는 `WAITING` → `READ` → `PAIRED`, 아니면 `EXPIRED` (시간 초과 · 새 QR) · `FAILED` (confirm 409).
+
 ## 에이전트 실시간 판 (W4-B 조정 결정)
 
 화면 `fh-rt/1`은 유지한다. agent hello는 `fh-agent/2`이며 state.stop_ref가 필수다.

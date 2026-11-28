@@ -1,0 +1,29 @@
+{
+  "$id": "fh-app/1/PairingOffered",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "pattern": "^[A-Za-z0-9_-]{24}$",
+      "title": "Code",
+      "type": "string"
+    },
+    "expires_at": {
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+    },
+    "offer_id": {
+      "format": "uuid",
+      "title": "Offer Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "offer_id",
+    "code",
+    "expires_at"
+  ],
+  "title": "PairingOffered",
+  "type": "object"
+}

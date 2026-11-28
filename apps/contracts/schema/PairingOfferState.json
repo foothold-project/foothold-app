@@ -1,0 +1,12 @@
+{
+  "$id": "fh-app/1/PairingOfferState",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "WAITING",
+    "READ",
+    "PAIRED",
+    "EXPIRED",
+    "FAILED"
+  ],
+  "type": "string"
+}

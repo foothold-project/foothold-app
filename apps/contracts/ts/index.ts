@@ -1387,6 +1387,32 @@ export interface PairingConfirm {
   name: string;
 }
 
+export interface PairingOfferClaim {
+  code: string;
+  robot_serial: string;
+}
+
+export interface PairingOfferClaimed {
+  pairing_id: string;
+  expires_at: string;
+  poll_secret: string;
+}
+
+export interface PairingOfferStatus {
+  offer_id: string;
+  state: "WAITING" | "READ" | "PAIRED" | "EXPIRED" | "FAILED";
+  expires_at: string;
+  robot_serial: string | null;
+  pairing_id: string | null;
+  robot_id: string | null;
+}
+
+export interface PairingOffered {
+  offer_id: string;
+  code: string;
+  expires_at: string;
+}
+
 export interface PairingPaired {
   state: "paired";
   robot_id: string;
@@ -2868,5 +2894,6 @@ export type ControlMode = "FACTORY" | "LOWLEVEL";
 export type FactoryUnsupportedAction = "Greet";
 export type LowlevelQuery = "CheckMode" | "AutoRecoveryGet";
 export type PairingPollResult = PairingWaiting | PairingPaired;
+export type PairingOfferState = "WAITING" | "READ" | "PAIRED" | "EXPIRED" | "FAILED";
 export type ClipStatus = "PENDING" | "READY" | "FAILED" | "NOT_BUILT";
 export type RecordsNotBuiltCode = "CLIP_PIPELINE_NOT_BUILT" | "JOINT_LOG_NOT_BUILT";
