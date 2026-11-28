@@ -137,7 +137,8 @@ describe('총괄 = 모든 권한: PC', () => {
     click($('[data-u4-add]')!);
     expect($('[role="dialog"][aria-label="로봇 추가"] [data-u4-kind="real"]')!.getAttribute('aria-checked')).toBe('true');   // 시안 u4_6 실제 · 시뮬 고르기
     click($('[data-u4-next]')!);
-    expect($('[role="dialog"][aria-label="로봇 추가"] [aria-label="새 로봇 추가"]')).not.toBeNull();
+    expect(document.querySelector('[role="dialog"][data-u2="u2_1_scan"] [data-pair-code]')).not.toBeNull();   // 시안 u2_1 · 6 자리 칸
+    expect(document.querySelector('[aria-label="새 로봇 추가"]')).toBeNull();   // 옛 추가 창 0
   });
 });
 
