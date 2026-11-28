@@ -51,6 +51,8 @@ def read_env(path):
 
 def port_free(port):
     with socket.socket() as sock:
+        # Same as uvicorn/PostgreSQL: TIME_WAIT from a stopped server is not "in use".
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             sock.bind(('127.0.0.1', int(port)))
         except OSError:
@@ -144,10 +146,12 @@ def main():
         print(f"API: http://127.0.0.1:{values['FH_API_PORT']} · 웹은 apps/web 에서 "
               f"FH_API=http://127.0.0.1:{values['FH_API_PORT']} npm run dev -- --port {values['FH_WEB_PORT']}")
         os.chdir(REPOSITORY)
+        sys.stdout.flush()  # exec drops buffered output
         os.execve(sys.executable, [sys.executable, '-m', 'docker.server'],
                   server_env(values, passwords, data))
     if args.docker:
         os.chdir(REPOSITORY)
+        sys.stdout.flush()
         os.execvp('docker', compose)
     print('다음: ' + ' '.join(compose))
 

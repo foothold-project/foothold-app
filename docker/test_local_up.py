@@ -58,6 +58,19 @@ def test_busy_port_refused_before_anything_starts(checkout, tmp_path, monkeypatc
     assert not (tmp_path / 'accounts.env').exists()
 
 
+def test_time_wait_port_counts_as_free(checkout):
+    with socket.socket() as listener:
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind(('127.0.0.1', 0))
+        listener.listen()
+        port = listener.getsockname()[1]
+        client = socket.create_connection(('127.0.0.1', port))
+        accepted, _ = listener.accept()
+        accepted.close()  # server side closes first and holds TIME_WAIT
+        client.close()
+    assert local_up.port_free(port)
+
+
 def test_free_ports_pass(checkout, tmp_path, monkeypatch):
     for key in ('FH_API_PORT', 'FH_DB_PORT', 'FH_WEB_PORT'):
         monkeypatch.setenv(key, str(free_port()))
