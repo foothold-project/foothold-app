@@ -85,3 +85,11 @@
 .fh.lg.light .lg-merr { color: #B8361F; }
 .fh.lg.light .mbtn.pri { background: #18A07E; color: #1F2421; box-shadow: 0 10px 24px rgba(24,160,126,.3); }
 .fh.lg.light .lg-ok { background: rgba(24,160,126,.12); border-color: #18A07E; }
+/* 첫 확인 화면(시안 밖 · 새로 그림): 로그인 카드 자리 · 시안 u11 .tbar(6 px · 3 둥근) 결 진행 줄이 좌우로 흐름. 움직임 줄이기 설정이면 멈춘 줄 */
+.fh.lg .lg-card[data-wait] { min-height: 0; }
+.fh.lg .lg-wait { height: 6px; border-radius: 3px; margin-top: 22px; background: rgba(255,255,255,.1); overflow: hidden; }
+.fh.lg .lg-wait i { display: block; width: 36%; height: 100%; border-radius: 3px; background: #00c389; animation: lg-wait 1.3s cubic-bezier(.4,0,.2,1) infinite; }
+@keyframes lg-wait { from { transform: translateX(-100%); } to { transform: translateX(280%); } }
+@media (prefers-reduced-motion: reduce) { .fh.lg .lg-wait i { animation: none; width: 100%; opacity: .5; } }
+.fh.lg.light .lg-wait { background: #DCE0DE; }
+.fh.lg.light .lg-wait i { background: #18A07E; }
