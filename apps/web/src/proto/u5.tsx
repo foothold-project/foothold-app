@@ -265,8 +265,8 @@ function RealCam({ id }: { id: string }) {
 }
 
 /** 타일 오른쪽 위 상태 배지(팀장 01:17 · 01:19 · 시안 K-06 «점검 중» 꼴). 시뮬 · 데모 · 실기 · 새 로봇 모두 이 함수 하나, 위에서 먼저 맞는 하나:
- *  1 끊김(다시 붙는 중 = «다시 연결 중», 꺼짐 = «연결 끊김») 2 정지 잠금 3 넘어짐(robot_info.fallen) 4 점검(가용 MAINTENANCE · 배터리 교체)
- *  5 충전(가용 CHARGING) 6 임무(사용자 시뮬 = «시뮬 중», 데모 · 실기 = «임무 중», 멈춤 = «임무 멈춤») 7 그 밖 «대기 · 임무 전».
+ *  1 끊김(다시 붙는 중 = «다시 연결 중», 꺼짐 = «연결 끊김») 2 정지 잠금 3 넘어짐(robot_info.fallen) 4 점검(가용 MAINTENANCE)
+ *  5 충전(가용 CHARGING) · 그 둘이 아닐 때 일정 칸 배터리 교체 6 임무(사용자 시뮬 = «시뮬 중», 데모 · 실기 = «임무 중», 멈춤 = «임무 멈춤») 7 그 밖 «대기 · 임무 전».
  *  «조종 중»은 서버가 조종권 안에 실제 입력 여부를 줄 때까지 내지 않는다(값 없으면 7). 상태를 아직 모르면(요약 · 받는 중) null */
 export type Badge = { key: 'relink' | 'lost' | 'pre' | 'latched' | 'fallen' | 'maint' | 'swap' | 'charging' | 'paused' | 'run' | 'simrun' | 'idle'; text: string; icon: keyof typeof IC; col: string; blink?: boolean; bat?: boolean; why?: string };
 const GREY = '#a9b8c6';
@@ -279,8 +279,10 @@ export function tileBadge(f: TileFacts): Badge | null {
   if (x.unknown) return null;
   if (x.status === 'STOP_LATCHED') return { key: 'latched', text: '정지 잠금', icon: 'stop', col: 'var(--u5-red)' };
   if (pickInfo(x)?.v?.fallen) return { key: 'fallen', text: '넘어짐', icon: 'warn', col: 'var(--u5-red)' };
-  if (f.job) return f.job.kind === 'maint' ? { key: 'maint', text: '점검 중', icon: 'wrench', col: GREY, blink: true } : { key: 'swap', text: '배터리 교체', icon: 'bat', col: GREY };
+  // 지금 상태(가용 MAINTENANCE · CHARGING)가 일정 칸(BATTERY_SWAP)보다 먼저(01:31 K-04: 충전 중인데 «배터리 교체»)
+  if (f.job?.kind === 'maint') return { key: 'maint', text: '점검 중', icon: 'wrench', col: GREY, blink: true };
   if (f.charging) return { key: 'charging', text: '충전 중', icon: 'bolt', col: 'var(--u5-ok)', bat: true };
+  if (f.job) return { key: 'swap', text: '배터리 교체', icon: 'bat', col: GREY };
   if (f.onRun) return f.paused ? { key: 'paused', text: '임무 멈춤', icon: 'warn', col: 'var(--u5-amb)', blink: true, why: f.paused }
     : f.sim ? { key: 'simrun', text: '시뮬 중', icon: 'box', col: GREY } : { key: 'run', text: '임무 중', icon: 'flag', col: 'var(--u5-ok)' };
   return { key: 'idle', text: '대기 · 임무 전', icon: 'home', col: GREY };
@@ -337,18 +339,33 @@ export const demoBoards = (tree: SiteTree | null | undefined) => new Set((tree?.
   .flatMap((s) => s.buildings.flatMap((b) => b.floors.map((f) => f.approved_version_id))).filter((v): v is string => !!v));
 /** 작은 지도 확대(팀장 00:33): 고른 로봇 점이 있으면 그 로봇 쪽으로 MINI_ZOOM 배(로봇이 칸 가운데). 없으면 그림 한 장 전체 */
 export const MINI_ZOOM = 2;
+/** 작은 지도 이름표 자리(01:18 r0118: 가까운 K-02 · K-04 이름표가 겹침). 앞에 놓인 이름표와 겹치면 점 아래로 내린다.
+ *  위쪽 점부터 놓는다. x · y = 점 자리 px, w = 이름표 폭 추정(글자 7 px + 여백 12). 높이 19 px · 위 = 점 위 28 px 가운데, 아래 = 점 아래 17 px 가운데. 아래로 내린 id 를 돌려준다 */
+export function labelsBelow(items: { id: string; x: number; y: number; w: number }[]): Set<string> {
+  const H = 19, put: { x: number; y: number; w: number }[] = [], dn = new Set<string>();
+  const hit = (b: { x: number; y: number; w: number }) => put.some((o) => Math.abs(o.x - b.x) < (o.w + b.w) / 2 && Math.abs(o.y - b.y) < H);
+  for (const it of [...items].sort((a, b) => a.y - b.y)) {   // 위쪽 점부터: 겹치면 아래 점의 이름표가 더 아래로(다른 점을 덮지 않게)
+    const up = { x: it.x, y: it.y - 28, w: it.w }, down = { x: it.x, y: it.y + 17, w: it.w };
+    if (hit(up) && !hit(down)) { dn.add(it.id); put.push(down); } else put.push(up);
+  }
+  return dn;
+}
 function Mini({ all, sel, boards, toMap }: { all: TileFacts[]; sel: string; boards: Set<string>; toMap?: (from: DOMRect, focus: string) => void }) {
   const at = (f: TileFacts) => { const p = tilePose(locOf(f), boards); if (!p) return null; const [px, py] = toMapPx(p.x, p.z); return { dx: px * 0.125 - 200, dy: py * 0.125 - 125 }; };   // 칸 가운데 기준 px
   const pf = all.find((f) => f.x.id === sel), c = pf ? at(pf) : null, Z = c ? MINI_ZOOM : 1;
-  const dots = [...all].sort((a, b) => a.x.name.localeCompare(b.x.name, 'ko', { numeric: true })).flatMap((f) => {
+  const pos = (q: { dx: number; dy: number }) => ({ x: Math.round((q.dx - (c?.dx ?? 0)) * Z), y: Math.round(125 + (q.dy - (c?.dy ?? 0)) * Z) });
+  const kindOf = (f: TileFacts) => (f.sim ? 'sim' : f.level === 'bad' || f.level === 'crit' ? 'r' : f.level === 'warn' || f.lostNow ? 'o' : '');
+  const labeled = (f: TileFacts) => { const k = kindOf(f); return sel ? f.x.id === sel : k === 'r' || (k === 'o' && !f.lostNow); };
+  const sorted = [...all].sort((a, b) => a.x.name.localeCompare(b.x.name, 'ko', { numeric: true }));
+  const below = labelsBelow(sorted.flatMap((f) => { const q = labeled(f) ? at(f) : null; return q ? [{ id: f.x.id, ...pos(q), w: f.x.name.length * 7 + 12 }] : []; }));
+  const dots = sorted.flatMap((f) => {
     // 데모 현장 승인 판의 위치만: 판 id 가 다르거나 없으면 그리지 않음(엉뚱한 자리보다 뺌). 서버 판 m → 시안 그림 px = design.json transform(25 + u·3.5, 20 + v·3.5 · v = -y)
     const q = at(f);
     if (!q) return [];
-    const left = `calc(50% + ${Math.round((q.dx - (c?.dx ?? 0)) * Z)}px)`, top = `${Math.round(125 + (q.dy - (c?.dy ?? 0)) * Z)}px`;
-    const kind = f.sim ? 'sim' : f.level === 'bad' || f.level === 'crit' ? 'r' : f.level === 'warn' || f.lostNow ? 'o' : '';
-    const me = f.x.id === sel, label = sel ? me : kind === 'r' || (kind === 'o' && !f.lostNow);
+    const p = pos(q), left = `calc(50% + ${p.x}px)`, top = `${p.y}px`;
+    const kind = kindOf(f), me = f.x.id === sel;
     return [<i key={f.x.id} className={`dotm ${kind}${sel ? (me ? ' sel' : ' dim') : ''}`} style={{ left, top }} data-walk={f.walk ? '1' : undefined} data-dot={f.x.id}></i>,
-      label && <span key={`${f.x.id}-l`} className={`dotl${me ? ' sel' : ''}`} style={{ left, top }}>{f.x.name}</span>];
+      labeled(f) && <span key={`${f.x.id}-l`} className={`dotl${me ? ' sel' : ''}${below.has(f.x.id) ? ' dn' : ''}`} style={{ left, top }}>{f.x.name}</span>];
   });
   return <div className="pane" style={{ padding: '10px' }}><div className="row" style={{ justifyContent: 'space-between', padding: '4px 6px 10px' }}><span className="ttl" style={{ fontSize: '17px' }}>작은 지도</span><span className="mu2" style={{ fontSize: '12.5px' }}>{sel ? '선택한 로봇 강조' : '점 = 로봇 · 점선 = 시뮬'}</span></div><div className="mini" data-zoom={c ? Z : undefined} style={c ? { backgroundSize: `${400 * Z}px ${250 * Z}px`, backgroundPosition: `calc(50% + ${Math.round(-c.dx * Z)}px) calc(50% + ${Math.round(-c.dy * Z)}px)` } : undefined} role={toMap ? 'button' : undefined} tabIndex={toMap ? 0 : undefined} aria-label={toMap ? '작은 지도 · 두 번 누르면 지도 보기' : undefined} data-to-map={toMap ? '' : undefined}
     onDoubleClick={toMap && ((e) => toMap(e.currentTarget.getBoundingClientRect(), sel))} onKeyDown={toMap && ((e) => { if (e.key === 'Enter') toMap(e.currentTarget.getBoundingClientRect(), sel); })}>{dots}</div></div>;

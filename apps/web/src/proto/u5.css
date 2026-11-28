@@ -76,6 +76,7 @@
 .u5 .dotm.sel{width:16px;height:16px;margin:-8px 0 0 -8px;box-shadow:0 0 0 6px rgba(0,195,137,.35),0 0 0 12px rgba(0,195,137,.15)}
 .u5 .dotl{position:absolute;transform:translate(-50%,-150%);font-size:11px;font-weight:800;color:#1f2421;padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.9);white-space:nowrap}
 .u5 .dotl.sel{background:#00c389;color:#fff;transform:translate(-50%,-180%)}
+.u5 .dotl.dn{transform:translate(-50%,40%)}
 .u5 .al{display:flex;gap:11px;padding:11px 2px;border-bottom:1px solid var(--line);font-size:13.5px;font-weight:700;align-items:flex-start}
 .u5 .al:last-child{border-bottom:0}
 .u5 .al .ic{margin-top:1px}
