@@ -110,7 +110,7 @@
 | POST | `/robots/{id}/agent-token` | 실기 직접 발급 폐지 →403 `PAIRING_REQUIRED`, 시뮬 기존409 `SIM_TOKEN_MANAGED` | 없음 |
 | GET | `/robots/{id}/telemetry` | 그래프용 요약 `?from&to&fields=battery,speed,latency&step=10s` | A, O(내). 담당 밖 운영 관리자는 404 |
 | POST | `/robots/{id}/floor` | 현재 층 사람 입력 `{floor_id}` | A, O(내) |
-| POST | `/robots/{id}/stop` | STOP (WS 를 못 쓸 때 대체 경로) → 202 `{requested:true}`. 웹은 `X-FH-CSRF` 필요. 실시간 중재기가 없는 서버면 503 `SERVER_BUSY` | 로그인 (볼 수 있으면) |
+| POST | `/robots/{id}/stop` | STOP (WS 를 못 쓸 때 대체 경로) → 202 `{requested:true, delivered}` (`StopAccepted`. delivered=false 는 지금 연결된 에이전트가 없거나 정지 길이 막혀 보낼 길이 없다는 뜻이고 정지 여부가 아니다. 에이전트가 없을 때 누른 STOP 은 큐에 넣지 않고, 다시 붙으면 서버가 연결 STOP(cause `agent_connected`)을 보내 잠긴 채 시작한다. 단 서버 조종 스위치가 꺼진 실기는 서버가 STOP 을 보낼 수 없다(폰 직결·리모컨으로 멈춤). `latched` 도 제어 잠금일 뿐이고 물리 정지는 에이전트 `GO2_STOP_HELD` 같은 측정 증거로만 말한다. 계약 README). 웹은 `X-FH-CSRF` 필요. 실시간 중재기가 없는 서버면 503 `SERVER_BUSY` | 로그인 (볼 수 있으면) |
 
 **관제·조종 고르기의 로봇 범위**
 - PC 관제·조종 고르기: 총괄·운영 관리자 모두 `scope=all` 로 전체 로봇을 받는다. 운영 관리자 화면은 자기 담당을 먼저 놓는다(서버 목록은 만든 순서이고, 순서는 화면이 정함).
@@ -403,6 +403,13 @@ purge 이후 NULL 기록이 생겼거나 파일 대기열이 남으면
   "robot_id": "…"|null, "user_id": "…"|null, "run_id": "…"|null, "data": { "distance_m": 1.8 } }
 ```
 
+**사건 등급 하한** (2026-11-28, #552 기록 탭)
+- 등급은 `INFO` < `WARN` < `ERROR` 셋뿐이다(DB 제약 `event_severity`). 따로 `DANGER`·`CRITICAL` 은 두지 않는다.
+- 코드가 `_(FAILED|REJECTED|DENIED|TIMEOUT)$` 에 맞으면 저장 등급은 최소 `WARN` 이다. 보낸 쪽이 `INFO` 로 보냈거나 등급을 비웠으면 서버가 `WARN` 으로 올린다. 이미 `WARN`·`ERROR` 면 그대로 둔다. 내리는 일은 없다.
+- `STOP_CONFIRM_FAILED` 는 최소 `ERROR` 다. 정지를 요청했는데 2 s 안에 확인이 오지 않아 로봇이 멈췄는지 증명되지 않은 상태이기 때문이다([02 F-TO-04](02-FUNCTIONAL-SPEC.md#f-to-04-조종권-요청-sf-05sf-08--확정--제안-보완) 넘김 순서 4).
+- 서버는 사건 행을 넣는 모든 경로에서 이 하한을 한 곳(`fh_server/models.py` 의 `severity_floor`)으로 건다. 에이전트도 보낼 때 같은 규칙을 쓴다(폰 허브 `PHONE_LEASE_TIMEOUT` 등은 `warn`).
+- 서버 조종권 요청 시간 초과의 코드 `TIMEOUT` 은 밑줄이 없어 위 정규식에 맞지 않지만, 따로 지정해 최소 `WARN` 이다(2026-11-28 결정).
+
 ### 8.1 사건 영상 · 관절 기록 재생 · 지금 남기기 (u07, IMPL-GAP U8-03~U8-12)
 
 정본 타입은 `apps/contracts/models.py` 의 `EventClip` · `EventClipList` · `JointLogFrame` · `JointLogReplay` · `RecordMarkRequest` · `RecordMarkResult` 다.
@@ -558,7 +565,7 @@ P1-B의 `phone.revoke`/`phone.revoke.ack`는 현재 구현 프로토콜 `fh-agen
 4. `stop_ref` 가 상한 2^53-1 에 닿으면 그 값으로 확인된 조종권은 한 번 줄 수 있다. 그 뒤의 STOP 은 같은 상한값을 다시 실어 계속 보내되, 그 값으로 새 조종권은 주지 않는다(`lease.result` `CANCELED` + `error:"STOP_REF_EXHAUSTED"`). 다시 주려면 중재기를 새로 띄워야 한다.
 5. 서버와 에이전트는 이 계약을 함께 갱신한다. `stop_ref` 를 돌려주지 않는 옛 에이전트는 새 서버에서 정지 확인을 통과하지 못한다.
 - 여기서 확인하는 것은 메시지 사이의 인과(그 STOP 을 적용했다는 보고)다. 몸이 실제로 섰는지(속도 0·정지 거리)는 아니다.
-- `field_gate=CLOSED`이면 STOP이 로봇에 가지 않는다. `latched=true`에 `applied`가 비었거나 0이라는 것만으로 정지 출력을 뜻하지 않는다. 관문이 닫힌 에이전트는 STOP 을 받아도 로봇 출력(StopMove 포함)을 내지 않는다. 웹 문구: 「현장 승인이 닫혀 있어 앱 정지가 로봇에 가지 않았습니다. 리모컨으로 멈추세요」
+- `field_gate=CLOSED`이면 STOP이 로봇에 가지 않는다. `latched=true`에 `applied`가 비었거나 0이라는 것만으로 정지 출력을 뜻하지 않는다. 관문이 닫힌 에이전트는 STOP 을 받아도 로봇 출력(StopMove 포함)을 내지 않는다. 웹 문구: 조종 준비 「현장 승인이 닫혀 있어 앱 정지가 로봇에 가지 않습니다. 리모컨으로 멈추세요」, STOP 한 줄 「현장 승인이 닫혀 정지가 로봇에 가지 않음 · 리모컨으로 멈추세요」
 - 에이전트가 없을 때 누른 STOP 은 큐에 넣지 않는다. 에이전트가 다시 붙으면 서버가 연결 STOP (cause `agent_connected`, `stop_ref` +1) 을 보내고, 로봇은 잠긴 채 시작한다. 앞서 누른 STOP 이 나중에 전달되지는 않는다. 관문이 열린 채 붙으면 이 연결 STOP 이 같은 결과 (잠김 · 출력 0) 를 낸다. 관문이 닫힌 채 붙으면 연결 STOP 도 로봇 출력으로 이어지지 않고, 에이전트는 `stop_ref` 0 을 보고한다. 화면 상태에는 `stop_ref` 가 없으므로 화면은 `stop_applied` (서버가 보낸 마지막 `stop_ref` 를 에이전트가 적용했다고 보고하면 true, 관문 닫힘 등 다른 잠금이면 false) 와 `latched` · `field_gate` 로 이것을 안다. 사람 STOP 의 «로봇 정지 확인» 은 `stop_applied=true` 일 때만 보인다. `applied` 가 비어 있는 것은 `field_gate=OPEN` 일 때만 멈춤 출력으로 읽는다.
 
 ---

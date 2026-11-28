@@ -204,3 +204,59 @@ def test_initialization_error_hides_credentials(local_env, monkeypatch):
         server.main()
     assert 'synthetic-secret' not in str(error.value)
     assert '로컬 DB 초기화 실패' in str(error.value)
+
+
+@pytest.mark.parametrize('address', ['127.0.0.1:55491', 'localhost:55491', 'db:5432'])
+def test_loopback_database_address_allowed(local_env, monkeypatch, address):
+    monkeypatch.setenv('FH_DATABASE_URL', f'postgresql+psycopg://fh_app@{address}/foothold_local')
+    app, migrate, admin = server.configuration()
+    assert f'{app.host}:{app.port}' == address == f'{admin.host}:{admin.port}'
+
+
+@pytest.mark.parametrize('address', ['external.invalid:5432', '10.0.0.5:5432', '127.0.0.1', '127.0.0.1:5432', 'db:55491'])
+def test_remote_or_portless_database_refused(local_env, monkeypatch, address):
+    monkeypatch.setenv('FH_DATABASE_URL', f'postgresql+psycopg://fh_app@{address}/foothold_local')
+    with pytest.raises(ValueError, match='로컬 db:5432'):
+        server.configuration()
+
+
+@pytest.mark.parametrize('port, expected', [(None, '8810'), ('18895', '18895')])
+def test_api_port_from_environment(local_env, monkeypatch, port, expected):
+    if port is None:
+        monkeypatch.delenv('FH_PORT', raising=False)
+    else:
+        monkeypatch.setenv('FH_PORT', port)
+    monkeypatch.setattr(server, 'initialize', lambda *args: None)
+    seen = []
+    monkeypatch.setattr(os, 'execvp', lambda executable, args: seen.append(args))
+    server.main()
+    assert seen[0][seen[0].index('--port') + 1] == expected
+
+
+@pytest.mark.parametrize('port', ['0', '70000', 'http', '88 10'])
+def test_invalid_api_port_refused(local_env, monkeypatch, port):
+    monkeypatch.setenv('FH_PORT', port)
+    monkeypatch.setattr(server, 'initialize', lambda *args: None)
+    monkeypatch.setattr(os, 'execvp', lambda *args: pytest.fail('must not exec'))
+    with pytest.raises(SystemExit, match='FH_PORT'):
+        server.main()
+
+
+def test_seed_runs_only_when_requested_and_passwords_removed(local_env, monkeypatch):
+    from docker import seed
+    monkeypatch.setattr(server, 'initialize', lambda *args: None)
+    calls, seen = [], []
+    monkeypatch.setattr(seed, 'seed', lambda *args: calls.append(args))
+    monkeypatch.setattr(os, 'execvp', lambda executable, args: seen.append(dict(os.environ)))
+    server.main()
+    assert calls == []
+    for key, value in local_env.items():  # main() strips credentials before exec
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv('FH_SEED', '1')
+    for name, *_ in seed.ACCOUNTS:
+        monkeypatch.setenv(seed.password_key(name), 'synthetic-seed-password')
+    server.main()
+    url, org, files, admin, passwords = calls[0]
+    assert (str(org), admin) == (local_env['FH_ORG_ID'], 'local-admin')
+    assert set(passwords) == {seed.password_key(name) for name, *_ in seed.ACCOUNTS}
+    assert not any(key.startswith('FH_SEED_PASSWORD_') for key in seen[-1])

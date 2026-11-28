@@ -54,9 +54,18 @@ AGENT_PROTOCOL_MISMATCH 사건을 남긴다. Client는 0·잠금 및 기존 대�
 AgentState와 이를 상속하는 PhoneState의 선택 필드 `safety_reason`은
 `OUTPUT_STALLED | null`이다. publisher 지연으로 잠긴 동안 `OUTPUT_STALLED`를
 보내며 신선한 STOP 피드백·새 unlock·해제 피드백 뒤 null이 된다.
-물리 정지 확인은 기존 `stop_requested` 피드백이며 이 사유 필드로 대신하지 않는다.
+`stop_requested`·`latched` 피드백은 제어 쪽 확인(우리 출력이 멈춰 있음)이고, 물리 정지는
+에이전트 `GO2_STOP_HELD` 같은 측정 증거로만 말한다. 이 사유 필드는 어느 쪽도 대신하지 않는다.
 서버는 검증된 값을 로봇별 `ScreenState.safety_reason`으로 전달한다. 필드를 생략하는
 옛 에이전트, 아직 상태가 없거나 오래된 상태, 오프라인 로봇은 null이다.
+
+정지 접수 `POST /robots/{id}/stop` 202 본문은 `StopAccepted {requested: true, delivered}`이고,
+화면 `stop`의 성공 `ScreenReply`에도 같은 뜻의 `delivered`가 붙는다(다른 회신에는 없다).
+`delivered=true`는 그 순간 정지가 연결된 에이전트 대기열에 들어갔다는 뜻이다. 소켓으로 실제 보냈다는 보증은 아니다.
+`delivered=false`는 로봇이 멈췄다는 뜻도, 안 멈췄다는 뜻도 아니다. 에이전트 연결이 없거나
+막혀 서버가 지금 보낼 길이 없다는 뜻이다. 정지 감사 기록은 그대로 남는다.
+`latched`는 제어 잠금(우리 출력이 멈춰 있음)일 뿐 물리 정지 확인이 아니다. 움직이던 기체가 실제로
+섰는지는 에이전트의 `GO2_STOP_HELD` 같은 측정 증거로만 말한다. `delivered`도 `latched`도 그 증거를 대신하지 않는다.
 
 AgentState·PhoneState·ScreenState의 선택 필드 `field_gate`는 `OPEN | CLOSED | null`이다.
 현장 승인 관문이 있는 실기 에이전트(GatedSession)만 `gate.allowed()`로 채우고, 관문이 없거나
@@ -66,8 +75,8 @@ AgentState·PhoneState·ScreenState의 선택 필드 `field_gate`는 `OPEN | CLO
 적용했다고 보고하면 true, 관문 닫힘처럼 다른 까닭의 잠금이면 false, 상태 없음·오래됨·보낸 STOP 없음은 null이다.
 `field_gate=CLOSED`이면 STOP이 로봇에 가지 않는다. `latched=true`에 `applied`가 비었거나 0이라는 것만으로 정지 출력을 뜻하지 않는다.
 관문이 닫힌 에이전트는 STOP을 operator_stop으로만 기억하고 로봇 출력(StopMove 포함)을 내지 않는다.
-웹 문구: 「현장 승인이 닫혀 있어 앱 정지가 로봇에 가지 않았습니다. 리모컨으로 멈추세요」
-에이전트가 없을 때 누른 STOP 은 큐에 넣지 않는다. 에이전트가 다시 붙으면 서버가 연결 STOP (cause `agent_connected`, `stop_ref` +1) 을 보내고, 로봇은 잠긴 채 시작한다. 앞서 누른 STOP 이 나중에 전달되지는 않는다. 관문이 열린 채 붙으면 이 연결 STOP 이 같은 결과 (잠김 · 출력 0) 를 낸다. 관문이 닫힌 채 붙으면 연결 STOP 도 로봇 출력으로 이어지지 않고, 에이전트는 `stop_ref` 0 을 보고한다. 화면 상태에는 `stop_ref` 가 없으므로 화면은 `stop_applied` (서버가 보낸 마지막 `stop_ref` 를 에이전트가 적용했다고 보고하면 true, 관문 닫힘 등 다른 잠금이면 false) 와 `latched` · `field_gate` 로 이것을 안다. 사람 STOP 의 «로봇 정지 확인» 은 `stop_applied=true` 일 때만 보인다. `applied` 가 비어 있는 것은 `field_gate=OPEN` 일 때만 멈춤 출력으로 읽는다.
+웹 문구: 조종 준비 「현장 승인이 닫혀 있어 앱 정지가 로봇에 가지 않습니다. 리모컨으로 멈추세요」, STOP 한 줄 「현장 승인이 닫혀 정지가 로봇에 가지 않음 · 리모컨으로 멈추세요」
+에이전트가 없을 때 누른 STOP 은 큐에 넣지 않는다. 에이전트가 다시 붙으면 서버가 연결 STOP (cause `agent_connected`, `stop_ref` +1) 을 보내고, 로봇은 잠긴 채 시작한다. 앞서 누른 STOP 이 나중에 전달되지는 않는다. 단 서버 조종 스위치가 꺼진 실기는 서버가 STOP 을 보낼 수 없다 (재연결 STOP 도 막힌다. 폰 직결 · 리모컨으로 멈춘다). 관문이 열린 채 붙으면 이 연결 STOP 이 같은 결과 (잠김 · 출력 0) 를 낸다. 관문이 닫힌 채 붙으면 연결 STOP 도 로봇 출력으로 이어지지 않고, 에이전트는 `stop_ref` 0 을 보고한다. 화면 상태에는 `stop_ref` 가 없으므로 화면은 `stop_applied` (서버가 보낸 마지막 `stop_ref` 를 에이전트가 적용했다고 보고하면 true, 관문 닫힘 등 다른 잠금이면 false) 와 `latched` · `field_gate` 로 이것을 안다. 사람 STOP 의 «로봇 정지 확인» 은 `stop_applied=true` 일 때만 보인다. `applied` 가 비어 있는 것은 `field_gate=OPEN` 일 때만 멈춤 출력으로 읽는다.
 
 `AgentState`·`PhoneState`·`ScreenState`의 선택 `unlock_refused`는
 `{reason, at, axes}` 또는 null이다. `at`은 UTC 시각, `reason`은 `UnlockRefused`의

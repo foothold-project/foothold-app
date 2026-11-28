@@ -272,13 +272,16 @@ export function SlamView({ pic, empty, first3d = false, over: raw, hideBase = fa
   // 3D 상자가 회색인 까닭 한 줄 (폰에는 마우스 올림이 없다)
   const why3d = no3d ? '이 브라우저는 3D 를 그릴 수 없습니다' : !pic.n ? none3d : hideBase ? '고친 지도 미리보기는 위에서만 봅니다' : '';
   const any = (!hideBase && (pic.n > 0 || pic.patches.length > 0)) || !!over?.cells.length;
-  return <div style={{ position: 'absolute', inset: 0, background: 'var(--panel)' }} data-slam-view={show3d ? '3d' : '2d'} data-slam-boxes={pic.n}>
-    {!any ? <QEmpty text={empty} /> : show3d ? <SlamBoxes pic={pic} fail={() => setNo3d(true)} /> : <SlamGrid pic={pic} over={over} hideBase={hideBase} />}
-    {any && <div className="fh-row" role="group" aria-label="지도 보기 고르기" style={{ position: 'absolute', right: 8, top: 8, zIndex: 1, justifyContent: 'flex-end' }}>
-      <button type="button" className="btn" aria-pressed={!show3d} data-slam-pick="2d" onClick={() => setD3(false)}>위에서</button>
-      <button type="button" className="btn" aria-pressed={show3d} data-slam-pick="3d" disabled={!!why3d} aria-describedby={why3d ? whyId : undefined} onClick={() => setD3(true)}>3D 상자</button>
-      {why3d && <span style={{ flexBasis: '100%', display: 'flex', justifyContent: 'flex-end' }}><span className="lbl" id={whyId} data-slam-3d-why style={{ background: 'var(--panel)', padding: '2px 6px', borderRadius: 6 }}>{why3d}</span></span>}
-    </div>}
+  // 지도 칸(그림 + 오른쪽 위 단추 묶음) 아래에 까닭 한 줄. 띠를 그림 위에 띄우면 작은 폰 지도 윗부분을 가린다(11-28 폰 스캔 사진). PC 지도 탭 · 폰 스캔 같은 규칙
+  return <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', background: 'var(--panel)' }} data-slam-view={show3d ? '3d' : '2d'} data-slam-boxes={pic.n}>
+    <div style={{ position: 'relative', flex: '1 1 auto', minHeight: 0 }} data-slam-pane>
+      {!any ? <QEmpty text={empty} /> : show3d ? <SlamBoxes pic={pic} fail={() => setNo3d(true)} /> : <SlamGrid pic={pic} over={over} hideBase={hideBase} />}
+      {any && <div className="fh-row" role="group" aria-label="지도 보기 고르기" style={{ position: 'absolute', right: 8, top: 8, zIndex: 1, justifyContent: 'flex-end' }}>
+        <button type="button" className="btn" aria-pressed={!show3d} data-slam-pick="2d" onClick={() => setD3(false)}>위에서</button>
+        <button type="button" className="btn" aria-pressed={show3d} data-slam-pick="3d" disabled={!!why3d} aria-describedby={why3d ? whyId : undefined} onClick={() => setD3(true)}>3D 상자</button>
+      </div>}
+    </div>
+    {any && why3d && <p className="lbl" data-slam-note style={{ margin: 0, padding: '4px 8px', textAlign: 'right', borderTop: '1px solid var(--line)' }}><span id={whyId} data-slam-3d-why>{why3d}</span></p>}
   </div>;
 }
 

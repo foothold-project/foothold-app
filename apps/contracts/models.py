@@ -284,6 +284,13 @@ class StopRequest(Contract):
     request_id: UUID
 
 
+class StopAccepted(Contract):
+    """POST /robots/{id}/stop 202. delivered: the stop entered a connected agent
+    queue at that moment. False is not "did not stop"; see contracts README."""
+    requested: Literal[True] = True
+    delivered: bool
+
+
 class StopRequestAck(Contract):
     stage: Literal['PHONE_RECEIVED', 'HUMAN_CONFIRMED']
 
@@ -1595,11 +1602,13 @@ class ScreenServerPing(Contract):
 
 class ScreenReply(Contract):
     model_config = ConfigDict(json_schema_extra=lambda schema: schema.update(
-        required=[key for key in schema.get('required', []) if key != 'error']))
+        required=[key for key in schema.get('required', []) if key not in ('error', 'delivered')]))
     t: Literal['reply'] = 'reply'
     id: str
     ok: bool
     error: ErrorBody | None = None
+    # Only on a successful `stop` reply; same meaning as StopAccepted.delivered.
+    delivered: bool | None = Field(default=None, exclude_if=lambda v: v is None)
 
 
 class ScreenLeaseUpdate(Contract):
