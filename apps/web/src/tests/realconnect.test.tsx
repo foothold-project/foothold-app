@@ -7,6 +7,7 @@ import { App } from '../App';
 import { ROBOTS, USERS } from './fixtures';
 import { FakeWS, state, type Msg } from './fakeWs';
 import { NO_RELAY_MS, sim } from '../phone';
+import { rt } from '../rt';
 import { realTarget, type Found } from '../nearby';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -499,6 +500,36 @@ describe('서버 끊긴 폰의 STOP(d2)', () => {
       await wait(50);
     } finally { window.removeEventListener('error', swallow); }
     expect(calls.filter((c) => /^POST \/robots\/[^/]+\/stop$/.test(c)).sort()).toEqual(['POST /robots/r1/stop', 'POST /robots/r3/stop']);
+  });
+
+  it('C6 (권한 검토): 폰 · 서버 끊김 · 시뮬 떠 있음 STOP 은 실기를 먼저 보내고 그다음 내 시뮬', async () => {
+    serve();
+    const order: string[] = [], real = rt.stop.bind(rt);
+    vi.spyOn(sim, 'live').mockReturnValue({ robot_id: 'sim-x' } as ReturnType<typeof sim.live>);
+    vi.spyOn(sim, 'stop').mockImplementation(() => { order.push('sim'); });
+    vi.spyOn(rt, 'stop').mockImplementation((id: string) => { order.push(id); return real(id); });
+    await home();
+    await cut();
+    await click($('[data-stop]'));
+    await wait(50);
+    expect(order.indexOf('sim')).toBe(order.length - 1);
+    expect(order.slice(0, -1).sort()).toEqual(['r1', 'r3']);
+  });
+
+  it('C6 (권한 검토): 실기 정지가 던져도 내 시뮬 정지는 나간다', async () => {
+    serve();
+    vi.spyOn(sim, 'live').mockReturnValue({ robot_id: 'sim-x' } as ReturnType<typeof sim.live>);
+    const simStop = vi.spyOn(sim, 'stop').mockImplementation(() => undefined);
+    vi.spyOn(rt, 'stop').mockImplementation(() => { throw new Error('real boom'); });
+    const swallow = (e: ErrorEvent) => { if (e.error?.message === 'real boom') e.preventDefault(); };
+    window.addEventListener('error', swallow);
+    try {
+      await home();
+      await cut();
+      await click($('[data-stop]'));
+      await wait(50);
+    } finally { window.removeEventListener('error', swallow); }
+    expect(simStop).toHaveBeenCalledTimes(1);
   });
 
   it('S2: 0 대에서 «닿을 길 없음» 뒤 로봇이 생겨 STOP 하면 그 줄은 없어진다', async () => {
