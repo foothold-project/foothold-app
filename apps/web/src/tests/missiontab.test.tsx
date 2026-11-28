@@ -445,6 +445,10 @@ describe('임무 탭(W2)', () => {
     expect($('[data-row="task"][data-row-i="1"]')!.textContent).toContain('게이지');
     await click($('[data-row="task"][data-row-i="0"]'));
     expect($('[data-step-detail="0"]')!.textContent).toContain('사진 찍기');   // 남길 것 = 임무 단계
+    // 할 일 칸은 긴 임무 이름에도 왼쪽 칸 안에 머문다(넓이 = 칸 넓이 · 줄 열은 minmax(0, 1fr))
+    const jobSel = $<HTMLSelectElement>('[data-step-job]')!;
+    expect(jobSel.style.width).toBe('100%'); expect(jobSel.style.minWidth).toBe('0');
+    expect((jobSel.parentElement as HTMLElement).style.gridTemplateColumns).toBe('96px minmax(0, 1fr)');
     await act(async () => { const i = $<HTMLInputElement>('[data-step-wait]')!; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(i, '45'); i.dispatchEvent(new Event('input', { bubbles: true })); });
     await act(async () => { await new Promise((r) => setTimeout(r, 450)); }); await flush();
     // 펌프(0,0) -> 게이지(3.5,0) 는 x 2~3 m 접근 금지 칸을 지난다 -> 저장 막음 · 까닭 한 줄

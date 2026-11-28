@@ -116,9 +116,9 @@ export function ListPane({ e, route, sel, setSel, adding, setAdding }: { e: Edit
           <button type="button" className="btns" style={{ width: '30px', height: '30px', padding: 0 }} aria-label="뒤로" disabled={e.ro || sel === e.body.waypoints.length - 1} onClick={() => { move(e, sel as number, (sel as number) + 1); setSel((sel as number) + 1); }}>↓</button>
           <button type="button" className="btns" style={{ width: '30px', height: '30px', padding: 0, color: '#ff4d4f' }} aria-label="이 지점 지우기" disabled={e.ro} data-step-drop
             onClick={() => { e.put({ ...e.body, waypoints: e.body.waypoints.filter((_, k) => k !== sel) }); setSel(null); }}><Ic d={IC.x} /></button></span></div>
-      <div style={{ display: 'grid', gridTemplateColumns: '96px 1fr', rowGap: '12px', marginTop: '14px', fontSize: '14px', fontWeight: '600', alignItems: 'center' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr)', rowGap: '12px', marginTop: '14px', fontSize: '14px', fontWeight: '600', alignItems: 'center' }}>
         <span className="lab" style={{ fontSize: '13.5px' }}>할 일</span>
-        <select className="u6-select" aria-label="할 일" value={w.mission_id} disabled={e.ro} data-step-job onChange={(ev) => { const m = e.jobs[ev.target.value]; if (m) set({ mission_id: m.id, mission_version: m.version }); }}>
+        <select className="u6-select" style={{ width: '100%', minWidth: 0, textOverflow: 'ellipsis' }} aria-label="할 일" value={w.mission_id} disabled={e.ro} data-step-job onChange={(ev) => { const m = e.jobs[ev.target.value]; if (m) set({ mission_id: m.id, mission_version: m.version }); }}>
           {!job && <option value={w.mission_id}>받지 못한 임무</option>}{Object.values(e.jobs).filter((j) => !j.archived_at || j.id === w.mission_id).map((j) => <option key={j.id} value={j.id}>{j.name}</option>)}</select>
         <span className="lab" style={{ fontSize: '13.5px' }}>머무는 시간</span>
         <span className="row" style={{ gap: '6px' }}><input className="u6-select num" style={{ width: '90px' }} type="number" min={0} max={3600} aria-label="머무는 시간(초)" value={w.wait_s ?? ''} disabled={e.ro} data-step-wait
