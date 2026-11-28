@@ -153,7 +153,7 @@ def private_file(path, text):
 
 
 def extra_sim_robot_id(org_id, number):
-    """Slots 2..4 (FH_SIM_SLOTS). The server creates the row on the first POST /simulation/robots."""
+    """Slots 2..8 (FH_SIM_SLOTS). The server creates the row on the first POST /simulation/robots."""
     return seed.uuid5(seed.NAMESPACE, f'{org_id}/sim-robot-{number}')
 
 
@@ -165,7 +165,7 @@ def sim_setup(repository, values, data):
     """Private files for simmgr with the local MuJoCo backend.
 
     Default: one slot = the seeded robot, world collapsed-house-v2. FH_SIM_WORLD names another
-    world (plant_a: the server sends its approved map bindings) and FH_SIM_SLOTS 1..4 adds slots."""
+    world (plant_a: the server sends its approved map bindings) and FH_SIM_SLOTS 1..8 adds slots."""
     if not (Path(repository) / 'apps/simmgr/mujoco_launcher.py').exists():
         raise SystemExit('--sim mujoco 는 simmgr 로컬 MuJoCo 백엔드 (#594) 가 들어간 저장소에서만 됩니다')
     if values.get('FH_SIM_SRC'):
@@ -179,8 +179,8 @@ def sim_setup(repository, values, data):
     folder.mkdir(mode=0o700, parents=True, exist_ok=True)
     org = values['FH_ORG_ID']
     count = os.environ.get('FH_SIM_SLOTS') or values.get('FH_SIM_SLOTS') or '1'
-    if not count.isdigit() or not 1 <= int(count) <= 4:
-        raise SystemExit('FH_SIM_SLOTS 는 1..4 (MuJoCo 로컬 로봇 수)')
+    if not count.isdigit() or not 1 <= int(count) <= 8:
+        raise SystemExit('FH_SIM_SLOTS 는 1..8 (MuJoCo 로컬 로봇 수)')
     world = os.environ.get('FH_SIM_WORLD') or values.get('FH_SIM_WORLD') or 'collapsed-house-v2'
     robots = [str(seed.sim_robot_id(UUID(org)))] + [str(extra_sim_robot_id(UUID(org), n))
                                                     for n in range(2, int(count) + 1)]

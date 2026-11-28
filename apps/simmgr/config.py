@@ -85,7 +85,7 @@ class Settings:
         # The 1..2 cap came with the native Gazebo/ROS first launch (P1-C, FIRST-LAUNCH.md: native 1 robot,
         # fake 2 for namespace/topic/port planning). A local MuJoCo agent is one Node + one Python process
         # per robot with no ROS graph; local integration allows 4 (demo-day 11/28, not a product decision).
-        robot_cap = 4 if self.local_backend == "mujoco" else 2
+        robot_cap = 8 if self.local_backend == "mujoco" else 2
         if self.local_backend not in (None, 'mujoco') or (self.local_backend and self.real):
             raise ValueError('local backend must be mujoco and never with the native launcher')
         if self.real and self.runtime_seconds < 300:

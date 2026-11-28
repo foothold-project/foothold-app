@@ -3694,7 +3694,7 @@ class SimProvision(SimStartRequest):
 class SimCatalog(Contract):
     worlds: list[SimWorld]
     slots: list[UUID]
-    max_robots: int = Field(ge=1, le=4)  # MuJoCo local up to 4; native Gazebo stays 1..2 in simmgr config
+    max_robots: int = Field(ge=1, le=8)  # MuJoCo local up to 8; native Gazebo stays 1..2 in simmgr config
     launcher: Literal['fake', 'native-single', 'mujoco-local']
     manager_instance_id: UUID | None = None
 

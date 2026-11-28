@@ -249,3 +249,16 @@ def test_plant_a_server_map_bindings_reach_the_mujoco_agent(tmp_path):
         assert list(seen['map_bindings']) == bindings
         await manager.close()
     asyncio.run(run())
+
+
+@pytest.mark.parametrize('count, backend, ok', [(8, 'mujoco', True), (9, 'mujoco', False), (3, None, False), (2, None, True)])
+def test_robot_cap_eight_for_mujoco_two_otherwise(tmp_path, count, backend, ok):
+    org = str(uuid4())
+    slots = {s.robot_id: s for s in (Slot(str(uuid4()), org, '/k', f'/r{i}', 9433 + i) for i in range(count))}
+    make = lambda: Settings({'collapsed-house-v2': World('collapsed-house-v2', Path('/a'), Path('/b'))}, slots, 'x' * 32,
+                            run_dir=str(tmp_path), local_backend=backend, max_robots=count)
+    if ok:
+        assert make().max_robots == count
+    else:
+        with pytest.raises(ValueError):
+            make()

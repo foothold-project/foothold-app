@@ -347,7 +347,7 @@ def test_sim_world_slots_and_policy_env_from_env(checkout, tmp_path, monkeypatch
     assert local_up.simmgr_env(checkout, values, sim)['FH_SIM_MAX_ROBOTS'] == '1'
 
 
-@pytest.mark.parametrize('slots', ['0', '5', 'two'])
+@pytest.mark.parametrize('slots', ['0', '9', 'two'])
 def test_sim_slots_out_of_range_refused(checkout, tmp_path, monkeypatch, slots):
     sim_checkout(checkout)
     monkeypatch.setenv('FH_SIM_SLOTS', slots)
@@ -374,3 +374,13 @@ def test_sim_world_list_for_connected_floors(checkout, tmp_path, monkeypatch):
     values, _ = local_up.prepare(checkout, tmp_path / 'accounts.env', docker=False, check=False)
     catalog = json.loads(Path(local_up.sim_setup(checkout, values, tmp_path / 'data')['FH_SIM_CATALOG']).read_text())
     assert [w['id'] for w in catalog['worlds']] == ['plant_a/l1', 'plant_a/l2', 'plant_a/l3']
+
+
+def test_sim_eight_slots(checkout, tmp_path, monkeypatch):
+    sim_checkout(checkout)
+    monkeypatch.setenv('FH_SIM_SLOTS', '8')
+    values, _ = local_up.prepare(checkout, tmp_path / 'accounts.env', docker=False, check=False)
+    sim = local_up.sim_setup(checkout, values, tmp_path / 'data')
+    catalog = json.loads(Path(sim['FH_SIM_CATALOG']).read_text())
+    assert len(catalog['slots']) == 8 and len({s['port'] for s in catalog['slots']}) == 8
+    assert local_up.simmgr_env(checkout, values, sim)['FH_SIM_MAX_ROBOTS'] == '8'
