@@ -147,3 +147,15 @@ describe('지도 보기 안내 · 경로 거리 설명에 줄표 없음(t19)', (
     expect(code(SRC['../screens/missions.tsx'])).not.toMatch(/[—–] 지점 사이 직선과/);
   });
 });
+
+// t19 셋째 (11-28 조정 «가»): 열린 PR 하나에만 걸린 네 파일 중 그 PR 이 고치는 줄(앞뒤 3 줄)과 먼 화면 글만.
+// go2status.tsx 30 · 31 · 55(빈 값 «—») · 135 줄과 terrain3d.tsx 252 줄은 #389 · #546 과 겹쳐 뒤로
+describe('네 파일 화면 글 줄표(t19 셋째)', () => {
+  for (const f of ['screens/mapedit.tsx', 'screens/voxel3d.tsx']) it(`${f} 줄표 없음`, () => {
+    expect(dashes(SRC[`../${f}`])).toEqual([]);
+  });
+  it('go2status.tsx 현장 코드 · 응답 없음 안내', () => {
+    const c = code(SRC['../go2status.tsx']);
+    for (const t of ['현장 코드가 틀렸거나 만료됐습니다. 로봇 쪽 코드를', '로봇이 잠시 막았습니다. ${', "'응답 없음(3초). 같은 Wi-Fi", '현장 코드 8자리. 로봇이 맞는지']) expect(c).toContain(t);
+  });
+});
