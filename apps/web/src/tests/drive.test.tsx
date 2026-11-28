@@ -213,6 +213,28 @@ describe('폰 칩 · 펼침 칸 · 관절 온도 띠 (시안 u1_7 · u1_9 · u1_
   });
 });
 
+describe('폰 「말하기」 (시안 u1_2 · 정지 위 · PC 로봇 탭 말하기와 같은 길)', () => {
+  it('조종 중 정지 위에 말하기 · 누르면 PC 와 같은 「준비 중」 글 · 보냄 0', () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    ready();
+    const talk = $<HTMLButtonElement>('[data-u1-talk]');
+    expect(talk.textContent).toBe('말하기');
+    expect(talk.style.right).toBe('24px'); expect(talk.style.top).toBe('252px');
+    const n = w.sent.length;
+    click(talk);
+    expect($('[data-act-msg]').textContent).toBe('말하기는 아직 서버에 없습니다');
+    expect(w.sent.length).toBe(n);
+  });
+  it('정지 잠금(「다시 시작」 자리)이면 말하기 숨김 · 조종 전에도 보임', () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    expect($('[data-u1-talk]')).not.toBeNull();
+    click(btn('조종'));
+    expect($('[data-u1-talk]')).toBeNull();
+  });
+});
+
 describe('폰 정지됨 Damping 두 번 누르기 (시안 u1_3 · PC 로봇 탭 u4_9 와 같은 길)', () => {
   const damp = () => $<HTMLButtonElement>('[data-u1-damp]');
   it('내 조종 · 정지 잠금이면 「Damping 힘 빼기」. 한 번 = 안내만(보냄 0), 3 초 안에 한 번 더 = Damp(확인됨) 한 번', () => {
