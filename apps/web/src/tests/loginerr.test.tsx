@@ -1,6 +1,6 @@
 // 로그인 오류 보기(u10_3 · U11-03): 오류 띠 · 틀린 칸 빨간 테(aria-invalid) · 초점 · 비밀번호 보기 단추 · 「계정은 총괄에게 요청하세요.」 한 줄.
 // 서버 401 은 계정 · 비밀번호를 가르지 않는다(api.py login: 없는 계정 · 틀린 비밀번호 · 잠긴 계정 모두 같은 401 · 같은 문구).
-// 그래서 서버 거절은 비밀번호 칸만 표시하고, 글은 서버 말 그대로(계정이 틀렸다고 지어 말하지 않음). 429 · 연결 실패는 칸 표시 없음.
+// 그래서 서버 거절은 두 칸 모두 표시 · 초점은 계정 칸(REVIEW-PR580 G1), 글은 서버 말 그대로(계정이 틀렸다고 지어 말하지 않음). 429 · 연결 실패는 칸 표시 없음.
 // 보기만 바꾼다: 로그인 요청 · 세션 처리 줄은 그대로(요청 본문도 그대로인지 본다).
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
@@ -29,7 +29,8 @@ function serve(r: typeof routes) {
 }
 let root: ReactRoot | null = null, box: HTMLDivElement;
 const flush = () => act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); await new Promise((r) => setTimeout(r, 0)); });
-async function open() {
+async function open(hash = '#/fleet') {
+  location.hash = hash;
   window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
   box = document.createElement('div'); document.body.append(box);
   act(() => { root = createRoot(box); root.render(<Root />); });
@@ -69,13 +70,14 @@ describe('로그인 오류 보기 (u10_3)', () => {
     expect(document.activeElement).toBe(pass());
   });
 
-  it('서버 401: 글은 서버 말 그대로 · 비밀번호 칸만 빨간 테 · 초점 비밀번호 · 요청 본문 그대로', async () => {
+  it('서버 401: 글은 서버 말 그대로 · 두 칸 모두 빨간 테 · 초점 계정 · 요청 본문 그대로 (REVIEW-PR580 G1)', async () => {
     serve({ 'GET /auth/session': NO_LOGIN, 'POST /auth/login': err(401, 'AUTH_REQUIRED', BAD) });
     await open(); await login('kim', 'bad');
     expect(band()!.textContent).toBe(BAD);
+    // G1: 서버는 계정 · 비밀번호를 가르지 않으니 두 칸 모두 표시, 초점은 앞 칸(계정)부터
+    expect(user().getAttribute('aria-invalid')).toBe('true');
     expect(pass().getAttribute('aria-invalid')).toBe('true');
-    expect(user().hasAttribute('aria-invalid')).toBe(false);
-    expect(document.activeElement).toBe(pass());
+    expect(document.activeElement).toBe(user());
     expect(box.textContent).not.toMatch(/계정이 (틀|없)|아이디가 (틀|없)/);
     expect(calls.find((c) => c.path === '/auth/login')!.body).toMatchObject({ username: 'kim', password: 'bad' });
     // 다시 고쳐 성공하지 않아도, 다음 제출 전에 빈 칸이면 표시가 그 칸으로 옮겨 간다
@@ -87,9 +89,9 @@ describe('로그인 오류 보기 (u10_3)', () => {
   it('같은 칸이 다시 틀려도 초점을 다시 준다 · 다시 보내는 동안은 빨간 테 · 띠를 거둠', async () => {
     serve({ 'GET /auth/session': NO_LOGIN, 'POST /auth/login': err(401, 'AUTH_REQUIRED', BAD) });
     await open(); await login('kim', 'bad');
-    act(() => { user().focus(); });
+    act(() => { pass().focus(); });
     await login('kim', 'bad2');
-    expect(document.activeElement).toBe(pass());
+    expect(document.activeElement).toBe(user());
     routes['POST /auth/login'] = () => new Promise<Reply>(() => {});   // 답이 오지 않는 동안
     await login('kim', 'bad3');
     expect(box.querySelectorAll('[aria-invalid]').length).toBe(0);
@@ -105,6 +107,22 @@ describe('로그인 오류 보기 (u10_3)', () => {
     await login('kim', 'bad');
     expect(band()!.textContent).toContain('서버에 연결하지 못했습니다');
     expect(box.querySelectorAll('[aria-invalid]').length).toBe(0);
+  });
+
+  it('안내(로그인이 끝났습니다)는 중립 띠, 제출 뒤 오류만 빨간 띠 (REVIEW-PR580 낮음)', async () => {
+    serve({ 'GET /auth/session': { status: 200, body: { client: 'web', csrf_token: 'c' } }, 'GET /me': { status: 200, body: KIM },
+      'GET /robots': { status: 200, body: { items: [], next_cursor: null } }, 'GET /org/settings': NO_LOGIN, 'POST /auth/login': err(401, 'AUTH_REQUIRED', BAD) });
+    await open('#/settings');
+    const note = $('[data-login-note]')!;
+    expect(note.textContent).toBe('로그인이 끝났습니다. 다시 로그인하세요.');
+    expect(band()).toBeNull();
+    expect(note.getAttribute('style')).not.toContain('--bad');
+    expect(note.querySelector('svg')).toBeNull();
+    expect(box.querySelectorAll('[aria-invalid]').length).toBe(0);
+    await login('kim', 'bad');
+    expect($('[data-login-note]')).toBeNull();
+    expect(band()!.textContent).toBe(BAD);
+    expect(band()!.getAttribute('style')).toContain('--bad');
   });
 
   it('비밀번호 보기 단추: 눌러도 제출 안 함 · 보기/숨기기 · aria-pressed', async () => {

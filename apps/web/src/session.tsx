@@ -93,13 +93,13 @@ function Login({ note, enter }: { note?: string; enter: () => Promise<void> }) {
     if (!id || !pw) { setBad(!id ? 'username' : 'password'); return setMsg('계정과 비밀번호를 입력하세요.'); }
     setBusy(true); setMsg(undefined); setBad(null);
     try { await api.login(id, pw); await enter(); }
-    catch (err) { setBad((err as ApiFail).status === 401 ? 'password' : null); setMsg((err as ApiFail).message); setBusy(false); }   // 서버 401 은 계정 · 비밀번호를 가르지 않는다(api.py login)
+    catch (err) { setBad((err as ApiFail).status === 401 ? 'both' : null); setMsg((err as ApiFail).message); setBusy(false); }   // 서버 401 은 계정 · 비밀번호를 가르지 않는다(api.py login)
   };
   return <div className={fh}><main className="fh-login" aria-label="로그인">
     <form onSubmit={submit} noValidate>
       <BrandLogo kind="primary" h={40} />
       <div className="fh-field"><h2>로그인</h2><span className="lbl">현장 서버에 연결해 로봇을 보고 조종합니다</span></div>
-      <LoginFields msg={msg} bad={bad} tick={tick} busy={busy} />
+      <LoginFields msg={msg} bad={bad} tick={tick} busy={busy} note={tick === 0} />
       <span className="lbl">5분 안에 5번 틀리면 잠시 로그인할 수 없습니다.</span>
       <span className="lbl" data-account-ask>{ACCOUNT_ASK}</span>
     </form>
