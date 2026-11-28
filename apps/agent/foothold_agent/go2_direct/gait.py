@@ -78,19 +78,34 @@ class Gait:
                         self._report(request_id, gait, 'FAILED', 'GAIT_SDK_ERROR')
                         return False
                     self.pending = dict(request_id=request_id, gait=gait, route='runner', deadline=s.now()+DEADLINE_S)
-                    self._report(request_id, gait, 'RUNNING', 'RUNNER_SENT')
+                    self._own(self.pending, 'RUNNING', 'RUNNER_SENT')
                     return False
             self._report(request_id, gait, 'REJECTED', code)
             return False
+
+    def runner_pending(self):
+        return self.pending is not None and self.pending['route'] == 'runner'
+
+    def cancel(self):
+        """실행기 넘김을 끊었다 (앱 STOP · 조종권 회수). 실행기 쪽은 정지 묶음이 다시 서기를 지운다."""
+        p = self.pending
+        if p is not None and p['route'] == 'runner':
+            self.pending = None
+            self._report(p['request_id'], p['gait'], 'FAILED', 'GAIT_CANCELLED')
+
+    def _own(self, p, status, code):
+        # 결과 칸은 하나라 다른 요청의 거절이 덮을 수 있다: 이 요청의 진행은 pending 에 따로 둔다 (Codex pr550 M7).
+        p['code'] = code
+        self._report(p['request_id'], p['gait'], status, code)
 
     def runner_ack(self, ack):
         p = self.pending
         if p is None or p['route'] != 'runner' or ack.get('request_id') != p['request_id']:
             return
-        if self.result['code'] != 'RUNNER_SENT':
+        if p.get('code') != 'RUNNER_SENT':
             return
         if ack['result'] == 'STARTED':
-            self._report(p['request_id'], p['gait'], 'RUNNING', 'RUNNER_STARTED')
+            self._own(p, 'RUNNING', 'RUNNER_STARTED')
         else:
             self.pending = None
             self._report(p['request_id'], p['gait'], 'REJECTED', RUNNER_REASONS.get(ack.get('reason'), 'GAIT_NOT_STANDING'))
@@ -115,7 +130,9 @@ class Gait:
                 # 일감 결과를 다른 요청이 덮었고 일감도 끝났다: 결과를 모르니 끝난 척하지 않는다.
                 self.pending = None
                 self._report(p['request_id'], p['gait'], 'FAILED', 'GAIT_CANCELLED')
-        elif not start_active() and self.result['code'] == 'RUNNER_STARTED':
+        elif self.sink._operator_stop:
+            self.cancel()
+        elif not start_active() and p.get('code') == 'RUNNER_STARTED':
             self.pending = None
             self._report(p['request_id'], p['gait'], 'SUCCEEDED', 'OK')
         elif self.sink.now() >= p['deadline']:

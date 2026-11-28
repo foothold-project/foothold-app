@@ -16,12 +16,16 @@ from test_go2_actions import send, start_rig
 
 class FakeRunner:
     """C++ 실행기 응답 흉내: 받은 묶음마다 {seq, result, phase, remote} 를 보낸 쪽 포트로."""
-    def __init__(self):
+    TOKEN = '0123456789abcdef0123456789abcdef'
+
+    def __init__(self, locked=False):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(('127.0.0.1', 0))
         self.sock.settimeout(.5)
         self.port = self.sock.getsockname()[1]
         self.velocities, self.keys, self.stops = [], [], []
+        # 실행기 앱 STOP 잠금 흉내 (app_input.cpp): 다시 켜진 실행기는 잠긴 채 (locked=True), 옛 번호 해제는 stale
+        self.locked, self.stop_id, self.ignored = locked, 0, []
 
     def serve(self, *, phase='policy', key_result='STARTED', reason=None, reply=True, wait=True):
         got = []
@@ -34,6 +38,7 @@ class FakeRunner:
         except (socket.timeout, BlockingIOError):
             pass
         for msg, peer in got:
+            assert msg.pop('token') == self.TOKEN
             if 'key' in msg:
                 self.keys.append(msg)
                 ack = dict(seq=msg['seq'], result=key_result, request_id=msg['request_id'], phase=phase, remote=False)
@@ -41,9 +46,19 @@ class FakeRunner:
             elif 'stop' in msg:
                 self.stops.append(msg['stop'])
                 ack = dict(seq=msg['seq'], result='ACCEPTED', phase=phase, remote=False)
+                if msg['stop']:
+                    self.locked, self.stop_id = True, max(self.stop_id, msg['id'])
+                elif msg['id'] < self.stop_id:
+                    ack.update(result='IGNORED', reason='stale')
+                else:
+                    self.locked = False
             else:
                 self.velocities.append((msg['vx'], msg['vy'], msg['wz']))
                 ack = dict(seq=msg['seq'], result='ACCEPTED', phase=phase, remote=False)
+                if self.locked:
+                    ack.update(result='IGNORED', reason='stopped')
+                    self.ignored.append(msg)
+            ack['stopped'] = self.locked
             if reply:
                 self.sock.sendto(json.dumps(ack).encode(), peer)
         return got
@@ -53,7 +68,11 @@ class FakeRunner:
 
 
 @pytest.fixture
-def runner():
+def runner(tmp_path, monkeypatch):
+    from foothold_agent.go2_direct import runner_link
+    token = tmp_path / 'runner.token'
+    token.write_text(FakeRunner.TOKEN); token.chmod(0o600)
+    monkeypatch.setattr(runner_link, 'TOKEN_FILE', str(token))
     fake = FakeRunner()
     yield fake
     fake.close()
@@ -279,3 +298,93 @@ def test_routine_stop_under_start_stays_velocity_zero_without_runner_stop(tmp_pa
     sink.drain()
     runner.serve()
     assert runner.velocities[-1] == ZERO and not runner.stops
+
+
+def test_restarted_runner_starts_locked_and_sink_relatches_with_reason(tmp_path, monkeypatch, runner):
+    # Codex pr550 H4 · 검토 F1 ①: 다시 켜진 실행기는 잠긴 채 시작한다. 이쪽 (연결 프로그램) 이 풀려 있으면
+    # 실행기 응답 stopped=true 를 보고 다시 잠그고, 화면 사유로 「조종권자가 풀어야 함」 을 알린다.
+    from foothold_agent.go2_direct.sink import RUNNER_RELATCHED
+    now, sink, session, feedback, measured, frame = start_drive_rig(tmp_path, monkeypatch, runner)
+    drive_forward(now, sink, session, measured, frame)
+    assert runner.velocities[-1][0] > 0
+    runner.locked = True   # 실행기 재시작
+    runner.ignored.clear()
+    for _ in range(3):
+        now.value += .05
+        measured()
+        frame('cmd', lease_id='fake-lease', seq=session.last_seq + 1, axes=[1.5, 0, 0])
+        sink.drain()
+    assert runner.ignored, '잠긴 실행기는 앱 속도를 IGNORED stopped 로 버린다 (F2)'
+    assert sink.latched and sink._operator_stop
+    assert sink.movement_reason(neutral=True) == RUNNER_RELATCHED
+    measured()
+    assert session.core.latch, '화면 잠금도 켜진다'
+    runner.stops.clear()
+    sink.drain(); runner.serve()
+    assert runner.stops and set(runner.stops) == {1}
+    # 조종권자가 잠금을 풀면 해제 묶음이 가고, 실행기 stopped=false 를 보면 멈춘다
+    frame('unlock', lease_id='fake-lease', stop_gen=session.core.stop_gen)
+    measured()
+    for _ in range(3):
+        sink.drain(); runner.serve()
+    assert not sink.latched and not runner.locked and 0 in runner.stops
+    runner.stops.clear()
+    for _ in range(3):
+        sink.drain(); runner.serve()
+    assert not runner.stops, '풀림을 확인한 뒤에는 해제를 더 보내지 않는다'
+    assert sink.movement_reason(neutral=True) != RUNNER_RELATCHED
+
+
+def test_release_never_confirmed_relatches_after_window(tmp_path, monkeypatch, runner):
+    # Codex pr550 M6: 해제 묶음이 모두 빠져 실행기가 잠긴 채면, 화면을 풀림으로 두지 않고 다시 잠근다.
+    from foothold_agent.go2_direct.sink import RUNNER_RELATCHED, RUNNER_RELEASE_S
+    now, sink, session, feedback, measured, frame = start_drive_rig(tmp_path, monkeypatch, runner)
+    drive_forward(now, sink, session, measured, frame)
+    frame('stop', cause='user_stop', stop_ref=1)
+    sink.drain(); runner.serve(); sink.drain()
+    assert runner.locked
+    runner.stop_id = 1 << 62   # 해제가 닿지 않는 것과 같다 (stale 로 버림)
+    measured()
+    frame('unlock', lease_id='fake-lease', stop_gen=session.core.stop_gen)
+    measured()
+    sink.drain(); runner.serve(); sink.drain()
+    assert not sink.latched, '확인 창 안에서는 기다린다'
+    now.value += RUNNER_RELEASE_S + .1
+    measured(); sink.drain(); runner.serve(); sink.drain()
+    assert sink.latched and sink.movement_reason(neutral=True) == RUNNER_RELATCHED
+
+
+def test_runner_link_drops_release_older_than_newest_stop(runner):
+    # Codex pr550 H2: 비상 작업자가 더 새 STOP 을 보낸 뒤 정상 작업자의 옛 해제는 나가지 않는다.
+    from foothold_agent.go2_direct.runner_link import RunnerLink
+    link = RunnerLink(runner.port)
+    try:
+        assert link.stop(True, 9)
+        assert not link.stop(False, 8)
+        assert link.stop(False, 9)
+        runner.serve()
+        assert runner.stops == [1, 0]
+    finally:
+        link.close()
+
+
+@pytest.mark.parametrize('problem', ['missing', 'mode', 'symlink'])
+def test_runner_link_sends_nothing_without_a_private_token(tmp_path, monkeypatch, runner, problem):
+    # Codex pr550 H3: 토큰은 내 계정 0600 파일만 믿는다. 아니면 아무 묶음도 보내지 않는다.
+    from foothold_agent.go2_direct import runner_link
+    path = tmp_path / 'bad.token'
+    if problem == 'mode':
+        path.write_text(FakeRunner.TOKEN); path.chmod(0o644)
+    elif problem == 'symlink':
+        real = tmp_path / 'real.token'; real.write_text(FakeRunner.TOKEN); real.chmod(0o600)
+        path.symlink_to(real)
+    monkeypatch.setattr(runner_link, 'TOKEN_FILE', str(path))
+    link = runner_link.RunnerLink(runner.port)
+    try:
+        link.velocity((.5, 0, 0))
+        assert not link.stop(False, 1)
+        with pytest.raises(OSError):
+            link.key('R1+B', 'Sit', 'r')
+        assert runner.serve(wait=False) == []
+    finally:
+        link.close()

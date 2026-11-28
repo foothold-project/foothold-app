@@ -30,7 +30,7 @@ constexpr std::pair<const char*, const char*> action_table[]{
     {"FreeWalk", "START+LEFT"}, {"ClassicWalk", "START+RIGHT"},
 };
 
-constexpr unsigned f_seq = 1, f_key = 2, f_action = 4, f_request = 8, f_vx = 16, f_vy = 32, f_wz = 64, f_stop = 128;
+constexpr unsigned f_seq = 1, f_key = 2, f_action = 4, f_request = 8, f_vx = 16, f_vy = 32, f_wz = 64, f_stop = 128, f_token = 256, f_id = 512;
 
 struct Cursor {
     std::string_view text;
@@ -86,40 +86,45 @@ std::optional<AppPacket> parse_app_packet(std::string_view text, const char*& re
     if (!in.eat('{')) return std::nullopt;
     unsigned seen = 0;
     AppPacket packet;
-    std::string_view key, action, request;
+    std::string_view key, action, request, token;
     double v[3]{};
     do {
         std::string_view name;
         if (!in.string(name) || !in.eat(':')) return std::nullopt;
         const unsigned field = name == "seq" ? f_seq : name == "key" ? f_key : name == "action" ? f_action :
                                name == "request_id" ? f_request : name == "vx" ? f_vx : name == "vy" ? f_vy :
-                               name == "wz" ? f_wz : name == "stop" ? f_stop : 0;
+                               name == "wz" ? f_wz : name == "stop" ? f_stop : name == "token" ? f_token :
+                               name == "id" ? f_id : 0;
         if (!field || (seen & field)) return std::nullopt;
         seen |= field;
         std::string_view value;
-        if (field == f_key || field == f_action || field == f_request) {
-            if (!in.string(field == f_key ? key : field == f_action ? action : request)) return std::nullopt;
+        if (field == f_key || field == f_action || field == f_request || field == f_token) {
+            if (!in.string(field == f_key ? key : field == f_action ? action : field == f_request ? request : token))
+                return std::nullopt;
         } else if (!in.token(value)) {
             return std::nullopt;
         } else if (field == f_stop) {
             if (value != "0" && value != "1") return std::nullopt;
             packet.stop = value == "1";
-        } else if (field == f_seq) {
+        } else if (field == f_seq || field == f_id) {
             // Unsigned decimal integer only (no sign, fraction or exponent).
             if (!std::all_of(value.begin(), value.end(), [](char c) { return c >= '0' && c <= '9'; }))
                 return std::nullopt;
-            const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), packet.seq);
-            if (error != std::errc{} || end != value.data() + value.size() || packet.seq <= 0) return std::nullopt;
+            auto& out = field == f_seq ? packet.seq : packet.stop_id;
+            const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), out);
+            if (error != std::errc{} || end != value.data() + value.size() || out <= 0) return std::nullopt;
         } else if (!real(value, v[field == f_vx ? 0 : field == f_vy ? 1 : 2])) {
             return std::nullopt;
         }
     } while (in.eat(','));
     if (!in.eat('}')) return std::nullopt;
     in.space();
-    if (in.at != text.size() || !(seen & f_seq)) return std::nullopt;
+    if (in.at != text.size() || !(seen & f_seq) || !(seen & f_token) || token.empty()) return std::nullopt;
+    packet.token = std::string(token);
+    seen &= ~(f_seq | f_token);
 
     const unsigned key_fields = f_key | f_action | f_request, velocity_fields = f_vx | f_vy | f_wz;
-    if ((seen & ~f_seq) == key_fields) {
+    if (seen == key_fields) {
         const auto* entry = std::find_if(std::begin(key_table), std::end(key_table),
                                          [&](const KeyName& k) { return key == k.name; });
         const auto* mapped = std::find_if(std::begin(action_table), std::end(action_table),
@@ -134,8 +139,8 @@ std::optional<AppPacket> parse_app_packet(std::string_view text, const char*& re
         packet.request_id = std::string(request);
         return packet;
     }
-    if ((seen & ~f_seq) == f_stop) return packet;
-    if ((seen & ~f_seq) == velocity_fields) {
+    if (seen == (f_stop | f_id)) return packet;
+    if (seen == velocity_fields) {
         if (std::abs(v[0]) > 2 || std::abs(v[1]) > 2 || std::abs(v[2]) > 3) {
             reason = "velocity";
             return std::nullopt;
@@ -150,7 +155,8 @@ std::string ack_json(const AppAck& ack) {
     std::string out = "{\"seq\":" + std::to_string(ack.seq) + ",\"result\":\"" + ack.result + '"';
     if (ack.reason) out += std::string(",\"reason\":\"") + ack.reason + '"';
     if (!ack.request_id.empty()) out += ",\"request_id\":\"" + ack.request_id + '"';
-    out += std::string(",\"phase\":\"") + ack.phase + "\",\"remote\":" + (ack.remote ? "true" : "false") + '}';
+    out += std::string(",\"phase\":\"") + ack.phase + "\",\"remote\":" + (ack.remote ? "true" : "false") +
+           ",\"stopped\":" + (ack.stopped ? "true" : "false") + '}';
     return out;
 }
 
@@ -167,8 +173,13 @@ const char* AppInput::receive(Tick now, std::string_view datagram, std::uint16_t
     const char* reason = nullptr;
     auto packet = parse_app_packet(datagram, reason);
     if (packet) {
+        // Same-host senders without the session token are dropped before they can touch seq (Codex pr550 H3).
+        unsigned diff = packet->token.size() != token_.size() || token_.empty();
+        for (std::size_t i = 0; i < std::min(packet->token.size(), token_.size()); ++i)
+            diff |= static_cast<unsigned char>(packet->token[i] ^ token_[i]);
         const Tick stamp{std::chrono::nanoseconds(packet->seq)};
-        reason = stamp > now + app_packet_future ? "future" :
+        reason = diff ? "token" :
+                 stamp > now + app_packet_future ? "future" :
                  now - stamp > app_packet_freshness ? "stale" :
                  packet->seq <= last_seq_ ? "seq" : nullptr;
     }
@@ -186,8 +197,16 @@ void AppInput::apply(Tick now, LowState& state) {
     std::optional<std::size_t> key;
     for (auto& entry : pending_) {
         // App STOP is not yielded to the physical remote (11/28).
-        if (entry.packet.stop) {
-            stop_ = *entry.packet.stop;
+        if (!entry.packet.stop) continue;
+        if (*entry.packet.stop) {
+            stop_ = true;
+            stop_id_ = std::max(stop_id_, entry.packet.stop_id);
+            entry.applied = true;
+        } else if (entry.packet.stop_id < stop_id_) {
+            // A release decided before a newer STOP must not lift it (Codex pr550 H2).
+            entry.ignored = "stale";
+        } else {
+            stop_ = false;
             entry.applied = true;
         }
     }
@@ -237,6 +256,7 @@ std::vector<AppAck> AppInput::settle(Tick now, Phase before, Move before_move, P
         AppAck ack{entry.peer, entry.packet.seq, std::move(entry.packet.request_id)};
         ack.phase = phase_name(after);
         ack.remote = remote_;
+        ack.stopped = stop_;
         if (entry.packet.velocity || entry.packet.stop) {
             ack.result = entry.applied ? "ACCEPTED" : "IGNORED";
             ack.reason = entry.ignored;

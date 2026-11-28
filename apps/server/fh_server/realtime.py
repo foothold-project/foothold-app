@@ -1158,8 +1158,9 @@ class Realtime:
             return str(matches[0].id), matches[0].simulation is True
 
     def put(self, peer, body):
+        """참이면 큐에 들어갔다. 닫히는 중 · 큐 가득이면 거짓 (부르는 쪽이 ok 를 주지 않게, Codex pr550 M8)."""
         if peer.closing:
-            return
+            return False
         if peer.actor and 'robot' in body and body.get('t') != 'subscription.revoked':
             body = {'_delivery': body}
         if '_delivery' in body:
@@ -1172,6 +1173,8 @@ class Realtime:
         except asyncio.QueueFull:
             peer.closing = True
             asyncio.create_task(peer.socket.close(code=1013))
+            return False
+        return True
 
     def stop_fast_server_drives(self, org_id, actor, *, settings=None):
         # Agent admission is organization-scoped. Run only on the owning loop,
@@ -1703,7 +1706,8 @@ class Realtime:
         # 기록 용량 변화가 lease 를 거둘 수 있어 넣기 직전에 다시 본다.
         if self.blocked_agent_control(peer, body):
             raise LeaseError('GAIT_NOT_ALLOWED', '실기 조종 승인과 조종권을 확인하세요.', 403)
-        self.put(peer, body)
+        if not self.put(peer, body):
+            raise LeaseError('ROBOT_OFFLINE', '로봇 연결이 끊겼습니다.', 503)
 
     async def screen_watch(self, peer):
         try:

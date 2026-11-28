@@ -164,3 +164,17 @@ def test_authority_lost_during_audit_rejects_and_sends_nothing(relay):
         realtime.send_gait(rid, actor, msg)
     assert exc.value.code == 'GAIT_NOT_ALLOWED'
     assert peer.queue.empty()
+
+
+def test_full_agent_queue_rejects_gait_instead_of_ok(relay, monkeypatch):
+    # Codex pr550 M8: 전송 큐가 가득 차 넣지 못한 gait 에 화면 ok 를 주지 않는다 (gait_result 가 오지 않으므로).
+    import asyncio
+    realtime, rid, peer, actor, msg = prepare(relay)
+    def full(body):
+        raise asyncio.QueueFull
+    monkeypatch.setattr(peer.queue, 'put_nowait', full)
+    monkeypatch.setattr(peer, 'socket', type('Socket', (), {'close': lambda self, code: None})())
+    monkeypatch.setattr(asyncio, 'create_task', lambda task: None)
+    with pytest.raises(LeaseError) as error:
+        realtime.send_gait(rid, actor, msg)
+    assert error.value.code == 'ROBOT_OFFLINE'

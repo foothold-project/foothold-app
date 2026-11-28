@@ -18,7 +18,7 @@ enum class Event {
     robot_fall_recovery_stand, factory_handover, mode_high, mode_high_retry,
     mode_high_failed, mode_low_failed, factory_gait, exit_sit_down,
     inference_failed, ame2_unavailable, runner_ready, mode_rpc, dog_sit, dog_rise, factory_move, move_fall,
-    app_key, app_drop, handover_refused
+    app_key, app_drop, handover_refused, gait_cancelled
 };
 const char* event_name(Event event);
 const char* phase_name(Phase phase);

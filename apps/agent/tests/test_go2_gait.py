@@ -279,3 +279,46 @@ def test_factory_overwritten_job_result_is_cancelled_not_ok():
     sink.actions.job = None
     sink.actions.report('other', 'Hello', 'SUCCEEDED', 'SDK_ACCEPTED', 0)
     assert result(sink) == ('FAILED', 'GAIT_CANCELLED')
+
+
+@pytest.mark.parametrize('how', ['user_stop', 'screen_hidden', 'lease_changed', 'lease_lost'])
+def test_start_handover_is_cancelled_by_stop_or_lease_and_runner_gets_stop(tmp_path, monkeypatch, runner, how):
+    # Codex pr550 H1: 실행기가 앉기 시작한 뒤 STOP 이나 조종권 회수가 오면 GAIT_CANCELLED 로 끊고,
+    # 실행기에 정지 묶음을 보내 다시 서기 · 걸음 선택을 지운다 (runner.cpp 쪽은 ctest).
+    _, (_, sink, _, _, session, _, measured, frame) = start_rig(tmp_path, monkeypatch, runner.port, runner)
+    gait(frame, 'classic')
+    runner.serve(key_result='STARTED'); sink.drain()
+    assert result(sink) == ('RUNNING', 'RUNNER_STARTED')
+    runner.stops.clear()
+    if how in ('user_stop', 'screen_hidden'):
+        frame('stop', cause=how, stop_ref=1)
+    elif how == 'lease_changed':
+        frame('lease', lease_id='other-lease', holder_type='USER')
+    else:
+        session.lease_confirmed = False
+        sink.automatic_stop_allowed(session)
+    sink.drain(); sink.drain()
+    runner.serve()
+    assert result(sink) == ('FAILED', 'GAIT_CANCELLED')
+    assert runner.stops and set(runner.stops) == {1}, '실행기가 넘김을 끝까지 가지 않게 정지 묶음'
+
+
+def test_second_gait_request_does_not_orphan_the_first(tmp_path, monkeypatch, runner):
+    # Codex pr550 M7: 두 번째 요청의 GAIT_BUSY 가 결과 칸을 덮어도 첫 요청의 STARTED 회신 · 끝은 그대로 이어진다.
+    flag, (_, sink, _, _, _, _, _, frame) = start_rig(tmp_path, monkeypatch, runner.port, runner)
+    gait(frame, 'classic', request_id='first')
+    gait(frame, 'classic', request_id='second')
+    assert sink.gait_result['request_id'] == 'second' and result(sink) == ('REJECTED', 'GAIT_BUSY')
+    runner.serve(key_result='STARTED'); sink.drain()
+    assert sink.gait_result['request_id'] == 'first' and result(sink) == ('RUNNING', 'RUNNER_STARTED')
+    flag.unlink()
+    assert sink.gait_result['request_id'] == 'first' and result(sink) == ('SUCCEEDED', 'OK')
+
+
+def test_start_handover_is_cancelled_by_emergency_stop(tmp_path, monkeypatch, runner):
+    # H1: 출력 고장 · 감시 시간 넘김의 비상 정지 (emergency_stop) 도 넘김을 끊는다.
+    _, (_, sink, _, _, _, _, _, frame) = start_rig(tmp_path, monkeypatch, runner.port, runner)
+    gait(frame, 'classic')
+    runner.serve(key_result='STARTED'); sink.drain()
+    sink.emergency_stop()
+    assert result(sink) == ('FAILED', 'GAIT_CANCELLED')
