@@ -14,7 +14,8 @@ import { facts, hotJoint as hotOf, tempLevel, useAvail } from '../../proto/u5';
 import { isLost, needs } from '../control';
 import type { ApiFail } from '../../api';
 import { NO_SIGNAL, driveFeedHeld, driveFeedText, useDriveFeed } from '../../drivemedia';
-import { DriveView, canDrive, keepDrive, useServerDrive, type Tok } from '../../serverdrive';
+import { DriveView, canDrive, keepDrive, tokStick, useServerDrive, type Tok } from '../../serverdrive';
+import { useTuneSettings } from '../../phone';
 import { GAITS, NO_GAIT } from '../../gait';
 import { field } from '../../simdrive';
 import { LidarMap } from '../../lidarmap';
@@ -274,8 +275,10 @@ function Stage({ r, q, down, walk, pad, drive, hot, temps }: { r: Robot; q: numb
 export const jointTip = (j: string, c: number | null | undefined) => `${jointName(`${j}_joint`)} ${c == null ? '온도 보고 없음' : `${Math.round(c)} °C`}`;
 
 /** 손잡이 하나(시안 .stick): 왼쪽 = 앞(세로만 · 뒤로는 막음) · 오른쪽 = 돌기(가로만). 처음 잡은 손가락 하나만 */
-function Stick({ side, put }: { side: 'L' | 'R'; put: (p: number, el: HTMLElement, t: Tok[]) => void }) {
-  const own = useRef<number | null>(null), [xy, setXy] = useState([0, 0]);
+function Stick({ side, put, show }: { side: 'L' | 'R'; put: (p: number, el: HTMLElement, t: Tok[], an?: [number, number, number]) => void;
+  /** 키로 누른 막대 자리(-1..1 · 화면 x 오른쪽 + · y 아래 +) · 손가락으로 끄는 동안은 끈 자리가 이김 (팀장 23:08 키보드를 누르면 화면 손잡이도 움직임) */ show?: [number, number] }) {
+  const own = useRef<number | null>(null), [xy, setXy] = useState([0, 0]), box = useRef<HTMLDivElement>(null);
+  const km = (box.current?.clientWidth ?? 0) * 0.3, shown = xy[0] || xy[1] || !show ? xy : [show[0] * km, show[1] * km];
   const move = (e: PEv<HTMLDivElement>) => {
     // 화면 맞춤(PC 틀이 1920x1080 무대를 창에 맞춰 scale)에서도 맞게: 포인터 · 판 상자 모두 무대 px(stage.ts) = 손잡이 css px
     const el = e.currentTarget, b = stageRect(el), m = b.width * 0.3 || 1;
@@ -283,13 +286,15 @@ function Stick({ side, put }: { side: 'L' | 'R'; put: (p: number, el: HTMLElemen
     // 손잡이 그림도 보내는 축 하나 위에(왼쪽은 큰 축, 오른쪽은 가로)
     if (side === 'L') { if (Math.abs(y) >= Math.abs(x)) setXy([0, y * m]); else setXy([x * m, 0]); }
     else setXy([x * m, 0]);
-    put(e.pointerId, el, stickTok(side, x, y));
+    // 기울기(시뮬은 teleop 비례 · 실기는 표라 안 씀): 그림과 같은 한 축만 [전후, 옆, 돌기]
+    const big = side === 'L' && Math.abs(y) >= Math.abs(x);
+    put(e.pointerId, el, stickTok(side, x, y), side === 'R' ? [0, 0, -x] : big ? [-y, 0, 0] : [0, -x, 0]);
   };
   const end = (e: PEv<HTMLDivElement>) => { if (e.pointerId !== own.current) return; own.current = null; setXy([0, 0]); put(e.pointerId, e.currentTarget, []); };
-  return <div className={`stick${xy[0] || xy[1] ? ' on' : ''}`} style={side === 'L' ? { left: '26px' } : { right: '26px' }} data-u4-stick={side}
+  return <div ref={box} className={`stick${shown[0] || shown[1] ? ' on' : ''}`} style={side === 'L' ? { left: '26px' } : { right: '26px' }} data-u4-stick={side} data-u4-stick-key={show && (show[0] || show[1]) ? show.map((v) => v.toFixed(3)).join(',') : undefined}
     onPointerDown={(e) => { if (own.current !== null) return; own.current = e.pointerId; e.currentTarget.setPointerCapture?.(e.pointerId); move(e); }}
     onPointerMove={(e) => { if (e.pointerId === own.current) move(e); }} onPointerUp={end} onPointerCancel={end}>
-    <i style={{ transform: `translate(${xy[0]}px,${xy[1]}px)` }} /></div>;
+    <i style={{ transform: `translate(${shown[0]}px,${shown[1]}px)` }} /></div>;
 }
 
 type Tab = 'drive' | 'check' | 'settings';
@@ -299,7 +304,7 @@ const VIEWS: [View, string][] = [['map', '지도'], ['rgb', '카메라'], ['lida
 const VIEW_KEY: Record<string, View> = { Digit1: 'map', Digit2: 'rgb', Digit3: 'lidar', Digit4: 'depth' };
 
 /** 이 화면이 쓰는 조종 조각. 조종할 수 있는 로봇(keepDrive = 지금 canDrive 이면 기록도 남김)만 useServerDrive 를 붙인다(키 · 조종권은 한 화면에 하나 · 옛 세 칸 화면과 같은 규칙) */
-type D = Pick<ReturnType<typeof useServerDrive>, 'l' | 's' | 'mine' | 'off' | 'why' | 'ready' | 'zero' | 'stick' | 'stopPress' | 'unlockAsk' | 'unlockState' | 'refused' | 'notes' | 'stopLine' | 'gait' | 'take' | 'takeWhy'> & Partial<Pick<ReturnType<typeof useServerDrive>, 'gaitAsk'>>;
+type D = Pick<ReturnType<typeof useServerDrive>, 'l' | 's' | 'mine' | 'off' | 'why' | 'ready' | 'zero' | 'stick' | 'stopPress' | 'unlockAsk' | 'unlockState' | 'refused' | 'notes' | 'stopLine' | 'gait' | 'take' | 'takeWhy'> & Partial<Pick<ReturnType<typeof useServerDrive>, 'gaitAsk' | 'on' | 'sim'>>;
 function Driven({ c, r }: { c: Ctx; r: Robot }) { return <Body c={c} r={r} d={useServerDrive(c, r)} can />; }
 function Viewed({ c, r }: { c: Ctx; r: Robot }) {
   const l = useLive(r.id), stopPress = useStopPress(() => rt.stop(r.id));
@@ -458,6 +463,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   const link = rt.link(), cut = link.at === 'lost' || link.at === 'denied', ms = link.at === 'open' && link.latencyMs != null ? `${Math.round(link.latencyMs)} ms` : '';
   const online = s?.connection === 'ONLINE';
   const lowlevel = s?.control === 'LOWLEVEL', mode = GAITS.find((x) => x.g === d.gait.cur)?.name ?? NONE;   // 걷기 모드(로봇 보고 state.gait) · Shift+1~4 는 useServerDrive
+  const tune = useTuneSettings(), keyPos = tokStick(d.on ? (d.on.split('+') as Tok[]) : [], tune, !!d.sim);   // 누른 키 → 화면 손잡이 자리(보내는 식과 같은 teleop keyStick)
   const modeTap = () => (noGait ? say(NO_GAIT) : !mine ? say(MODE_NEED_DRIVE) : openMode());
   const noGait = !!d.gait.avail && !d.gait.avail.length;   // 쓸 수 있는 모드 빈 목록 = 바꾸기 꺼짐 · 까닭
   const sim = useSimLook()(r), demo = useContext(Demo).has(r.id), left = minutesLeft(s?.battery);
@@ -569,7 +575,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
         <div className="g dk keys" data-u4-keys><span title="앞으로 걷기"><kbd>↑</kbd>앞</span><span title="뒤로 걷기"><kbd>↓</kbd>뒤</span><span title="옆걸음"><kbd>←</kbd><kbd>→</kbd>옆</span><span title="제자리 돌기"><kbd>A</kbd><kbd>D</kbd>돌기</span><span data-u4-key-combo title="↑ 와 A 또는 D 를 같이 누르면 앞으로 가며 돕니다"><kbd>↑</kbd><kbd>A</kbd><kbd>D</kbd>돌며 앞</span><span title="정지"><kbd>Space</kbd>정지</span><span title="보기 칸 바꾸기"><kbd>1</kbd>~<kbd>4</kbd>화면</span><span title="Shift + 1 ~ 4 걷기 모드"><kbd>⇧</kbd><kbd>1</kbd>~<kbd>4</kbd>모드</span></div>
       </div>
       <div className={`deck joybig${latched ? ' dim' : ''}`} data-u4-deck data-ready={ready || undefined}>
-        <Stick side="L" put={d.stick} /><Stick side="R" put={d.stick} />
+        <Stick side="L" put={d.stick} show={[-keyPos[1], -keyPos[0]]} /><Stick side="R" put={d.stick} show={[-keyPos[2], 0]} />
         <div className="act">{ACTS.map(([name, t, em, ic]) => {
           const off = offAct(name);
           return <div key={name} className={off ? 'no' : undefined} {...(off && name === 'StandUp' ? { 'data-why': STANDUP_WHY } : {})} role="button" tabIndex={0} data-u4-act={name} onClick={() => act(name)}>

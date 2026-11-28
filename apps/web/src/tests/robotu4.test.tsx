@@ -7,7 +7,9 @@ import { App } from '../App';
 import { ROBOTS, USERS, type Robot } from './fixtures';
 import { FakeWS, lease, state } from './fakeWs';
 import { simTune } from '../phone';
-import { SIDE_BLOCK, canDrive } from '../serverdrive';
+import { SIDE_BLOCK, axesOf, canDrive, tokStick } from '../serverdrive';
+import { deadzone, keyStick, stickVelocity, teleopCaps } from '../../../contracts/teleop';
+import { keyAxes } from '../simdrive';
 import { barChipText, checkShort, driveLabel, hotBub, jointTip, railOrder } from '../screens/u4/robotu4';
 import { rt } from '../rt';
 import { api } from '../api';
@@ -909,6 +911,35 @@ describe('어두운 판 지도 (리드 사진 00:30)', () => {
     expect(u4src).toContain('tableValues="0.2745 0.0706"');   // R: 벽 0x46 → 바탕 0x12
     expect(u4src).toContain("filter: dark ? 'url(#u4-plan-d)' : undefined");
     expect(u4css).toContain('.u4.proto:not(.light) .mapv{background:#12161d}');
+  });
+});
+
+describe('조종 한 식 (contracts teleop · 팀장 11-28 23:08)', () => {
+  const ORG = { sim_max_vx: 1.0, sim_max_vy: 0.4, sim_max_wz: 1.0, sim_key_vx: 0.6, stick_deadzone: 0.1 } as never;
+  it('서버 경유 시뮬: 키 = keyStick 자리 → stickVelocity · 실기는 고정 명령표 그대로', () => {
+    const caps = teleopCaps(ORG, true), want = (k: Parameters<typeof keyStick>[0]) => stickVelocity(keyStick(k, caps, 0.6), caps, deadzone(ORG)).map((v) => Math.round(v * 1e6) / 1e6 || 0);
+    expect(axesOf(['up'], ORG, true)).toEqual(want(['forward']));
+    expect(axesOf(['up'], ORG, true)[0]).toBeCloseTo(0.6, 6);   // 앞 키 = sim_key_vx
+    expect(axesOf(['down'], ORG, true)[0]).toBeCloseTo(-0.6, 6);
+    expect(axesOf(['left'], ORG, true)).toEqual([0, 0.4, 0]);
+    expect(axesOf(['rotr', 'up'], ORG, true)).toEqual(want(['forward', 'turn_right']));
+    expect(axesOf(['up', 'down'], ORG, true)).toEqual([0, 0, 0]);   // 표에 없는 조합 = 0
+    expect(axesOf(['up'], ORG, false)).toEqual([1.5, 0, 0]);   // 실기 = 표 값
+    // 화면 손잡이 기울기(비례): 민 축은 그 기울기 · 키보드와 같은 식
+    expect(axesOf(['up'], ORG, true, [0.5, 0, 0])[0]).toBeCloseTo(0.25, 6);
+    expect(tokStick(['up', 'rotl'], ORG, true)).toEqual(keyStick(['forward', 'turn_left'], caps, 0.6));
+    expect(tokStick(['up', 'rotl'], ORG, false)).toEqual([1, 0, 1]);
+  });
+  it('직결 시뮬(simdrive · PC 시뮬 탭) 키 = 같은 keyStick 자리 · 실기 직결은 끝까지', () => {
+    const L = { vx_mode: 'continuous', vx_min: -0.5, vx_max: 1.0, vy_min: -0.3, vy_max: 0.3, wz_min: -0.5, wz_max: 0.5, commands: [], experimental: [] };
+    const w = { simulation: true, limits: L, policy: { name: 'x' } } as never;
+    const [f, t, y] = keyAxes(['forward', 'turn_left', 'left'], w);
+    expect(f).toBeCloseTo(Math.sqrt(0.6 / 1.0), 9); expect(t).toBe(1); expect(y).toBe(1);
+    expect(keyAxes(['forward'], { ...(w as object), simulation: false } as never)[0]).toBe(1);
+  });
+  it('키를 누르면 로봇 탭 화면 손잡이도 그 자리로 (보내는 식과 같은 자리)', () => {
+    expect(u4src).toContain("keyPos = tokStick(d.on ? (d.on.split('+') as Tok[]) : [], tune, !!d.sim)");
+    expect(u4src).toContain('<Stick side="L" put={d.stick} show={[-keyPos[1], -keyPos[0]]} /><Stick side="R" put={d.stick} show={[-keyPos[2], 0]} />');
   });
 });
 

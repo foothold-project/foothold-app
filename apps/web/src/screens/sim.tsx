@@ -8,8 +8,9 @@ import { inputGen, metaCut } from '../rt';
 import { runView, startBlock, startFloor, useScenarios } from '../run';
 import { useStopPress } from '../App';
 import { RestartAskBox, useRestartAsk } from '../robotact';
-import { EXP, HeldRun, KEYS, SIDE_OFF, STATE, SimLaunch, canDrive, field, forward, Video, blockNote, relink, remainingTime, short, stopText, timeNotice, useDeadline, useTick, worldName } from '../simdrive';
+import { EXP, HeldRun, KEYS, SIDE_OFF, STATE, SimLaunch, canDrive, field, keyAxes, Video, blockNote, relink, remainingTime, short, stopText, timeNotice, useDeadline, useTick, worldName } from '../simdrive';
 import { SimMap, useFloorMap, type FloorMap } from '../simmap';
+import { KEYMAP, type TeleopKey } from '../../../contracts/teleop';
 import { needsRelink, useFeed } from '../media';
 import { Cloud3D, QEmpty, Quad, type QTile } from '../quad';
 import { Chip, inApp } from '../screens';
@@ -78,9 +79,9 @@ function SimView({ admin }: { admin: boolean }) {
     const apply = () => {
       if (!canDrive()) held.current.clear();
       const n = sync(), old = [...held.current.values()].some((x) => x !== n);
-      const a: [number, number, number] = [0, 0, 0], k = sim.get().link?.welcome;
-      if (!old) held.current.forEach((_, c) => { const [i, v] = KEYS[keyCode(c)]; a[i] = Math.max(-1, Math.min(1, a[i] + v)); });
-      if (a[0] > 0 && k) a[0] = forward(k);
+      const k = sim.get().link?.welcome, on: TeleopKey[] = [];
+      if (!old) held.current.forEach((_, c) => { const t = KEYMAP[keyCode(c)]; if (t) on.push(t); });
+      const a = k ? keyAxes(on, k) : [0, 0, 0] as [number, number, number];   // 공용 식 teleop keyStick(직결 시뮬 · 서버 경유와 같은 자리)
       sim.axes(a);
       const v = k ? velocity(a, k) : null, vx = v?.vx ?? 0, note = blockNote(a, allowed(k ?? null), v);
       setOut((o) => o.vx === vx && o.note === note ? o : { vx, note });

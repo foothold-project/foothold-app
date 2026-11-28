@@ -5,7 +5,8 @@ import type { PhoneWelcome, SimProvision, SimRobot } from '../../contracts/ts';
 type SpawnFloor = NonNullable<SimProvision['spawn_floor_id']>;
 import { feedText, media, needsRelink, reasonText, useFeed, type Feed, type MediaChannel } from './media';
 import { useOrbit, viewBlock } from './extview';
-import { DEAD, HELD_RUN, RESULT, RUN_END, SAFE_NOTICE, allowed, runHolds, runMoving, sim, stopping, tuned, useSim, velocity, type Sim } from './phone';
+import { DEAD, HELD_RUN, RESULT, RUN_END, SAFE_NOTICE, allowed, limitCaps, runHolds, runMoving, sim, stopping, tuned, useSim, velocity, type Sim } from './phone';
+import { KEYMAP, keyStick, type TeleopKey } from '../../contracts/teleop';
 import { runView, startBlock, startFloor, useScenarios } from './run';
 import { Sheet, Stick } from './drive';
 import { RestartAskBox, useRestartAsk } from './robotact';
@@ -27,9 +28,12 @@ export const KEYS: Record<string, [0 | 1 | 2, number]> = { KeyW: [0, 1], ArrowUp
 export const SIDE_OFF = '로봇 한계 옆 0 m/s';
 /** F-TO-05 키보드 전진 기본 0.6 m/s(시뮬은 조직 값 sim_key_vx — phone.ts tuned): 연속 모드(시뮬)는 velocity 의 ramp 를 거꾸로 풀어 그 기울기, 그 밖·vx_max ≤ 키 속도면 끝까지(최종 자르기는 velocity·에이전트) */
 export const KEY_VX = 0.6;
-export function forward(w: PhoneWelcome) {
-  const { L, dead, key = KEY_VX } = tuned(w), m = Math.min(L.vx_min_moving ?? L.vx_min, L.vx_max);
-  return L.vx_mode !== 'continuous' || L.vx_max <= key ? 1 : dead + (1 - dead) * Math.max(1e-3, (key - m) / (L.vx_max - m));
+/** 누른 키 → 막대 자리 [전후, 회전, 옆](velocity 입력 순서) = 공용 식 keyStick: 전후 키는 속도 key(조직 sim_key_vx · 없으면 KEY_VX)가 되는 자리, 옆 · 돌기 키는 끝 */
+/** 앞 키 하나의 막대 자리(keyAxes 의 전후) */
+export const forward = (w: PhoneWelcome) => keyAxes(['forward'], w)[0];
+export function keyAxes(keys: Iterable<TeleopKey>, w: PhoneWelcome): [number, number, number] {
+  const { L, key = KEY_VX } = tuned(w), [f, side, turn] = w.simulation === true ? keyStick(keys, limitCaps(L), key) : keyStick(keys, { max_vx: 1, max_vx_back: 1, max_vy: 1, max_wz: 1 }, 1);   // 실기 직결 = 끝까지(옛 그대로)
+  return [f, turn, side];
 }
 /** 지금 키 입력을 받을 수 있나 — 에이전트가 simulation 이라 알린 연결 + 조종권 + 잠금 풀림. 키 처리는 렌더 값이 아니라 저장소를 바로 본다.
  *  시뮬 정지를 보낸 뒤 에이전트가 처리했다고 알리기 전(stop_gen 이 그대로)에는 옛 latched=false 가 남아 있어도 막는다 — 처리 뒤에는 잠금(latched)이 막고, 사람이 잠금 해제해야 다시 */
@@ -327,9 +331,9 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
   useEffect(() => {
     const apply = () => {
       if (!keyRef.current.live || !canDrive()) held.current.clear();
-      const a: [number, number, number] = [0, 0, 0], k = sim.get().link?.welcome;
-      held.current.forEach((_, c) => { const [i, v] = KEYS[keyCode(c)]; a[i] = Math.max(-1, Math.min(1, a[i] + v)); });
-      if (a[0] > 0 && k) a[0] = forward(k);
+      const k = sim.get().link?.welcome, on: TeleopKey[] = [];
+      held.current.forEach((_, c) => { const t = KEYMAP[keyCode(c)]; if (t) on.push(t); });
+      const a = k ? keyAxes(on, k) : [0, 0, 0];
       input.current[1] = a[1]; input.current[2] = a[2]; keyRef.current.put(0, a[0]);
     };
     const down = (e: KeyboardEvent) => {
