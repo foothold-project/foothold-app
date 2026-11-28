@@ -21,9 +21,9 @@ export const took = (ms: number) => {
   const s = Math.max(0, Math.round(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60;
   return h ? `${h} 시간 ${m} 분` : `${m} 분 ${s % 60} 초`;
 };
-type Stop = { idx: number; name: string; arrived?: string; results?: { mode?: string; steps?: RunStepResult[] } };
+export type Stop = { idx: number; name: string; arrived?: string; results?: { mode?: string; steps?: RunStepResult[] } };
 /** 지점 줄(지점 번호 순): 도착 사건 · 결과 사건을 idx 로 모은다. 같은 idx 가 또 오면 먼저 온 것(도착)을 둔다 */
-function stops(evs: Ev[]): Stop[] {
+export function stops(evs: Ev[]): Stop[] {
   const by = new Map<number, Stop>();
   for (const e of [...evs].sort((a, b) => Date.parse(a.at) - Date.parse(b.at))) {
     const d = (e.data ?? {}) as Record<string, unknown>, idx = d.idx;
@@ -35,7 +35,7 @@ function stops(evs: Ev[]): Stop[] {
   }
   return [...by.values()].sort((a, b) => a.idx - b.idx);
 }
-const result = (r?: Stop['results']) => {
+export const result = (r?: Stop['results']) => {
   if (!r) return '결과 기록 없음';
   if (r.mode !== 'EXECUTED') return '표시만 · 실행 단계 없음';
   const all = r.steps ?? [], bad = all.filter((x) => x.status === 'FAILED');

@@ -26,7 +26,7 @@ type P = [number, number];
 type AnyPlan = Mission | Scenario;
 type AnyWrite = MissionWrite | ScenarioWrite;
 const WHAT: Record<Plan, string> = { missions: '임무', scenarios: '시나리오' };
-const ACT: Record<MissionStep['action'], string> = { PHOTO: '사진 찍기', WAIT: '대기', OPERATOR_CONFIRM: '운영자 확인', SENSOR_LOG: '센서 값 기록' };   // 카탈로그를 못 받았을 때 이름
+export const ACT: Record<MissionStep['action'], string> = { PHOTO: '사진 찍기', WAIT: '대기', OPERATOR_CONFIRM: '운영자 확인', SENSOR_LOG: '센서 값 기록' };   // 카탈로그를 못 받았을 때 이름
 const VALUE: Record<string, string> = { rgb: '카메라', depth: '뎁스 카메라', lidar: '라이다', battery: '배터리' };
 export const FINISH = { STAY: '마지막 지점에서 대기', RETURN_TO_START: '시작 지점으로 복귀', GO_TO: '지정 지점으로 이동' } as const;
 /** 장치 종류 이름(서버 이유 문구의 CAMERA_RGB 같은 말도 바꿈 — U5) */
@@ -220,10 +220,9 @@ const STALE = '지도가 바뀌었습니다. 지점은 그대로 두었습니다
 const LIST = { listStyle: 'none', margin: 0, padding: 0 } as const;
 const day = (at: string) => new Date(at).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' });
 
-/** 편집 칸 하나. id '' = 새로 만들기. 최신 판을 받아 편집하고, 판 목록에서 옛 판을 고르면 읽기 전용으로 보인다.
- *  done(x, m) = 저장(x)·보관(null) 뒤 목록 다시 받기 + 안내 */
-function Edit({ kind, sim, id, user, robots, cancel, places, treeAgain, done, slot, pick, top, floor, close }: { kind: Plan; sim?: boolean; id: string; user: User; robots: Robot[]; cancel?: AbortSignal; places: Place[]; treeAgain: () => void; done: (x: AnyPlan | null, m: Msg) => void;
-  slot?: HTMLElement | null; pick?: ReactNode; top?: ReactNode; floor?: string; close?: () => void }) {
+/** 편집 칸의 상태 · 손잡이(받기 · 저장 · 저장 확인 · 충돌 · 보관 · 되돌리기 · 판 고르기). 지도 탭 편집 칸(Edit)과 임무 탭 시안 편집기(missionsu6edit)가 같이 쓴다.
+ *  id '' = 새로 만들기. done(x, m) = 저장(x) · 보관(null) 뒤 */
+export function usePlanEdit(kind: Plan, id: string, user: User, cancel: AbortSignal | undefined, done: (x: AnyPlan | null, m: Msg) => void) {
   const key = `${kind}:${id}`, [kd] = useState(() => keptPlan.drafts[key] ?? null);
   const [latest, setLatest] = useState<AnyPlan | null>(null), [base, setBase] = useState<AnyPlan | null>(kd?.base ?? null), [body, setBody] = useState<AnyWrite | null>(kd?.body ?? (id ? null : empty(kind)));
   const [view, setView] = useState<AnyPlan | null>(null), [err, setErr] = useState<{ text: string; adopt: Adopt } | null>(null), [msg, setMsg] = useState<Msg>(kd ? { text: '저장하지 않은 편집을 이어서 씁니다.', ok: true } : null);
@@ -339,6 +338,14 @@ function Edit({ kind, sim, id, user, robots, cancel, places, treeAgain, done, sl
     api.plan(kind, id, n, cancel).then(fit(isPlan)).then((x) => live.current && setView(x), (e: ApiFail) => { if (live.current && e.code !== 'CANCELED') setMsg({ text: `${n}번째 저장 내용을 받지 못했습니다. ${e.message}` }); });
   };
 
+  return { again, archive, archived, ask, bad, base, block, body, busy, check, checking, conflict, dirty, drop, editable, err, failed, kd, keep, key, latest, live, load, lock, msg, pickVersion, recheck, restore, save, saved, scen, send, sending, setAgain, setAsk, setBad, setBase, setBlock, setBody, setBusy, setChecking, setConflict, setErr, setLatest, setMsg, setRecheck, setSrv, setUnsure, setView, snap, srv, unsure, view, what };
+}
+
+/** 편집 칸 하나. id '' = 새로 만들기. 최신 판을 받아 편집하고, 판 목록에서 옛 판을 고르면 읽기 전용으로 보인다.
+ *  done(x, m) = 저장(x)·보관(null) 뒤 목록 다시 받기 + 안내 */
+function Edit({ kind, sim, id, user, robots, cancel, places, treeAgain, done, slot, pick, top, floor, close }: { kind: Plan; sim?: boolean; id: string; user: User; robots: Robot[]; cancel?: AbortSignal; places: Place[]; treeAgain: () => void; done: (x: AnyPlan | null, m: Msg) => void;
+  slot?: HTMLElement | null; pick?: ReactNode; top?: ReactNode; floor?: string; close?: () => void }) {
+  const { again, archive, archived, ask, bad, base, block, body, busy, check, checking, conflict, dirty, drop, editable, err, failed, kd, keep, key, latest, live, load, lock, msg, pickVersion, recheck, restore, save, saved, scen, send, sending, setAgain, setAsk, setBad, setBase, setBlock, setBody, setBusy, setChecking, setConflict, setErr, setLatest, setMsg, setRecheck, setSrv, setUnsure, setView, snap, srv, unsure, view, what } = usePlanEdit(kind, id, user, cancel, done);
   const retry = err && <div className="fh-row"><p className="fh-msg" role="alert">{err.text}</p><button type="button" className="btn" onClick={() => { setErr(null); load(err.adopt); }}>다시 받기</button></div>;
   const [moreSlot, setMoreSlot] = useState<HTMLElement | null>(null);
   if (!body) return <div className="mx-body"><div className="mx-map"><div className="mx-over">{top}{retry}</div>{!retry && <div className="mx-center"><p className="lv-note" role="status">불러오는 중…</p></div>}</div></div>;

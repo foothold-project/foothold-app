@@ -21,6 +21,7 @@ import { Bell, History } from './screens/history';
 import { kept } from './screens/mapedit';
 import { Maps } from './screens/maps';
 import { MissionTab, keptMission } from './screens/missiontab';
+import { MissionsU6 } from './screens/missionsu6';
 import { Settings } from './screens/settings';
 import { EmptyControl, useControlPick } from './screens/control';
 import { SimTab } from './screens/sim';
@@ -413,6 +414,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   if (!phone) {
     // PC = 시안 틀(.proto · proto/bar): 머리줄 .bar 그대로, 그 아래 STOP 결과 띠 · 정지 고르기는 모든 화면 위. 시안으로 옮긴 탭은 .proto 바로 아래 화면, 아직이면 옛 본문
     const goTab = (id: string) => { const h = `#/${id}`; if (!leaving.ask) { away.current = null; setWant(h); } location.hash = h; };
+    const u6 = tab === 'missions' && !simOpen;   // 임무 = 시안 u6 화면을 .proto 바로 아래(screens/missionsu6.tsx), 폰은 옛 판
     const barTabs = [...PC_TABS.filter((t) => !t.hidden), PC_BOTTOM].map((t) => ({ id: t.id, label: labelOf(t, user.role) }));
     return <div className={`proto${light ? ' light' : ''}`} data-layout="pc">
       <PcBar light={light} tabs={barTabs} cur={navTab} go={goTab} role={user.role} name={user.name} roleName={ROLE_NAME[user.role]} online={pool.filter((r) => r.online).length} net={net.at}
@@ -421,12 +423,15 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         approvals={user.role === 'ORG_ADMIN' ? { n: dash.d ? dash.d.approvals_pending : null, why: dash.err ? `요약을 받지 못했습니다. ${dash.err}` : undefined } : undefined}
         driving={pool.filter((r) => !!rt.get(r.id).lease).map((r) => r.name)}
         menu={<>{logout && <button type="button" className="btn" onClick={logout}>로그아웃</button>}<ThemeNav /></>} />
-      <div className={`fh ap-in old${light ? ' light' : ''}`}>
+      {u6 ? <>
+        <main className="fh-main" aria-label={title} style={{ display: 'contents' }}><Guard key={tab}><MissionsU6 key={`missions-${mapN}-${user.id}`} user={user} robots={pool} cancel={cancel} /></Guard></main>
+        <div className={`fh ap-in${light ? ' light' : ''}`}><h1 className="ap-sr">{title}</h1>{pickEl}{bandEl}</div>
+      </> : <div className={`fh ap-in old${light ? ' light' : ''}`}>
         <h1 className="ap-sr">{title}</h1>
         {pickEl}
         {bandEl}
         <div className="fh-body">{mainEl}</div>
-      </div>
+      </div>}
       {!inApp() && <Guard quiet><SimWindow /></Guard>}
     </div>;
   }
