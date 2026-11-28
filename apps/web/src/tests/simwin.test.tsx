@@ -58,7 +58,7 @@ it('PC 웹: 시뮬 열기 = 페이지를 떠나지 않고 앱 안에 가득, 집
   expect(box.textContent).not.toMatch(/iframe|PIP/i);
 
   for (const tab of ['fleet', 'map', 'history']) {   // 탭을 옮겨도 같은 칸
-    act(() => { box.querySelector<HTMLElement>(`nav[aria-label="주 메뉴"] a[href="#/${tab}"]`)!.click(); });
+    act(() => { box.querySelector<HTMLElement>(`[aria-label="주 메뉴"] [data-href="#/${tab}"]`)!.click(); });
     expect(frame()).toBe(f);
     expect($('[data-sim-win]')!.dataset.simWin).toBe('small');
   }
