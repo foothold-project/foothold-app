@@ -100,7 +100,7 @@ const SRC = import.meta.glob<string>(['../*.ts', '../*.tsx', '../screens/*.ts', 
 export const SWEPT = ['drivemedia.ts', 'extview.ts', 'go2model.tsx', 'lidar3d.tsx', 'lidarmap.tsx', 'media.ts', 'nearby.tsx', 'quad.tsx', 'run.tsx',
   'screens/actiontrial.tsx', 'screens/btedit.tsx', 'screens/history.tsx', 'screens/lifecycle.ts', 'screens/mapmake.tsx', 'screens/mapscen.tsx',
   'screens/scennode.tsx', 'screens/terrain.tsx', 'simstart.tsx', 'simwin.tsx', 'theme.tsx',
-  'screens/phonelogin.tsx', 'screens/norobot.tsx', 'screens/takeover.tsx', 'screens/phonescan.tsx', 'screens/scanentry.tsx', 'screens/phonehistory.tsx'];
+  'screens/phonelogin.tsx', 'screens/norobot.tsx', 'screens/takeover.tsx', 'screens/phonescan.tsx', 'screens/scanentry.tsx', 'screens/phonehistory.tsx', 'screens/phonepair.tsx'];
 /** 주석을 빼고 남긴 코드(문자열 · JSX 글 포함) */
 function code(src: string) {
   let out = '', mode: '' | "'" | '"' | '`' | 'line' | 'block' = '';

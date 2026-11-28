@@ -222,3 +222,62 @@ describe('폰 알림 목록 = 시안 u3_3', () => {
     expect(box.querySelectorAll('[aria-label="사건"] tbody tr')).toHaveLength(3);
   });
 });
+
+describe('폰 로봇 붙이기 확인 · 완료 = 시안 u2_2 · u2_3', () => {
+  const SERIAL = 'B42D-40000P61';
+  const pairRoutes = () => ({ ...signedIn(LEE, []), 'GET /robots/r-a/slam': { status: 200, body: null },
+    'POST /pairing/claim': { status: 200, body: { pairing_id: 'p1', robot_serial: SERIAL, expires_at: new Date(Date.now() + 9 * 60_000).toISOString() } },
+    'POST /pairing/p1/confirm': { status: 200, body: { ...RA, battery: { soc: 71, updated_at: new Date().toISOString() } } } });
+  const card = () => $('[aria-label="새 로봇 추가"]')!;
+  async function toName(phone: boolean) {
+    serve(pairRoutes());
+    await open(phone, phone ? '#/drive' : '#/fleet');
+    if (phone) { act(() => { $<HTMLButtonElement>('[data-robot-connect]')!.click(); }); await flush(); }
+    else { act(() => { [...box.querySelectorAll('button')].find((b) => /로봇 (추가|연결하기)/.test(b.textContent ?? ''))!.click(); }); await flush(); }
+    const code = $<HTMLInputElement>('[data-pair-code]')!;
+    type(code, '123456');
+    act(() => { code.form!.requestSubmit(); }); await flush();
+  }
+
+  it('확인(u2_2): 시안 DOM(.bgcam · .g.dk.top · .pill · 두 칸 · .kv · .field · .prim) · 받은 값만 · 옛 부품 없음', async () => {
+    await toName(true);
+    const s = card();
+    expect(s.className).toBe('proto pv u2 u22');
+    expect(s.dataset.pair).toBe('name');
+    expect(s.querySelector(':scope > .bgcam')).not.toBeNull();
+    expect(s.querySelector('.g.dk.top b')!.textContent).toBe('로봇 연결');
+    expect(s.querySelector('[data-pair-steps]')!.textContent).toBe('2 / 3');
+    expect(s.querySelector('.g.pill')!.textContent).toBe('코드를 확인했습니다');   // 앱 사실: 폰이 노트북 화면 코드를 넣음(시안 «로봇이 QR 을 읽었습니다» 아님)
+    expect([...s.querySelectorAll('.h')].map((x) => x.textContent)).toEqual(['이 로봇이 맞나요?', '이름']);
+    expect(s.querySelector('dl.kv [data-pair-serial]')!.textContent).toBe(SERIAL);
+    expect(s.querySelector<HTMLInputElement>('input.field[name="name"]')!.value).toBe('Go2-0061');
+    expect([...s.querySelectorAll('form button')].map((b) => `${b.className}:${b.textContent}`)).toEqual(['sec:처음으로', 'prim:연결하기']);
+    expect(s.querySelector('.lv-card, .btn, .fh-field, .fh-msg, .pair-check')).toBeNull();
+    expect(s.textContent).not.toContain('기종');   // claim 답에 없음
+  });
+
+  it('완료(u2_3): 연결하기 → 시안 DOM(.bgmap · 3/3 · data-pair-done · .scanb 지도 스캔 · .prim 내 로봇 보기 · .kv2 받은 값), 스캔 단추는 ScanStart 그대로', async () => {
+    await toName(true);
+    act(() => { card().querySelector('form')!.requestSubmit(); }); await flush();
+    expect(calls.find((c) => c.path === '/pairing/p1/confirm')!.body).toEqual({ name: 'Go2-0061' });
+    const s = card();
+    expect(s.className).toBe('proto pv u2 u23');
+    expect(s.dataset.pair).toBe('done');
+    expect(s.querySelector(':scope > .bgmap')).not.toBeNull();
+    expect(s.querySelector('[data-pair-steps]')!.textContent).toBe('3 / 3');
+    expect(s.querySelector('[data-pair-done] .h')!.textContent).toBe('Go2-A 로봇을 등록했습니다.');
+    expect(s.querySelector('button.scanb[data-scan-start]')!.textContent).toBe('이 현장 지도 스캔하기');
+    expect(s.querySelector('button.prim')!.textContent).toBe('내 로봇 보기');
+    const rows = [...s.querySelectorAll('.g.kv2 > div')].map((d) => d.querySelector('span')!.textContent);
+    expect(rows).toEqual(['서버', '배터리', '담당']);
+    expect(s.querySelector('.g.kv2')!.textContent).toContain('71 %');
+    expect(s.querySelector('.lv-card, .btn, .fh-msg')).toBeNull();
+  });
+
+  it('PC 는 옛 카드 그대로(시안 u2 아님)', async () => {
+    await toName(false);
+    expect(card().dataset.pair).toBe('name');
+    expect($('.u2')).toBeNull();
+    expect(card().querySelector('[data-pair-check]')).not.toBeNull();
+  });
+});
