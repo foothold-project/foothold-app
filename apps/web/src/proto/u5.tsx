@@ -167,6 +167,25 @@ export function facts(x: Robot, me: string, places: Map<string, string>, av?: Av
 /** 타일 · 지도 보기 줄 순서 = 공용 규칙(fleetorder): 긴급(시안이 칸을 칠하는 위험 → 경고 → 주의) → 실기 → 데모 → 사용자 시뮬 → 받은 순서.
  *  끊김은 시안 u5_1 K-07 처럼 칸을 칠하지 않고 덮개만이라 긴급으로 올리지 않음 */
 export const order = (l: TileFacts[]) => fleetOrder(l, (f) => f.level, (f) => fleetKind(f.x.sim, f.demo));
+/** 타일 벽에 둘 로봇(팀장 23:53 · 시안 u5_1 처럼 섞어 8 칸, 시안 밖 · 새로 그림 = 고르는 규칙). 차례대로 빈 칸이 있을 때만 넣는다:
+ *  1) 위험 · 경고(칸을 빨갛게 칠하는 crit · bad)  2) 실기(사용자 시뮬도 데모도 아님 · Go2 X) · 섞기 넷 자리는 남기고
+ *  3) 섞기 한 대씩: 점검 중(가용 MAINTENANCE) → 충전 중(가용 CHARGING) → 사용자 시뮬 → 연결 끊김 또는 주의(warn)
+ *  4) 남은 실기  5) 임무 중(state.run)  6) 그 밖은 받은 차례(order).
+ *  고른 로봇은 원래 줄 차례(order)대로 둔다. 남은 로봇은 지도 보기 · 작은 지도 · 최근 경고 · 로봇 탭 목록에 그대로 나온다 */
+export const WALL_MAX = 8;
+export function wallPick(all: TileFacts[], max = WALL_MAX): TileFacts[] {
+  if (all.length <= max) return all;
+  const got = new Set<TileFacts>(), add = (f?: TileFacts) => { if (f && got.size < max) got.add(f); };
+  const free = (p: (f: TileFacts) => boolean) => all.find((f) => !got.has(f) && p(f));
+  const real = (f: TileFacts) => !f.sim && !f.demo, MIX = 4;
+  all.filter((f) => f.level === 'crit' || f.level === 'bad').forEach(add);
+  all.filter(real).forEach((f) => { if (got.size < max - MIX) add(f); });
+  add(free((f) => f.job?.kind === 'maint')); add(free((f) => f.charging)); add(free((f) => f.sim)); add(free((f) => f.lostNow || f.level === 'warn'));
+  all.filter(real).forEach(add);
+  all.filter((f) => f.onRun).forEach(add);
+  all.forEach(add);
+  return all.filter((f) => got.has(f));
+}
 /** 타일 칸 배치. 8 대까지는 시안 그대로(2×2 · 4×2). 9 대부터는 시안 한 칸(357.5 × 440)을 줄여 가장 크게 들어가는 열 · 줄을 고르고,
  *  남는 칸이 생기면 줄마다 대수를 고르게 나눠(예: 9 대 = 5 + 4) 빈 칸 없이 한 줄을 꽉 채운다(span = 각 타일이 차지하는 칸 수, 열 = 줄별 대수의 최소공배수) */
 export function wallGrid(n: number): { cols: number; rows: number; zoom: number; units?: number; span?: number[] } {
@@ -363,7 +382,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
   const open = (id: string) => { c.pick(id); c.go('fleet'); };
   const n = (f: (x: TileFacts) => boolean) => all.filter(f).length;
   const nLink = n((f) => !f.sim && (f.lostNow || (!f.x.online && f.x.unknown === 'wait'))), nSim = n((f) => f.sim && f.x.status !== 'RUNNING');
-  const g = wallGrid(all.length), picked = all.find((f) => f.x.id === sel), crit = all.find((f) => f.level === 'crit');
+  const wall = wallPick(all), g = wallGrid(wall.length), picked = all.find((f) => f.x.id === sel), crit = all.find((f) => f.level === 'crit');
   const seg = (on: boolean, v: string, icon: ReactNode, go: () => void) => <span className={on ? 'on' : ''} data-v={v} role="button" tabIndex={0} aria-pressed={on} onClick={go} onKeyDown={(e) => { if (e.key === 'Enter') go(); }}>{I(16, icon)}{v}</span>;
   // 총괄: 수 칸 = 서버 요약(GET /dashboard · 시뮬 몫은 뺌 · realDash)의 임무 중 · 주의 필요(=경고). 받지 못하면 수를 비우고 까닭(title · 화면 읽기 한 줄). 운영 관리자 = 받은 로봇 상태로 셈
   const d = admin ? realDash(c.dash?.d ?? null, c.robots) : null, dErr = admin ? c.dash?.err ?? '' : '';
@@ -382,13 +401,15 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
       {/* 경고 = 타일 테두리가 경고인 로봇(시뮬 포함). 서버 요약 robots_attention 은 실기만이라 타일과 어긋나서 쓰지 않음 */}
       {cnt('경고', IC.warn, n((f) => !!f.level), true)}
       {why && <span className="ap-sr" role="alert" data-dash-err>{why}</span>}
+      {/* 시안 밖 · 새로 그림: 타일은 8 칸까지(wallPick), 남은 로봇이 어디 있는지 한 줄 */}
+      {view === 'tiles' && all.length > wall.length && <span className="mu2" style={{ fontSize: '12.5px' }} data-wall-rest={all.length - wall.length}>{`타일 ${wall.length} 대 · 나머지 ${all.length - wall.length} 대는 지도 보기 · 로봇 탭`}</span>}
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '14px' }}>
         {view === 'tiles' && <span className="btns flipb" style={{ height: '42px', padding: '0 14px', fontSize: '13.5px', ...(front ? { background: 'var(--u5-ok-bg)', borderColor: 'var(--u5-ok-line)', color: 'var(--u5-ok)' } : {}) }} role="button" tabIndex={0} aria-pressed={front}
           onClick={() => setFront(!front)} onKeyDown={(e) => { if (e.key === 'Enter') setFront(!front); }}>{I(16, IC.flip)}{front ? '뒤 1 m 시점으로' : '정면 상태로 뒤집기'}</span>}
         <span className={demo ? 'tgl on' : 'tgl'} role="switch" aria-checked={demo} tabIndex={0} onClick={() => setDemo(!demo)}>데모 표시<i></i></span>
         <div className="seg2 flt" role="group" aria-label="범위"><span className={scope === 'all' ? 'on' : ''} data-f="모두" role="button" tabIndex={0} aria-pressed={scope === 'all'} onClick={() => see('all')}>모두</span><span className={scope === 'mine' ? 'on' : ''} data-f="내 로봇" role="button" tabIndex={0} aria-pressed={scope === 'mine'} onClick={() => see('mine')}>내 로봇</span></div></div></div>
-    {view === 'tiles' ? <div className={all.length > 8 ? 'wall many' : 'wall'} style={{ gridTemplateColumns: `repeat(${g.units ?? g.cols},1fr)`, gridTemplateRows: `repeat(${g.rows},1fr)` }} aria-label="로봇 타일" data-count={all.length}>
-      {all.map((f, i) => <ZoomBox key={f.x.id} zoom={g.zoom} span={g.span?.[i]}><Tile f={f} sel={f.x.id === sel} front={front} pick={() => controlPick.set(f.x.id)} open={() => open(f.x.id)} boards={boards} /></ZoomBox>)}</div>
+    {view === 'tiles' ? <div className={wall.length > 8 ? 'wall many' : 'wall'} style={{ gridTemplateColumns: `repeat(${g.units ?? g.cols},1fr)`, gridTemplateRows: `repeat(${g.rows},1fr)` }} aria-label="로봇 타일" data-count={wall.length} data-all={all.length}>
+      {wall.map((f, i) => <ZoomBox key={f.x.id} zoom={g.zoom} span={g.span?.[i]}><Tile f={f} sel={f.x.id === sel} front={front} pick={() => controlPick.set(f.x.id)} open={() => open(f.x.id)} boards={boards} /></ZoomBox>)}</div>
       : <SiteView all={all} sel={sel} pick={(id) => controlPick.set(id)} open={open} from={from} />}
     <div className="side">
       {view === 'tiles' ? <>
