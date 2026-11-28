@@ -1,7 +1,7 @@
 // 지도 탭 실내 3D (W3 · MAP3D 11-28): 층 지도판에 3D 모형(MapVersion.model_sha256)이 있으면 «3D» 로 그 층 GLB 를 돌려 본다.
 // 좌표 = 지도 world 좌표(m, x 동 · y 북 · z 위). GLB 는 glTF 규약(+Y 위)이라 (x, y, z)gltf → (x, −z, y) 로 한 번 바꾼다.
 // 로봇 자리(실시간 위치, 2D 와 같은 값 · 같은 색 규칙)와 점검 지점(지도 요소 waypoints)을 같은 좌표로 얹는다. 3D 파일엔 조명이 없어 환경광 + 위 방향광.
-import { CLAY_CAM, clayCam, clayCoat, clayShade } from '../clay3d';
+import { CLAY_CAM, clayCam, clayCoat, clayBox, clayShade, claySpan, withDraco } from '../clay3d';
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -94,7 +94,7 @@ export function Map3D({ v, robots, missing, still }: { v: MapVersion; robots: Ro
       const drop = () => { if (renderer) { renderer.dispose(); renderer.forceContextLoss(); } canvas?.remove(); };
       try {
         const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
-        const g = await new GLTFLoader().parseAsync(buf, '');
+        const g = await withDraco(new GLTFLoader()).parseAsync(buf, '');   // 판 모형(maps_v2)은 Draco 로 줄여 옴
         if (!live) return;
         try { renderer = new THREE.WebGLRenderer({ antialias: true }); } catch { setAt('nogl'); return; }
         if (still && renderer.shadowMap) { renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; }
@@ -109,10 +109,10 @@ export function Map3D({ v, robots, missing, still }: { v: MapVersion; robots: Ro
         const model = worldGroup(); model.add(g.scene); scene.add(model);
         // 미리 보기(시안 u7_1): 밝은 회색 무광 점토 · 부드러운 그림자 · 금지 구역 붉은 빗금. 층 화면 3D 는 모형 색 그대로
         if (still) clayCoat(g.scene);
-        const box = new THREE.Box3().setFromObject(model), c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
+        const box = still ? clayBox(model) : new THREE.Box3().setFromObject(model), c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
         const hemi = new THREE.HemisphereLight(0xffffff, 0x8a8580, 1.6), sun = new THREE.DirectionalLight(0xffffff, 1.4);
         sun.position.set(c.x - size.x * 0.3, c.y - size.y * 0.6, z + 30); sun.target.position.copy(c); scene.add(hemi, sun, sun.target);
-        if (still) clayShade(scene, sun, size, z, v);
+        if (still) { renderer.localClippingEnabled = true; clayShade(scene, sun, size, z, v, c); }
         const marks = new THREE.Group(); scene.add(marks);
         const orbit = new OrbitControls(cam, canvas);
         orbit.maxPolarAngle = Math.PI / 2 - 0.05; orbit.minDistance = 2; orbit.maxDistance = Math.max(size.x, size.y) * 3;   // 바닥 아래로 못 감
@@ -121,7 +121,7 @@ export function Map3D({ v, robots, missing, still }: { v: MapVersion; robots: Ro
         const view = (top: boolean) => {
           const d = Math.max(size.x, size.y, 6);
           if (top) cam.position.set(c.x, c.y - 0.01, z + d * 1.1);
-          else if (still) { cam.fov = CLAY_CAM.fov; cam.updateProjectionMatrix(); const p = clayCam(c, Math.hypot(size.x, size.y)); cam.position.set(p.x, p.y, z + p.z); }   // 시안 u7_1 시점
+          else if (still) { cam.fov = CLAY_CAM.fov; cam.updateProjectionMatrix(); const p = clayCam(c, claySpan(size)); cam.position.set(p.x, p.y, z + p.z); }   // 시안 u7_1 시점
           else cam.position.set(c.x - d * 0.2, c.y - d * 0.8, z + d * 0.7);
           orbit.target.set(c.x, c.y, z); orbit.update(); draw();
         };

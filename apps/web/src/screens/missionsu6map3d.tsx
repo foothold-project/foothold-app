@@ -6,7 +6,7 @@ import { createContext, useContext, useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import type { MapVersion } from '../../../contracts/ts';
 import { ApiFail } from '../api';
-import { CLAY_CAM, clayCam, clayCoat, clayShade } from '../clay3d';
+import { CLAY_CAM, clayCam, clayCoat, clayBox, clayShade, claySpan, withDraco } from '../clay3d';
 import { floorZ, modelBytes, modelOf, worldGroup } from './map3d';
 import type { Route } from './missiontab';
 
@@ -70,7 +70,7 @@ export function MissionMap3D({ v, ready, off }: { v: MapVersion; ready: (p: Proj
       }
       try {
         const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
-        const g = await new GLTFLoader().parseAsync(buf, '');
+        const g = await withDraco(new GLTFLoader()).parseAsync(buf, '');
         if (!live) return;
         try { gl = new THREE.WebGLRenderer({ antialias: true, alpha: true }); } catch { return off('이 브라우저에서 3D 를 그릴 수 없습니다.'); }
         const el = host.current!;
@@ -79,11 +79,12 @@ export function MissionMap3D({ v, ready, off }: { v: MapVersion; ready: (p: Proj
         el.prepend(gl.domElement);
         const z = floorZ(g.scene, v), model = worldGroup(); model.add(g.scene); scene.add(model);
         clayCoat(g.scene);
-        const box = new THREE.Box3().setFromObject(model), c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
+        const box = clayBox(model), c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
         const hemi = new THREE.HemisphereLight(0xffffff, 0x8a8580, 1.6), sun = new THREE.DirectionalLight(0xffffff, 1.4);
         sun.position.set(c.x - size.x * 0.3, c.y - size.y * 0.6, z + 30); sun.target.position.copy(c); scene.add(hemi, sun, sun.target);
-        clayShade(scene, sun, size, z, v);
-        const cam = clayCamera(c, Math.hypot(size.x, size.y), z, 1);
+        if ('localClippingEnabled' in gl) gl.localClippingEnabled = true;
+        clayShade(scene, sun, size, z, v, c);
+        const cam = clayCamera(c, claySpan(size), z, 1);
         const draw = () => {
           const w = el.clientWidth, h = el.clientHeight; if (!gl || !w || !h || !live) return;
           gl.setSize(w, h); cam.aspect = w / h; cam.updateProjectionMatrix(); gl.render(scene, cam);
