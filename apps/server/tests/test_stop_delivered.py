@@ -67,3 +67,49 @@ def test_stop_not_delivered_when_connected_agent_cannot_take_it(client, seeded, 
         response = client.post(f'/api/v1/robots/{rid}/stop', headers=headers)
         assert response.status_code == 202
         assert response.json() == {'requested': True, 'delivered': False}
+
+
+import pytest  # noqa: E402
+from datetime import timedelta  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import create_engine  # noqa: E402
+from apps.server.fh_server.api import Settings, create_app  # noqa: E402
+from apps.server.fh_server.models import Robot, now  # noqa: E402
+from apps.server.fh_server.security import digest  # noqa: E402
+from .test_realtime import hello  # noqa: E402
+
+
+@pytest.fixture
+def switch_off(seeded):
+    # 실기 · 현장 승인 있음 · 서버 시험 스위치 꺼짐 (server_drive_robots 비움).
+    engine = create_engine(seeded['urls']['migrate'])
+    with DBSession(engine) as db:
+        for index, rid in enumerate(seeded['robots'].values()):
+            row = db.get(Robot, rid)
+            row.simulation = False
+            row.serial = f'1234-{index}'
+            row.field_approval_expires_at = now() + timedelta(minutes=30)
+            row.agent_token_hash = digest('fake-test-' + str(rid))
+        db.commit()
+    engine.dispose()
+    app = create_app(Settings(seeded['urls']['app'], seeded['org'], server_drive_robots=frozenset()))
+    with TestClient(app, base_url='https://testserver') as client:
+        yield client
+    app.state.engine.dispose()
+
+
+def test_switch_off_real_robot_stop_is_refused_not_silently_ok(switch_off, seeded):
+    # 11/28 앱 STOP 조사: 실기 시험 스위치가 꺼져 있으면 서버는 정지를 에이전트로 보내지 않는다.
+    # 그때 화면이 ok 를 받으면 안 된다. WS · HTTP 둘 다 PHONE_DIRECT_REQUIRED (403) 로 거절한다.
+    client = switch_off
+    headers = app_token(client)
+    rid = seeded['robots']['mine']
+    with client.websocket_connect('/api/v1/agent/ws', headers={'authorization': 'Bearer fake-test-' + str(rid)}) as ag:
+        ag.send_json(hello())
+        with screen(client, headers) as ws:
+            result = reply(ws, send(ws, 'stop', rid))
+            assert result['ok'] is False and 'delivered' not in result
+            assert result['error']['code'] == 'PHONE_DIRECT_REQUIRED'
+            response = client.post(f'/api/v1/robots/{rid}/stop', headers=headers)
+            assert response.status_code == 403
+            assert response.json()['error']['code'] == 'PHONE_DIRECT_REQUIRED'
