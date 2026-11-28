@@ -166,7 +166,8 @@ class Event(Tenant, Base):
 FAILURE_CODE = re.compile(r'_(FAILED|REJECTED|DENIED|TIMEOUT)$')
 SEVERITY_RANK = {'INFO': 0, 'WARN': 1, 'ERROR': 2}
 # A stop that the robot did not confirm leaves motion unproven (02 F-TO-04 step 4).
-CODE_FLOOR = {'STOP_CONFIRM_FAILED': 'ERROR'}
+# TIMEOUT is the server's lease-request timeout: no underscore, so named here.
+CODE_FLOOR = {'STOP_CONFIRM_FAILED': 'ERROR', 'TIMEOUT': 'WARN'}
 
 
 def severity_floor(code, severity):

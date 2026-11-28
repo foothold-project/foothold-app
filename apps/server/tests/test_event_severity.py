@@ -19,7 +19,7 @@ class Clock:
     ('PHONE_LEASE_TIMEOUT', 'INFO', 'WARN'), ('MAPPING_FAILED', 'INFO', 'WARN'),
     ('NAV_GOAL_REJECTED', None, 'WARN'), ('PHONE_PASS_DENIED', 'INFO', 'WARN'),
     ('MAPPING_FAILED', 'WARN', 'WARN'), ('PHOTO_STORE_FAILED', 'ERROR', 'ERROR'),
-    ('PHONE_LEASE_TAKEN', 'INFO', 'INFO'), ('TIMEOUT', 'INFO', 'INFO'),
+    ('PHONE_LEASE_TAKEN', 'INFO', 'INFO'), ('TIMEOUT', 'INFO', 'WARN'), ('TIMEOUT', None, 'WARN'), ('TIMEOUT', 'ERROR', 'ERROR'),
     ('FAILED_LOGIN_NOTE', 'INFO', 'INFO'), ('PHONE_LEASE_TAKEN', 'WARN', 'WARN'),
     ('STOP_CONFIRM_FAILED', None, 'ERROR'), ('STOP_CONFIRM_FAILED', 'WARN', 'ERROR'), ('MAPPING_FAILED', 'info', 'WARN'),
 ])
@@ -78,3 +78,8 @@ def test_direct_event_insert_without_severity_is_raised(seeded):
     engine.dispose()
     assert stored(seeded, 'SIM_MODEL_REJECTED') == ['WARN']
     assert stored(seeded, 'SIM_MAP_REGISTERED') == ['INFO']
+
+
+def test_server_lease_request_timeout_is_stored_as_warn(client, seeded):
+    assert record(client, seeded, 'TIMEOUT')['severity'] == 'WARN'
+    assert stored(seeded, 'TIMEOUT') == ['WARN']
