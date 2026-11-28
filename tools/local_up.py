@@ -207,7 +207,9 @@ def sim_setup(repository, values, data):
 
 def simmgr_env(repository, values, sim):
     """Only what simmgr needs: no database URL, account passwords or ROS settings."""
-    env = {key: os.environ[key] for key in ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR') if key in os.environ}
+    env = {key: os.environ[key] for key in ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR',
+                                                 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS')  # preflight: systemctl --user
+           if key in os.environ}
     env.update({
         'PYTHONPATH': os.pathsep.join((str(repository), str(Path(repository) / 'apps/agent'))),
         'FH_SIM_CATALOG': sim['FH_SIM_CATALOG'], 'FH_SIM_AUTH_FILE': sim['FH_SIM_AUTH_FILE'],

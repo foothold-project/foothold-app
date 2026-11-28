@@ -354,3 +354,14 @@ def test_sim_slots_out_of_range_refused(checkout, tmp_path, monkeypatch, slots):
     values, _ = local_up.prepare(checkout, tmp_path / 'accounts.env', docker=False, check=False)
     with pytest.raises(SystemExit, match='FH_SIM_SLOTS'):
         local_up.sim_setup(checkout, values, tmp_path / 'data')
+
+
+def test_simmgr_gets_user_bus_for_startup_preflight(checkout, tmp_path, monkeypatch):
+    """simmgr preflight runs `systemctl --user`; without the user bus it refuses to start."""
+    sim_checkout(checkout)
+    monkeypatch.setenv('XDG_RUNTIME_DIR', '/run/user/4242')
+    monkeypatch.setenv('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/4242/bus')
+    values, _ = local_up.prepare(checkout, tmp_path / 'accounts.env', docker=False, check=False)
+    manager = local_up.simmgr_env(checkout, values, local_up.sim_setup(checkout, values, tmp_path / 'data'))
+    assert manager['XDG_RUNTIME_DIR'] == '/run/user/4242'
+    assert manager['DBUS_SESSION_BUS_ADDRESS'] == 'unix:path=/run/user/4242/bus'
