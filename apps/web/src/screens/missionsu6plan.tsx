@@ -123,7 +123,7 @@ function Over({ p, est, last, drop, jobs, body }: { p: Plan; est: Estimate; last
 
 /** 오른쪽 «이 임무»: 길이 · 걷기 + 할 일 · 예상 끝 · 끝 배터리(일정 칸에서 고른 로봇 · 걷기 모드로 받은 예상) · 모의 실행 전 · 같은 시간대 다른 로봇(오늘 일정) */
 function This({ p, robots, rehearse, ready, names }: { p: Plan; robots: Robot[]; rehearse: () => void; ready: boolean; names: (id: string | null) => string | undefined }) {
-  const e: Estimate | null = p.est, [ln, lu] = e ? dist(e.length_m) : ['—', ''];
+  const e: Estimate | null = p.est, [ln, lu] = e ? dist(e.length_m) : ['없음', ''];
   const a = hourOf(new Date(new Date().toDateString() + ' ' + p.start).toISOString()), b = hourOf(new Date(new Date().toDateString() + ' ' + p.end).toISOString());
   const lo = a - 0.5, hi = b + 0.5, f = (h: number) => `${Math.max(0, Math.min(1, (h - lo) / (hi - lo))) * 100}%`;
   const mine = robots.find((r) => r.id === p.rid);   // 시안 첫 줄: 고른 로봇 · 이 임무(예상 끝까지)
@@ -133,9 +133,9 @@ function This({ p, robots, rehearse, ready, names }: { p: Plan; robots: Robot[];
     <div className="lab">이 임무</div>
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: '16px', rowGap: '14px', marginTop: '14px' }}>
       <div><div className="lab">길이</div><b className="num" style={{ fontSize: '22px' }}>{ln}</b><small className="mu2"> {lu}</small></div>
-      <div><div className="lab">걷기 + 할 일</div><b className="num" style={{ fontSize: '22px' }}>{e ? `${mins(e.walk_s)} + ${mins(e.task_s)}` : '—'}</b><small className="mu2"> 분</small>{e && <Guess e={e} />}</div>
-      <div><div className="lab">예상 끝</div><b className="num" style={{ fontSize: '22px' }} data-plan-eta>{e ? hm(e.eta) : '—'}</b></div>
-      <div><div className="lab">종료 시 배터리</div><b className="num" style={{ fontSize: '22px' }}>{e?.end_battery_pct != null ? Math.round(e.end_battery_pct) : '—'}</b><small className="mu2"> %</small></div>
+      <div><div className="lab">걷기 + 할 일</div><b className="num" style={{ fontSize: '22px' }}>{e ? `${mins(e.walk_s)} + ${mins(e.task_s)}` : '없음'}</b><small className="mu2"> 분</small>{e && <Guess e={e} />}</div>
+      <div><div className="lab">예상 끝</div><b className="num" style={{ fontSize: '22px' }} data-plan-eta>{e ? hm(e.eta) : '없음'}</b></div>
+      <div><div className="lab">종료 시 배터리</div><b className="num" style={{ fontSize: '22px' }}>{e?.end_battery_pct != null ? Math.round(e.end_battery_pct) : '없음'}</b><small className="mu2"> %</small></div>
     </div>
     {!e && <Why>예상은 저장한 임무를 로봇 · 걷기 모드와 함께 고르면 나옵니다.</Why>}
     <div style={{ marginTop: '18px', padding: '14px', borderRadius: '14px', border: '1.5px dashed rgba(159,182,255,.5)', background: 'rgba(159,182,255,.06)' }}>

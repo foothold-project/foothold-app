@@ -251,7 +251,7 @@ describe('임무 탭(W2)', () => {
 
   it('예상(POST /estimates): 로봇 · 걷기 모드를 고르기 전엔 숫자 없음 · 고르면 예상 끝 · 여유 · 끝 배터리 · 걷기 + 할 일, 표 값이면 «추정», 여유 null = «다음 일정 없음»', async () => {
     await mount('#/missions');
-    for (const e of $$('[data-est]')) expect(e.textContent).toBe('—');
+    for (const e of $$('[data-est]')) expect(e.textContent).toBe('없음');
     expect(calls.filter((c) => c.path === '/estimates')).toEqual([]);
     expect($('[data-est-why]')!.textContent).toContain('로봇과 걷기 모드를 고르면');
     await click($('[data-robot="r1"]'));
