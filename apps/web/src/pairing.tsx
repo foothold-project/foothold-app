@@ -205,7 +205,7 @@ export function AddRobot({ user, mine, close, refresh, cancel }: { user?: User; 
 /** 진행 중인 담당 넘기기: 로봇 id → 끝나면 풀리는 약속. 컴포넌트 밖에 두어 상세가 다시 그려져도(내 로봇 A→B→A) 같은 로봇의 두 번째 PATCH 를 막는다.
  *  로그인 세션이 끝나면 cancel 로 요청이 끊겨 finally 에서 풀린다 */
 const transferring = new Map<string, Promise<void>>();
-function TransferOwner({ r, refresh, cancel }: { r: Robot; refresh: () => void } & Cancel) {
+export function TransferOwner({ r, refresh, cancel }: { r: Robot; refresh: () => void } & Cancel) {
   const [open, setOpen] = useState(false), [list, setList] = useState<RobotOwnerCandidate[] | null>(null), [to, setTo] = useState('');
   const [ask, setAsk] = useState(false), [msg, setMsg] = useState<{ text: string; ok?: boolean } | null>(null), [busy, setBusy] = useState(false);
   const seq = useRef(0), askBox = useRef<HTMLDivElement>(null);

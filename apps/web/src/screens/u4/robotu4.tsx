@@ -9,6 +9,7 @@ import { api } from '../../api';
 import { rt, useLive, useRt } from '../../rt';
 import { useStopPress } from '../../App';
 import { ADMIN_LATER, ownerName, type Robot } from '../../fake';
+import type { ApiFail } from '../../api';
 import { driveFeedText, useDriveFeed } from '../../drivemedia';
 import { DriveView, canDrive, keepDrive, useServerDrive, type Tok } from '../../serverdrive';
 import { GAITS } from '../../gait';
@@ -17,8 +18,10 @@ import { REPORT_STALE_MS, go2Pose, go2Temps, JOINTS, jointName } from '../../go2
 import { ACTION_NAMES, FACTORY_OFF, LOWLEVEL, actionResultText } from '../actiontrial';
 import { floorsOf, isVersion, shape, toPixel, useTree } from '../maps';
 import type { Ctx } from '../../screens';
-import { AddRobot, AssignOwner, ManageRobot } from '../../pairing';
-import { Guide, NoReal, Prepare, RealView, useReal } from '../fleet';
+import { AddRobot, AssignOwner, TransferOwner } from '../../pairing';
+import { checks } from '../readycheck';
+import { robotFail } from '../settings';
+import { Guide, RealView, prepSteps } from '../fleet';
 import { Empty as EmptyCard } from '../../empty';
 import { mount, type Go2Api } from './go2view';
 import '../../proto/ui.pv.css';
@@ -62,7 +65,7 @@ function Rail({ c, sel, add }: { c: Ctx; sel: string; add: () => void }) {
     <span data-go="u4_6_add" className="btns addbtn" style={{ height: '34px', padding: '0 11px', fontSize: '12.5px' }} role="button" tabIndex={0} onClick={add} data-u4-add>
       <svg className="ic" viewBox="0 0 24 24" style={{ width: '14px', height: '14px' }}><path d="M5 12h14" /><path d="M12 5v14" /></svg>로봇 추가</span></div>
     <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-      {c.robots.map((x) => <div key={x.id} className={`rcard ${x.id === sel ? 'on' : ''}`} data-r={x.name} data-robot-row={x.id} role="button" tabIndex={0}
+      {c.robots.map((x) => <div key={x.id} className={`rcard ${x.id === sel ? 'on' : ''}${x.sim ? ' rehearse' : ''}`} data-r={x.name} data-robot-row={x.id} role="button" tabIndex={0}
         aria-current={x.id === sel || undefined} onClick={() => c.pick(x.id)}>
         <span className="av">{x.sim ? CUBE : DOG}</span>
         <div style={{ flex: '1' }}>{x.name}<small>{railLine(x, c.user.id)}</small></div>
@@ -165,16 +168,89 @@ function Robot1({ c, r }: { c: Ctx; r: Robot }) {
 /** 조종 못 하는 까닭(서버 허용 · 담당 · 총괄 실기) */
 const noDrive = (c: Ctx, r: Robot) => r.owner !== c.user.id && c.user.role !== 'ORG_ADMIN' ? '내 담당 로봇만 조종할 수 있습니다.'
   : '서버가 이 로봇의 웹 조종을 허용하지 않았습니다.';
-/** 로봇 설정 창(시안 u4_5): 내가 담당 = 이름 · 연결 끊기 · 지우기 · 담당 넘기기(pairing ManageRobot 그대로), 총괄 = 담당 없는 실기에 담당 지정 · 남 담당 실기는 까닭 한 줄 */
+const CHEV = <svg className="ic" viewBox="0 0 24 24" style={{ width: '18px', height: '18px' }}><path d="m6 9 6 6 6-6" /></svg>;
+const CHECK_IC = { ok: <path d="M20 6 9 17l-5-5" />, blocked: <><path d="M12 8v4" /><path d="M12 16h.01" /><circle cx="12" cy="12" r="10" /></>, none: <path d="M5 12h14" /> };
+/** 시안 u4_4 순서 점검 줄 이름(readycheck checks 의 key 순서 그대로) */
+const CHECK_NAME: Record<string, string> = { wifi: 'Wi-Fi', server: '서버', agent: 'foothold-robot', policy: '걷기 정책', body: '몸통', sensors: '센서', power: '배터리 · 관절' };
+
+/** 로봇 설정 창(시안 u4_5 칸 · 순서 · 글 그대로): 이름 · 기체번호 · 담당 | 연결 끊기 · 로봇 삭제 | 지우면 … 기록은 남습니다.
+ *  논리는 pairing ManageRobot 과 같다(이름 PATCH · 연결 끊기 · 지우기 확인 · 담당 넘기기). 시안에 없는 것(확인 줄 · 결과 · 담당 넘기기 목록 · 총괄 담당 지정)은 그 아래 */
 function Settings({ c, r }: { c: Ctx; r: Robot }) {
-  const admin = c.user.role === 'ORG_ADMIN';
-  return <div className="u4set" data-u4-settings>
-    <div className="mrow"><span className="mu" style={{ fontWeight: 600 }}>담당</span><b>{ownerName(r)}</b>
-      {!r.sim && r.serial && <><span className="mu" style={{ fontWeight: 600 }}>기체번호</span><b className="mono">{r.serial}</b></>}</div>
-    {r.owner === c.user.id ? <ManageRobot key={`${r.id}-${r.owner}`} r={r} refresh={c.refresh} cancel={c.cancel} />
-      : admin && !r.sim && !r.owner ? <AssignOwner r={r} refresh={c.refresh} cancel={c.cancel} />
-      : admin && !r.sim ? <p className="mu" data-admin-later>{ADMIN_LATER}</p>
-      : <p className="mu">내 담당 로봇만 설정을 바꿀 수 있습니다.</p>}
+  const own = r.owner === c.user.id, admin = c.user.role === 'ORG_ADMIN';
+  const [name, setName] = useState(r.name), [ask, setAsk] = useState<'cut' | 'delete' | null>(null);
+  const [msg, setMsg] = useState<{ text: string; ok?: boolean } | null>(null), [busy, setBusy] = useState(false), box = useRef<HTMLDivElement>(null);
+  const run = async (f: () => Promise<unknown>, ok: string) => {
+    if (busy) return;
+    setBusy(true); setAsk(null); setMsg(null);
+    try { await f(); setMsg({ text: ok, ok: true }); c.refresh(); }
+    catch (e) { if ((e as ApiFail).code !== 'CANCELED') setMsg({ text: robotFail(e) }); }
+    finally { setBusy(false); }
+  };
+  const rename = () => {
+    const v = name.trim();
+    if (!v) return setMsg({ text: '로봇 이름을 넣으세요.' });
+    if (v === r.name) return;
+    run(() => api.saveRobot(r.id, { name: v }, c.cancel), '이름을 바꿨습니다.');
+  };
+  const why = (t: string) => setMsg({ text: t });
+  const not = admin && !r.sim && r.owner ? ADMIN_LATER : admin && !r.sim ? '담당 없는 실기는 아래에서 담당을 지정합니다.' : '내 담당 로봇만 설정을 바꿀 수 있습니다.';
+  const press = (k: 'cut' | 'delete') => (own ? !busy && setAsk(k) : why(not));
+  const owner = () => (own && !r.sim ? box.current?.querySelector<HTMLButtonElement>('[data-transfer] button[aria-expanded]')?.click() : why(own ? '시뮬 로봇은 담당을 넘기지 않습니다.' : not));
+  return <div ref={box} role="group" aria-label={own ? '내 로봇 관리' : '로봇 설정'} {...(own ? { 'data-manage': '' } : {})} data-u4-settings>
+    <div className="mrow">
+      <span className="mu" style={{ fontWeight: 600 }}>이름</span>
+      {own ? <input className="fld" style={{ fontWeight: 800, font: 'inherit', fontSize: '15px', color: 'inherit', width: '100%', boxSizing: 'border-box' }} name="name" maxLength={128} aria-label="로봇 이름"
+        value={name} disabled={busy} onChange={(e) => setName(e.target.value)} onBlur={rename} onKeyDown={(e) => { if (e.key === 'Enter') rename(); }} data-u4-name />
+        : <div className="fld" style={{ fontWeight: 800 }}>{r.name}</div>}
+      <span className="mu" style={{ fontWeight: 600 }}>기체번호</span>
+      <b className={r.serial ? undefined : 'mu2'}>{r.sim ? '시뮬' : r.serial ?? NA}</b>
+      <span className="mu" style={{ fontWeight: 600 }}>담당</span>
+      <div className="fld" role="button" tabIndex={0} onClick={owner} data-u4-owner>{own ? '나' : ownerName(r)} · 담당자 바꾸기{CHEV}</div>
+    </div>
+    <div style={{ marginTop: '26px', borderTop: '1px solid rgba(0,0,0,.08)', paddingTop: '20px', display: 'flex', gap: '10px' }}>
+      <div className="fld" style={{ flex: '1', justifyContent: 'center', height: '50px' }} role="button" tabIndex={0} aria-disabled={!own || busy || undefined} onClick={() => press('cut')} data-u4-cut>연결 끊기</div>
+      <div className="fld" style={{ flex: '1', justifyContent: 'center', height: '50px', background: 'rgba(255,77,79,.10)', color: '#e04a2f', borderColor: 'transparent' }} role="button" tabIndex={0}
+        aria-disabled={!own || busy || undefined} onClick={() => press('delete')} data-u4-delete>로봇 삭제</div>
+    </div>
+    <p className="mu" style={{ fontSize: '12.5px', marginTop: '14px', lineHeight: '1.5' }}>지우면 다시 연결하기 전까지 이 로봇에 명령을 보낼 수 없습니다. 기록은 남습니다.</p>
+    {ask && <div className="fh-row" role="group" aria-label="확인" style={{ marginTop: '12px' }}>
+      <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{ask === 'cut'
+        ? `${r.name} 연결을 끊을까요? 연결 키가 폐기되고 진행 중인 조종은 정지·잠금됩니다. 다시 쓰려면 «새 로봇 추가»로 다시 연결합니다.`
+        : `${r.name} 로봇을 지울까요? 연결 키가 폐기되고 되돌릴 수 없습니다. 기록은 남습니다.`}</span>
+      <button type="button" className="btn bad" onClick={() => (ask === 'cut'
+        ? run(() => api.disconnectRobot(r.id, c.cancel), '연결을 끊었습니다. 연결 키를 폐기했습니다.')
+        : run(() => api.deleteRobot(r.id, c.cancel), `${r.name} 로봇을 지웠습니다.`))}>{ask === 'cut' ? '연결 끊기' : '지우기'}</button>
+      <button type="button" className="btn" onClick={() => setAsk(null)}>취소</button></div>}
+    {msg && <p className={`fh-msg${msg.ok ? ' ok' : ''}`} role={msg.ok ? 'status' : 'alert'} style={{ marginTop: '10px' }}>{msg.text}</p>}
+    {own && !r.sim && <TransferOwner r={r} refresh={c.refresh} cancel={c.cancel} />}
+    {!own && admin && !r.sim && !r.owner && <AssignOwner r={r} refresh={c.refresh} cancel={c.cancel} />}
+    {!own && admin && !r.sim && !!r.owner && <p className="mu" style={{ fontSize: '12.5px', marginTop: '10px' }} data-admin-later>{ADMIN_LATER}</p>}
+  </div>;
+}
+
+/** 점검(시안 u4_4): 오른쪽 칸 = 순서 점검 일곱 줄(readycheck checks 그대로 · 보기 전용) + 다시 점검. 시안에 없는 «조종 준비» 세 단계 · 실기 보기는 같은 줄 모양으로 그 아래 */
+function Check({ c, r, guide }: { c: Ctx; r: Robot; guide: () => void }) {
+  useRt();
+  const mineOrAdmin = r.owner === c.user.id || c.user.role === 'ORG_ADMIN';
+  const { pill, steps, net } = prepSteps(c, r), list = checks(r, net), bad = list.filter((x) => x.state === 'blocked').length;
+  const t = new Date(rt.now()), at = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
+  const tone = { ok: 'var(--pr3)', blocked: '#ff4d4f', none: 'var(--mu2)' } as const;
+  const row = (k: string, state: keyof typeof tone, name: ReactNode, small: ReactNode, attrs: Record<string, unknown> = {}) => <div className="r" key={k} {...attrs}>
+    <span style={{ color: tone[state] }}><svg className="ic" viewBox="0 0 24 24" style={{ width: '20px', height: '20px' }}>{CHECK_IC[state]}</svg></span>{name}<small>{small}</small></div>;
+  return <div className="pane2 chk" style={{ position: 'absolute', inset: '0', padding: '22px 8px 8px' }} aria-label="점검" data-u4-tab="check">
+    <div className="row" style={{ justifyContent: 'space-between', padding: '0 18px 12px' }}><span className="ttl">순서 점검</span>
+      <span className="mu2" style={{ fontSize: '13px' }} data-u4-check-head>{mineOrAdmin ? `${at} · ${bad ? `${bad} 곳 막힘` : '모두 통과'}` : NA}</span></div>
+    {!mineOrAdmin ? <p className="mu" style={{ padding: '0 18px' }} data-u4-check-none>내 담당 로봇만 점검할 수 있습니다 · 이 로봇은 요약만 보입니다.</p> : <>
+      <div data-readycheck-list>{list.map((x) => row(x.key, x.state, CHECK_NAME[x.key] ?? x.name, x.why, { 'data-check': x.key, 'data-state': x.state }))}</div>
+      <section aria-label="조종 준비" data-u4-prep data-pill={pill.tone}>
+        {steps.map((x) => row(`s${x.n}`, x.done ? 'ok' : x.cur ? 'blocked' : 'none', <>조종 준비 {x.n} · {x.title}</>,
+          <span id={x.id}>{x.text}{x.guide && <> · <a href="#guide" onClick={(e) => { e.preventDefault(); guide(); }} data-open-guide>연결 방법</a></>}</span>,
+          { 'data-step': x.n, className: `r${x.done ? ' done' : x.cur ? ' cur' : ''}` }))}
+        <span hidden data-pill-text>{pill.text}</span>
+      </section>
+      <RealView r={r} />
+    </>}
+    <div className="btns" style={{ position: 'absolute', left: '18px', bottom: '18px', height: '50px', width: '200px', fontSize: '14.5px' }} role="button" tabIndex={0} onClick={c.refresh} data-u4-recheck>다시 점검</div>
   </div>;
 }
 function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
@@ -200,7 +276,9 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
     : `걷는 중 · ${sp.toFixed(1)} m/s ${a && a[0] < 0 ? '뒤로' : a && Math.abs(a[1] ?? 0) > Math.abs(a[0] ?? 0) ? '옆으로' : '앞으로'}`;
   const located = online && s?.location?.x != null;
   const drive = a && online ? { v: a[0] ?? 0, side: a[1] ?? 0, turn: a[2] ?? 0 } : null;
-  const hot: Record<string, string> = temps && temps.hot >= 0 && hotJ != null && hotJ >= 60 ? { [JOINTS[temps.hot].replace(/_joint$/, '')]: 'hot' } : {};
+  // 3D 관절 색: 조종 = 60 °C 넘은 가장 뜨거운 관절만(u4_2), 점검 = 관절마다 주의 50 · 경고 60(u4_4 범례)
+  const hot: Record<string, string> = tab === 'check' ? Object.fromEntries((temps?.joints ?? []).flatMap((v, i) => (v != null && v >= 50 ? [[JOINTS[i].replace(/_joint$/, ''), v >= 60 ? 'hot' : 'warn']] : [])))
+    : temps && temps.hot >= 0 && hotJ != null && hotJ >= 60 ? { [JOINTS[temps.hot].replace(/_joint$/, '')]: 'hot' } : {};
   const ready = d.ready;
   // 시안 u4_9 정지됨 · u4_10 다시 시작 확인: 내 조종 중 로봇이 정지 잠김이면 정지 칸 자리에 「다시 시작」(잠금 해제) · Damping, 조종 줄 · 손잡이는 흐리게
   const latched = mine && online && s?.latched === true, lying = s?.posture?.state === 'LYING';
@@ -244,10 +322,12 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
         : d.stopLine ? <div className="g dk tag" style={{ left: '24px', top: '24px', color: d.stopLine.tone === 'bad' ? '#ff4d4f' : d.stopLine.tone === 'ok' ? '#00c389' : '#f2b705', fontSize: '14px', fontWeight: '800' }} role="status" data-sd-stop-phase data-tone={d.stopLine.tone}>{d.stopLine.text}</div> : null}
       {hotTag && <span className="g dk tag warntag" style={{ left: '150px', top: '300px', color: '#ff4d4f' }} data-u4-hot>{hotTag}</span>}
       <div className="g bub" style={{ left: '58%', top: '70px' }} data-u4-notes>{d.notes}</div>
-      <div className="foot"><span className="g dk tag" style={{ position: 'static', color: '#00c389', minWidth: '178px', justifyContent: 'center' }} data-u4-walk>{walk}</span>
+      {tab === 'check' ? <div className="foot" data-u4-legend><span className="g dk tag" style={{ position: 'static', color: '#00c389' }}>보통</span><span className="g dk tag" style={{ position: 'static', color: '#f2b705' }}>주의 50 °C</span><span className="g dk tag" style={{ position: 'static', color: '#ff4d4f' }}>경고 60 °C</span><span className="mu2" style={{ marginLeft: 'auto', fontSize: '12.5px' }}>관절 온도는 색으로 표시 · 마우스를 올리면 값이 보입니다</span></div>
+      : <div className="foot"><span className="g dk tag" style={{ position: 'static', color: '#00c389', minWidth: '178px', justifyContent: 'center' }} data-u4-walk>{walk}</span>
         <span className="g dk tag" style={{ position: 'static', color: '#ffffff' }} data-u4-loc>{located ? '위치 추정 켜짐' : `위치 추정 ${NA}`}</span>
-        <span className="mu2" style={{ marginLeft: 'auto', fontSize: '12.5px' }}>실제 관절값으로 제자리에서 움직임 · 바닥 점이 뒤로 흐르면 앞으로 걷는 중</span></div></div>
-    <div className="right" data-u4-can={can || undefined}><div className="views" aria-label="로봇 보기">
+        <span className="mu2" style={{ marginLeft: 'auto', fontSize: '12.5px' }}>실제 관절값으로 제자리에서 움직임 · 바닥 점이 뒤로 흐르면 앞으로 걷는 중</span></div>}</div>
+    {tab === 'check' ? <div className="right" data-u4-can={can || undefined}><Check c={c} r={r} guide={() => setGuide(true)} /></div>
+      : <div className="right" data-u4-can={can || undefined}><div className="views" aria-label="로봇 보기">
       {view === 'map' ? <MapView c={c} r={r} /> : <div className="mapv" data-u4-big={view}>{view === 'lidar' ? <Lidar fs={fs} /> : <Feed fs={fs} ch={view} big />}</div>}
       <div className="g dk vsel">{VIEWS.map(([k, t]) => <span key={k} className={view === k ? 'on' : undefined} data-view={k} role="button" tabIndex={0} aria-pressed={view === k} onClick={() => setView(k)}>{t}</span>)}</div>
       <div className="small" data-swap="1" data-cam-inset role="button" tabIndex={0} onClick={() => setView(view === 'map' ? 'rgb' : 'map')}>{small}<span className="cl">{view === 'map' ? '앞 카메라' : '지도'}</span></div>
@@ -278,12 +358,12 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
         })}</div>
         <div className={`why${msg ? ' on' : ''}`} role="status" data-u4-why>{msg}</div>
       </div>
-    </div>
-    {tab !== 'drive' && <><div className="veil" onClick={() => setTab('drive')} />
-      <div className="g modal" role="dialog" aria-label={tab === 'settings' ? '로봇 설정' : '점검'} data-u4-tab={tab} style={tab === 'check' ? { width: '760px', maxHeight: '920px', overflow: 'hidden' } : undefined}>
-        <div className="row" style={{ justifyContent: 'space-between' }}><span className="ttl">{r.name} {tab === 'settings' ? '로봇 설정' : '점검'}</span>
-          <span className="xclose" role="button" tabIndex={0} aria-label="닫기" data-u4-close onClick={() => setTab('drive')}><svg className="ic" viewBox="0 0 24 24" style={{ width: '22px', height: '22px' }}><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg></span></div>
-        {tab === 'settings' ? <Settings c={c} r={r} /> : guide ? <Guide r={r} /> : r.owner === c.user.id || c.user.role === 'ORG_ADMIN' ? <><Prepare c={c} r={r} guide={() => setGuide(true)} /><RealView r={r} /></> : <p className="mu" data-u4-check-none>내 담당 로봇만 점검할 수 있습니다 · 이 로봇은 요약만 보입니다.</p>}
+    </div>}
+    {(tab === 'settings' || guide) && <><div className="veil" onClick={() => { setTab(tab === 'settings' ? 'drive' : tab); setGuide(false); }} />
+      <div className="g modal" role="dialog" aria-label={guide ? '로봇 연결 방법' : '로봇 설정'} data-u4-tab={guide ? 'guide' : tab}>
+        <div className="row" style={{ justifyContent: 'space-between' }}><span className="ttl">{r.name} {guide ? '연결 방법' : '로봇 설정'}</span>
+          <span data-go="u4_1_robot" className="xclose" role="button" tabIndex={0} aria-label="닫기" data-u4-close onClick={() => { if (guide) setGuide(false); else setTab('drive'); }}><svg className="ic" viewBox="0 0 24 24" style={{ width: '22px', height: '22px' }}><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg></span></div>
+        {guide ? <Guide r={r} /> : <Settings c={c} r={r} />}
       </div></>}
   </>;
 }
@@ -301,22 +381,35 @@ function Empty({ add, none }: { add: () => void; none?: ReactNode }) {
     <div className="right"><div className="views" aria-label="로봇 보기" /></div>
   </>;
 }
-/** 로봇 탭은 실기만(TAB-SPLIT): 시뮬을 빼고, 고른 로봇이 시뮬이면 첫 실기로(fleet useReal 그대로). 실기가 없으면 시뮬 탭 길 */
+/** 목록 = 시안 u4 처럼 실기 + 시뮬(시뮬 줄은 rehearse 파란 점선). 끝낸 시뮬 슬롯(담당 비움)은 뺀다. 고른 로봇이 목록에 없으면 첫 줄로(머리줄 STOP 대상 = 화면) */
 function Real({ c, add }: { c: Ctx; add: () => void }) {
-  const rc = useReal(c);
-  return rc ? <><Rail c={rc} sel={rc.robot.id} add={add} /><Robot1 key={rc.robot.id} c={rc} r={rc.robot} /></> : <Empty add={add} none={<NoReal />} />;
+  const robots = c.robots.filter((x) => !x.sim || !!x.owner), robot = robots.find((x) => x.id === c.robot.id) ?? robots[0];
+  useEffect(() => { if (robot && robot.id !== c.robot.id) c.pick(robot.id); }, [robot?.id, c.robot.id]);
+  if (!robot) return <Empty add={add} />;
+  const rc = { ...c, robot, robots };
+  return <><Rail c={rc} sel={robot.id} add={add} /><Robot1 key={robot.id} c={rc} r={robot} /></>;
 }
 
 const light = () => typeof document !== 'undefined' && document.documentElement.dataset.theme === 'light';
 
 /** 로봇 탭 PC 화면(App 의 로봇 탭 본문). c 가 null 이면 로봇 0대 */
 export function RobotTab({ c, user, refresh, cancel }: { c: Ctx | null; user: Ctx['user']; refresh: () => void; cancel?: AbortSignal }) {
-  const [adding, setAdding] = useState(false), add = () => setAdding(true);   // 총괄도 붙인다(11/28 · 서버 #544)
+  // 로봇 추가(시안 u4_6): 실제 · 시뮬 고르기 → 다음. 실제 = 새 로봇 추가(QR · 6자리 · 단계 막대 · 설치 파일 받기), 시뮬 = 시뮬 탭. 총괄도 붙인다(11/28 · 서버 #544)
+  const [adding, setAdding] = useState<null | 'pick' | 'real'>(null), [kind, setKind] = useState<'real' | 'sim'>('real'), add = () => { setKind('real'); setAdding('pick'); };
   return <div className={`proto${light() ? ' light' : ''} u4`} data-u4 aria-label="로봇">
     {c ? <Real c={c} add={add} /> : <Empty add={add} none={user.role === 'ORG_ADMIN'   // 로봇 0대(U11-04 빈 화면) · 문구는 폰 · 옛 PC 와 같게. 관제 요약 · 운영 관리자 표는 W1 u5
       ? <EmptyCard kind="robots" title="등록된 로봇이 없습니다" why="운영 관리자가 실기 로봇을 연결하거나 «시뮬 탭 열기»에서 띄우면 여기에 보입니다."><a className="btn pri" href="#/sim">시뮬 탭 열기</a></EmptyCard>
       : <EmptyCard kind="robots" title="담당 로봇이 없습니다" why="연결 코드로 실기를 등록하거나 총괄에게 담당 지정을 요청하세요. 시뮬 로봇은 «시뮬 탭 열기»에서 띄웁니다."><button type="button" className="btn pri" onClick={add} data-pair-start>+ 새 로봇 추가</button><a className="btn" href="#/sim">시뮬 탭 열기</a></EmptyCard>} />}
-    {adding && <><div className="veil" onClick={() => setAdding(false)} /><div className="g modal" role="dialog" aria-label="로봇 추가">
-      <AddRobot user={user} mine={(c?.robots ?? []).filter((x) => x.owner === user.id).map((x) => x.id)} close={() => setAdding(false)} refresh={refresh} cancel={cancel} /></div></>}
+    {adding && <><div className="veil" onClick={() => setAdding(null)} /><div className="g modal" style={{ width: '680px' }} role="dialog" aria-label="로봇 추가" data-u4-adding={adding}>
+      {adding === 'pick' ? <>
+        <div className="row" style={{ justifyContent: 'space-between' }}><span className="ttl">로봇 추가</span>
+          <span data-go="u4_1_robot" className="xclose" role="button" tabIndex={0} aria-label="닫기" data-u4-close onClick={() => setAdding(null)}><svg className="ic" viewBox="0 0 24 24" style={{ width: '22px', height: '22px' }}><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg></span></div>
+        <div style={{ display: 'flex', gap: '14px', marginTop: '22px' }} role="radiogroup" aria-label="로봇 종류">
+          <div className={`opt${kind === 'real' ? ' on' : ''}`} role="radio" tabIndex={0} aria-checked={kind === 'real'} onClick={() => setKind('real')} data-u4-kind="real"><svg className="ic" viewBox="0 0 24 24" style={{ width: '30px', height: '30px' }}><path d="M4 13h11l3-3h2v4l-2 1H5z" /><path d="M6 15l-1 4M10 15v4M14 15v4M17 15l1 4" /></svg><b>실제</b><p>폰에 뜬 QR 을 로봇 앞 카메라에 보여 주거나 6 자리 코드를 입력합니다.</p></div>
+          <div className={`opt${kind === 'sim' ? ' on' : ''}`} role="radio" tabIndex={0} aria-checked={kind === 'sim'} onClick={() => setKind('sim')} data-u4-kind="sim"><svg className="ic" viewBox="0 0 24 24" style={{ width: '30px', height: '30px' }}><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /><path d="m3.3 7 8.7 5 8.7-5" /><path d="M12 22V12" /></svg><b>시뮬</b><p>도입 전에 동선과 일정을 미리 시험하거나, 우리 지도 · 경기장에서 지형 적응을 시험합니다. 늘 「시뮬」 표시가 붙습니다.</p></div>
+        </div>
+        <div data-go="u2_1_scan" className="btnp" style={{ height: '52px', marginTop: '22px', fontSize: '15px' }} role="button" tabIndex={0} data-u4-next
+          onClick={() => { if (kind === 'sim') { setAdding(null); location.hash = '#/sim'; } else setAdding('real'); }}>다음</div></>
+        : <AddRobot user={user} mine={(c?.robots ?? []).filter((x) => x.owner === user.id).map((x) => x.id)} close={() => setAdding(null)} refresh={refresh} cancel={cancel} />}</div></>}
   </div>;
 }
