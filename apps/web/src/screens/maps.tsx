@@ -402,7 +402,10 @@ const picFloor = (b: MapBuilding) => [firstFloor(b), ...byLevel(b.floors)].find(
 
 /** 판 크기(m) · 넓이(m²) · 날짜 · 판 번호 — 시안 u7 의 「50 만 m² (900 × 560 m) · 11/20 · v3」 를 받은 값으로만 */
 const meters = (v: MapVersion) => { const w = v.width * v.resolution, h = v.height * v.resolution, r = (x: number) => (x >= 10 ? Math.round(x) : Math.round(x * 10) / 10);
-  return { wh: `${r(w)} × ${r(h)} m`, area: `${r(w * h).toLocaleString('ko-KR')} m²` }; };
+  return { wh: `${r(w)} × ${r(h)} m`, area: areaText(w * h) }; };
+/** 넓이 글(시안 u7 꼴): 1 만 m² 부터 「50 만 m²」 「4.2 만 m²」(10 만 이상은 정수, 그 아래는 소수 한 자리), 그 아래는 「8,400 m²」 */
+export const areaText = (a: number) => { if (a < 10000) return `${(a >= 10 ? Math.round(a) : Math.round(a * 10) / 10).toLocaleString('ko-KR')} m²`;
+  const m = a / 10000; return `${m >= 10 ? Math.round(m) : Math.round(m * 10) / 10} 만 m²`; };
 const md = (at: string) => { const d = new Date(at); return Number.isNaN(d.getTime()) ? '' : `${d.getMonth() + 1}/${d.getDate()}`; };
 /** 만든 방법(판 source · 3D 파일 · 시뮬 지형) */
 const howMade = (v: MapVersion) => (v.provenance === 'SIMULATION' ? '시뮬 지형' : voxelOf(v) ? '3D 지도 파일' : v.source === 'SLAM' ? '로봇으로 그림' : v.source === 'EDIT' ? '지도 고침' : v.source === 'ROLLBACK' ? '되돌림' : '파일 올림');
@@ -474,7 +477,7 @@ function Pick({ maker, t, places, vers, choose, make, note, manage, setManage, e
               <Thumb id={f.approved_version_id} v={x} demo={demoBoard(cur.site, cur.building)} />
               <span className="mp-rt"><span className="fh-row"><b>{f.name}</b>{x ? <span className="lv-chip ok">{howMade(x)}</span> : f.approved_version_id ? null : <span className="lv-chip off">지도 없음</span>}
                 {x && voxelOf(x) && <span className="lv-chip" data-voxel-chip title="3D 지도 파일에서 만든 지도 · 시뮬 지형 연결됨">3D</span>}</span>
-                {x && <small>{meters(x).wh} · {md(x.created_at)} · v{x.number}</small>}</span><span className="mp-chev" aria-hidden="true">›</span></button>; })}</div>
+                {x && <small>{meters(x).area} ({meters(x).wh}) · {md(x.created_at)} · v{x.number}</small>}</span><span className="mp-chev" aria-hidden="true">›</span></button>; })}</div>
           {floors.length >= 2 && <Stack floors={floors} sel={fl?.id} pick={setFid} />}
         </section>
         {fl && <section className="lv-card mp-prev" aria-label="미리 보기">
@@ -482,7 +485,7 @@ function Pick({ maker, t, places, vers, choose, make, note, manage, setManage, e
             : <div className="mx-center"><p className="lv-note">{fl.approved_version_id ? '지도를 불러오는 중…' : '이 층에 아직 지도가 없습니다. 지도를 열어 올리거나 로봇으로 그립니다.'}</p></div>}
             {v && <span className="mp-tag">위에서 본 지도 · {meters(v).wh}{modelOf(v) ? ' · 3D 모형 있음' : ''}</span>}</div>
           <div className="mp-pf"><div className="fh-row"><b className="mp-pt" data-prev-title>{cur.building.name} · {fl.name}</b>{v && <span className="lv-chip ok">{howMade(v)}</span>}</div>
-            {v && <p className="mp-facts"><span>{meters(v).area}</span><span>{meters(v).wh}</span><span>{md(v.created_at)} · v{v.number}</span><span>접근 금지 {NOGO(v)}</span></p>}
+            {v && <p className="mp-facts"><span>{meters(v).area}</span><span>{meters(v).wh}</span><span>{md(v.created_at)} · v{v.number}</span><span>금지 구역 {NOGO(v)}</span></p>}
             <div className="fh-row"><button type="button" className="btn pri fh-grow" data-open-map onClick={() => choose(fl.id)}>지도 열기</button>
               {fl.approved_version_id && <button type="button" className="btn" data-open-history onClick={() => choose(fl.id, 'history')}>버전 기록</button>}</div></div>
         </section>}

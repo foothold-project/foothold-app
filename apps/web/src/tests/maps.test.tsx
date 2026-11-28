@@ -6,7 +6,7 @@ import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MapFeatures, MapVersion, RobotSummary, SiteTree, User } from '../../../contracts/ts';
 import { Root } from '../session';
-import { SIM_SAVE, Shapes, floorName, pixelTo, toPixel } from '../screens/maps';
+import { SIM_SAVE, Shapes, areaText, floorName, pixelTo, toPixel } from '../screens/maps';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { featSub, kept } from '../screens/mapedit';
 import { FACTORY_PNG, FactoryImage } from '../mapframe';
@@ -2402,12 +2402,12 @@ describe('지도 탭 · 시안 u7', () => {
     expect(sites.querySelector('[data-building="b1"]')!.getAttribute('aria-pressed')).toBe('true');
     const rows = $$('[aria-label="층 목록"] [data-floor-row]');
     expect(rows.map((r) => r.dataset.floorRow)).toEqual(['f1', 'f2']);
-    expect(rows[0].textContent).toContain('1층'); expect(rows[0].textContent).toContain('5 × 4 m'); expect(rows[0].textContent).toContain('10/20 · v2');
+    expect(rows[0].textContent).toContain('1층'); expect(rows[0].textContent).toContain('20 m² (5 × 4 m)'); expect(rows[0].textContent).toContain('10/20 · v2');
     expect(rows[0].querySelector('.mx-thumb image')!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
     expect(rows[1].textContent).toContain('지도 없음');
     const prev = card('미리 보기');
     expect(prev.querySelector('[data-prev-title]')!.textContent).toBe('본동 · 1층');
-    expect(prev.textContent).toContain('20 m²'); expect(prev.textContent).toContain('접근 금지 1');
+    expect(prev.textContent).toContain('20 m²'); expect(prev.textContent).toContain('금지 구역 1');
     for (const w of ['억 점', 'GLIM', '3DGS', '사진']) expect(box.textContent, w).not.toContain(w);
     await click(rows[1]);
     expect(card('미리 보기').querySelector('[data-prev-title]')!.textContent).toBe('본동 · 2층');
@@ -2445,6 +2445,10 @@ describe('지도 탭 · 시안 u7', () => {
     const html = renderToStaticMarkup(<svg><FactoryImage v={{ origin: [0, -560, 0], resolution: 0.5, height: 1120 }} /></svg>);
     const [a, b, c, d, e, f] = html.match(/matrix\(([^)]+)\)/)![1].split(' ').map(Number), at = (x: number, y: number) => [a * x + c * y + e, b * x + d * y + f];
     for (const [[x, y], [u, w]] of [[[25, 20], [0, 0]], [[3175, 1980], [1800, 1120]]] as const) { const [px, py] = at(x, y); expect(px).toBeCloseTo(u, 6); expect(py).toBeCloseTo(w, 6); }
+  });
+
+  it('넓이 글 = 시안 u7 꼴(50 만 m² · 4.2 만 m² · 8,400 m²)', () => {
+    expect([504000, 42000, 18000, 100000, 8400, 20, 2.25].map(areaText)).toEqual(['50 만 m²', '4.2 만 m²', '1.8 만 m²', '10 만 m²', '8,400 m²', '20 m²', '2.3 m²']);
   });
 
   it('구역 이름표 = 시안 u7 꼴(왼쪽 위 안쪽 · 작은 흐린 글 · 흰 테두리 없음)', () => {
