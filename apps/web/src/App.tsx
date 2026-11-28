@@ -8,7 +8,7 @@ import type { User as ApiUser } from '../../contracts/ts';
 import { BrandLogo } from './BrandLogo';
 import { ROBOTS, ROLE_NAME, USERS, idleSim, lost, lostText, myRobots, robotsFor, type Robot, type User } from './fake';
 import { PC_BOTTOM, PC_TABS, PHONE_SCAN, labelOf, leaving, oldScenario, tabFromHash, tabsFor, type Tab, type TabId } from './menu';
-import { rt, useRt, withLive, type Live } from './rt';
+import { rt, undelivered, useRt, withLive, type Live } from './rt';
 import { BODY, EmptyFleet, inApp, useDash, type Ctx } from './screens';
 import { RobotTab } from './screens/u4/robotu4';
 import { pcBoard } from './pcboard';
@@ -38,6 +38,7 @@ function stopText(r: Robot, l: Live) {
   if (s.phase === 'sending') return `■ ${r.name} 정지 요청을 보내는 중입니다.`;
   if (s.phase === 'failed') return `▲ ${r.name} 정지 요청을 보내지 못했습니다. ${s.why ?? ''} 현장에서 로봇을 직접 멈추세요.`;
   if (s.phase === 'unsure') return `▲ ${r.name} 정지 요청을 보냈지만 서버 접수를 확인하지 못했습니다. ${s.why ?? ''} 현장에서 로봇을 직접 멈추세요.`;
+  const no = undelivered(s, st); if (no) return `▲ ${r.name} ${no}`;
   // 대체 경로로 보낸 뒤에는 다시 연결되어 요청 뒤 state 가 와야 로봇 확인을 본다
   if (s.phase === 'fallback' && !(st && l.stateAt > s.at)) return `■ ${r.name} 정지 요청됨(대체 경로) — 실시간 연결이 끊겨 로봇 확인은 보이지 않습니다. 현장을 확인하세요.`;
   if (!st || l.stateAt <= s.at) return `■ ${r.name} 정지 요청됨 — 서버가 받았습니다. 로봇 확인을 기다립니다.`;

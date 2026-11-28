@@ -14,7 +14,7 @@ import { COOLDOWN_S, FAIL_TEXT, FREE_TEXT, REQUEST_S, STOP_HTTP_MS, STOP_WS_MS, 
 import { FakeWS, fail, lease, state } from './fakeWs';
 import { STALLED } from '../simdrive';
 import { driveBlock } from '../fake';
-import { COMBO_BLOCK, MAX_TURN_RATE, SIDE_BLOCK } from '../serverdrive';
+import { COMBO_BLOCK, MAX_TURN_RATE, SIDE_BLOCK, stopLine } from '../serverdrive';
 import { simTune } from '../phone';
 import { REAL_STICK, REAL_WAIT } from '../drive';
 import driveCss from '../drive.css?raw';
@@ -773,6 +773,71 @@ describe('PR #12 검토 1차', () => {
     tick(STOP_HTTP_MS); await settle();
     expect(band()).toContain('Go2-7 정지 요청됨 — 서버가 받았습니다.');
     expect(band()).not.toMatch(/보내지 못했습니다|확인하지 못했습니다/);
+  });
+  // Codex #536 M1 (11-28): 서버가 delivered=false(붙은 에이전트에 넣지 못함)를 돌려주면 «접수»와 같게 보이지 않는다. delivered 칸이 없는 옛 답은 그대로
+  const NO_WAY = '지금 로봇으로 보낼 길이 없습니다. 리모컨이나 현장에서 멈추세요.';
+  const NOT_SENT = '연결이 끊겨 정지를 보내지 못했습니다. 다시 연결되면 로봇은 잠긴 상태로 시작합니다. 지금 멈춰야 하면 리모컨이나 현장에서 멈추세요.';
+  it('[M1] WS 접수 delivered=false · 로봇 ONLINE → «보낼 길 없음» 한 줄, 접수 문구 없음', async () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    w.auto = (m) => (m.t === 'ping' ? { ok: true } : undefined);
+    click($('[data-stop]'));
+    recv({ t: 'reply', id: w.of('stop')[0].id, ok: true, delivered: false });
+    await settle();
+    expect(band()).toContain(`▲ Go2-7 ${NO_WAY}`);
+    expect(band()).not.toContain('서버가 받았습니다');
+  });
+  it('[M1] WS 접수 delivered=false · 에이전트 끊김(OFFLINE) → 정한 «보내지 못했습니다» 문구', async () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    w.auto = (m) => (m.t === 'ping' ? { ok: true } : undefined);
+    recv(state('r7', { connection: 'OFFLINE', status: null, battery: null, latched: null, stop_gen: null, applied: null }));
+    click($('[data-stop]'));
+    recv({ t: 'reply', id: w.of('stop')[0].id, ok: true, delivered: false });
+    await settle();
+    expect(band()).toContain(`▲ Go2-7 ${NOT_SENT}`);
+  });
+  it('[M1] HTTP 대체 경로 202 본문 delivered=false → 같은 «보낼 길 없음», delivered=true 는 지금 그대로(대체 경로)', async () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ requested: true, delivered: false }), { status: 202 })));
+    w.auto = (m) => (m.t === 'ping' ? { ok: true } : undefined);
+    click($('[data-stop]'));
+    tick(STOP_WS_MS); await settle();
+    expect(band()).toContain(`▲ Go2-7 ${NO_WAY}`);
+    expect(band()).not.toContain('정지 요청됨(대체 경로)');
+  });
+  it('[M1] delivered=false 뒤 이 STOP 뒤 세대의 잠금을 로봇이 알리면 «보낼 길 없음» 을 내리고 로봇 보고를 따른다', async () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    w.auto = (m) => (m.t === 'ping' ? { ok: true } : undefined);
+    click($('[data-stop]'));
+    recv({ t: 'reply', id: w.of('stop')[0].id, ok: true, delivered: false });
+    await settle();
+    expect(band()).toContain(NO_WAY);
+    tick(100);
+    recv(state('r7', { latched: true, stop_gen: 9, applied: [0, 0, 0] }));
+    await settle();
+    expect(band()).not.toContain(NO_WAY);
+    expect(band()).toContain('Go2-7 정지 잠금');
+  });
+  it('[M1] HTTP 대체 경로 delivered=true 는 지금 문구 그대로', async () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ requested: true, delivered: true }), { status: 202 })));
+    w.auto = (m) => (m.t === 'ping' ? { ok: true } : undefined);
+    click($('[data-stop]'));
+    tick(STOP_WS_MS); await settle();
+    expect(band()).toContain('정지 요청됨(대체 경로)');
+    expect(band()).not.toContain(NO_WAY);
+  });
+  it('[M1] 조종 패널 stopLine: delivered=false 면 «보낼 길 없음»(끊김이면 정한 문구), 없으면 지금 그대로', () => {
+    const base = { phase: 'sent' as const, at: 1, n: 1, g0: 1, conn: 1, rev: 0 };
+    const on = state('r7', {}) as ScreenState, off = state('r7', { connection: 'OFFLINE', latched: null, stop_gen: null, applied: null }) as ScreenState;
+    expect(stopLine({ stop: { ...base, delivered: false }, state: on })).toEqual({ tone: 'bad', text: NO_WAY });
+    expect(stopLine({ stop: { ...base, delivered: false }, state: off })).toEqual({ tone: 'bad', text: NOT_SENT });
+    expect(stopLine({ stop: { ...base, phase: 'fallback', delivered: false }, state: on })).toEqual({ tone: 'bad', text: NO_WAY });
+    expect(stopLine({ stop: base, state: on })!.text).toContain('정지 요청 접수');
   });
   it('[N2] 대체 경로로 넘어간 뒤 늦게 온 WS 거절은 무시(HTTP 결과를 따름)', async () => {
     mount(true, 'u-park', '#/drive/r7');
