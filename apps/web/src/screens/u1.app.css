@@ -137,4 +137,4 @@
 .u1d .u1-vcol .btn .ic{width:16px;height:16px}
 .u1d .u1-vcol .btn[aria-pressed="true"]{background:#1f2421;color:#fff}
 .u1d .u1-vcol .btn[aria-disabled="true"]{opacity:.4;cursor:not-allowed}
-.u1d .u1-vcol .u1-vnote{position:absolute;left:54px;bottom:10px;white-space:nowrap;margin:0;padding:5px 10px;border-radius:999px;font-size:11.5px;font-weight:700;background:rgba(20,24,30,.82);color:#fff}
+.u1d .u1-vcol .u1-vnote{position:absolute;left:54px;bottom:10px;white-space:nowrap;margin:0;padding:5px 10px;border-radius:999px;font-size:11.5px;font-weight:700;color:var(--ink)}   /* 시안 유리 .g(밝은 유리 · 시안 u1_12 「두 손가락으로 돌리기」 알약 결) · 어두운 판 바탕과 대비 */

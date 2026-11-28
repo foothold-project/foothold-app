@@ -361,14 +361,14 @@ function Screen(c: Ctx) {
   const ban = (cls: string, x: ReactNode, p: Record<string, string | boolean> = {}) => <p className={`ban ${cls}`} role="status" {...p}>{x}</p>;
   // 정지 잠금 중(시안 u1_3): 조이스틱 · 동작 줄은 숨긴다(visibility · u1.app.css). 지우지 않는 까닭: 누른 손가락 · 세대(RV-425)는 부품이 붙어 있어야 그대로 판정
   // 임무 화면(시안 u1_1 · u1_15 · 보이기만): 끝나지 않은 실행이 있고 내 조종이 아닐 때 바탕 층 지도 · 왼쪽 아래 카드 · 칩 글. 칩 글만 바꾸고 lock(조종 판정)은 그대로
-  const mrun = !mine && missionOn(l.state?.run) ? l.state!.run! : null, mis = useMission(r.id, mrun?.run_id ?? ''), chipNow = mrun ? missionChip(mrun) : lock;
+  const mrun = !mine && missionOn(l.state?.run) ? l.state!.run! : null, mis = useMission(r.id, mrun?.run_id ?? ''), lockFirst = mrun && lock.text !== '보는 중' ? lock : null, chipNow = mrun && !lockFirst ? missionChip(mrun) : lock;   // 안전 표시: 정지 잠금 · 확인 중 · 상태 모름이면 임무 글보다 그 글이 먼저(칩 · 카드 줄)
   const u1 = <div className={`proto pv u1d${light ? ' light' : ''}`} data-u1d data-stop-held={stopHeld ? '' : undefined} data-mission={mrun ? '' : undefined}>
     {mrun && <MissionMap m={mis} run={mrun} pose={l.state?.location ?? r.location} view={mview} />}
     {mrun && <div className="g u1-vcol" role="group" aria-label="지도 시점">
       {([['follow', '로봇', <path key="p" d="M12 3l7 16-7-4-7 4z" />], ['top', '평면', <><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z" /><path d="M9 3v15M15 6v15" /></>]] as const).map(([v, t, ic]) =>
         <button key={v} type="button" className="btn" aria-pressed={mview === v} onClick={() => setMview(v)}><svg className="ic" viewBox="0 0 24 24">{ic}</svg>{t}</button>)}
       <button type="button" className="btn" aria-pressed={false} aria-disabled="true" title="3D 지도 준비 중" onClick={() => setD3(true)} data-view-3d-off><svg className="ic" viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" /><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5" /></svg>3D</button>
-      {d3 && <p className="u1-vnote" role="status">3D 지도 준비 중</p>}
+      {d3 && <p className="g u1-vnote" role="status">3D 지도 준비 중</p>}
     </div>}
     {!light && <div className="vig" />}
     <div className="tl">
@@ -413,7 +413,7 @@ function Screen(c: Ctx) {
       /* 시안 u1_8: 서버가 끊기면 띠 하나. 시안 「점검」 → 「다시 연결」(rt.reconnect): 폰에 망 점검 화면(u2_5 · u9_4)이 없어 시안 밖 · 새로 그림 */
       ? <p className="ban amb" role="status">서버 연결 안 됨 <button type="button" className="banbt" data-off-proto="reconnect" onClick={() => rt.reconnect()}>다시 연결</button></p>
       : <>
-      {!mine && ban('u1-who', holderText(l, me, r))}
+      {!mine && !mrun && ban('u1-who', holderText(l, me, r))}   {/* 임무 화면은 칩 · 카드가 같은 정보(시안 u1_1) */}
       {why && <p className={`ban ${driveBlock(c.user, r) ? 'amb' : 'u1-info'}`} role="status"><span id={whyId} className="fh-why" data-why>{why}</span>
         {l.outgoing && <button type="button" className="banbt" disabled={l.outgoing.canceling} onClick={() => rt.cancel(r.id)}>요청 취소</button>}</p>}
       {stalled && ban('red', STALLED, { 'data-stalled': true })}
@@ -435,7 +435,7 @@ function Screen(c: Ctx) {
       <Stick cls="stick" label="회전" shown={[0, kin.t]} on={ready} epoch={0} gen={gen} press={nowRef.current} set={(x) => { input.current.st[1] = stickTok('R', -x, 0); input.current.an.t = x; stickSay(); }} grip={(o) => { input.current.sg[1] = o; }} lift={send} /></>}
     {/* 설정 확인 알약: 시안 밖 · 새로 그림. 설정을 몰라 입력이 0 이 되는 순간만 동작 줄 위 가운데(10 초 넘으면 위 띠로) */}
     {unknown && zero && !long && <p className="u1-pill" role="status" data-real-wait-pill data-off-proto="settings-pill">{REAL_WAIT_PILL}</p>}
-    {mrun && <MissionCards robot={r.id} m={mis} run={mrun} />}
+    {mrun && <MissionCards robot={r.id} m={mis} run={mrun} hold={lockFirst?.text} />}
     {/* 아래 동작 줄(시안 u1_2 .act 일곱): 지금 못 누르는 것(순정 확인 전 · 저수준 중 · START 중 일어서기)은 흐리게(.na), 눌러도 보내지 않고 까닭 */}
     <div className="act" aria-label="동작">{ACTS.map(([name, t, em, ic]) => {
       const off = actOff(name, lowlevel), running = l.state?.action_result?.status === 'RUNNING' ? l.state.action_result.action : null;   // 지금 하는 동작 = 로봇 보고(시안 .act .run 초록 테)
