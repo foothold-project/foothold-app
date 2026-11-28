@@ -61,8 +61,9 @@ async function open(hash: string, phone: boolean) {
 }
 afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.unstubAllGlobals(); });
 
-const $ = <T extends Element = HTMLElement>(s: string, from: ParentNode = box) => from.querySelector<T>(s);
-const btn = (t: string, from: ParentNode = box) => [...from.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
+const $ = <T extends Element = HTMLElement>(s: string, from: ParentNode = document) =>   // 로봇 추가 흐름(u2)은 body 로 띄움
+  from.querySelector<T>(s);
+const btn = (t: string, from: ParentNode = document) => [...from.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
 const card = (label: string) => $(`[aria-label="${label}"]`)!;
 const click = async (b: Element | undefined | null) => { expect(b).toBeTruthy(); act(() => (b as HTMLElement).click()); await flush(); };
 const setVal = (el: HTMLInputElement, v: string) => act(() => {
@@ -322,9 +323,11 @@ describe('PC 웹 운영 관리자', () => {
     expect($('[aria-label="로봇 설정"]')!.textContent).toContain(SERIAL);
     await click($('[data-u4-close]'));
     expect($('[aria-label="로봇 설정"]')).toBeNull();
-    await click($('[data-u4-add]')); await click($('[data-u4-next]'));   // 시안 u4_6: 실제 고르고 다음
-    expect(card('새 로봇 추가').dataset.pair).toBe('code');
-    await click(btn('닫기', card('새 로봇 추가')));
+    await click($('[data-u4-add]')); await click($('[data-u4-next]'));   // 시안 u4_6: 실제 고르고 다음 → u2_1
+    expect($('[data-u2]')!.dataset.u2).toBe('u2_1_scan');
+    expect($('[aria-label="새 로봇 추가"]')).toBeNull();   // 옛 추가 창 0
+    await click($('[data-u2-back]'));   // 시안 머리 「뒤로」 = 닫기
+    expect($('[data-u2]')).toBeNull();
     expect($('[data-u4]')).not.toBeNull();
   });
 });
@@ -589,7 +592,7 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
   const info = (...items: unknown[]): Reply => ({ status: 200, body: { items } });
   const ua = (s: string) => vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(s);
   const UBUNTU = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64) Chrome/130', WINDOWS = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130';
-  const rows = () => [...box.querySelectorAll<HTMLElement>('[data-installer] [data-os]')];
+  const rows = () => [...document.querySelectorAll<HTMLElement>('[data-installer] [data-os]')];
   afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
   it('PC Ubuntu: 내 운영체제 줄 위·강조, 받기 = 로그인 쿠키 링크(크기 MB), 윈도우 준비 중, 받은 뒤 세 줄, 개발자 용어 없음', async () => {
@@ -598,6 +601,7 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
     await open('#/fleet', false);
     await click($('[data-u4-add]')); await click($('[data-u4-next]'));   // 시안 u4_6: 실제 고르고 다음
     const box2 = $('[data-installer]')!;
+    expect(box2.closest('[data-u2="u2_1_scan"]')).not.toBeNull();   // 시안 u2_1 의 QR 자리(offer 전)
     expect(box2.textContent).toContain('노트북에 연결 프로그램이 없나요?');
     expect(rows().map((r) => r.dataset.os)).toEqual(['linux', 'windows']);
     expect(rows()[0].dataset.mine).toBe('true');
@@ -606,16 +610,14 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
     expect(a.getAttribute('href')).toBe('/api/v1/robot-installer/linux');
     expect(a.getAttribute('download')).toBe('foothold-robot_0.3.0_amd64.deb');
     expect(a.textContent).toBe('받기 (12.3 MB)');
-    expect(a.className).toBe('btn pri');
     expect($('[data-os="windows"] a')).toBeNull();
     expect($('[data-os="windows"]')!.textContent).toContain('준비 중입니다');
-    expect([...box2.querySelectorAll('[data-installer-steps] li')].map((l) => l.textContent)).toEqual(['받은 파일을 더블클릭해 설치', '랜선을 로봇에 꽂기', '노트북 화면의 코드를 «6자리 코드» 칸에 넣기']);
+    expect([...box2.querySelectorAll('[data-installer-steps] li')].map((l) => l.textContent)).toEqual(['받은 파일을 더블클릭해 설치', '랜선을 로봇에 꽂기', '노트북 화면의 6 자리 코드를 오른쪽 칸에 넣기']);
     expect(box2.textContent).not.toMatch(/sha|commit|platform|deb|0\.3\.0/i);
     expect($('[data-installer-phone]')).toBeNull();
-    // PC(11-12): «설치 | 코드» 두 칸, 6자리 코드가 주 동작·QR 은 보조(폰 틀이 아님)
-    expect($('.pair-cols [aria-label="코드 넣기"] [data-pair-code]')).not.toBeNull();
-    expect(btn('다음')!.className).toBe('btn pri');
-    expect(btn('QR 스캔')!.className).toBe('btn');
+    // 시안 u2_1: 왼쪽 = 설치(QR 자리) · 오른쪽 = 6 자리 코드 칸(주 동작)
+    expect($('[data-u2="u2_1_scan"] [data-u2-digits]')).not.toBeNull();
+    expect($('[data-u2="u2_1_scan"] [data-pair-code]')).not.toBeNull();
     expect($('[data-agent-open] a')!.getAttribute('href')).toBe('foothold-robot://open');   // 노트북 연결 프로그램 열기(PC 만)
     expect($('[data-agent-open] a')!.textContent).toBe('노트북 연결 프로그램 열기');
   });
@@ -628,7 +630,7 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
     expect(rows().map((r) => r.dataset.os)).toEqual(['windows', 'linux']);
     expect(rows()[0].dataset.mine).toBe('true');
     expect(rows()[1].dataset.mine).toBeUndefined();
-    expect(rows()[0].textContent).toContain('‘Windows의 PC 보호’ 가 뜨면 ‘추가 정보 → 실행’');
+    expect(rows()[0].textContent).toContain('「Windows의 PC 보호」 가 뜨면 「추가 정보 → 실행」');
   });
 
   it('만드는 중: «만드는 중… 잠시 뒤 다시», 10초마다 다시 묻다가 준비되면 받기, 닫으면 멈춤 / 없는 이유는 쉬운 말', async () => {
@@ -638,7 +640,7 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
     vi.useFakeTimers({ shouldAdvanceTime: true });   // 10초 다시 묻기 타이머가 가짜 시계에 걸리게 — flush 의 0ms 는 실제 시간으로 흐름
     await open('#/fleet', false);
     await click($('[data-u4-add]')); await click($('[data-u4-next]'));   // 시안 u4_6: 실제 고르고 다음
-    expect($('[data-os="linux"]')!.textContent).toContain('만드는 중… 잠시 뒤 다시');
+    expect($('[data-os="linux"]')!.textContent).toContain('만드는 중 · 잠시 뒤 다시');
     expect($('[data-os="windows"]')!.textContent).toContain('이 서버에서는 설치 파일을 만들 수 없습니다');
     expect(sent('GET', '/robot-installer/info')).toHaveLength(1);
     const wait = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); for (let i = 0; i < 10; i++) await Promise.resolve(); });
@@ -654,10 +656,10 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
     expect(sent('GET', '/robot-installer/info')).toHaveLength(3);   // 준비됨 → 더 묻지 않음
     // 다시 만드는 중으로 열었다가 닫으면 멈춤
     now = info({ platform: 'linux', available: false, reason: 'not_built' }, WIN);
-    act(() => btn('닫기', card('새 로봇 추가'))!.click()); await wait(0);
+    act(() => $('[data-u2-back]')!.click()); await wait(0);
     act(() => $('[data-u4-add]')!.click()); await wait(0); act(() => $('[data-u4-next]')!.click()); await wait(0);
     expect(sent('GET', '/robot-installer/info')).toHaveLength(4);
-    act(() => btn('닫기', card('새 로봇 추가'))!.click()); await wait(0);
+    act(() => $('[data-u2-back]')!.click()); await wait(0);
     await wait(30_000);
     expect(sent('GET', '/robot-installer/info')).toHaveLength(4);
   });
@@ -675,7 +677,7 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
     await open('#/fleet', false);
     await click($('[data-u4-add]')); await click($('[data-u4-next]'));   // 시안 u4_6: 실제 고르고 다음
     expect(sigs).toHaveLength(1);
-    await click(btn('닫기', card('새 로봇 추가')));
+    await click($('[data-u2-back]'));
     expect(sigs[0].aborted).toBe(true);   // 닫으면 끊김
     await click($('[data-u4-add]')); await click($('[data-u4-next]'));   // 시안 u4_6: 실제 고르고 다음
     expect(sigs).toHaveLength(2);
@@ -696,10 +698,10 @@ describe('새 로봇 추가 — 설치 파일 받기(RB-INSTALL-DL-WEB)', () => 
     await click($('[data-u4-add]')); await click($('[data-u4-next]'));   // 시안 u4_6: 실제 고르고 다음
     expect($('[data-installer-fail]')!.textContent).toBe('설치 파일 정보를 받지 못했습니다. 권한이 없습니다.');
     expect(rows()).toHaveLength(0);
-    expect($('[aria-label="새 로봇 추가"] [role="alert"]')).toBeNull();
-    setVal($<HTMLInputElement>('[data-pair-code]')!, '123456');
-    await submit($<HTMLInputElement>('[data-pair-code]')!.form!);
-    expect(card('새 로봇 추가').dataset.pair).toBe('name');
+    expect($('[data-u2] [role="alert"]')).toBeNull();
+    setVal($<HTMLInputElement>('[data-pair-code]')!, '123456');   // 여섯째 숫자에서 바로 claim
+    await flush();
+    expect($('[data-u2]')!.dataset.u2).toBe('u2_2_confirm');
     expect($('[data-installer]')).toBeNull();   // 이름 단계엔 카드 없음
   });
 

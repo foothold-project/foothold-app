@@ -45,8 +45,9 @@ async function open(phone = true) {
 }
 afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
-const $ = <T extends Element = HTMLElement>(s: string, from: ParentNode = box) => from.querySelector<T>(s);
-const btn = (t: string, from: ParentNode = box) => [...from.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
+const $ = <T extends Element = HTMLElement>(s: string, from: ParentNode = document) =>   // 로봇 추가 흐름(u2)은 body 로 띄움
+  from.querySelector<T>(s);
+const btn = (t: string, from: ParentNode = document) => [...from.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
 const card = () => $('[aria-label="새 로봇 추가"]')!;
 const click = async (b: Element | undefined | null) => { expect(b).toBeTruthy(); act(() => (b as HTMLElement).click()); await flush(); };
 const startPair = async () => { await click(btn('+ 로봇 연결하기')); expect(card().dataset.pair).toBe('code'); };
@@ -58,10 +59,10 @@ const putCode = async (c = '123456') => {
 const steps = () => card().querySelector('[data-pair-steps]')!;
 
 describe('단계 막대(U2-01)', () => {
-  for (const phone of [true, false]) it(`${phone ? '폰' : 'PC'}: 코드 1/3 → 이름 2/3 → 끝 3/3, 지난 칸 · 지금 칸 표시`, async () => {
+  it('폰: 코드 1/3 → 이름 2/3 → 끝 3/3, 지난 칸 · 지금 칸 표시', async () => {
     serve();
-    await open(phone);
-    if (phone) await startPair(); else { location.hash = '#/fleet'; await flush(); await click($('[data-u4-add]') ?? btn('+ 로봇 연결하기')); if ($('[data-u4-next]')) await click($('[data-u4-next]')); }
+    await open(true);
+    await startPair();
     const at = () => ({ text: steps().textContent, label: steps().getAttribute('aria-label'), on: [...steps().querySelectorAll('[data-on]')].length });
     expect(at()).toEqual({ text: '1 / 3', label: '3 단계 중 1 단계', on: 1 });
     await putCode();
@@ -70,6 +71,19 @@ describe('단계 막대(U2-01)', () => {
     act(() => { $<HTMLFormElement>('[aria-label="새 로봇 추가"] form')!.requestSubmit(); }); await flush();
     expect(card().dataset.pair).toBe('done');
     expect(at()).toEqual({ text: '3 / 3', label: '3 단계 중 3 단계', on: 3 });
+  });
+  // PC 로봇 탭: 시안 u2 머리(.top) 의 단계 막대 · 「n / 3」 = 같은 판정
+  it('PC: 코드 1/3 → 이름 2/3 → 끝 3/3 (시안 u2_1 → u2_2 → u2_3), 지난 칸 · 지금 칸 표시', async () => {
+    serve();
+    await open(false);
+    location.hash = '#/fleet'; await flush();
+    await click($('[data-u4-add]')); await click($('[data-u4-next]'));
+    const at = () => { const t = $('[data-u2] .top')!; return { scr: $('[data-u2]')!.dataset.u2, text: t.lastElementChild!.textContent, on: t.querySelectorAll('.steps i.on').length }; };
+    expect(at()).toEqual({ scr: 'u2_1_scan', text: '1 / 3', on: 1 });
+    await putCode();
+    expect(at()).toEqual({ scr: 'u2_2_confirm', text: '2 / 3', on: 2 });
+    act(() => { $<HTMLFormElement>('[data-u2] form')!.requestSubmit(); }); await flush();
+    expect(at()).toEqual({ scr: 'u2_3_done', text: '3 / 3', on: 3 });
   });
   it('«처음으로» 면 1/3 로 돌아감', async () => {
     serve();
@@ -159,5 +173,52 @@ describe('계약 기다림: 읽음 신호 · 설정 모드 자동 풀림(U2-08)'
     await flush();
     expect($('[data-pair-qr]')).toBeNull();
     expect($('[data-pair-setup-off]')).toBeTruthy();
+  });
+});
+
+// 로봇 탭 「로봇 추가」 = 시안 u4_6 → u2_1 → u2_2 → u2_3 (막힘 u2_4). 짝 맺기 API 는 기존 claim · confirm
+describe('PC 로봇 추가 흐름 = 시안 u2', () => {
+  const start = async () => { await open(false); location.hash = '#/fleet'; await flush(); await click($('[data-u4-add]')); await click($('[data-u4-next]')); };
+  const scr = () => $('[data-u2]')?.dataset.u2;
+  it('여섯째 숫자에서 claim → u2_2(기체번호 · 담당 · 이름 기본값) → 「연결하기」 = confirm → u2_3 → 「내 로봇 보기」 로 닫힘 · 옛 추가 창 0', async () => {
+    serve({ 'POST /pairing/p1/confirm': { status: 200, body: { id: 'r-new', name: 'K-09', connection: 'OFFLINE', battery: null } } });
+    await start();
+    expect(scr()).toBe('u2_1_scan');
+    await putCode('123456');
+    expect(calls.filter((c) => c.path === '/pairing/claim').map((c) => c.body)).toEqual([{ code: '123456' }]);
+    expect(scr()).toBe('u2_2_confirm');
+    expect($('[data-pair-serial]')!.textContent).toBe(SERIAL);
+    expect($('[data-pair-check]')!.textContent).toContain('나 · ');
+    expect($<HTMLInputElement>('[data-u2] input[name="name"]')!.value).toBe('Go2-5678');
+    act(() => { $<HTMLFormElement>('[data-u2] form')!.requestSubmit(); }); await flush();
+    expect(calls.filter((c) => c.path === '/pairing/p1/confirm').map((c) => c.body)).toEqual([{ name: 'Go2-5678' }]);
+    expect(scr()).toBe('u2_3_done');
+    expect($('[data-pair-done]')!.textContent).toBe('K-09 을 연결했습니다');
+    expect($('[data-u2-kv]')!.textContent).toContain('로봇 프로그램 연결 기다리는 중');   // 받은 값 그대로(꾸미지 않음)
+    expect($('[aria-label="새 로봇 추가"]')).toBeNull();
+    const before = calls.filter((c) => c.path === '/robots').length;
+    await click($('[data-u2-mine]'));
+    expect(scr()).toBeUndefined();
+    expect(calls.filter((c) => c.path === '/robots').length).toBeGreaterThan(before);   // 목록 다시 받음
+  });
+  it('서버에 닿지 못하면 u2_4 「서버가 응답하지 않습니다」 · 「다시 점검」 = 같은 코드로 다시 claim', async () => {
+    serve();
+    await start();
+    const real = globalThis.fetch;
+    let down = true;
+    vi.stubGlobal('fetch', (u: string, i?: RequestInit) => (down && u.includes('/pairing/claim') ? Promise.reject(new TypeError('x')) : real(u, i)));
+    await putCode('654321');
+    expect(scr()).toBe('u2_4_check_blocked');
+    expect($('[data-u2]')!.textContent).toContain('서버가 응답하지 않습니다');
+    down = false;
+    await click($('[data-u2-retry]'));
+    expect(scr()).toBe('u2_2_confirm');
+  });
+  it('틀린 · 지난 코드(404)는 u2_1 안 한 줄, 화면은 그대로', async () => {
+    serve({ 'POST /pairing/claim': { status: 404, body: { error: { code: 'PAIRING_NOT_FOUND', message: 'x', detail: {} } } } });
+    await start();
+    await putCode('111111');
+    expect(scr()).toBe('u2_1_scan');
+    expect($('[data-u2] [role="alert"]')!.textContent).toContain('코드가 맞지 않거나');
   });
 });

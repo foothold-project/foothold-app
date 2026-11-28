@@ -18,7 +18,8 @@ import { REPORT_STALE_MS, go2Pose, go2Temps, JOINTS, jointName } from '../../go2
 import { ACTION_NAMES, FACTORY_OFF, LOWLEVEL, actionResultText } from '../actiontrial';
 import { floorsOf, isVersion, shape, toPixel, useTree } from '../maps';
 import type { Ctx } from '../../screens';
-import { AddRobot, AssignOwner, TransferOwner } from '../../pairing';
+import { AssignOwner, TransferOwner } from '../../pairing';
+import { PairFlow } from '../u2/pairflow';
 import { checks } from '../readycheck';
 import { robotFail } from '../settings';
 import { Guide, RealView, prepSteps } from '../fleet';
@@ -210,8 +211,9 @@ function Stage({ r, q, drive, hot }: { r: Robot; q: number[] | null; drive: Go2A
 function Stick({ side, put, blocked }: { side: 'L' | 'R'; put: (p: number, el: HTMLElement, t: Tok[]) => void; blocked: (m: string) => void }) {
   const own = useRef<number | null>(null), [xy, setXy] = useState([0, 0]);
   const move = (e: PEv<HTMLDivElement>) => {
-    const el = e.currentTarget, b = el.getBoundingClientRect(), m = (el.clientWidth || b.width) * 0.3 || 1;
-    let x = (e.clientX - b.left - b.width / 2) / m, y = (e.clientY - b.top - b.height / 2) / m; const n = Math.hypot(x, y); if (n > 1) { x /= n; y /= n; }
+    // 화면 맞춤(PC 틀이 1920x1080 무대를 창에 맞춰 scale)에서도 맞게: 손가락 거리는 보이는 크기(b.width), 손잡이 이동은 css 크기(clientWidth)로
+    const el = e.currentTarget, b = el.getBoundingClientRect(), ms = b.width * 0.3 || 1, m = (el.clientWidth || b.width) * 0.3 || 1;
+    let x = (e.clientX - b.left - b.width / 2) / ms, y = (e.clientY - b.top - b.height / 2) / ms; const n = Math.hypot(x, y); if (n > 1) { x /= n; y /= n; }
     if (side === 'L') { if (y > 0.3) blocked('후진은 아직 지원하지 않습니다'); const v = Math.max(0, -y); setXy([0, -v * m]); put(e.pointerId, el, v > 0.3 ? ['up'] : []); }
     else { setXy([x * m, 0]); put(e.pointerId, el, x < -0.3 ? ['rotl'] : x > 0.3 ? ['rotr'] : []); }
   };
@@ -474,12 +476,17 @@ const light = () => typeof document !== 'undefined' && document.documentElement.
 export function RobotTab({ c, user, refresh, cancel }: { c: Ctx | null; user: Ctx['user']; refresh: () => void; cancel?: AbortSignal }) {
   // 로봇 추가(시안 u4_6): 실제 · 시뮬 고르기 → 다음. 실제 = 새 로봇 추가(QR · 6자리 · 단계 막대 · 설치 파일 받기), 시뮬 = 시뮬 탭. 총괄도 붙인다(11/28 · 서버 #544)
   const [adding, setAdding] = useState<null | 'pick' | 'real'>(null), [kind, setKind] = useState<'real' | 'sim'>('real'), add = () => { setKind('real'); setAdding('pick'); };
+  // 「내 로봇 보기」(u2_3): 새 로봇이 목록에 들어오면 그 로봇을 고른다(u4_1)
+  const want = useRef('');
+  useEffect(() => { if (want.current && c?.robots.some((x) => x.id === want.current)) { c.pick(want.current); want.current = ''; } }, [c?.robots]);
   return <div className={`proto${light() ? ' light' : ''} u4`} data-u4 aria-label="로봇">
     {c ? <Real c={c} add={add} /> : <Empty add={add} none={user.role === 'ORG_ADMIN'   // 로봇 0대(U11-04 빈 화면) · 문구는 폰 · 옛 PC 와 같게. 관제 요약 · 운영 관리자 표는 W1 u5
       ? <EmptyCard kind="robots" title="등록된 로봇이 없습니다" why="운영 관리자가 실기 로봇을 연결하거나 «시뮬 탭 열기»에서 띄우면 여기에 보입니다."><a className="btn pri" href="#/sim">시뮬 탭 열기</a></EmptyCard>
       : <EmptyCard kind="robots" title="담당 로봇이 없습니다" why="연결 코드로 실기를 등록하거나 총괄에게 담당 지정을 요청하세요. 시뮬 로봇은 «시뮬 탭 열기»에서 띄웁니다."><button type="button" className="btn pri" onClick={add} data-pair-start>+ 새 로봇 추가</button><a className="btn" href="#/sim">시뮬 탭 열기</a></EmptyCard>} />}
-    {adding && <><div className="veil" onClick={() => setAdding(null)} /><div className="g modal" style={{ width: '680px' }} role="dialog" aria-label="로봇 추가" data-u4-adding={adding}>
-      {adding === 'pick' ? <>
+    {adding === 'real' && <PairFlow user={user} mine={(c?.robots ?? []).filter((x) => x.owner === user.id).map((x) => x.id)} close={() => setAdding(null)} cancel={cancel}
+      done={(id) => { setAdding(null); refresh(); if (id) want.current = id; }} />}
+    {adding === 'pick' && <><div className="veil" onClick={() => setAdding(null)} /><div className="g modal" style={{ width: '680px' }} role="dialog" aria-label="로봇 추가" data-u4-adding={adding}>
+      {<>
         <div className="row" style={{ justifyContent: 'space-between' }}><span className="ttl">로봇 추가</span>
           <span data-go="u4_1_robot" className="xclose" role="button" tabIndex={0} aria-label="닫기" data-u4-close onClick={() => setAdding(null)}><svg className="ic" viewBox="0 0 24 24" style={{ width: '22px', height: '22px' }}><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg></span></div>
         <div style={{ display: 'flex', gap: '14px', marginTop: '22px' }} role="radiogroup" aria-label="로봇 종류">
@@ -487,7 +494,6 @@ export function RobotTab({ c, user, refresh, cancel }: { c: Ctx | null; user: Ct
           <div className={`opt${kind === 'sim' ? ' on' : ''}`} role="radio" tabIndex={0} aria-checked={kind === 'sim'} onClick={() => setKind('sim')} data-u4-kind="sim"><svg className="ic" viewBox="0 0 24 24" style={{ width: '30px', height: '30px' }}><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /><path d="m3.3 7 8.7 5 8.7-5" /><path d="M12 22V12" /></svg><b>시뮬</b><p>도입 전에 동선과 일정을 미리 시험하거나, 우리 지도 · 경기장에서 지형 적응을 시험합니다. 늘 「시뮬」 표시가 붙습니다.</p></div>
         </div>
         <div data-go="u2_1_scan" className="btnp" style={{ height: '52px', marginTop: '22px', fontSize: '15px' }} role="button" tabIndex={0} data-u4-next
-          onClick={() => { if (kind === 'sim') { setAdding(null); location.hash = '#/sim'; } else setAdding('real'); }}>다음</div></>
-        : <AddRobot user={user} mine={(c?.robots ?? []).filter((x) => x.owner === user.id).map((x) => x.id)} close={() => setAdding(null)} refresh={refresh} cancel={cancel} />}</div></>}
+          onClick={() => { if (kind === 'sim') { setAdding(null); location.hash = '#/sim'; } else setAdding('real'); }}>다음</div></>}</div></>}
   </div>;
 }
