@@ -4,7 +4,7 @@ import type { PhoneWelcome, SimProvision, SimRobot } from '../../contracts/ts';
 type SpawnFloor = NonNullable<SimProvision['spawn_floor_id']>;
 import { feedText, media, needsRelink, reasonText, useFeed, type Feed, type MediaChannel } from './media';
 import { useOrbit, viewBlock } from './extview';
-import { DEAD, RESULT, RUN_END, SAFE_NOTICE, allowed, runMoving, sim, stopping, tuned, useSim, velocity, type Sim } from './phone';
+import { DEAD, HELD_RUN, RESULT, RUN_END, SAFE_NOTICE, allowed, runHolds, runMoving, sim, stopping, tuned, useSim, velocity, type Sim } from './phone';
 import { runView, startBlock, startFloor, useScenarios } from './run';
 import { Sheet, Stick } from './drive';
 import { inputGen, metaCut } from './rt';
@@ -389,7 +389,7 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
     <button key="rel" type="button" className="btn pri" onClick={leave}>다시 반납</button>,
     l.at === 'closed' && <button key="re" type="button" className="btn" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>,
   ].filter(Boolean) : [
-    open && !mine && <button key="take" type="button" className="btn pri" disabled={l.busy === 'take'} onClick={() => sim.take()}>조종 시작</button>,
+    open && !mine && <button key="take" type="button" className="btn pri" disabled={l.busy === 'take' || runHolds(l)} onClick={() => sim.take()}>조종 시작</button>,
     open && mine && st?.latched !== false && <button key="unlock" type="button" className="btn pri" disabled={l.busy === 'unlock'} onClick={() => sim.unlock()}>잠금 해제</button>,
     l.at === 'closed' && <button key="re" type="button" className="btn pri" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>,
     open && left < 60 && <button key="pass" type="button" className="btn" onClick={() => sim.connect()}>{moving ? '새 출입증으로 다시 연결(실행 일시정지)' : '새 출입증으로 다시 연결'}</button>,
@@ -455,6 +455,7 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
         {notes.length > 0 && !said && <div className="dv-act-head"><div className="dv-act-t"><Notes slot={slot} /></div>
           <button type="button" className="dv-x" aria-label="안내 닫기" data-sim-card-close onClick={() => setShut(notes)}>{ICON.close}</button></div>}
         {acts && acts.length > 0 && <div className="fh-row">{acts}</div>}
+        <HeldRun />
       </div>}
       {l.ask && mine && <div className="dv-ask" role="dialog" aria-labelledby="sim-ask-t" aria-live="assertive">
         <b id="sim-ask-t">조종권 요청</b><p>다른 사람이 이 시뮬 로봇의 조종권을 요청했습니다. 넘겨주시겠습니까?</p>
@@ -494,4 +495,12 @@ export function SimPip({ cam, big, held }: { cam: Cam; big: () => void; held?: b
       <button type="button" className="btn" data-sim-pip-close onClick={() => sim.reset()}>닫기</button>
     </div>
   </aside>;
+}
+
+/** 예약 임무(RUN)가 Hub 를 쥐어 «조종 시작» 이 회색인 까닭 한 줄(08:14). 일시정지를 못 하는 것은 실행 칸(runView) 한 곳에만 쓴다.
+ *  LEASE_HELD + RUN 답이 같은 말을 이미 띄웠거나 이 화면이 건 실행이면 없음. 주인 일시정지 계약(app-lx)이 오면 시험 먼저 쓰고 실행 칸에서 켠다 */
+export function HeldRun() {
+  const l = useSim().link;
+  if (!l || !runHolds(l) || l.notice === HELD_RUN || sim.runMine(l.run)) return null;
+  return <p className="lv-note" role="status" data-held-run data-run-say>{HELD_RUN}</p>;
 }
