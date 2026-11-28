@@ -111,7 +111,10 @@ class MujocoNode:
         env = {k: v for k, v in (self.env if self.env is not None else os.environ).items()
                if not k.startswith('FOOTHOLD_AGENT_')}
         self.child = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                      env=env, cwd=self.cwd, bufsize=0)
+                                      env=env, cwd=self.cwd)
+        # Buffered pipes (#640): an unbuffered stdout readline reads one byte per syscall and
+        # re-takes the GIL per byte, so in-process grid/A* work starved state past STATE_STALE.
+        # _send flushes every line, so stdin latency is unchanged.
         self.sink = RosSink(
             self.diagnostics.wrap('publish_velocity', lambda v: self._send({'t': 'cmd', 'v': list(v)})),
             self.diagnostics.wrap('publish_stop', lambda: self._send({'t': 'stop'})),

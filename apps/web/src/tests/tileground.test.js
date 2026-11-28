@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 it('tileview 의 down 자세는 go2view ground 를 씀(박스 근사 사본 없음)', () => {
   const src = readFileSync(join(__dirname, '../proto/tileview.ts'), 'utf8');
-  expect(src).toContain("import { ground } from '../screens/u4/go2view';");
-  expect(src).toMatch(/applyDown\(b\); ground\(b\.root\);/);
+  expect(src).toContain("import { STAND, ground } from '../screens/u4/go2view';");
+  expect(src).toMatch(/applyDown\(b\); at\('down', \(\) => \{ ground\(b\.root\);/);
   expect(src).not.toMatch(/setFromObject\(b\.root\)\.min\.y/);
 });

@@ -98,10 +98,6 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'> &
       {admin && <Robots refresh={c.refresh} cancel={c.cancel} />}
     </>)}
     {panel('safety', <>
-      <div className="st-modelbar">
-        <div className="st-tabs" role="group" aria-label="실기 값을 고칠 모델"><button type="button" aria-pressed="true">공통</button></div>
-        <p className="st-note">실기에서 도는 모델이 하나뿐이라 모델별 값 없음</p>
-      </div>
       {card({ id: 'speed', label: '속도 제한', bad: '실기 미검증', confirm: true, note: '로봇 쪽 상한보다 높게 넣어도 로봇 상한까지만. 0은 그 축을 끕니다. 폰 막대 끝은 실효 상한이며, 서버 경유 고정 명령이 상한을 넘으면 비활성·STOP 거절합니다.', fields: REAL, top: <RealTable /> })}
       <section className="lv-card st-fixed" aria-label="고정 안전값">
         <h2>고정 안전값</h2>
@@ -116,7 +112,8 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'> &
       {card({ id: 'org', label: '조직 기준값', note: '실기·시뮬 모두에 쓰는 값. 저장하면 다음 실행부터 적용.', fields: COMMON })}
       {!c.only && <Later label="관절 온도" items={[['관절 온도 기준', '관절 온도 단계(주의 · 경고 · 위험) 기준은 서버 값이 아직 없습니다.']]} />}
     </>)}
-    {panel('clip', <Later label="기록과 클립" items={[['클립 보관 기간', '사건 클립은 서버 클립 기능이 생긴 뒤 보관 기간을 여기서 바꿉니다.']]} />)}
+    {/* 시안 기록 탭(u8_1 등) 「보관 기간은 설정 · 기록과 클립에서 바꿉니다」 · 보관 기간 서버 값이 아직 없어 일수를 쓰지 않는다(서버 요청) */}
+    {panel('clip', <Later label="기록과 클립" items={[['클립 보관 기간', '서버에 값 없음. 클립을 며칠 보관할지 서버가 값을 주면 여기서 바꿉니다.']]} />)}
     {panel('ctl', <>
       {!c.only && <ControlsGuide />}
       <div className="st-modelbar">
@@ -150,8 +147,10 @@ function ThemeCard() {
   </section>;
 }
 
+/** 서버 경유 가속 · 멈춤(에이전트 sink SERVER_RAMP_S 2.0 이 세 축 모두 · SERVER_BRAKE_S 0.30). 글 한 덩이로 둬 영어 줄과 맞춤 */
+const RAMP = '실기 서버 경유: 앞뒤 · 옆 · 회전 모두 누르고 있으면 2 초에 걸쳐 최고 속도까지, 떼면 0.3 초 안에 멈춥니다.';
 /** 고정표는 조직 상한으로 늘리거나 비례 조정하지 않는다. */
-const RealTable = () => <details><summary>서버 경유 고정 명령표</summary><p className="st-note">앞뒤 1.5 m/s, 옆걸음 1.0 m/s. 컴퓨터는 항상 {REAL_CAPS.real_max_wz} 라디안/초로 회전을 요청하므로 회전 상한을 이보다 낮추면 컴퓨터 회전 단추가 꺼집니다. 회전 키나 단추를 누르고 있으면 2초에 걸쳐 최대 {REAL_CAPS.real_max_wz} 라디안/초까지 빨라집니다. 폰 실효 상한은 연결한 로봇의 조종 화면에서 확인하세요.</p></details>;
+const RealTable = () => <details><summary>서버 경유 고정 명령표</summary><p className="st-note">앞뒤 1.5 m/s, 옆걸음 1.0 m/s. 컴퓨터는 항상 {REAL_CAPS.real_max_wz} 라디안/초로 회전을 요청하므로 회전 상한을 이보다 낮추면 컴퓨터 회전 단추가 꺼집니다. {RAMP} 폰 실효 상한은 연결한 로봇의 조종 화면에서 확인하세요.</p></details>;
 
 /** 조직 값(05 API §8 GET·PATCH /org/settings). 범위는 계약(apps/contracts/models.py OrgSettingsPatch)과 같게 — 검사는 서버가 한다.
  *  kind: 기본 숫자 칸, range = 미끄럼 막대, switch = 켜고 끄기. int = 정수만. cap = 시뮬 모드·연결 상한 안에서만 */
@@ -164,7 +163,7 @@ const COMMON = [
 ];
 const LEASE = [
   num('lease_request_timeout_s', '조종권 요청 응답 시간', '초', 5, 30, 1),
-  num('link_loss_wait_s', '연결 끊김 대기 시간', '초', 0, 30, 1),
+  num('link_loss_wait_s', '연결 끊김 대기 시간', '초', 0, 30, 1, { hint: '임무 중 서버 연결이 끊기고 이 시간이 지나면 로봇을 정지 잠금하고 임무를 멈춥니다. 3 초보다 짧게 둬도 3 초 뒤에 판단합니다.' }),   // 에이전트 session: 끊김 판단 LINK_TIMEOUT 3 초 뒤 · 임무 RUNNING 일 때만 잠금
 ];
 const REAL = [
   num('real_max_vx', '최대 전진 속도', 'm/s', 0, 1.5, 0.05, { hint: '기본 1.5' }),
@@ -262,7 +261,7 @@ function OrgCard({ org, admin, id, model, label, note, bad, cap, confirm, fields
       <label className="st-sw"><span>{f.label} {tags}</span>
         <input type="checkbox" role="switch" name={f.key} checked={v === true} disabled={!admin} aria-describedby={[`st-h-${f.key}`, desc].filter(Boolean).join(' ')} onChange={(e) => edit(f, e.target.checked)} /></label>
       <span id={`st-h-${f.key}`} className="st-note">{f.hint}</span>{tail}</div>;
-    const head = <span className="st-lab">{f.label} <span className="lbl">({range(f)}{f.hint ? `, ${f.hint}` : ''})</span>{tags}</span>;
+    const head = <span className="st-lab">{f.label} <span className="lbl">({range(f)}{f.hint && <>, {f.hint}</>})</span>{tags}</span>;
     if (f.kind === 'range') return <label key={f.key} className="fh-field">{head}
       <span className="st-rng"><input type="range" name={f.key} min={f.min} max={f.max} step={f.step} value={String(v)} disabled={!admin || simOut(v, '') === NO_VALUE} aria-describedby={desc} onChange={(e) => edit(f, e.target.value)} />
         <output>{simOut(v, f.unit)}</output></span>{tail}</label>;

@@ -13,6 +13,8 @@ import type { User } from '../fake';
 import type { Ctx } from '../screens';
 import { Account as AccountDetail, failText, PW_DONE, Settings, TAKEN, tempPassword } from './settings';
 import { setThemePref, useTheme, type ThemePref } from '../theme';
+import { setLang, useLang, type Lang } from '../lang';
+import { usePad } from '../gamepad';
 
 export type Page = 'account' | 'users' | 'network' | 'crowd' | 'robot' | 'safety' | 'alerts' | 'clip' | 'controls' | 'display' | 'demo' | 'system';
 
@@ -398,10 +400,13 @@ function Alerts({ cancel }: { cancel?: AbortSignal }) {
 }
 
 
-/** 표시(u9_6 총괄 · u9_9 운영자). 화면 밝기 = 머리 메뉴 밝기와 같은 값(theme.tsx). 언어는 한국어만, 데모 표시는 서버 값이 없어 잠금 */
+/** 영어로 바뀌는 범위(사전 lang.en.ts). 서버 글까지 바뀌면(서버 locale) 이 줄을 뺀다 */
+export const LANG_SCOPE = '영어로 바뀌는 곳: 앱 글 전부. 서버가 보낸 글(이름 · 사건 · 알림)은 그대로입니다.';
+/** 표시(u9_6 총괄 · u9_9 운영자). 화면 밝기 = 머리 메뉴 밝기와 같은 값(theme.tsx). 언어 = 이 기기 값(lang.tsx), 데모 표시는 서버 값이 없어 잠금 */
 function Display({ admin }: { admin: boolean }) {
   const [pref] = useTheme();
   const pick = (t: ThemePref) => ({ role: 'radio', tabIndex: 0, 'aria-checked': pref === t, onClick: () => setThemePref(t), onKeyDown: (e: KeyboardEvent) => { if (e.key === 'Enter') setThemePref(t); } });
+  const lang = useLang(), say = (l: Lang) => ({ role: 'radio', tabIndex: 0, 'aria-checked': lang === l, onClick: () => setLang(l), onKeyDown: (e: KeyboardEvent) => { if (e.key === 'Enter') setLang(l); } });
   return <>
   <div className="hd"><span className="ttl">표시</span>
     <p>화면 밝기 · 언어 · 데모 표시. 여기서만 바꿉니다.</p></div>
@@ -420,14 +425,16 @@ function Display({ admin }: { admin: boolean }) {
     <p className="mu2" style={{fontSize:"13px",fontWeight:600,marginTop:"18px"}}>바꾸면 모든 화면에 바로 적용됩니다.</p></div>
   <div className="pane" style={{left:"1432px",top:"160px",width:"464px",height:"560px"}}>
     <div className="ph"><span className="ttl">언어</span><span style={{marginLeft:"auto",display:"flex",gap:"10px",alignItems:"center"}} /></div>
-    <div style={{display:"flex",flexDirection:"column",gap:"12px"}}>
-      <div className="pv on" style={{padding:"20px",flex:"none"}}>
-        <div className="row" style={{gap:"14px",fontSize:"17px",fontWeight:800}}><span className="radio on" />한국어<span className="mu2" style={{marginLeft:"auto",fontSize:"13px",fontWeight:600}}>지금</span></div>
-        <div className="row" style={{gap:"10px",marginTop:"16px",height:"52px",padding:"0 14px",borderRadius:"12px",background:"linear-gradient(180deg,rgba(255,77,79,.22),rgba(255,77,79,.12))",border:"1px solid rgba(255,77,79,.45)",fontSize:"14px",fontWeight:800}}><svg className="ic" viewBox="0 0 24 24" style={{width:"17px",height:"17px"}}><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z" /><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" /></svg>정지됨<span style={{fontSize:"12.5px",fontWeight:600,opacity:".75"}}>로봇이 멈췄습니다</span></div></div>
-      <div className="pv" style={{padding:"20px",flex:"none"}} aria-disabled="true">
-        <div className="row" style={{gap:"14px",fontSize:"17px",fontWeight:800}}><span className="radio" />English</div>
-        <div className="row" style={{gap:"10px",marginTop:"16px",height:"52px",padding:"0 14px",borderRadius:"12px",background:"linear-gradient(180deg,rgba(255,77,79,.22),rgba(255,77,79,.12))",border:"1px solid rgba(255,77,79,.45)",fontSize:"14px",fontWeight:800}}><svg className="ic" viewBox="0 0 24 24" style={{width:"17px",height:"17px"}}><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z" /><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" /></svg>Stopped<span style={{fontSize:"12.5px",fontWeight:600,opacity:".75"}}>The robot has stopped</span></div></div></div>
-    <p className="mu2" style={{fontSize:"13px",fontWeight:600,marginTop:"16px"}} data-why>English 화면 글은 아직 없습니다. 지금은 한국어만 씁니다.</p></div>
+    <div style={{display:"flex",flexDirection:"column",gap:"12px"}} role="radiogroup" aria-label="언어">
+      <div className={lang === 'ko' ? 'pv on' : 'pv'} style={{padding:"20px",flex:"none"}} {...say('ko')} aria-label="한국어">
+        <div className="row" style={{gap:"14px",fontSize:"17px",fontWeight:800}}><span className={lang === 'ko' ? 'radio on' : 'radio'} />한국어{lang === 'ko' && <span className="mu2" style={{marginLeft:"auto",fontSize:"13px",fontWeight:600}}>지금</span>}</div>
+        <div translate="no" className="row" style={{gap:"10px",marginTop:"16px",height:"52px",padding:"0 14px",borderRadius:"12px",background:"linear-gradient(180deg,rgba(255,77,79,.22),rgba(255,77,79,.12))",border:"1px solid rgba(255,77,79,.45)",fontSize:"14px",fontWeight:800}}><svg className="ic" viewBox="0 0 24 24" style={{width:"17px",height:"17px"}}><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z" /><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" /></svg>정지됨<span style={{fontSize:"12.5px",fontWeight:600,opacity:".75"}}>로봇이 멈췄습니다</span></div></div>
+      <div className={lang === 'en' ? 'pv on' : 'pv'} style={{padding:"20px",flex:"none"}} {...say('en')} aria-label="English">
+        <div className="row" style={{gap:"14px",fontSize:"17px",fontWeight:800}}><span className={lang === 'en' ? 'radio on' : 'radio'} />English{lang === 'en' && <span className="mu2" style={{marginLeft:"auto",fontSize:"13px",fontWeight:600}}>지금</span>}</div>
+        <div translate="no" className="row" style={{gap:"10px",marginTop:"16px",height:"52px",padding:"0 14px",borderRadius:"12px",background:"linear-gradient(180deg,rgba(255,77,79,.22),rgba(255,77,79,.12))",border:"1px solid rgba(255,77,79,.45)",fontSize:"14px",fontWeight:800}}><svg className="ic" viewBox="0 0 24 24" style={{width:"17px",height:"17px"}}><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z" /><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" /></svg>Stopped<span style={{fontSize:"12.5px",fontWeight:600,opacity:".75"}}>The robot has stopped</span></div></div></div>
+    <p className="mu2" style={{fontSize:"13px",fontWeight:600,marginTop:"16px"}}>모든 화면 글이 바뀝니다. 숫자와 단위는 그대로입니다.</p>
+    {/* 시안 밖 · 새로 그림: 사전이 아직 모든 탭을 덮지 못한 동안만 범위를 밝힌다(lang.en.ts) */}
+    <p className="mu2" style={{fontSize:"12.5px",fontWeight:600,marginTop:"8px",opacity:.8}} data-why>{LANG_SCOPE}</p></div>
   <div className="pane" style={{left:"368px",top:"744px",width:"1528px",height:"312px"}} aria-label="데모 로봇 표시">
     <div className="ph"><span className="ttl">데모 로봇 표시</span><span className="only">총괄만</span><span style={{marginLeft:"auto",display:"flex",gap:"10px",alignItems:"center"}} /></div>
     <div className="row" style={{gap:"28px",alignItems:"center"}}>
@@ -442,6 +449,7 @@ function Display({ admin }: { admin: boolean }) {
 
 /** 조작(u9_7). 키 목록은 시안 글 그대로(키 동작은 로봇 탭 몫, 여기서 바꾸지 않음). 켜고 끄는 값 · 조이스틱 · 음성은 앱 · 서버에 아직 없어 잠금 + 까닭 */
 function Controls() {
+  const pad = usePad();
   return <>
   <div className="hd"><span className="ttl">조작</span>
     <p>키보드 · 조이스틱 · 음성 · 폰 터치. 규칙은 PC 와 폰이 같습니다.</p></div>
@@ -470,11 +478,12 @@ function Controls() {
         <div className="row" style={{gap:"10px",fontSize:"15px",fontWeight:800}}><svg className="ic" viewBox="0 0 24 24" style={{width:"19px",height:"19px"}}><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>입력이 겹치면</div>
         <div className="mu2" style={{fontSize:"13.5px",fontWeight:600,marginTop:"8px",lineHeight:1.7}}>정지가 이동보다 우선합니다. 리모컨이 앱보다 우선합니다. 한 로봇은 한 번에 입력 하나만 받습니다.</div></div></div></div>
   <div className="pane" style={{left:"1232px",top:"160px",width:"664px",height:"282px"}} aria-label="조이스틱">
-    <div className="ph"><span className="ttl">조이스틱</span><span style={{marginLeft:"auto",display:"flex",gap:"10px",alignItems:"center"}}><span className="mu2" style={{fontSize:"13px",fontWeight:600}} data-why>앱에 아직 없음</span><span className="sw on lock" role="switch" aria-checked="true" aria-disabled="true" title={NO_SWITCH} /></span></div>
+    <div className="ph"><span className="ttl">조이스틱</span><span style={{marginLeft:"auto",display:"flex",gap:"10px",alignItems:"center"}}>{pad ? <span className="okb" data-pad="on">연결됨 · 1 순위</span> : <span className="mu2" style={{fontSize:"13px",fontWeight:600}} data-pad="off">연결 안 됨</span>}<span className="sw on lock" role="switch" aria-checked="true" aria-disabled="true" title={NO_SWITCH} /></span></div>
     <div className="row" style={{gap:"20px",alignItems:"center"}}>
       <div style={{flex:1}}>
         <div className="row" style={{gap:"14px",fontSize:"15px",fontWeight:700}}><span className="av2" style={{width:"48px",height:"48px"}}><svg className="ic" viewBox="0 0 24 24" style={{width:"24px",height:"24px"}}><line x1="6" x2="10" y1="11" y2="11" /><line x1="8" x2="8" y1="9" y2="13" /><line x1="15" x2="15.01" y1="12" y2="12" /><line x1="18" x2="18.01" y1="10" y2="10" /><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z" /></svg></span>왼쪽 스틱 이동 · 오른쪽 스틱 돌기</div>
-        <div className="mu2" style={{fontSize:"13.5px",fontWeight:600,marginTop:"12px",lineHeight:1.6}} data-why>조이스틱 입력을 받는 기능이 앱에 아직 없습니다.</div></div><svg viewBox="0 0 220 130" style={{width:"220px",height:"130px"}}><path d="M50 20h120a42 42 0 0 1 42 42v8a40 40 0 0 1-72 24l-6-8H86l-6 8a40 40 0 0 1-72-24v-8a42 42 0 0 1 42-42z" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.3)" strokeWidth="1.6" /><circle cx="62" cy="60" r="20" fill="rgba(0,195,137,.18)" stroke="#00c389" strokeWidth="1.6" /><circle cx="62" cy="60" r="7" fill="#00c389" /><circle cx="152" cy="74" r="16" fill="rgba(255,255,255,.06)" stroke="rgba(255,255,255,.4)" strokeWidth="1.6" /><circle cx="152" cy="74" r="6" fill="rgba(255,255,255,.5)" /></svg></div></div>
+        {/* 시안 밖 · 새로 그림: 시안 「모드 변경도 조이스틱 입력이 우선합니다」 는 아직 아님(스틱 이동 · 돌기만) → 연결된 조이스틱 이름 또는 연결 방법 */}
+        <div className="mu2" style={{fontSize:"13.5px",fontWeight:600,marginTop:"12px",lineHeight:1.6}} data-pad-note>{pad ? pad.id.slice(0, 60) : '조이스틱을 꽂고 단추를 한 번 누르면 연결됩니다. 조종 화면에서 키보드와 같은 규칙으로 움직입니다.'}</div></div><svg viewBox="0 0 220 130" style={{width:"220px",height:"130px"}}><path d="M50 20h120a42 42 0 0 1 42 42v8a40 40 0 0 1-72 24l-6-8H86l-6 8a40 40 0 0 1-72-24v-8a42 42 0 0 1 42-42z" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.3)" strokeWidth="1.6" /><circle cx="62" cy="60" r="20" fill="rgba(0,195,137,.18)" stroke="#00c389" strokeWidth="1.6" /><circle cx="62" cy="60" r="7" fill="#00c389" /><circle cx="152" cy="74" r="16" fill="rgba(255,255,255,.06)" stroke="rgba(255,255,255,.4)" strokeWidth="1.6" /><circle cx="152" cy="74" r="6" fill="rgba(255,255,255,.5)" /></svg></div></div>
   <div className="pane" style={{left:"1232px",top:"467px",width:"664px",height:"282px"}} aria-label="음성">
     <div className="ph"><span className="ttl">음성</span><span style={{marginLeft:"auto",display:"flex",gap:"10px",alignItems:"center"}}><span className="sw on lock" role="switch" aria-checked="true" aria-disabled="true" title={NO_SWITCH} /></span></div>
     <div className="row" style={{gap:"20px",alignItems:"center"}}>

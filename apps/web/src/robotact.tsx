@@ -1,6 +1,6 @@
 // 로봇 자세 · 동작 단추 일곱과 손잡이 → 명령 낱말 규칙(PC 로봇 탭 screens/u4/robotu4.tsx · 폰 실기 조종 drive.tsx 가 함께 쓴다).
 // 보내기는 rt.action(서버 길 하나) · 막음은 actiontrial 표(FACTORY_OFF 순정 확인 전 · LOWLEVEL 저수준 중 되는 것). 화면마다 다른 것은 꼴과 앞 조건(조종권 · 연결)뿐
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { ScreenAction } from '../../contracts/ts';
 import type { Tok } from './serverdrive';
 import { ACTION_NAMES, FACTORY_OFF, LOWLEVEL } from './screens/actiontrial';
@@ -34,4 +34,26 @@ export function actWhy(name: ScreenAction['action'], lowlevel: boolean) {
   if (name === 'StandUp' && lowlevel) return STANDUP_WHY;
   if (lowlevel ? !LOWLEVEL.has(name) : FACTORY_OFF.has(name)) return `${ACTION_NAMES[name]}: ${lowlevel ? '저수준 제어 중에는 쓸 수 없음' : '순정 번호 확인 전'}`;
   return '';
+}
+
+/** 「다시 시작」 확인 창 글(시안 u4_10 · 폰 실기 조종 u1 도 같은 글). 일어서기 = 잠금 해제(rt.unlock) 한 번 */
+export const RESTART_ASK = (name: string) => `${name} 을 일으킬까요?`;
+export const RESTART_TEXT = '그 자리에서 일어선 뒤 조종과 동작이 다시 켜집니다. 주변에 사람이 없는지 보세요.';
+
+/** 「다시 시작」 창이 묶이는 값: 연 때의 stop_gen · 조종권(lease). mine = 지금 내 조종권이고 연결이 열림 */
+export type RestartNow = { mine: boolean; latched: boolean | null | undefined; gen: number | null | undefined; lease: string | null | undefined };
+const same = (k: Pick<RestartNow, 'gen' | 'lease'> | null, c: RestartNow) => !!k && c.mine && c.latched !== false && c.gen === k.gen && c.lease === k.lease;
+/** 「다시 시작」 확인 창 열림(reviewer H1): 연 때의 stop_gen · 조종권에 묶는다. 잠금 풀림 · stop_gen 바뀜 · 조종권 바뀜 · 연결 끊김이면 열림 자체를 닫고,
+ *  「일어서기」 는 누르는 순간 저장소 값(now)으로 다시 봐서 같을 때만 unlock 을 보낸다 — 다른 곳에서 풀린 뒤 새 STOP 에 창이 저절로 다시 뜨지 않게.
+ *  now 는 그리는 값이 아니라 저장소에서 바로 읽는 함수(서버 경유 rt.get · 직결 sim.get) */
+export function useRestartAsk(now: () => RestartNow) {
+  const [at, setAt] = useState<Pick<RestartNow, 'gen' | 'lease'> | null>(null);
+  const live = same(at, now());
+  useEffect(() => { if (at && !live) setAt(null); }, [at, live]);
+  return {
+    live,
+    open: () => { const n = now(); setAt({ gen: n.gen, lease: n.lease }); },
+    close: () => setAt(null),
+    go: (unlock: () => void) => { const k = at; setAt(null); if (same(k, now())) unlock(); },
+  };
 }

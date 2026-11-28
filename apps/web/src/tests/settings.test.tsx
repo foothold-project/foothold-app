@@ -6,6 +6,7 @@ import type { Session, User } from '../../../contracts/ts';
 import { HAS_ROBOTS, LAST_ADMIN, PW_DONE, SIM_MODELS, TAKEN, tempPassword } from '../screens/settings';
 import { Root } from '../session';
 import { setThemePref } from '../theme';
+import { en } from '../lang';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -337,11 +338,17 @@ describe('설정 묶음(U9-04 시안 배치)', () => {
     expect(await names('controls')).toEqual([]);
     expect(await names('robot')).toEqual(['lease_request_timeout_s', 'link_loss_wait_s', 'battery_low_pct', 'run_min_battery_pct', 'deviation_m',
       'sim_max_vx', 'sim_min_vx', 'sim_max_vy', 'sim_max_wz', 'sim_key_vx', 'stick_deadzone', 'sim_runner_vx', 'sim_runner_wz', 'lidar_view_m']);
+    expect(legacy().querySelector('input[name="link_loss_wait_s"]')!.closest('label')!.textContent).toContain('임무 중 서버 연결이 끊기고 이 시간이 지나면 로봇을 정지 잠금하고 임무를 멈춥니다. 3 초보다 짧게 둬도 3 초 뒤에 판단합니다.');
+    expect(en('실기 서버 경유: 앞뒤 · 옆 · 회전 모두 누르고 있으면 2 초에 걸쳐 최고 속도까지, 떼면 0.3 초 안에 멈춥니다.')).toBe('Real robot via server: hold forward/back, sideways or turn and it speeds up to top speed over 2 s; release and it stops within 0.3 s.');
+    expect(en('임무 중 서버 연결이 끊기고 이 시간이 지나면 로봇을 정지 잠금하고 임무를 멈춥니다. 3 초보다 짧게 둬도 3 초 뒤에 판단합니다.')).toBe('If the server link drops during a mission and this time passes, the robot is stop-latched and the mission stops. Values under 3 s are still judged after 3 s.');
     expect(legacy().querySelector('[aria-label="조직 기준값"]')).not.toBeNull();
     expect(legacy().querySelector('section[aria-label="로봇"]')).not.toBeNull();
     expect(await names('safety')).toEqual(['real_max_vx', 'real_max_vx_back', 'real_max_vy', 'real_max_wz', 'real_no_fast_server_drive']);
     expect(legacy().querySelector('[aria-label="고정 안전값"]')).not.toBeNull();
     expect(legacy().textContent).toContain('켜면 서버 경유 1.5 m/s 이동을 받지 않고 STOP');
+    // reviewer 21:29: 2 초 가속은 세 축 모두 · 멈춤 0.3 초(S4), 연결 끊김 대기 = 임무 중 끊김 → 정지 잠금 · 3 초 아래는 3 초(R2)
+    expect(legacy().textContent).toContain('실기 서버 경유: 앞뒤 · 옆 · 회전 모두 누르고 있으면 2 초에 걸쳐 최고 속도까지, 떼면 0.3 초 안에 멈춥니다.');
+    expect(legacy().textContent).not.toContain('회전 키나 단추를 누르고 있으면');
     await go('account'); expect($('[aria-label="내 계정"]')).not.toBeNull();
     await go('users'); expect($('[aria-label="사용자"]')).not.toBeNull();
     expect($('main [data-bell]')).toBeNull();   // 머리줄 종은 설정 화면 밖
@@ -516,7 +523,7 @@ describe('모델별 시뮬 값(11-04 model_overrides)', () => {
     for (const [id] of SIM_MODELS) expect(src).toContain(`id: '${id}'`);
     expect(SIM_MODELS.map(([id]) => id)).not.toContain('go2-demo');
   });
-  it('조작 묶음: 공통 + 세 모델, 처음엔 공통 화면 그대로 / 안전 묶음: «공통»만 + «모델별 값 없음»', async () => {
+  it('조작 묶음: 공통 + 세 모델, 처음엔 공통 화면 그대로 / 안전 묶음: 실기 모델 고르기 없음(시안 · 서버 둘 다 없음, 표 S1)', async () => {
     serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG } }));
     await open();
     await go('robot');
@@ -524,8 +531,9 @@ describe('모델별 시뮬 값(11-04 model_overrides)', () => {
     expect($('[data-model]')).toBeNull();
     expect(legacy().textContent).not.toContain('공통 값 사용');
     await go('safety');
-    expect(legacy().textContent).toContain('실기에서 도는 모델이 하나뿐이라 모델별 값 없음');
-    expect([...legacy().querySelectorAll('[aria-label="실기 값을 고칠 모델"] button')].map((b) => b.textContent)).toEqual(['공통']);
+    expect(legacy().textContent).not.toContain('모델별 값 없음');
+    expect(legacy().querySelector('[aria-label="실기 값을 고칠 모델"]')).toBeNull();
+    expect(legacy().querySelector('[aria-label="속도 제한"]')).not.toBeNull();   // 안전 칸은 그대로(reviewer 몫)
   });
   it('모델 고르기: 같은 9칸, 안 바꾼 칸은 «공통 값 사용(값)», 덮어쓴 칸은 그 모델 값 + 되돌리기, 모델 선택과 무관한 공통 값은 숨김', async () => {
     serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: withAme } }));
@@ -846,7 +854,7 @@ describe('U9-03 밝기 · U9-04 서버 값 없는 칸', () => {
     const WHY: [string, string[]][] = [
       ['network', ['현장 네트워크', '끊긴 까닭']],
       ['crowd', ['혼잡 시간', '기준 시간']],
-      ['display', ['English']],
+      ['display', ['영어로 바뀌는 곳']],   // 언어는 이제 고를 수 있음(lang.tsx) · 사전이 모든 탭을 덮기 전까지 범위 한 줄
       ['demo', ['켜고 끄는 값']],
     ];
     for (const [id, words] of WHY) {
@@ -879,6 +887,11 @@ describe('U9-03 밝기 · U9-04 서버 값 없는 칸', () => {
       }
       expect(legacy().querySelectorAll('input, button, select'), name(id)).toHaveLength(0);
     }
+    // 기록과 클립(표 C1): 시안 기록 탭이 «보관 기간은 설정 · 기록과 클립에서» 라고 하는데 서버 값이 없다 → 「서버에 값 없음」 · 지어낸 일수 없음
+    await go('clip');
+    const clip = legacy().querySelector('[data-later] [data-why]')!.textContent!;
+    expect(clip).toContain('서버에 값 없음');
+    expect(clip).not.toMatch(/\d+ ?일|클립 기능이 생긴 뒤/);
     await go('demo');
     expect($('[aria-label="데모 로봇 표시"]')!.textContent).toContain('총괄만');
   });

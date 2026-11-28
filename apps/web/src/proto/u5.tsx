@@ -9,14 +9,14 @@ import { realDash } from '../screens/fleet';
 import { stopLine } from '../serverdrive';
 import { ownerName, robotStatus, type Robot } from '../fake';
 import { GAITS } from '../gait';
-import { JOINTS } from '../go2model';
+import { JOINTS, REPORT_STALE_MS, go2Pose } from '../go2model';
 import { fleetKind, fleetOrder } from '../fleetorder';
 import { rt, useRt } from '../rt';
 import type { Ctx } from '../screens';
 import { actOf, controlPick, flagNote, isLost, lastly, needs, useControlPick } from '../screens/control';
 import { floorName, floorsOf, useTree } from '../screens/maps';
 import { sitePose, toMapPx } from './site';
-import { tiles as tileGl, type TileLook } from './tileview';
+import { FRONT_DIST, REAR_DIST, tiles as tileGl, type TileLook } from './tileview';
 import { SiteView } from './u5map';
 import './u5.css';
 
@@ -47,7 +47,7 @@ export const ic = I;
 
 // ── 서버 값 → 시안 글 ─────────────────────────────────────────
 const SIDE: Record<string, string> = { FL: '왼쪽 앞다리', FR: '오른쪽 앞다리', RL: '왼쪽 뒷다리', RR: '오른쪽 뒷다리' };
-const PART: Record<string, string> = { hip: '엉덩이', thigh: '허벅지', calf: '무릎' };
+const PART: Record<string, string> = { hip: '고관절', thigh: '허벅지', calf: '무릎' };
 /** 관절 이름(JOINTS 순서 · FL_calf_joint) → «왼쪽 앞다리 무릎» */
 export const jointName = (j: string) => { const [s, p] = j.split('_'); return `${SIDE[s] ?? s} ${PART[p] ?? p}`; };
 export type Level = 'crit' | 'bad' | 'warn' | null;
@@ -97,10 +97,32 @@ export function useAvail(cancel?: AbortSignal) {
 /** 시안 «대기 중 · 임무 중» 상태 글(그 밖은 기존 상태 글 robotStatus) */
 const stText = (x: Robot) => (x.online && !x.unknown && x.status === 'IDLE' ? '대기 중' : robotStatus(x).text);
 
+/** 걷는 다리를 틀 실제 속도 문턱(m/s · WS state 최상위 speed). 0.05 = rt 가 state 를 0.1 m/s 자리까지만 견주므로(rt.ts speed toFixed(1)) 그 반,
+ *  가장 느린 시뮬 이동(sim_min_vx 기본 0.2)보다 한참 아래. 조종권을 쥔 채 0 축 명령(속도 0)이면 선 자세(팀장 20:51) */
+export const WALK_MIN_SPEED = 0.05;
+/** 다리를 걷게 그릴지: 서버 속도가 문턱 이상일 때만(없으면 서 있음). 끊김 · 상태 모름 · 엎드림 · 일시정지는 걷지 않음 */
+export const walking = (act: string, paused: string | null, speed: number | null | undefined) => (act === 'walk' || act === 'stand') && !paused && typeof speed === 'number' && speed >= WALK_MIN_SPEED;
+/** 서버 관절 12 개(로봇 탭 · 옛 관제 3D 와 같은 go2Pose 판정: ONLINE · 받은 지 1 초 안 · age_s ≤ 1). 없으면 null */
+export const jointsNow = (id: string) => { const l = rt.get(id); return go2Pose(l.state, rt.now() - l.stateAt <= REPORT_STALE_MS)?.q ?? null; };
+/** 관절이 없을 때 엎드림으로 그릴지: 자세 보고(posture) 가 먼저 · 보고가 없을 때만 상태(잠금 · 오류) · 충전 중은 엎드림.
+ *  순서 = 관절 > 자세 보고 > 상태 > 선 자세(팀장 20:55 «Go2 X 가 일어섰는데 앉아 있게 그려진다») */
+export const lying = (f: Pick<TileFacts, 'x' | 'act' | 'charging'>) => {
+  const p = stateOf(f.x)?.posture?.state;
+  return f.charging || (p === 'LYING' ? true : p === 'STANDING' || p === 'TRANSITIONING' ? false : f.act === 'lie');
+};
+/** 정지 잠금 까닭 = 서버 latch_reason(화면 소켓 state 가 칸을 주면 그 값, 아니면 로봇 목록 값) 하나만. 없거나 모르는 값이면 «까닭 미상»(다른 값으로 짐작하지 않음 · 팀장 21:37) */
+export const LATCH_WHY: Record<string, string> = { BOOT: '기동 잠금', USER_STOP: '사람 정지', FALL: '넘어짐', LINK_LOST: '연결 끊김', DEVICE_FAULT: '장치 고장', POLICY: '권한 확인 늦음', LEASE_END: '조종권 끝남', OTHER: '기타' };
+export const lockWhy = (x: Robot, s: ReturnType<typeof stateOf>) => {
+  const st = s as { latch_reason?: string | null } | null | undefined, v = st && 'latch_reason' in st ? st.latch_reason : x.latchReason;
+  return (v && LATCH_WHY[v]) || '까닭 미상';
+};
+const RUN_END = new Set<string>(['COMPLETED', 'FAILED', 'CANCELED', 'ABORTED']);   // 서버 TERMINAL_RUNS 와 같음(ABORTED 는 계약 열거 밖이지만 서버가 씀)
 /** 타일 한 장의 글 · 칸(서버 값만 · 없으면 그 글을 비움) */
 export type TileFacts = {
   x: Robot; demo: boolean; charging: boolean; job: Job | null; level: Level; flag: string | null; why: string; alert: boolean; sim: boolean; lostAt: string | null; lostNow: boolean;
   act: ReturnType<typeof actOf>; walk: boolean; paused: string | null;
+  /** 머리표 · 최근 경고 제목이 관절 온도에서 왔음(아니면 잠금 · 상태 · 주의 코드) */ byTemp: boolean;
+  /** 그 로봇에 진행 중인 임무(state.run · 끝남 · 실패 · 취소 아님)가 있음 = 임무 중 보기(뒤 1 m + 현장). 팀장 21:16 */ onRun: boolean;
   /** 정지 한 줄(serverdrive stopLine 과 같은 판정 · 미전달 · 현장 관문 포함). 정지를 보낸 적 없으면 null */ stop: { tone: string; text: string } | null;
   mode: string; mission: { name: string; done: number; total: number } | null; place: string;
   bat: [string, string]; temp: [string, string, '' | ' w' | ' r']; link: [string, string, '' | ' w']; who: [string, string]; hot: { t: number; j: string } | null;
@@ -109,8 +131,11 @@ export function facts(x: Robot, me: string, places: Map<string, string>, av?: Av
   // 데모 로봇(가용 demo = true)은 시뮬이어도 실기 타일과 똑같이(1 m 뒤 모형 · 배터리 · 온도 · 연결 · 걸음 · 담당), 차이는 «데모» 칩 하나. 시뮬 꼴은 사용자 시뮬만
   const s = stateOf(x), h = hotJoint(x), lvTemp = tempLevel(h?.t ?? null), gone = isLost(x), sim = !!x.sim && !av?.demo, st = robotStatus(x);
   // 테두리 · 머리표: 관절 온도 단계, 아니면 연결 중인 로봇의 기존 경고(잠금 · 오류 = 빨강, 배터리 낮음 · 일시정지 · 남은 주의 코드 = 주황). 끊김은 칸 위 «다시 연결 중»(시안 K-07)
-  const level: Level = lvTemp ?? (gone || !needs(x) ? null : st.tone === 'bad' ? 'bad' : 'warn');
-  const why = lvTemp && h ? `${jointName(h.j)} ${Math.round(h.t)} °C` : flagNote(x) || st.text;
+  // 팀장 21:26: 정지 잠금이면 머리표 = 잠금(+ 서버가 준 까닭). 관절 온도는 위험(70 °C ~)일 때만 잠금보다 앞서고, 그 아래 온도는 온도 칩에만 단계 색
+  const lk: Level = gone || !needs(x) ? null : st.tone === 'bad' ? 'bad' : 'warn', latched = !gone && x.online && x.status === 'STOP_LATCHED';
+  const level: Level = lvTemp === 'crit' ? 'crit' : lvTemp === 'bad' || lk === 'bad' ? 'bad' : lvTemp ?? lk;
+  const byTemp = !!lvTemp && !!h && (lvTemp === 'crit' || !latched), lw = latched ? lockWhy(x, s) : '';
+  const why = byTemp ? `${jointName(h!.j)} ${Math.round(h!.t)} °C` : latched ? (lw ? `${st.text} · ${lw}` : st.text) : flagNote(x) || st.text;
   const run = s?.run ?? null, paused = run?.status === 'PAUSED' ? (run.wait_reason === 'LINK_LOST' ? '일시정지 · 연결 끊김' : '일시정지') : null;
   const m = missionOf(x.mission) ?? (run && run.progress.total ? { name: '', done: run.progress.done, total: run.progress.total } : null);
   const loc = s?.location ?? (x.unknown === 'summary' ? null : x.location ?? null);
@@ -118,6 +143,11 @@ export function facts(x: Robot, me: string, places: Map<string, string>, av?: Av
   const at = av?.label ?? (loc ? fl ?? (loc.x != null && loc.y != null ? `위치 ${loc.x.toFixed(1)}, ${loc.y.toFixed(1)} m` : null) : null);
   const place = at ? `${at}${gone ? ' (마지막 위치)' : ''}` : '', charging = !!av?.charging;
   const lat = s?.latency_ms, act = actOf(x, false);
+  // 임무 중 = state.run, state 를 받지 않는 로봇(요약만)은 목록 current_run
+  const rs = s ? run : x.run ?? null, onRun = !!rs && !RUN_END.has(rs.status);
+  // 걷기: speed 가 오면 speed(0 = 서 있음). 요약만 받는 로봇은 speed 칸 자체가 없어 임무 중 + RUNNING(일시정지 · 잠금 · 끊김 아님)이면 걷기(D1 · 조정 21:27)
+  const noSpeed = s ? s.speed === undefined : x.unknown === 'summary';   // 첫 state 전(wait)은 모름 = 걷지 않음
+  const walk = noSpeed ? onRun && x.status === 'RUNNING' && rs?.status !== 'PAUSED' && !gone : walking(act, paused, s?.speed);
   const holder = x.holder ?? rt.get(x.id).holder;
   const who: [string, string] = holder ? [holder.id === me ? '나' : holder.name, holder.type === 'RUN' ? '임무' : '조종'] : [x.owner ? (x.owner === me ? '나' : ownerName(x)) : '없음', '담당자'];
   // 남은 시간 = 서버 battery.minutes_left(정수 0 ~ 1440 · 실기 모형 없으면 null). 계약 타입이 base 에 오기 전이라 선택 칸으로 읽음. null 이면 % 만(지어내지 않음)
@@ -125,8 +155,8 @@ export function facts(x: Robot, me: string, places: Map<string, string>, av?: Av
   const bat = x.battery != null ? `${Math.round(x.battery)} %` : null, tv = h ? lastly(x, `${Math.round(h.t)} °C`, x.seenAt) : null;
   return {
     stop: x.unknown === 'summary' ? null : stopLine(rt.get(x.id)),
-    x, demo: !!av?.demo, charging, job: av?.job ?? null, level, why, alert: needs(x) || !!lvTemp, flag: level ? `${LEVEL_TEXT[level]} · ${why}` : null, sim, lostNow: gone, lostAt: gone ? hm(x.seenAt) ?? '' : null, paused,
-    act, walk: act === 'walk' && !paused, mode: s?.gait?.gait ? GAIT_NAME[s.gait.gait] ?? s.gait.gait : '', mission: m, place, hot: h,
+    x, byTemp, demo: !!av?.demo, charging, job: av?.job ?? null, level, why, alert: needs(x) || !!lvTemp, flag: level ? `${LEVEL_TEXT[level]} · ${why}` : null, sim, lostNow: gone, lostAt: gone ? hm(x.seenAt) ?? '' : null, paused,
+    act, walk, onRun, mode: s?.gait?.gait ? GAIT_NAME[s.gait.gait] ?? s.gait.gait : '', mission: m, place, hot: h,
     bat: sim ? ['시뮬', '배터리 해당 없음'] : [bat ?? '', charging ? '충전 중' : av?.job ? (av.job.kind === 'maint' ? '점검 중' : '배터리 교체') : left != null ? `약 ${left} 분` : ''],
     temp: sim ? ['없음', stText(x), ''] : tv ? [tv, lvTemp ? LEVEL_TEXT[lvTemp] : '보통', lvTemp === 'bad' || lvTemp === 'crit' ? ' r' : lvTemp === 'warn' ? ' w' : ''] : ['', '', ''],
     link: sim ? ['서버', '시뮬 계산', ''] : gone ? ['연결 중', hm(x.seenAt) ? `${hm(x.seenAt)} 끊김` : '', ' w'] : x.online ? ['연결', lat != null ? `${Math.round(lat)} ms` : '', ''] : [st.text, '', ''],
@@ -161,18 +191,30 @@ function fitGrid(n: number): { cols: number; rows: number; zoom: number } {
 // ── 타일 ──────────────────────────────────────────────────
 /** 타일 · 작은 지도 공통: 데모 현장 승인 판(boards)의 위치만 현장 좌표로. 판 id 가 다르거나 없으면 null(엉뚱한 자리보다 뺌) */
 export const tilePose = (l: Location | null | undefined, boards: Set<string>) => (l?.map_version_id && boards.has(l.map_version_id) ? sitePose(l) : null);
+/** 타일 시점(팀장 21:16): 임무 중 = 뒤 1 m 따라가기 + 현장 glb(서버 위치 그대로 · 뒤집기면 정면), 임무 전 = 늘 정면 + 초록 점 바닥(현장 · 가림 당김 없음) */
+export const tileView = (f: TileFacts, front: boolean, l: Location | null | undefined, boards: Set<string>) =>
+  ({ front: front || !f.onRun, pose: f.onRun ? tilePose(l, boards) : null });
 const locOf = (f: TileFacts) => stateOf(f.x)?.location ?? (f.x.unknown === 'summary' ? null : f.x.location);
+/** 정면 온도 칩: 관절 온도가 문턱(tempLevel · 50 / 60 / 70 °C)을 넘을 때만 경고색 · 관절 이름, 아니면 회색 «최고 관절 온도 N °C»(잠금 등 다른 경고 색을 빌리지 않음) */
+function TempOv({ f }: { f: TileFacts }) {
+  const lv = f.hot ? tempLevel(f.hot.t) : null, col = lv === 'warn' ? 'var(--u5-amb)' : lv ? 'var(--u5-red)' : undefined;
+  return <span className="g dk ov" style={{ left: '8px', bottom: '8px', ...(col ? { color: col } : {}) }}>{I(14, IC.temp)}{f.hot ? (lv ? `${jointName(f.hot.j)} ${Math.round(f.hot.t)} °C` : `최고 관절 온도 ${Math.round(f.hot.t)} °C`) : '최고 관절 온도'}</span>;
+}
 function Cv({ f, front, hotMap, boards }: { f: TileFacts; front: boolean; hotMap: Record<string, string>; boards: Set<string> }) {
   const ref = useRef<HTMLCanvasElement>(null), look = useRef<TileLook>({ pose: null, front, cyber: f.sim, walk: false, down: false, hot: {} });
-  look.current = { pose: tilePose(locOf(f), boards), front: front || f.sim, cyber: f.sim, walk: f.walk, down: f.act === 'lie' || f.charging, hot: hotMap };
-  useEffect(() => (ref.current ? tileGl().add(ref.current, () => look.current) : undefined), []);
-  const go2 = JSON.stringify({ walk: f.walk, glow: !f.sim, pin: !f.sim, hot: hotMap, cyber: f.sim, yaw: front || f.sim ? 0 : 'back', dist: front || f.sim ? 1.25 : 2.1, floor: 0.5 });
-  const showFront = front || f.sim;
+  // 시뮬도 실기 · 데모와 같은 규칙(팀장 20:49 · 21:16). 파란 결은 로봇 재질 · 테두리 · 이름표로만
+  const v = tileView(f, front, locOf(f), boards);
+  look.current = { pose: v.pose, front: v.front, cyber: f.sim, walk: f.walk, down: lying(f), hot: hotMap };
+  const id = f.x.id, summary = f.x.unknown === 'summary';
+  // 서버 관절은 그릴 때마다 새로 읽는다(같은 화면 값이면 다시 그리지 않아도 관절은 바뀜 · 1 초 넘게 묵으면 버림)
+  useEffect(() => (ref.current ? tileGl().add(ref.current, () => ({ ...look.current, q: summary ? null : jointsNow(id) })) : undefined), []);
+  const go2 = JSON.stringify({ walk: f.walk, glow: !f.sim, pin: !f.sim, hot: hotMap, cyber: f.sim, yaw: v.front ? 0 : 'back', dist: v.front ? FRONT_DIST : REAR_DIST, floor: 0.5 });
+  const showFront = v.front;
   return <div style={{ height: '222px' }} className={showFront ? 'cv st' : 'cv'} data-face={showFront ? 'front' : 'live'}>
     <canvas ref={ref} className={showFront ? 'front' : 'rear'} data-go2={go2}></canvas>
-    {f.sim ? <span className="g dk ov" style={{ left: '8px', bottom: '8px' }}>{I(14, IC.temp)}{stText(f.x)} · 정면 보기</span>
-      : front ? <span className="g dk ov" style={{ left: '8px', bottom: '8px', ...(f.level === 'bad' || f.level === 'crit' ? { color: 'var(--u5-red)' } : {}) }}>{I(14, IC.temp)}{f.hot ? (f.level === 'bad' || f.level === 'crit' ? `${jointName(f.hot.j)} ${Math.round(f.hot.t)} °C` : `최고 관절 온도 ${Math.round(f.hot.t)} °C`) : '최고 관절 온도'}</span>
-      : f.lostNow ? <div className="lk">{I(24, IC.wifi, 'var(--u5-amb)')}다시 연결 중<small>마지막 화면 {f.lostAt}</small></div>
+    {f.lostNow ? <div className="lk">{I(24, IC.wifi, 'var(--u5-amb)')}다시 연결 중<small>마지막 화면 {f.lostAt}</small></div>   /* 끊김은 시점과 상관없이 먼저(임무 전 정면이어도) */
+      : f.sim && showFront ? <span className="g dk ov" style={{ left: '8px', bottom: '8px' }}>{I(14, IC.temp)}{stText(f.x)} · 정면 보기</span>
+      : showFront ? <TempOv f={f} />
       : f.x.sim ? <span className="g dk ov" style={{ left: '8px', top: '8px' }}>{I(14, IC.cam)}뒤 1 m</span>
       : <RealCam id={f.x.id} />}
     {f.stop ? <span className="stb" style={{ color: TONE_COL[f.stop.tone] ?? 'var(--mu2)' }} data-stop-line={f.stop.tone} title={f.stop.text}>{I(14, IC.stop)}{f.stop.text}</span>
@@ -232,13 +274,30 @@ function Mini({ all, sel, boards, toMap }: { all: TileFacts[]; sel: string; boar
 
 /** 최근 경고 = 주의가 필요한 로봇(기존 관제 needs · 관절 온도 · 끊김)에서 경보 칸에 나온 로봇을 뺀 것. 시각 = 받은 시각(발생 시각 필드 없음) · 모르면 칸을 접음 */
 const TONE_COL: Record<string, string> = { ok: 'var(--u5-ok)', warn: 'var(--u5-amb)', bad: 'var(--u5-red)' };
-function Recent({ list, pick, open }: { list: TileFacts[]; pick: (id: string) => void; open: (id: string) => void }) {
+/** 최근 경고 시각(팀장 21:24): 끊김 = 마지막 받은 시각, 정지 잠금 = 서버 status_since(그 잠금에 붙은 값일 때), 아니면 화면을 열 때 이미 경고면 «이어진 상태», 받는 동안 새로 생긴 경고는 그때 시각 */
+type Since = Map<string, { alert: boolean; at: string | null }>;
+const CARRY = '이어진 상태';
+function trackSince(seen: Since, all: TileFacts[]) {
+  for (const f of all) {
+    if (f.lostNow || f.x.unknown || !stateOf(f.x)) continue;   // 첫 state 전(목록 값만) · 끊긴 동안은 세지 않음 = 처음 받은 state 가 이미 경고면 «이어진 상태»
+    const a = f.alert, p = seen.get(f.x.id);
+    seen.set(f.x.id, { alert: a, at: !a ? null : !p ? CARRY : p.alert ? p.at : new Date().toTimeString().slice(0, 5) });
+  }
+}
+function alertAt(f: TileFacts, seen: Since): { t: string; title: string } | null {
+  const s = f.x.statusSince;
+  if (!f.lostNow && f.x.online && f.x.status === 'STOP_LATCHED' && s?.status === 'STOP_LATCHED') { const t = hm(s.at); if (t) return { t, title: `잠금 시작 ${t}` }; }
+  const e = !f.lostNow && f.x.online ? seen.get(f.x.id) : undefined;
+  if (e?.at) return { t: e.at, title: e.at === CARRY ? CARRY : `받은 시각 ${e.at}` };
+  const t = hm(f.x.seenAt); return t ? { t, title: `받은 시각 ${t}` } : null;
+}
+function Recent({ list, pick, open, seen }: { list: TileFacts[]; pick: (id: string) => void; open: (id: string) => void; seen: Since }) {
   return <div className="pane" style={{ padding: '16px 18px 6px', flex: '1', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }} aria-label="최근 경고"><div className="row" style={{ justifyContent: 'space-between', marginBottom: '4px' }}><span className="ttl" style={{ fontSize: '17px' }}>최근 경고</span><a href="#/history" style={{ color: 'inherit', textDecoration: 'none' }}><span className="mu2" style={{ fontSize: '12.5px' }}>기록 탭에서 모두 보기</span></a></div>
     {/* 칸에 다 들어가지 않는 줄은 반쯤 잘려 보이지 않게 옆 칸으로 넘겨 숨김(시안: 온전한 줄만) · 모두는 기록 탭 */}
-    <div className="alist">{list.map((f) => { const red = f.level === 'bad' || f.level === 'crit', t = hm(f.x.seenAt), joint = !!f.hot && !!f.level && !!tempLevel(f.hot.t);   // 관절 제목은 단계가 온도에서 왔을 때만(정지 잠금 등 다른 경고에 관절 이름을 붙이지 않음)
-      const head = joint ? `관절 ${LEVEL_TEXT[f.level!]}` : f.lostNow ? '연결 끊김' : f.why;
+    <div className="alist">{list.map((f) => { const red = f.level === 'bad' || f.level === 'crit', at = alertAt(f, seen), joint = f.byTemp && !!f.hot;   // 관절 제목은 단계가 온도에서 왔을 때만(정지 잠금 등 다른 경고에 관절 이름을 붙이지 않음)
+      const head = joint ? `관절 ${LEVEL_TEXT[tempLevel(f.hot!.t)!]}` : f.lostNow ? '연결 끊김' : f.why;
       const sub = joint ? f.why : f.lostNow ? `${f.place ? `${f.place.replace(' (마지막 위치)', '')} · ` : ''}다시 연결 중` : f.mission?.name ?? stText(f.x);
-      return <div className="al" key={f.x.id} data-alert={f.x.id} role="button" tabIndex={0} onClick={() => pick(f.x.id)} onDoubleClick={() => open(f.x.id)}><span style={{ color: red ? 'var(--u5-red)' : 'var(--u5-amb)' }}>{I(18, joint ? IC.temp : f.lostNow ? IC.wifi : IC.warn)}</span><div>{f.x.name} {head}<small>{sub}</small></div>{t && <time data-alert-at title={`받은 시각 ${t}`}>{t}</time>}</div>; })}</div>
+      return <div className="al" key={f.x.id} data-alert={f.x.id} role="button" tabIndex={0} onClick={() => pick(f.x.id)} onDoubleClick={() => open(f.x.id)}><span style={{ color: red ? 'var(--u5-red)' : 'var(--u5-amb)' }}>{I(18, joint ? IC.temp : f.lostNow ? IC.wifi : IC.warn)}</span><div>{f.x.name} {head}<small>{sub}</small></div>{at && <time data-alert-at title={at.title}>{at.t}</time>}</div>; })}</div>
   </div>;
 }
 const m1 = (v: number | null) => (v == null ? '' : v.toFixed(1));
@@ -292,6 +351,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
   const places = useMemo(() => new Map(floorsOf(t.tree).map((p) => [p.floor.id, `${p.building.name} ${floorName(p.floor.name)}`])), [t.tree]);
   const list = scope === 'mine' ? c.robots.filter((x) => x.owner === me) : c.robots;
   const all = order(list.map((x) => facts(x, me, places, av?.get(x.id))));
+  const seen = useRef<Since>(new Map()).current; trackSince(seen, all);
   useEffect(() => { if (sel && !list.some((x) => x.id === sel)) controlPick.set(''); });
   const see = (s: 'all' | 'mine') => { if (s !== scope) controlPick.set(''); setScope(s); };
   const open = (id: string) => { c.pick(id); c.go('fleet'); };
@@ -329,7 +389,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
         <Mini all={all} sel={sel} boards={boards} toMap={(r) => { setFrom(r); setView('map'); }} />
         {picked && <Picked key={picked.x.id} f={picked} open={() => open(picked.x.id)} me={me} cancel={c.cancel} refresh={c.refresh} />}
         {crit && !picked && <Alarm f={crit} stop={c.mayStop?.(crit.x.id) ? c.stop : undefined} open={() => open(crit.x.id)} />}
-        <Recent list={all.filter((f) => (f.alert || f.lostNow) && f.x.id !== crit?.x.id)} pick={(id) => controlPick.set(id)} open={open} /></>
+        <Recent list={all.filter((f) => (f.alert || f.lostNow) && f.x.id !== crit?.x.id)} pick={(id) => controlPick.set(id)} open={open} seen={seen} /></>
         : <MapSide all={all} sel={sel} pick={(id) => controlPick.set(id)} open={open} />}
     </div>
   </main>;

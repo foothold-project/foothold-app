@@ -282,6 +282,7 @@ function onState(s: ScreenState) {
     && (p.safety_reason ?? null) === (s.safety_reason ?? null) && (p.stop_applied ?? null) === (s.stop_applied ?? null) && (p.field_gate ?? null) === (s.field_gate ?? null)
     && (p.control ?? null) === (s.control ?? null)   // 순정 · 저수준 (단추 끄기 · contracts ControlMode)
     && p.latency_ms === s.latency_ms
+    && ((p as { latch_reason?: string | null }).latch_reason ?? null) === ((s as { latch_reason?: string | null }).latch_reason ?? null)   // 잠금 까닭(서버 latch_reason · 계약 생성물에 오기 전이라 선택 칸)
     && mins(p) === mins(s)   // 배터리 남은 시간(battery.minutes_left · 계약 타입이 base 에 오기 전이라 선택 칸으로 읽음)
     && JSON.stringify(p.response_health ?? null) === JSON.stringify(s.response_health ?? null)
     && shown(p) === shown(s)

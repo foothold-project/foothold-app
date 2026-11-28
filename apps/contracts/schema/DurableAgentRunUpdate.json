@@ -114,7 +114,8 @@
           "enum": [
             "LINK_LOST",
             "STOPPED_BY_USER",
-            "RECORDING_UNAVAILABLE"
+            "RECORDING_UNAVAILABLE",
+            "SIM_SELF_STOP"
           ],
           "type": "string"
         },

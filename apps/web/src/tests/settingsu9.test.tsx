@@ -169,11 +169,18 @@ describe('서버 값이 없는 칸(u9_4 · u9_5 · u9_6 · u9_7 · u9_8): 지어
     expect(pane('데모 로봇 표시').querySelector('[role="switch"]')!.getAttribute('aria-disabled')).toBe('true');
     await click(radios[1]);
   });
-  it('조작: 조이스틱 · 음성은 앱에 없어 「앱에 아직 없음」 · 까닭, 연결됨 같은 지어낸 상태 없음', async () => {
+  it('조작: 조이스틱 = 실제 연결 상태(없으면 「연결 안 됨」 · 있으면 「연결됨 · 1 순위」 + 이름), 음성은 앱에 없어 까닭', async () => {
+    Object.defineProperty(navigator, 'getGamepads', { configurable: true, value: () => [] });
     serve(r()); await open(ADMIN, 'controls');
-    expect(pane('조이스틱').textContent).toContain('앱에 아직 없음');
+    expect($('[data-pad]').textContent).toBe('연결 안 됨');
     expect(pane('조이스틱').textContent).not.toContain('연결됨');
     expect(pane('음성').textContent).toContain('음성 명령 기능이 앱에 아직 없습니다.');
+    act(() => root?.unmount()); root = null; box.remove();
+    Object.defineProperty(navigator, 'getGamepads', { configurable: true, value: () => [null, { id: 'Xbox Wireless Controller', index: 1, connected: true, axes: [0, 0, 0, 0] }] });
+    serve(r()); await open(ADMIN, 'controls');
+    expect($('[data-pad]').textContent).toBe('연결됨 · 1 순위');
+    expect($('[data-pad-note]').textContent).toBe('Xbox Wireless Controller');
+    Object.defineProperty(navigator, 'getGamepads', { configurable: true, value: () => [] });
   });
 });
 

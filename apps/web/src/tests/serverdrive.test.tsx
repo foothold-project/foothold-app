@@ -271,6 +271,28 @@ describe('서버 경유 시험 조종 패널', () => {
     key('keyup', 'ArrowUp');
   });
 
+  it('조이스틱(gamepad.ts 의 Pad 키)은 키보드와 같은 표 · 같은 막힘', () => {
+    ready();
+    expect(hold(['PadUp'])).toBe('1.5,0,0');
+    expect(hold(['PadDown'])).toBe('-1.5,0,0');
+    expect(hold(['PadRotL'])).toBe('0,0,2.5');
+    expect(hold(['PadRight'])).toBe('0,-1,0');
+    expect(hold(['PadUp', 'PadRotR'])).toBe('1.5,0,-2.5');
+    expect(hold(['PadLeft', 'PadUp'])).toBe('0,0,0');   // 표 밖 조합 = 0(키 ←+↑ 과 같음)
+    expect(axes().every((a) => ALLOWED.has(a))).toBe(true);
+  });
+  it('조이스틱도 STOP 뒤에는 가운데로 돌렸다 다시 밀어야 움직임', () => {
+    ready();
+    const auto = w.auto!;
+    w.auto = (m) => (m.t === 'stop' ? { ok: true } : auto(m));
+    key('keydown', 'PadUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    key('keydown', 'Space'); tick(200);
+    expect(lastAxes()).toBe('0,0,0');
+    key('keyup', 'Space'); tick(200);
+    expect(lastAxes()).toBe('0,0,0');   // 밀고 있어도 0
+    key('keyup', 'PadUp'); key('keydown', 'PadUp'); tick(60);
+    expect(w.of('stop').length).toBe(1);
+  });
   it('Space(머리줄 STOP)도 입력을 바로 0 으로', () => {
     ready();
     const auto = w.auto!;

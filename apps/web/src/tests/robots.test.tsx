@@ -383,7 +383,7 @@ describe('subscription.revoked(05 §9)', () => {
     await open('#/drive/r-a', true);   // 조종 화면은 폰에만(ADR-002 §3)
     const w = live(LEE);
     expect(subs(w).pop()).toEqual(['r-a']);
-    await click(btn('조종 시작'));
+    await click(btn('조종'));
     await flush();
     expect(rt.get('r-a').lease).toBe('L1');
     expect(location.hash).toBe('#/drive/r-a');
