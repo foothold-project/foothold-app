@@ -457,6 +457,9 @@ function Screen(c: Ctx) {
     {/* 「다시 시작」(시안 u1_3 자리 · 정지 위 92 × 48) = 잠금 해제. PC 로봇 탭처럼 확인 창(u4_10 글)을 거친다 */}
     {mine && l.state?.latched !== false && <button type="button" className="g dk btn u1-unlock" style={{ right: '12px', bottom: '88px', width: '92px', height: '48px', borderRadius: '14px', zIndex: 5 }} onClick={restart.open}>
       <Ic s={18}><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></Ic>다시 시작</button>}
+    {/* 말하기(시안 u1_2 · 정지 위 68 × 44). PC 로봇 탭 말하기와 같은 길: 서버 길이 없어 「준비 중」 글만(보냄 0). 「다시 시작」 이 그 자리를 쓰는 동안은 숨김(시안 u1_3) */}
+    {!(mine && l.state?.latched !== false) && <button type="button" className="g dk btn u1-talk" style={{ right: '24px', top: '252px', width: '68px', height: '44px', borderRadius: '22px', zIndex: 5 }} onClick={() => say('말하기는 아직 서버에 없습니다')} data-u1-talk>
+      <Ic s={18}><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></Ic>말하기</button>}
     {/* Damping(시안 u1_3 은 정지 자리를 Damping 으로 바꿈). 정지 단추(App 공통 층 · Space)는 늘 그 자리에 두고, Damping 은 「다시 시작」 위 같은 폭 · 시안 밖 자리 */}
     {dampOn && <button type="button" className="stop u1-damp" style={{ right: '12px', bottom: '144px', width: '92px', height: '56px', zIndex: 5 }} onClick={damp} data-u1-damp data-off-proto="damp-place">Damping<small>힘 빼기</small></button>}
     {/* 위 띠 줄(시안 .ban): 작은 지도와 오른쪽 줄 사이. red = 출력 지연, amb = 막은 까닭 · 리모컨 */}
