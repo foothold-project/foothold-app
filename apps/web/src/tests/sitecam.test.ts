@@ -1,7 +1,7 @@
 // 관제 지도 보기 첫 시점 · 고른 로봇으로 다가가기(팀장 00:22): 정북 · 아래로 SITE_EL · 무리 가운데가 화면 가로 가운데 · 세로 SITE_Y · 폭 = 무리 폭 × SITE_SPAN
 import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
-import { FLY_S, NEAR_D, SITE_EL, SITE_FOV, SITE_MAX_K, SITE_SPAN, SITE_Y, flyTime, nearShot, shotMix, siteShot, type SiteShot } from '../proto/u5map';
+import { FLY_S, MAP_GO2_S, NEAR_D, SITE_EL, SITE_FOV, SITE_MAX_K, SITE_SPAN, SITE_Y, flyTime, nearShot, shotMix, siteShot, type SiteShot } from '../proto/u5map';
 import { K, SITE_PX_H, SITE_PX_W, toWorld } from '../proto/site';
 
 const AR = 1472 / 900;
@@ -33,6 +33,9 @@ describe('지도 보기 첫 시점', () => {
 });
 
 describe('고른 로봇으로 다가가기', () => {
+  it('더블클릭 끝 시점 거리 · 지도 로봇 배율(팀장 02:03): 150 보다 덜 들어감 · 모형은 시안 20 배보다 작게', () => {
+    expect(NEAR_D).toBe(210); expect(MAP_GO2_S).toBe(12);
+  });
   it('끝 시점 = 로봇이 화면 가운데 · 가까이(NEAR_D) · 처음 → 중간 → 끝(ease-in-out)', () => {
     const a = siteShot([{ x: 300, z: 200 }, { x: 400, z: 260 }], AR), b = nearShot({ x: 400, z: 260 });
     const e = scr(camOf(b), 400, 260); expect(e.x).toBeCloseTo(0.5, 6); expect(e.y).toBeCloseTo(0.5, 6); expect(b.d).toBe(NEAR_D);

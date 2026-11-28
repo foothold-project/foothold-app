@@ -11,7 +11,9 @@ import { IC, ic, type TileFacts } from './u5';
 import { pickPress } from '../screens/control';
 
 const ST_COL = { walk: 0x00c389, link: 0xf2b705, rest: 0x4c9bff, bad: 0xff4d4f, idle: 0xa9b8c6 } as const;
-const S = 20, STEM = 16;   // 시안 data-site scale 20
+/** 지도 보기 로봇 모형 배율(시안 data-site scale 20 → 12 · 팀장 02:03 «모형이 큼» · 점 · 줄기와 어울리게). 고리 · 빛 웅덩이도 이 배율 */
+export const MAP_GO2_S = 12;
+const S = MAP_GO2_S, STEM = 16;
 // 시뮬 로봇은 시안 K-08 처럼 늘 파란 꼴(상자 아이콘 · 점선 이름표 · 파란 고리). 시뮬 경고는 타일 · 오른쪽 줄에 남음
 const tone = (f: TileFacts): keyof typeof ST_COL => (f.sim ? 'rest' : f.level === 'bad' || f.level === 'crit' ? 'bad' : f.lostNow ? 'link' : f.walk ? 'walk' : 'idle');
 const poseOf = (f: TileFacts) => sitePose((f.x.unknown === 'summary' ? null : rt.get(f.x.id).state?.location) ?? (f.x.unknown === 'summary' ? null : f.x.location));
