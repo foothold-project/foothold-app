@@ -11,7 +11,6 @@ import { SIDE_BLOCK, canDrive } from '../serverdrive';
 import { railOrder } from '../screens/u4/robotu4';
 import { api } from '../api';
 import u4css from '../screens/u4/u4.css?raw';
-import { SITE_TOP } from '../proto/site';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -99,7 +98,15 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
     mount('u-park'); serve('r7');
     expect($('.stage3d canvas#go2')).not.toBeNull();
     expect(text($('.stage3d .hint'))).toBe('끌어서 돌려 보기');
-    expect(text($('.stage3d .foot .mu2'))).toBe('실제 관절값으로 제자리에서 움직임 · 바닥 점이 뒤로 흐르면 앞으로 걷는 중');
+    // 3D 칸 아래 안내는 받은 값 그대로(팀장 11-28 19:17): 관절값 없음 → 서기 · posture LYING → 자세 값 · 관절값 → 실제 관절값
+    const note = () => $('[data-u4-jointnote]')!;
+    expect([note().getAttribute('data-u4-jointnote'), text(note())]).toEqual(['none', '관절값을 받지 않아 서 있는 모양 그대로']);
+    act(() => { push('r7', { posture: { state: 'LYING' } } as unknown as Partial<ScreenState>); });
+    expect([note().getAttribute('data-u4-jointnote'), text(note())]).toEqual(['posture', '관절값이 없어 자세 값(엎드림)으로 그림']);
+    const N = ['FR', 'FL', 'RR', 'RL'].flatMap((l) => ['hip', 'thigh', 'calf'].map((p) => `${l}_${p}_joint`));
+    act(() => { push('r7', { robot_info: { joints: { names: N, positions: N.map(() => 0.5), age_s: 0 } } } as unknown as Partial<ScreenState>); });
+    expect([note().getAttribute('data-u4-jointnote'), text(note())]).toEqual(['q', '실제 관절값으로 제자리에서 움직임 · 바닥 점이 뒤로 흐르면 앞으로 걷는 중']);
+    act(() => { push('r7', { posture: { state: 'STANDING' }, robot_info: {} } as unknown as Partial<ScreenState>); });
     expect(text($('[data-u4-walk]'))).toBe('서 있음');
     expect($$('.views .vsel span').map(text)).toEqual(['지도', '카메라', '라이다', '깊이']);
     expect(text($('.views .small .cl'))).toBe('앞 카메라');
@@ -380,7 +387,7 @@ describe('데모 = 실기 꼴 · 서버 값(11-28)', () => {
       await flush(); await flush();
       const im = $('[data-u4-mapimg]')!;
       if (demo) {
-        expect(im.getAttribute('data-u4-mapimg')).toBe('factory'); expect(im.getAttribute('src')).toBe(SITE_TOP.dark);   // 공장 질감판 위 그림(proto/site.ts 한 곳)
+        expect(im.getAttribute('data-u4-mapimg')).toBe('factory'); expect(im.getAttribute('src')).toBe('/proto-assets/assets/maps_v2/factory_kr/top_dark.png');   // 공장 질감판 위에서 본 그림(어둠 판)
         expect($('#me')!.getAttribute('transform')).toMatch(/^translate\(375\.0,720\.0\)/);
       } else {
         expect(im.getAttribute('data-u4-mapimg')).toBe('server'); expect(im.getAttribute('src')).toBe('/api/v1/map-versions/v1/image');

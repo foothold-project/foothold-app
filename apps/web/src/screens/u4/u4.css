@@ -140,3 +140,6 @@
 .proto.light .u4 .mapin [data-u4-other] circle{stroke:#FFFFFF}
 /* 키 줄에 「1~4 화면」 칩이 늘어 한 줄에 들도록: 조종 시작 단추는 줄바꿈 없이 */
 .u4 .ctl .btn{white-space:nowrap;padding:0 14px}
+/* 3D 칸 아래 오른쪽 안내: 바닥 점이 글자 위로 비치지 않게 판 바탕을 깐다 */
+.u4 .stage3d .foot .jnote{margin-left:auto;font-size:12.5px;padding:5px 10px;border-radius:9px;background:rgba(12,15,20,.82);position:relative;z-index:1}
+.proto.light .u4 .stage3d .foot .jnote{background:#FFFFFF}

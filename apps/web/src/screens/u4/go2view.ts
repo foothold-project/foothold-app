@@ -8,8 +8,12 @@ const SIM = 0x4c9bff;
 const HOT: Record<string, number> = { warn: 0xf2b705, hot: 0xff4d4f, ok: 0x00c389 };
 /** go2model JOINTS 순서(FR FL RR RL × hip thigh calf) → glb 마디 이름. 시안의 서 있는 자세(Isaac 기본값)와의 차만큼 돌린다 */
 const ORDER = ['FR', 'FL', 'RR', 'RL'].flatMap((l) => ['hip', 'thigh', 'calf'].map((p) => `${l}_${p}`));
-const STAND = ORDER.map((n) => (n.endsWith('hip') ? (n[1] === 'R' ? -0.1 : 0.1) : n.endsWith('thigh') ? (n[0] === 'F' ? 0.8 : 1) : -1.5));
+export const STAND = ORDER.map((n) => (n.endsWith('hip') ? (n[1] === 'R' ? -0.1 : 0.1) : n.endsWith('thigh') ? (n[0] === 'F' ? 0.8 : 1) : -1.5));
 
+/** 시안 pose 'down'(서기에서 thigh +0.8 · calf -1.6) = 관절값이 없을 때 서버 posture LYING 으로 그리는 엎드림 */
+export const DOWN = STAND.map((x, i) => x + (ORDER[i].endsWith('thigh') ? 0.8 : ORDER[i].endsWith('calf') ? -1.6 : 0));
+/** 그릴 관절: 받은 관절값이 이긴다 · 없으면 posture LYING 이면 엎드림 · 그 밖은 서기(지어내지 않음) */
+export const poseQ = (q: number[] | null, down: boolean) => (q && q.length === 12 ? q : down ? DOWN : STAND);
 type Joints = Record<string, { o: THREE.Object3D; r0: THREE.Euler }>;
 /** 받은 관절값(12개)으로 다리를 돌린 뒤 몸 · 발 가장 낮은 점을 바닥 y=0 에 붙인다(서기 · 엎드림 · 앉기 · 넘어짐 · 시뮬 · 데모 · 실기 같은 규칙).
  *  관절만 돌리고 몸 높이를 서 있을 때 그대로 두면 엎드릴 때 공중에 떠 앉는다(팀장 11-28 18:47) */
@@ -33,12 +37,12 @@ function cyberMat() {
 }
 
 export type Go2Opt = { pin?: boolean; orbit?: boolean; glow?: boolean; cyber?: boolean; hot?: Record<string, string>; pose?: 'down'; yaw?: number; dist?: number; floor?: number; src?: string };
-export type Go2Api = { q: number[] | null; drive: { v: number; turn: number; side: number } | null; setHot: (m: Record<string, string>) => void; dispose: () => void; fallback?: boolean };
+export type Go2Api = { q: number[] | null; /** 서버 posture LYING (q 없을 때만 씀) */ down: boolean; drive: { v: number; turn: number; side: number } | null; setHot: (m: Record<string, string>) => void; dispose: () => void; fallback?: boolean };
 
 export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
   const w = canvas.clientWidth || 760, h = canvas.clientHeight || 900;
   let r: THREE.WebGLRenderer;
-  const api: Go2Api = { q: null, drive: null, setHot, dispose: () => {} };
+  const api: Go2Api = { q: null, down: false, drive: null, setHot, dispose: () => {} };
   try { r = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true }); }
   catch { api.fallback = true; return api; }   // WebGL 이 없는 PC: 캔버스만 빈 채로 (시안의 정면 그림은 자산이라 넣지 않음)
   r.setPixelRatio(Math.min(2, devicePixelRatio)); r.setSize(w, h, false);
@@ -144,7 +148,8 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
     if (d) { off -= d.v * dt * 0.75; gm.uniforms.off.value = off; grid.rotation.y -= d.turn * dt * 0.9; grid.position.x = ((grid.position.x - (d.side || 0) * dt * 0.75) + 2) % 4 - 2; }
     const q = api.q;
     // 관절값이 바뀐 때만 다시 놓는다(바닥 맞춤은 꼭짓점을 훑으므로 같은 배열이면 건너뜀)
-    if (q && q !== lastQ && q.length === 12 && root && !posed) { applyQ(root, joints, q); lastQ = q; }
+    const want = poseQ(q, api.down);
+    if (want !== lastQ && root && !posed) { applyQ(root, joints, want); lastQ = want; }
     ctl?.update(); r.render(scene, cam); raf = requestAnimationFrame(frame);
   }
   frame();

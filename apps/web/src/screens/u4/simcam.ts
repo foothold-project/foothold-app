@@ -1,24 +1,18 @@
 // 시뮬 시점(로봇 탭 앞 카메라 칸 · 「카메라」 보기): 실제 카메라 영상이 아니다. 서버 지도판의 3D 현장 안, 서버가 준 그 로봇 위치(x · y · yaw)에
 // Go2 앞 카메라 높이로 놓은 카메라에서 본 그림. 칸 아래에 늘 「시뮬 시점」 표지를 붙인다(robotu4.tsx).
 // 현장: 판의 3D 모형(MapVersion.model_sha256 · GET …/model, map3d.tsx 와 같은 좌표 변환)이 먼저. 모형이 없으면 그 판이 시안 공장 터와
-// 같은 좌표계(factoryFrame)일 때만 시안 factory_site.glb. 둘 다 아니면 그리지 않는다(부르는 쪽이 「카메라 신호 없음」 + 까닭).
+// 같은 좌표계(factoryFrame)일 때만 공장 질감판(proto/site.ts loadSite · 관제 · 지도 탭과 같은 로더 · 색 곱). 둘 다 아니면 그리지 않는다(부르는 쪽이 「카메라 신호 없음」 + 까닭).
 // WebGL 맥락은 렌더러 하나(브라우저 한도 약 16): 화면 밖 캔버스 하나에 칸마다 차례로 그려 각 칸의 2D 캔버스로 옮긴다.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { MapVersion } from '../../../../contracts/ts';
 import { floorZ, modelBytes, modelOf, worldGroup } from '../map3d';
-import { SITE_TOP } from '../../proto/site';
+import { loadSite, toneSite } from '../../proto/site';
 
 /** Go2 앞 카메라 높이(m, 바닥 위). 제조사 제원 서 있는 몸 크기 70 × 31 × 40 cm(높이 0.40 m), 앞 카메라는 머리 앞면 위쪽이라 몸 위끝보다 조금 아래 */
 export const CAM_H = 0.36;
 /** 세로 화각(도) · 아래로 숙임(라디안). 앞 카메라 실제 값을 받는 계약이 없어 보기용으로 정한 값(넓은 앞 카메라 느낌) */
 export const CAM_FOV = 62, CAM_PITCH = 0.08;
-/** 시안 공장 터 3D(저장소 밖 자산 · vite FH_ASSET_DIR → /proto-assets/) */
-export const FACTORY_GLB = '/proto-assets/assets/maps_large/3d/factory_site.glb';
-/** 시안 공장 터 지도 그림(3200 × 2000 px · 3.5 px/m · 그림 원점 (25, 20) px · 900 m × 560 m) */
-export const FACTORY_PNG = SITE_TOP.dark;   // 공장 질감판 위 그림(어둠) · 경로는 proto/site.ts SITE_TOP 한 곳(관제 작은 지도와 같음)
-/** 밝은 판 공장 그림: 시안 build_scene.py 가 같은 3200 × 2000 px 에 정사영으로 뽑은 흰 점토 결 그림(지도 탭 · 관제와 같은 파일) */
-export const FACTORY_LIGHT = SITE_TOP.light;   // 같은 질감판 위 그림(밝음)
 const K = 3.5, OX = 25, OY = 20, FW = 3200, FH = 2000;
 /** 서버 판 m(x 동 · y 북) → 시안 공장 그림 px. 시안 design 변환 그대로(px = 25 + 3.5 x, py = 20 − 3.5 y) · 데모 현장 판에만 쓴다 */
 export const factoryPx = (x: number, y: number) => [OX + K * x, OY - K * y] as const;
@@ -60,8 +54,10 @@ async function load(v: MapVersion, cancel?: AbortSignal): Promise<Site> {
     const buf = await modelBytes(v.id, sha, cancel), g = await gl.parseAsync(buf, '');
     const s = wrap(g.scene, 0); s.z = floorZ(g.scene, v); return s;
   }
-  const g = await gl.loadAsync(FACTORY_GLB);
-  return wrap(g.scene, 0);
+  const g = await loadSite();   // 부를 때마다 새 복제 · 어두운 시점 칸이라 어둠 판 색 곱
+  if (!g) throw new Error('공장 모형을 받지 못함');
+  toneSite(g, false);
+  return wrap(g, 0);
 }
 export function site(v: MapVersion, cancel?: AbortSignal) {
   const k = siteKey(v);
