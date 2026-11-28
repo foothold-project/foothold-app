@@ -27,6 +27,29 @@ export const controlPick = {
   sub(f: () => void) { pickSubs.add(f); return () => { pickSubs.delete(f); }; },
 };
 export const useControlPick = () => useSyncExternalStore(controlPick.sub, controlPick.get);
+/** 관제 고르기 누름 규칙(팀장 00:19 · 타일 · 지도 보기 3D 표식 · 지도 보기 오른쪽 줄 같음): 한 번 = 고름, 고른 것을 다시 한 번 = 풂, 두 번(더블클릭) = 로봇 탭에서 열기.
+ *  더블클릭에도 click 이 먼저 두 번 온다. 그래서 고르기는 바로 하고(더블클릭이어도 고른 채로 넘어감), 풀기만 UNPICK_MS 뒤로 미룬다.
+ *  그 사이 두 번째 click(detail ≥ 2) 이나 dblclick 이 오면 미룬 풀기를 거둔다. detail ≥ 2 인 click 은 고르기 · 풀기를 하지 않는다.
+ *  키보드: Enter = 고르기 · 풀기(바로), Shift+Enter = 로봇 탭에서 열기(시안 밖 · 시안에 키 규칙 없음) */
+export const UNPICK_MS = 300;
+let unpick = 0;
+const keepPick = () => { clearTimeout(unpick); unpick = 0; };
+export function pickPress(id: string, sel: boolean, open: () => void) {
+  return {
+    onClick: (e: { detail: number }) => {
+      keepPick();
+      if (e.detail >= 2) return;
+      if (!sel) { controlPick.set(id); return; }
+      unpick = window.setTimeout(() => { unpick = 0; if (controlPick.get() === id) controlPick.set(''); }, UNPICK_MS);
+    },
+    onDoubleClick: () => { keepPick(); open(); },
+    onKeyDown: (e: { key: string; shiftKey: boolean; target: EventTarget; currentTarget: EventTarget; preventDefault(): void }) => {
+      if (e.key !== 'Enter' || e.target !== e.currentTarget) return;
+      e.preventDefault(); keepPick();
+      if (e.shiftKey) open(); else controlPick.set(sel ? '' : id);
+    },
+  };
+}
 /** 서버 주의 코드 중 상태 칩이 이미 말하지 않는 것(끊김·잠금·오류·칩과 같은 글은 뺌). 한 번도 연결된 적 없는 로봇의 OFFLINE 은 칩 «연결 전»이 말한다 */
 const rest = (x: Robot) => attn(x, ['OFFLINE', 'STOP_LATCHED', 'ERROR']).split(' · ').filter((a) => a && a !== robotStatus(x).text);
 /** 주의가 필요한 로봇 = 상태가 빨강·주황이거나, 칩이 말하지 않는 서버 주의 코드가 남음. 연결 전(칩 회색)만이면 경고 아님 */

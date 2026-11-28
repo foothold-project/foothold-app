@@ -6,7 +6,7 @@ import { pcBoard } from '../pcboard';
 import { App } from '../App';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
-import { EmptyControl, actOf, lastly } from '../screens/control';
+import { EmptyControl, UNPICK_MS, actOf, controlPick, lastly } from '../screens/control';
 import { WALK_MIN_SPEED, facts, jointsNow, lying, order, tempLevel, tileView, wallGrid, wallPick, walking } from '../proto/u5';
 import { JOINTS } from '../go2model';
 import { api } from '../api';
@@ -261,17 +261,58 @@ describe('관제 탭', () => {
     expect(at('.u5 .tile.sel.warncell{box-shadow:0 0 0 3px #00c389')).toBeGreaterThan(at('.u5 .tile.lv-crit{box-shadow'));
     expect(at('.proto.light .u5 .tile.sel.warncell{box-shadow:0 0 0 3px #18A07E')).toBeGreaterThan(at('.proto.light .u5 .tile.lv-bad'));
   });
-  it('한 번 누름 = 고름(선택 칸 · 작은 지도 강조), 한 번 더 = 그 로봇의 로봇 탭', () => {
+  // 팀장 00:19 누름 규칙: 한 번 = 고름 · 고른 것 다시 한 번 = 풂 · 두 번(더블클릭) = 로봇 탭. 타일 · 지도 보기 3D 표식 · 오른쪽 줄 같음
+  const click = (el: Element, detail = 1) => act(() => { el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail })); });
+  const dbl = (el: Element) => { click(el, 1); click(el, 2); act(() => { el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 })); }); };
+  const later = () => act(() => { vi.advanceTimersByTime(UNPICK_MS + 10); });
+  it('한 번 누름 = 고름(선택 칸 · 작은 지도 강조), 고른 로봇을 한 번 더 = 고르기 풂(로봇 탭으로 가지 않음)', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     mount('u-kim', TWENTY.slice(0, 8)); feed(TWENTY.slice(0, 8));
-    act(() => { tile('g7').click(); });
+    click(tile('g7'));
     expect(tile('g7').dataset.sel).toBe('true');
     expect(tile('g7').getAttribute('aria-pressed')).toBe('true');
     expect(tile('g7').classList.contains('sel')).toBe(true);
     expect($('[data-picked] .ttl').textContent).toBe('K-08');
-    expect($('[data-picked]').textContent).toContain('한 번 더 누르면 로봇 탭에서 열립니다.');
-    act(() => { tile('g7').click(); });
-    expect($('h1').textContent).toBe('로봇');
-    expect(location.hash).toBe('#/fleet');
+    expect($('[data-picked]').textContent).toContain('두 번 누르면 로봇 탭에서 열립니다. 한 번 더 누르면 고르기를 풉니다.');
+    click(tile('g7')); later();
+    expect(tile('g7').dataset.sel).toBeUndefined(); expect(controlPick.get()).toBe('');
+    expect(location.hash).toBe('#/control');
+    vi.useRealTimers();
+  });
+  it('다른 로봇을 누르면 그 로봇으로 바로 옮겨 고름', () => {
+    mount('u-kim', TWENTY.slice(0, 8)); feed(TWENTY.slice(0, 8));
+    click(tile('g7')); click(tile('g6'));
+    expect(tile('g6').dataset.sel).toBe('true'); expect(tile('g7').dataset.sel).toBeUndefined(); expect(controlPick.get()).toBe('g6');
+  });
+  it('더블클릭 = 로봇 탭 · 넘어가기 전 고르기가 흔들리지 않음(안 고른 로봇 · 이미 고른 로봇 둘 다)', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    for (const already of [false, true]) {
+      mount('u-kim', TWENTY.slice(0, 8), '#/control'); feed(TWENTY.slice(0, 8));
+      if (already) click(tile('g7'));
+      const seen: string[] = []; const off = controlPick.sub(() => seen.push(controlPick.get()));
+      click(tile('g7'), 1); click(tile('g7'), 2);
+      expect(tile('g7').dataset.sel).toBe('true');   // dblclick 직전: 고른 채
+      act(() => { tile('g7').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 })); });
+      later(); off();
+      expect(location.hash).toBe('#/fleet');
+      expect(seen.slice(0, seen.indexOf('') < 0 ? seen.length : seen.indexOf(''))).toEqual(already ? [] : ['g7']);   // 넘어가기 전 «골랐다 → 풀렸다» 없음
+      expect(seen.filter((x) => x === '').length).toBeLessThanOrEqual(1);   // 비움은 탭을 떠날 때 한 번뿐
+      act(() => root?.unmount()); box.remove();
+    }
+    vi.useRealTimers();
+  });
+  it('지도 보기 3D 표식 · 오른쪽 줄도 같은 규칙(고름 · 풂 · 더블클릭 로봇 탭)', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    for (const sel of ['.u5 .mks .mk3[data-r3="g7"]', '.u5 .side .rrow[data-r="K-08"]']) {
+      mount('u-kim', TWENTY.slice(0, 8), '#/control'); feed(TWENTY.slice(0, 8));
+      act(() => { seg('보기', 1).click(); });
+      const el = () => $(sel) as HTMLElement;
+      click(el()); expect(controlPick.get()).toBe('g7'); expect(el().getAttribute('aria-pressed')).toBe('true');
+      click(el()); later(); expect(controlPick.get()).toBe('');
+      dbl(el()); expect(location.hash).toBe('#/fleet');
+      act(() => root?.unmount()); box.remove();
+    }
+    vi.useRealTimers();
   });
 
   it('두 번 누름(dblclick)도 로봇 탭 · 선택 칸 «로봇 탭에서 열기» 도 같음', () => {
@@ -529,10 +570,13 @@ describe('관제 탭', () => {
     expect($('[data-empty-control] a').getAttribute('href')).toBe('#/fleet');
   });
 
-  it('타일 키보드: Enter = 로봇 탭(초점 받음)', () => {
+  it('타일 키보드: Enter = 고르기 · 다시 Enter = 풀기(바로), Shift+Enter = 로봇 탭(시안 밖)', () => {
     mount('u-kim', TWENTY.slice(0, 8)); feed(TWENTY.slice(0, 8));
     expect(tile('g7').tabIndex).toBe(0);
-    act(() => { tile('g7').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    const key = (shiftKey = false) => act(() => { tile('g7').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey, bubbles: true })); });
+    key(); expect(controlPick.get()).toBe('g7');
+    key(); expect(controlPick.get()).toBe('');
+    key(true);
     expect($('h1').textContent).toBe('로봇');
     expect(location.hash).toBe('#/fleet');
   });
