@@ -100,12 +100,15 @@ beforeEach(() => { VS = new FakeVox(SID); vi.spyOn(HTMLCanvasElement.prototype, 
 afterEach(() => { allowed = false; act(() => root?.unmount()); root = null; box?.remove(); kept.d = null; clearPlans(); localStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 const $ = <T extends Element = HTMLElement>(s: string) => box.querySelector<T>(s);
-const btn = (t: string, from: ParentNode = box) => [...from.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
+const btn = (t: string, from: ParentNode = box) => [...from.querySelectorAll('button, [role=button]')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
+/** 꺼짐: button 은 disabled, 시안 단추(div role=button)는 aria-disabled */
+const off = (b: Element | undefined) => !!b && ((b as HTMLButtonElement).disabled === true || b.getAttribute('aria-disabled') === 'true');
 const click = async (b: Element | undefined | null) => { expect(b).toBeTruthy(); act(() => (b as HTMLElement).click()); await flush(); };
-const dlg = () => $('dialog[open][aria-labelledby]')!;
+/** 지도 만들기 화면 = 시안 u7_6 · u7_7 · u7_8 (옛 창 없음) */
+const dlg = () => $('[data-u7="u7_6_scan"],[data-u7="u7_7_lost"],[data-u7="u7_8_process"]')!;
 const gets = () => calls.filter((c) => c.method === 'GET' && c.path === '/robots/r-a/slam');
 const posts = () => calls.filter((c) => c.method === 'POST' && c.path.startsWith('/robots/r-a/slam'));
-const openMake = async () => { await click($('[data-make-open]')); expect(dlg().textContent).toContain('로봇으로 지도 만들기'); };
+const openMake = async () => { await click($('[data-make-open]')); expect(dlg()).toBeTruthy(); };
 
 describe('지도 만들기 — 보이는 조건', () => {
   it('담당 운영자에게만 단추: 총괄·다른 운영자는 숨김', async () => {
@@ -128,19 +131,20 @@ describe('지도 만들기 — 보이는 조건', () => {
     }
     serve(signedIn(LEE, true, () => null)); await open(); await click($('[data-to-chooser]'));
     await click($('[data-make-robot]'));
-    expect(dlg().textContent).toContain('지도 만들기 — 어느 층에?');
-    expect(btn('이름 바꾸기', dlg())).toBeUndefined();
-    await click(dlg().querySelector('ul[aria-label] button'));
-    expect(dlg().textContent).toContain('로봇으로 지도 만들기');
+    const pop = () => $('dialog[open][aria-labelledby]')!;
+    expect(pop().textContent).toContain('지도 만들기 — 어느 층에?');
+    expect(btn('이름 바꾸기', pop())).toBeUndefined();
+    await click(pop().querySelector('ul[aria-label] button'));
+    expect(dlg().getAttribute('data-u7')).toBe('u7_6_scan');   // 그 층의 시안 지도 만들기 화면(옛 창 없음)
     expect(dlg().querySelector('select')).toBeTruthy();
-    expect(box.querySelectorAll('dialog[open]')).toHaveLength(1);
+    expect(box.querySelectorAll('dialog[open]')).toHaveLength(0);
   });
 
   it('연결 안 된 로봇은 고를 수 있되 이유를 보이고 시작을 막는다', async () => {
     serve(signedIn(LEE, false, () => null)); await open(); await live(false); await openMake();
     expect(dlg().querySelector('select')!.textContent).toContain('Go2-A (연결 안 됨)');
     expect($('[data-offline]')!.textContent).toBe('로봇이 연결되어 있지 않습니다.');
-    expect(btn('지도 만들기', dlg())!.disabled).toBe(true);
+    expect(off(btn('스캔 시작', dlg()))).toBe(true);
     expect(posts()).toEqual([]);
   });
 });
@@ -151,7 +155,7 @@ describe('지도 만들기 — 진행', () => {
     serve(signedIn(LEE, true, () => now, { 'POST /robots/r-a/slam/start': () => { now = prog('RUNNING'); return { status: 202, body: now }; } }));
     await open(); await live(true); await openMake();
     expect(gets().length).toBe(1);   // 열 때 한 번(진행 중 세션이 있으면 이어서)
-    await click(btn('지도 만들기', dlg()));
+    await click(btn('스캔 시작', dlg()));
     expect(posts().map((c) => [c.path, c.body])).toEqual([['/robots/r-a/slam/start', { floor_id: 'f1', source: 'point_lio' }]]);
     expect($('[data-slam-boxes]')!.dataset.slamBoxes).toBe('5');
     expect($('canvas[data-slam-tiles]')!.dataset.slamTiles).toBe('1');
@@ -176,18 +180,18 @@ describe('지도 만들기 — 진행', () => {
       'GET /floors/f1/map-versions': () => ({ status: 200, body: { items: saved ? [V3, { ...V2, status: 'SUPERSEDED' }] : [V2], next_cursor: null } }),
     }));
     await open(); await openMake();
-    await click(btn('지도 저장', dlg()));
+    await click(btn('스캔 끝내기', dlg()));
     expect($('[data-saving]')).toBeTruthy();
     now = prog('SAVED', { map_version_id: 'v3', terrain_id: 't-1' }); saved = true;
     await wait(1100); await flush(); await flush();
-    expect($('dialog[open][aria-labelledby]')?.textContent ?? '').not.toContain('로봇으로 지도 만들기');
+    expect(dlg()).toBeNull();   // 시안 화면을 닫고 층 화면으로
     expect(box.textContent).toContain('로봇으로 만든 지도와 시뮬 지형을 만들었습니다.');
     const row = $('[data-save="v3"] button')!;
     expect(row.getAttribute('aria-pressed')).toBe('true');
     expect(row.querySelector('[data-slam-chip]')!.textContent).toBe('로봇으로 만든 지도');
     // 다시 열면 이미 알린 SAVED 는 다시 알리지 않고 새로 시작할 수 있다
     await openMake();
-    expect(btn('지도 만들기', dlg())).toBeTruthy();
+    expect(btn('스캔 시작', dlg())).toBeTruthy();
   });
 
   /** 시험마다 다른 세션(완료 알림은 세션마다 한 번 — 화면 메모리) */
@@ -209,14 +213,14 @@ describe('지도 만들기 — 진행', () => {
     let now: MappingProgress | null = prog('RUNNING');
     serve(savedServer(() => now, () => { now = prog('SAVING'); return { status: 202, body: now }; }, s));
     await open(); await openMake();
-    await click(btn('지도 저장', dlg()));
-    await click($('[aria-label="로봇으로 지도 만들기 닫기"]'));
+    await click(btn('스캔 끝내기', dlg()));
+    await click($('[data-u7-back]'));
     now = prog('SAVED', { map_version_id: 'v3', terrain_id: 't-1' }); s.saved = true;
     await click($('[data-floor="f2"]'));
     await openMake();
-    expect(btn('지도 만들기', dlg())).toBeTruthy();   // 2층에서는 1층 저장을 알리지 않는다
+    expect(btn('스캔 시작', dlg())).toBeTruthy();   // 2층에서는 1층 저장을 알리지 않는다
     expect(box.textContent).not.toContain('로봇으로 만든 지도와 시뮬 지형을 만들었습니다.');
-    await click($('[aria-label="로봇으로 지도 만들기 닫기"]'));
+    await click($('[data-u7-back]'));
     await click($('[data-floor="f1"]'));
     await click($('[data-make-open]')); await flush();   // 열자마자 이 층 SAVED 를 받아 완료 처리(창 닫힘)
     madeV3();
@@ -229,7 +233,7 @@ describe('지도 만들기 — 진행', () => {
     // 저장이 빨리 끝나 다음 조회부터 SAVED(SAVING 을 한 번도 못 봄)
     serve(savedServer(() => now, () => { now = prog('SAVED', { map_version_id: 'v3', terrain_id: 't-1' }); s.saved = true; throw new TypeError('network'); }, s));
     await open(); await openMake();
-    await click(btn('지도 저장', dlg())); await flush();
+    await click(btn('스캔 끝내기', dlg())); await flush();
     madeV3();
   });
 
@@ -242,7 +246,7 @@ describe('지도 만들기 — 진행', () => {
     }));
     await open(); await openMake(); await flush();
     expect(box.textContent).not.toContain('로봇으로 만든 지도와 시뮬 지형을 만들었습니다.');
-    expect(btn('지도 만들기', dlg())).toBeTruthy();
+    expect(btn('스캔 시작', dlg())).toBeTruthy();
   });
 
   it('FAILED: 쉬운 이유 + «다시 저장»(FAILED 에서 save), LINK_LOST 는 정해진 문구, 409 STALE 이면 취소하고 다시 시작 안내', async () => {
@@ -263,7 +267,7 @@ describe('지도 만들기 — 진행', () => {
     // 취소는 확인 한 번
     await click(btn('취소', dlg()));
     expect(posts().filter((c) => c.path.endsWith('/cancel'))).toEqual([]);
-    await click(btn('취소하기', dlg()));
+    await click(btn('버리고 취소', dlg()));
     expect(posts().filter((c) => c.path.endsWith('/cancel')).map((c) => c.body)).toEqual([{ session_id: SID }]);
     expect(dlg().textContent).toContain('지도 만들기를 취소했습니다.');
   });
@@ -272,7 +276,7 @@ describe('지도 만들기 — 진행', () => {
     serve(signedIn(LEE, true, () => prog('RUNNING')));
     await open(); await openMake();
     expect($('[data-progress="RUNNING"]')).toBeTruthy();
-    await click($('[aria-label="로봇으로 지도 만들기 닫기"]'));
+    await click($('[data-u7-back]'));
     const n = gets().length;
     await wait(2300); await flush();
     expect(gets().length).toBe(n);
@@ -285,7 +289,7 @@ describe('지도 만들기 — 진행', () => {
     serve(signedIn(LEE, true, () => prog('RUNNING', { floor_id: 'f2' })));
     await open(); await openMake();
     expect($('[data-elsewhere]')!.textContent).toContain('«본동 2층»');
-    expect(btn('지도 만들기', dlg())).toBeUndefined();
+    expect(btn('스캔 시작', dlg())).toBeUndefined();
   });
 });
 
@@ -362,9 +366,9 @@ describe('지도 만들기 — 받은 칸 놓기(11-25 RB-SLAM-WEB2, 브라우�
     await open(); await openMake(); await flush();
     expect($('[data-received]')!.textContent).toContain(RECEIVED_TEXT);
     expect($('[data-rejected]')!.textContent).toContain('지도 출처를 확인해 주세요.');
-    expect(btn('지도 만들기', dlg())).toBeTruthy();   // 끝난 세션 — 새로 시작할 수 있다
+    expect(btn('스캔 시작', dlg())).toBeTruthy();   // 끝난 세션 — 새로 시작할 수 있다
     await click(btn('받은 지도 보기', dlg()));
-    expect($('dialog[open][aria-labelledby]')?.textContent ?? '').not.toContain('로봇으로 지도 만들기');
+    expect(dlg()).toBeNull();   // 시안 화면을 닫고 층 화면으로
     expect(box.textContent).toContain(RECEIVED_TEXT);
     expect($('[data-save="v9"] button')!.getAttribute('aria-pressed')).toBe('true');
   });
@@ -375,8 +379,8 @@ describe('지도 만들기 — 받은 칸 놓기(11-25 RB-SLAM-WEB2, 브라우�
     let done: (x: MappingProgress) => void = () => {};
     vi.spyOn(api, 'slamDo').mockReturnValue(new Promise((r) => { done = r; }));
     expect($('[data-make-busy]')).toBeNull();
-    act(() => btn('지도 만들기', dlg())!.click());
-    expect(btn('지도 만들기', dlg())!.disabled).toBe(true);
+    act(() => btn('스캔 시작', dlg())!.click());
+    expect(off(btn('스캔 시작', dlg()))).toBe(true);
     expect($('[data-make-busy]')!.textContent).toBe('요청을 보내는 중… 답이 오면 단추가 다시 켜집니다.');
     await act(async () => { done(prog('RUNNING')); }); await flush();
     expect($('[data-make-busy]')).toBeNull();
@@ -387,14 +391,14 @@ describe('지도 만들기 — 받은 칸 놓기(11-25 RB-SLAM-WEB2, 브라우�
     await open(); await openMake();
     expect($('[data-starting]')).toBeTruthy();
     expect($('[data-slow]')).toBeNull();
-    expect(btn('지도 저장', dlg())).toBeUndefined();
+    expect(off(btn('스캔 끝내기', dlg()))).toBe(true);   // 켜는 중엔 끝내기 꺼짐
     const t0 = Date.now();
     vi.spyOn(Date, 'now').mockReturnValue(t0 + (SLOW_START_S + 1) * 1000);
     await wait(1100); await flush();
     expect($('[data-slow]')!.textContent).toBe(SLOW_TEXT);
-    await click(btn('취소', dlg())); await click(btn('취소하기', dlg()));
+    await click(btn('취소', dlg())); await click(btn('버리고 취소', dlg()));
     expect(dlg().textContent).toContain('지도 만들기를 취소했습니다.');
-    expect(btn('지도 만들기', dlg())).toBeTruthy();
+    expect(btn('스캔 시작', dlg())).toBeTruthy();
   });
 });
 
@@ -440,16 +444,16 @@ describe('지도 만들기 — 창 안에서 조종(11-13 RB-MAP-VIEW-WEB)', () 
     serve(signedIn(LEE, true, () => now, { 'POST /robots/r-a/slam/start': () => { now = prog('RUNNING'); return { status: 202, body: now }; },
       'POST /robots/r-a/slam/save': () => { now = prog('SAVING'); return { status: 202, body: now }; } }));
     await open(); await live(true); await openMake();
-    expect(dlg().textContent).toContain('«지도 만들기»를 누른 뒤 이 창의 조종 단추나 키보드로 로봇을 움직이고');
+    expect(dlg().textContent).toContain('오른쪽 조종 칸이나 리모컨으로 로봇을 천천히 걷게 하세요.');
     expect($('[data-make-drive]')).toBeNull();   // 시작 전에는 조종 없음
-    await click(btn('지도 만들기', dlg()));
+    await click(btn('스캔 시작', dlg()));
     const d = $('[data-make-drive] [data-server-drive]')!;
     expect($('[data-slam-boxes]')!.dataset.slamBoxes).toBe('5');
     expect(d.querySelector('[data-sd-stop="panel"]')).toBeTruthy();
     expect(btn('조종 시작', d)).toBeTruthy();
     expect(dlg().textContent).toContain('만드는 중 · 이 창의 조종 단추나 키보드로 로봇을 천천히 움직이세요.');
     expect(dlg().textContent).not.toMatch(/SLAM|odom|deskew/i);
-    await click(btn('지도 저장', dlg()));
+    await click(btn('스캔 끝내기', dlg()));
     expect($('[data-saving]')).toBeTruthy();
     expect($('[data-make-drive]')).toBeNull();
   });
@@ -484,7 +488,26 @@ describe('지도 만들기 — Point-LIO·GLIM 상태와 GLIM 미리보기(11-27
   const shown = async (x: MappingProgress) => { serve(signedIn(LEE, true, () => x)); await open(); await live(true); await openMake(); };
   const again = () => { act(() => root?.unmount()); root = null; box.remove(); };
 
-  it('시작 전: 두 줄 모두 «지도 만들기를 누르면 켜집니다»(노랑)', async () => {
+  it('시안 u7_6 · u7_7 · u7_8: 위치 맞춤 정상 = 스캔 화면, 이유 코드 = 위치 잃음 화면, 저장 중 = 처리 화면 · 서버에 없는 값은 «확인 안 됨»', async () => {
+    await shown(prog('RUNNING', { elapsed_s: 402, distance_m: 182, ...src() }));
+    expect(dlg().dataset.u7).toBe('u7_6_scan');
+    expect($('[data-chip="lio"]')!.textContent).toBe('위치 잡힘Point-LIO');
+    expect($('[data-scan-walk="time"]')!.textContent).toBe('걸은 시간06:42분 : 초');
+    expect($('[data-scan-walk="points"]')!.textContent).toContain('확인 안 됨');   // point_count 없음
+    expect($('[data-chip="mode"]')!.textContent).toContain('확인 안 됨');
+    again();
+    await shown(prog('RUNNING', src({ fresh: false, position_valid: false, reason_code: 'POSITION_JUMP' })));
+    expect(dlg().dataset.u7).toBe('u7_7_lost');
+    expect($('[data-lost]')!.textContent).toContain(LIO_WHY.POSITION_JUMP);
+    expect($('[data-chip="lio"]')!.textContent).toBe('위치 잃음Point-LIO');
+    again();
+    await shown(prog('SAVING', src({}, { stage: 'SAVING', processed_chunks: 1200 })));
+    expect(dlg().dataset.u7).toBe('u7_8_process');
+    expect(dlg().textContent).toContain('남은 시간 확인 안 됨');
+    expect(btn('지도 목록으로', dlg())).toBeTruthy();
+  });
+
+  it('시작 전: 두 줄 모두 «스캔 시작을 누르면 켜집니다»(노랑)', async () => {
     serve(signedIn(LEE, true, () => null)); await open(); await live(true); await openMake();
     for (const k of ['point_lio', 'glim']) { expect(line(k).textContent).toContain(BEFORE); expect(line(k).dataset.lamp).toBe('warn'); }
   });
