@@ -2592,6 +2592,48 @@ describe('폰 u1 임무 화면(보이기만)', () => {
     expect($('.u1d .dv-run')).not.toBeNull();
   });
 
+  it('시안 u1_1 「일시정지」 = 이미 있는 「일시정지하고 조종」 창(조종권 받기 · 서버가 임무를 멈춤). 창 전에는 보냄 0', async () => {
+    await open(RUN);
+    const pause = $<HTMLButtonElement>('[data-u1-pause]');
+    expect(pause.textContent).toBe('일시정지');
+    const n = w.sent.length;
+    click(pause);
+    expect($('.dv-ask[role="dialog"]')!.textContent).toContain('일시정지하고 조종');
+    expect(w.sent.length).toBe(n);
+    click(btn('일시정지하고 조종'));
+    expect(w.of('lease.take')).toHaveLength(1);
+    expect(w.of('run.control')).toHaveLength(0);   // 조종권 없는 run.control 길은 쓰지 않음
+  });
+  it('시안 u1_11 일시정지된 임무(조종권 쥔 사람 없음) 「이어 가기」 = 조종권 받기부터(조종과 같은 길) · run.control 은 아직 0', async () => {
+    await open({ ...RUN, status: 'PAUSED' });
+    recv(lease('r7', null));
+    expect($('[data-u1-pause]')).toBeNull();
+    click($('[data-u1-resume-take]'));
+    expect(w.of('lease.take')).toHaveLength(1);
+    expect(w.of('run.control')).toHaveLength(0);
+  });
+  it('내 조종권 · 내 임무가 일시정지 · 잠금 풀림 · 시뮬(데모)이면 띠 「이어 가기」 = run.control resume 한 번 (PC RunCtl 과 같은 조건)', async () => {
+    apis();
+    mount(true, 'u-park', '#/drive/r7', SD_ROBOTS.map((r) => (r.id === 'r7' ? { ...r, sim: true, demo: true } : r))); serve(PARK, 'r7');
+    click(btn('조종'));
+    act(() => push('r7', { run: { ...RUN, status: 'PAUSED' } } as never));
+    expect($('[data-u1-runctl]')!.textContent).toContain('「다시 시작」 뒤');   // 잠겨 있으면 단추 대신 까닭
+    expect($('[data-u1-runctl] button')).toBeNull();
+    unlock(); tick(100);
+    click($('[data-u1-runctl] button')!);
+    expect(w.of('run.control')).toMatchObject([{ op: 'resume', run_id: 'run-2', robot: 'r7' }]);
+    act(() => push('r7', { run: RUN } as never));
+    expect($('[data-u1-runctl] button')!.textContent).toBe('일시정지');
+  });
+  it('실기는 내 조종권이어도 띠에 단추 없이 까닭(RunCtl 과 같음)', async () => {
+    apis();
+    mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7');
+    click(btn('조종')); unlock(); tick(100);
+    act(() => push('r7', { run: { ...RUN, status: 'PAUSED' } } as never));
+    expect($('[data-u1-runctl]')!.textContent).toContain('실기는 아직 화면에서 임무를 이어 갈 수 없습니다');
+    expect($('[data-u1-runctl] button')).toBeNull();
+  });
+
   it('위 띠: 다른 사람이 쥐면(임무 아님) u1-who 띠는 그대로', async () => {
     await open(null);
     recv(lease('r7', LEE, null));

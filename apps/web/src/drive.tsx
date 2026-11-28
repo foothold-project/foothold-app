@@ -3,7 +3,8 @@
 // 카메라·라이다·뎁스는 서버 drive-media(PC 와 같은 drivemedia.ts · 받기만), 시나리오 제어는 자리만. 키보드(한 배치 · 11-28 17:25): W·↑ 전진, ← / → 옆걸음(조직 옆 상한이 허락할 때), A / D 회전, S·↓ 후진(조직 뒤 상한이 허락할 때 · 손잡이와 같은 규칙). Space = STOP 은 App 공통 층(모든 화면).
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { ADMIN_LATER, ROLE_NAME, driveBlock, robotStatus, type Holder, type Robot, type Role, type Tone } from './fake';
-import { CMD_MS, inputGen, metaCut, rt, undelivered, useLive, useRt, type Live } from './rt';
+import { CMD_MS, inputGen, metaCut, rt, runSay, undelivered, useLive, useRt, type Live } from './rt';
+import { STATUS as RUN_STATUS } from './screens/missionrun';
 import { PHONE_SHEETS, type SheetId } from './menu';
 import { FallChip } from './go2status';
 import { DriveInputNote } from './driveinput';
@@ -409,6 +410,11 @@ function Screen(c: Ctx) {
   const chipNow: { tone: Tone; text: string } = stopWaiting(r, l) ? { tone: 'bad', text: '안 멈춤' } : calm && remote ? { tone: 'warn', text: '리모컨 조종' } : calm && lv === 'crit' ? { tone: 'bad', text: '과열' } : chipBase;
   const RANK = { warn: 1, bad: 2, crit: 3 } as const, hotBand = (lv === 'bad' || lv === 'crit') && !(tempShut && RANK[tempShut] >= RANK[lv]) ? lv : null;
   useEffect(() => { if (lv !== 'bad' && lv !== 'crit') setTempShut(null); }, [lv]);   // 60 °C 아래로 내려가면 닫은 기록을 지움
+  // 일시정지 · 이어 가기(시안 u1_1 · u1_11 · 제안 A · 새 명령 길 없음). 조종권 없는 임무 화면: 일시정지 = 「일시정지하고 조종」 창(조종권 받기), 일시정지된 임무 · 쥔 사람 없음 = 조종권 받기.
+  // 내 조종권 · 내 임무 = PC RunCtl 과 같은 조건 · 같은 길(rt.run pause · resume): 실기 막음 · 정지 잠금이면 까닭
+  const myRun = mine && missionOn(l.state?.run) ? l.state!.run! : null, rq = l.runReq, runBusy = !!rq && (rq.phase === 'sending' || rq.phase === 'sent');
+  const runMain = myRun?.status === 'PAUSED' ? (['resume', '이어 가기'] as const) : (['pause', '일시정지'] as const);
+  const runGate = !myRun ? '' : !r.sim ? '실기는 아직 화면에서 임무를 이어 갈 수 없습니다 · 멈추려면 STOP.' : l.state?.latched !== false ? '「다시 시작」 뒤 이어 갈 수 있습니다.' : '';
   const u1 = <div className={`proto pv u1d${light ? ' light' : ''}`} data-u1d data-stop-held={stopHeld ? '' : undefined} data-mission={mrun ? '' : undefined}>
     {mrun && <MissionMap m={mis} run={mrun} pose={l.state?.location ?? r.location} view={mview} />}
     {mrun && <div className="g u1-vcol" role="group" aria-label="지도 시점">
@@ -453,6 +459,8 @@ function Screen(c: Ctx) {
           <Ic s={18}><path d="M18 6 6 18" /><path d="m6 6 12 12" /></Ic>조종 끝내기</button>
         : <button type="button" className="g dk btn u1-go" style={{ height: '44px', borderRadius: '14px' }} disabled={!!why} aria-describedby={why ? whyId : undefined} onClick={() => start()}>
           <Ic s={18}><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /></Ic>조종</button>}
+      {mrun && mrun.status !== 'PAUSED' && l.holder?.type === 'RUN' && <button type="button" className="g dk btn" style={{ height: '44px', borderRadius: '14px' }} disabled={!!why} onClick={() => start()} data-u1-pause>일시정지</button>}
+      {mrun && mrun.status === 'PAUSED' && !l.holder && <button type="button" className="g btn u1-resume" style={{ height: '44px', borderRadius: '14px' }} disabled={!!why} onClick={() => start()} data-u1-resume-take>이어 가기</button>}
     </div>
     {/* 「다시 시작」(시안 u1_3 자리 · 정지 위 92 × 48) = 잠금 해제. PC 로봇 탭처럼 확인 창(u4_10 글)을 거친다 */}
     {mine && l.state?.latched !== false && <button type="button" className="g dk btn u1-unlock" style={{ right: '12px', bottom: '88px', width: '92px', height: '48px', borderRadius: '14px', zIndex: 5 }} onClick={restart.open}>
@@ -480,7 +488,9 @@ function Screen(c: Ctx) {
       {side && mine && real && ok && !combo && !allow(cmdOf(['left'])) && ban('amb', SIDE_BLOCK, { 'data-side-block': true })}
       {combo && mine && ban('amb', COMBO_BLOCK, { 'data-combo-block': true })}
       {exp && mine && ban('u1-info', DEMO_EXP, { 'data-demo-exp': true })}
-      {/* 일시정지·중단 단추는 아직 없다 — 누를 수 없는 단추 대신 멈추는 길만(critique 11-10) */}
+      {myRun && <p className="ban u1-info dv-run" role="status" data-u1-runctl><span>임무 {RUN_STATUS[myRun.status]} · {myRun.progress.done}/{myRun.progress.total}</span>
+        {runGate ? <span>{runGate}</span> : <button type="button" className="banbt" disabled={runBusy} onClick={() => rt.run(r.id, runMain[0], { run_id: myRun.run_id })}>{runMain[1]}</button>}</p>}
+      {myRun && rq?.phase === 'rejected' && ban('amb', runSay(rq.code ?? '', r.name), { 'data-u1-run-why': true })}
       {r.mission && <p className="ban u1-info dv-run"><span>시나리오: {r.mission}</span><span data-run-stop>멈추려면 STOP</span></p>}
     </>}
     </div>
