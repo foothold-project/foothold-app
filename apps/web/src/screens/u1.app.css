@@ -1,0 +1,19 @@
+/* 폰 실기 조종 화면 = 시안 u1 틀로 옮기며 더한 것(시안 값 아님 · 자리는 시안 값).
+   머리줄(.fh-head[data-u1])은 화면 전체를 덮는 겹: 바탕 없음 · 손가락은 제 칸만 · z 는 조종 판 안 모든 층(작은 지도 펼침 60 · 창 · 스캔 겹)보다 위.
+   오른쪽 위 상태 줄(연결 · ⋯ = 시안 .col 첫 줄 자리), 오른쪽 아래 정지(시안 .stop 92 × 68 · 같은 Stop 부품) */
+.fh.phone:has(.fh-head[data-u1]){position:relative}
+.fh.phone .fh-head[data-u1]{position:absolute;inset:0;z-index:80;min-height:0;padding:0;border:0;background:none;pointer-events:none;display:block}
+.fh-head[data-u1] .u1-top{pointer-events:auto;position:absolute;right:calc(12px + env(safe-area-inset-right,0px));top:calc(12px + env(safe-area-inset-top,0px));width:92px;height:36px;display:flex;align-items:center;justify-content:space-around;padding:0 6px;border-radius:14px;color:#fff;
+ background:linear-gradient(180deg,rgba(30,36,44,.62),rgba(20,24,30,.50));border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(22px) saturate(1.5);-webkit-backdrop-filter:blur(22px) saturate(1.5);box-shadow:0 8px 22px rgba(0,0,0,.25)}
+.fh-head[data-u1] .u1-top .fh-dot{margin:0;color:#fff}
+.fh-head[data-u1] .u1-top .fh-dot-t{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.fh-head[data-u1] .u1-top .fh-more summary{min-width:36px;min-height:32px;border:0;background:none;color:#fff;display:flex;align-items:center;justify-content:center}
+.fh-head[data-u1] .fh-stop{pointer-events:auto;position:absolute;right:12px;bottom:12px;width:92px;height:68px;min-width:0;margin:0;padding:0;border-radius:18px;border:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+ background:linear-gradient(180deg,#f2575a,#d62f33);color:#fff;font-weight:800;font-size:14px;box-shadow:0 10px 24px rgba(214,47,51,.42),inset 0 1px 0 rgba(255,255,255,.35)}
+.fh-head[data-u1] .fh-stop svg{width:20px;height:20px}
+/* 정지 결과 띠 · 정지 고르기 · 반납 안내: 머리줄이 없으므로 화면 위 가운데에 뜬다(시안 .ban 자리) */
+.fh.phone:has(.fh-head[data-u1]) :is(.fh-band,.fh-pick){position:absolute;left:120px;right:120px;top:12px;z-index:79;border-radius:14px;border:1px solid rgba(255,255,255,.25)}
+.fh.phone:has(.fh-head[data-u1]) .fh-band:empty{display:none}
+/* 조종 판 안 자리: 오른쪽 위 상태 줄 · 오른쪽 아래 정지를 비킨다(시안: 오른쪽 조이스틱 right 118) */
+.fh.phone:has(.fh-head[data-u1]) .dv-hud{right:112px}
+.fh.phone:has(.fh-head[data-u1]) .dv-stick.h{right:118px}
