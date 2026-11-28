@@ -98,7 +98,7 @@ export const EN: Record<string, string> = {
   '로봇 추가': 'Add robot', '데모 · 정지 잠금': 'Demo · stop latched', '시뮬 · 정지 잠금': 'Sim · stop latched', '실제 · 연결 끊김': 'Real · disconnected', '바꿀 수 있는 모드 없음': 'No modes to switch',
   '조종자': 'Driver', '조종': 'Drive', '로봇 설정': 'Robot settings', '끌어서 돌려 보기': 'Drag to rotate', '서 있음': 'Standing', '위치 추정 켜짐': 'Localization on',
   '관절값을 받지 않아 서 있는 모양 그대로': 'No joint values · shown standing', '카메라': 'Camera', '라이다': 'LiDAR', '깊이': 'Depth', '시뮬 시점': 'Sim view', '앞 카메라': 'Front camera', '임무 없음': 'No mission',
-  '조종 시작': 'Start driving', '말하기': 'Talk', '옆걸음': 'Sidestep', '화면': 'Screen', '모드': 'Mode', '앉기': 'Sit', '일어서기': 'Stand up', '엎드리기': 'Lie down', '기지개': 'Stretch', '악수': 'Shake hands', '하트': 'Heart', '인사': 'Hello',
+  '조종 시작': 'Start driving', '말하기': 'Talk', '옆걸음': 'Strafe', '화면': 'View', '모드': 'Mode', '앉기': 'Sit', '일어서기': 'Stand up', '엎드리기': 'Lie down', '기지개': 'Stretch', '악수': 'Shake', '하트': 'Heart', '인사': 'Hello',
   '순정 확인 전': 'Stock app not checked', '흐린 단추는 아직 준비 중인 기능입니다(권한 때문인 비활성은 단추 옆에 이유가 따로 나옵니다).': 'Dimmed buttons are not ready yet (buttons disabled by permission show the reason next to them).',
   '나(총괄)': 'Me (Admin)', '이 로봇은 걷기 모드를 바꿀 수 없습니다 (로봇이 보낸 쓸 수 있는 모드 없음).': 'This robot cannot change walking mode (it reported no available modes).', '로봇 보기': 'Robot view',
   '더블클릭하면 크게 봅니다': 'Double-click to enlarge', '비상 정지 · 이 로봇': 'Emergency stop · this robot', '개': 'items', '층': 'Floor',
@@ -117,6 +117,7 @@ export const EN: Record<string, string> = {
   '서버에 실제 · 모의 실행 거르기가 없어 모두 보입니다.': 'The server has no real/simulated filter, so all are shown.', '모든 로봇': 'All robots', '클립 있는 것만': 'With clips only', '서버에 클립 거르기가 없습니다.': 'The server has no clip filter.',
   '클립 보관 기간 ·': 'Clip retention ·', '서버가 보관 일수를 주지 않아 비워 둡니다.': 'The server gives no retention days, so it is left blank.', '서버에 찾기 없음': 'No search on server', '오늘': 'Today', '7 일': '7 days', '30 일': '30 days',
   '지금 장면 저장': 'Save this moment', '내보내기': 'Export', '필터 없음': 'No filter', '클립': 'Clips', '사건': 'Events', '시각': 'Time', '클립 길이': 'Clip length', '정보 단계': 'Info level', '기록만': 'Record only',
+  '전체': 'All', '모드 전환': 'Mode switches', '서버에 없음': 'Not on server', '연결 · 시스템': 'Link · system', '사용자 작업': 'User actions',
   '기록 거르기': 'History filters', '묶음': 'Group', '서버에 모드 전환 기록이 없습니다': 'The server has no mode-switch records', '찾기': 'Search', '사건 · 로봇 · 메모 찾기': 'Search events · robots · notes', '기간': 'Period',
 };
 
@@ -148,6 +149,7 @@ export const EN_RULES: [RegExp, (m: RegExpExecArray) => string][] = [
   [/^화면 밝기: (.+) · 누르면 (.+)$/, (m) => `Brightness: ${EN[m[1]] ?? m[1]} · next ${EN[m[2]] ?? m[2]}`],
   [/^할 일 (\d+) \/ (\d+)$/, (m) => `Tasks ${m[1]} / ${m[2]}`],
 
+  [/^(\d+) 만 m²$/, (m) => `${(+m[1] * 10000).toLocaleString('en-US')} m²`],
   [/^약 (\d+) 분$/, (m) => `about ${m[1]} min`],
   [/^([^가-힣]+) 타일$/, (m) => `${m[1]} tile`],
   [/^([^가-힣]+) · 정지 잠금$/, (m) => `${m[1]} · stop latched`],

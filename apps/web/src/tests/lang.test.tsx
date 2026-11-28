@@ -39,6 +39,8 @@ describe('사전 · 규칙', () => {
     expect(en('K-02 · 정지 잠금')).toBe('K-02 · stop latched');
     expect(en('약 108 분')).toBe('about 108 min');
     expect(en('알림 안 읽음 77건')).toBe('77 unread alerts');
+    expect(en('50 만 m²')).toBe('500,000 m²');
+    expect(en('연결 · 시스템')).toBe('Link · system');
     expect(en('공정 C 배관 밑')).toBeNull();   // 서버가 준 자리 이름은 그대로
   });
 });
