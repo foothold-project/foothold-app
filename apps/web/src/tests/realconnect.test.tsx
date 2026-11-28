@@ -350,7 +350,7 @@ describe('서버 끊긴 폰의 STOP(d2)', () => {
   const server = () => FakeWS.all.filter((w) => !w.url.startsWith('ws://127.0.0.1:40123/'));
   /** 서버 실시간을 열었다가 끊음(연결 끊김 띠까지) */
   const cut = async () => { for (const w of server()) { act(() => w.open()); } await flush(); for (const w of server()) act(() => w.drop(1006)); await flush();
-    expect($('[data-link-band]')).toBeTruthy(); };
+    expect($('[data-link-band]') ?? $('[data-off-proto="reconnect"]')).toBeTruthy(); };   // 폰 실기 조종(u1)은 조종 판 띠 「서버 연결 안 됨 · 다시 연결」(시안 u1_8)
   const greyStops = () => [...box.querySelectorAll<HTMLButtonElement>('.fh-stop')].filter((b) => b.disabled);
   /** 직결 없이 폰 로봇 연결 화면 */
   async function home(robots = ROBOTS, hash = '#/drive') {

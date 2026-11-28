@@ -56,10 +56,11 @@ export function holderText(l: Live, me: string, r: Robot) {
   if (r.unknown && !l.holder) return '조종권자 확인 안 됨';   // 연결 끊김(4403 포함)·첫 state 전: 비어 있는지 모름
   return who(l.holder, me);
 }
-function lockChip(l: Live, r: Robot): { tone: Tone; text: string } {
+function lockChip(l: Live, r: Robot, down = false): { tone: Tone; text: string } {
   if (r.unknown === 'summary') return { tone: 'off', text: '확인 안 됨' };
   if (l.failed) return { tone: 'bad', text: '정지 확인 실패' };
   if (l.busy) return { tone: 'warn', text: '정지 확인 중' };
+  if (down) return { tone: 'warn', text: '리모컨만' };   // 서버 실시간이 끊김(시안 u1_8): 앱 조종 길이 없고 리모컨만 남음
   if (!l.state || l.state.connection !== 'ONLINE') return { tone: 'off', text: '상태 모름' };
   if (l.state.latched !== false) return { tone: 'bad', text: l.state.latched ? '정지됨' : '정지 잠금' };   // 「정지됨」 은 로봇이 잠금을 알렸을 때만(시안 u1_3 · 모르면 정지 잠금)
   if (!l.lease) return { tone: 'off', text: '보는 중' };
@@ -280,7 +281,7 @@ function Screen(c: Ctx) {
     : l.cooldown > now ? `${secs(l.cooldown, now)}초 뒤 다시 요청할 수 있습니다.` : '';
   const q = mine && l.incoming && l.incoming.until > now ? l.incoming : null;
   // ready 에는 «중립 확인 중»도 넣는다 — 중립은 이번 세대 입력으로 정해지므로 세대 키(sync)에 넣으면 그 입력이 앞 세대가 된다(RV-426 ⑧)
-  const lock = lockChip(l, r), ready = mine && (lock.text === '조종 중' || lock.text === '중립 확인 중'), stopHeld = !!l.state && l.state.latched !== false, speed = l.state?.speed, ok = got && isSettings(settings);   // stopHeld: 정지 잠금 중 = 조이스틱 · 동작 줄 숨김(시안 u1_3)
+  const down = link === 'lost' || link === 'denied', lock = lockChip(l, r, down), ready = mine && (lock.text === '조종 중' || lock.text === '중립 확인 중'), stopHeld = !!l.state && l.state.latched !== false, speed = l.state?.speed, ok = got && isSettings(settings);   // stopHeld: 정지 잠금 중 = 조이스틱 · 동작 줄 숨김(시안 u1_3)
   readyRef.current = ready; sync();   // 그릴 때도 세대를 맞춘다(조이스틱 누름이 새 세대를 보게)
   // 잠금 사유 OUTPUT_STALLED(에이전트 출력 지연 → 0·STOP·잠금) — 폰 시뮬 조종(simdrive.tsx)과 같은 문구. 잠금 해제·STOP 동작은 그대로
   const stalled = l.state?.connection === 'ONLINE' && !!l.state.latched && l.state.safety_reason === 'OUTPUT_STALLED';
@@ -343,7 +344,10 @@ function Screen(c: Ctx) {
     {mine && l.state?.latched !== false && <button type="button" className="g dk btn u1-unlock" style={{ right: '12px', bottom: '88px', width: '92px', height: '48px', borderRadius: '14px', zIndex: 5 }} onClick={restart.open}>
       <Ic s={18}><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></Ic>다시 시작</button>}
     {/* 위 띠 줄(시안 .ban): 작은 지도와 오른쪽 줄 사이. red = 출력 지연, amb = 막은 까닭 · 리모컨 */}
-    <div className="u1-says">
+    <div className="u1-says">{down
+      /* 시안 u1_8: 서버가 끊기면 띠 하나. 시안 「점검」 → 「다시 연결」(rt.reconnect): 폰에 망 점검 화면(u2_5 · u9_4)이 없어 시안 밖 · 새로 그림 */
+      ? <p className="ban amb" role="status">서버 연결 안 됨 <button type="button" className="banbt" data-off-proto="reconnect" onClick={() => rt.reconnect()}>다시 연결</button></p>
+      : <>
       {!mine && ban('u1-who', holderText(l, me, r))}
       {why && <p className={`ban ${driveBlock(c.user, r) ? 'amb' : 'u1-info'}`} role="status"><span id={whyId} className="fh-why" data-why>{why}</span>
         {l.outgoing && <button type="button" className="banbt" disabled={l.outgoing.canceling} onClick={() => rt.cancel(r.id)}>요청 취소</button>}</p>}
@@ -358,6 +362,7 @@ function Screen(c: Ctx) {
       {combo && mine && ban('amb', COMBO_BLOCK, { 'data-combo-block': true })}
       {/* 일시정지·중단 단추는 아직 없다 — 누를 수 없는 단추 대신 멈추는 길만(critique 11-10) */}
       {r.mission && <p className="ban u1-info dv-run"><span>시나리오: {r.mission}</span><span data-run-stop>멈추려면 STOP</span></p>}
+    </>}
     </div>
     {/* 손잡이(팀장 11-28 17:33 · PC 로봇 탭과 같은 robotact stickTok): 왼쪽 = 이동(앞 · 뒤 · 옆 · 큰 축 하나), 오른쪽 = 돌기. 문턱 0.3 */}
     {mine && <><Stick cls="stick" label="이동" both on={ready} epoch={0} gen={gen} press={nowRef.current} set={(y, x) => { input.current.st[0] = stickTok('L', -x, -y); stickSay(); }} grip={(o) => { input.current.sg[0] = o; }} lift={send} />

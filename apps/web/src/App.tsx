@@ -391,7 +391,9 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   const u1 = phone && open;   // 폰 실기 조종 화면 = 시안 u1 틀(머리줄 없음 · 정지는 화면 안)
   const dotEl = (() => {   // 좁은 폰은 점만 보이고 글은 화면 읽기용으로 남는다(frame.css .fh-dot-t)
         const [cls, dot, t] = net.at === 'open' ? ['ok', '●', '연결'] : net.at === 'connecting' || net.at === 'idle' ? ['', '○', '연결 중'] : ['bad', '■', net.at === 'denied' ? '연결 거부' : '연결 끊김'];
-        return <span className={`fh-dot${cls ? ` ${cls}` : ''}`} data-link={cls === 'bad' ? net.at : undefined} title={t}><i aria-hidden="true">{dot}</i><span className="fh-dot-t">{t}</span></span>;
+        // 폰 실기 조종(u1)에서 끊기면 점 대신 빗금 그은 구름(시안 u1_8 · 빨강)
+        const mark = u1 && cls === 'bad' ? <svg data-cloud-off width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e5484d" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.2 9.1 4.5 4.5 0 0 0 7 18z" /><path d="M3 3l18 18" /></svg> : <i aria-hidden="true">{dot}</i>;
+        return <span className={`fh-dot${cls ? ` ${cls}` : ''}`} data-link={cls === 'bad' ? net.at : undefined} title={t}>{mark}<span className="fh-dot-t">{t}</span></span>;
       })();
   const moreEl = <details className="fh-more" ref={more}><summary aria-label="더 보기">⋯</summary>
         <div className="card">{u1 && <button type="button" className="btn" disabled={!!rel} onClick={(e) => shut(e, () => robot && endDrive(robot.id, go))}>끝내기</button>}{inApp() ? null : canFull() ? <button type="button" className="btn" aria-pressed={full} data-full onClick={(e) => shut(e, toggleFull)}>{full ? '전체화면 끄기' : '전체화면'}</button>
@@ -426,7 +428,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       gone && <span key="revoked" data-revoked>▲ {gone} <button type="button" className="btn" onClick={() => setGone('')}>닫기</button></span>,
       foreign && <span key="foreign" data-foreign>▲ {user.role === 'ORG_ADMIN' ? '목록에 없는 로봇입니다. 로봇 목록을 다시 받은 뒤 고르세요.' : '담당 로봇이 아닙니다. 내 로봇만 열 수 있습니다.'} <button type="button" className="btn" onClick={() => setForeign(false)}>닫기</button></span>,
       missed && <span key="missed" data-missed>▲ {missed} <button type="button" className="btn" onClick={() => setMissed('')}>닫기</button></span>,
-      (net.at === 'lost' || net.at === 'denied') && <span key="link" data-link-band>▲ {net.why} 로봇 상태를 알 수 없습니다.{net.at === 'lost' ? ' 연결 재시도 중입니다.' : ''}
+      !u1 && (net.at === 'lost' || net.at === 'denied') && <span key="link" data-link-band>   /* 폰 실기 조종(u1)은 조종 판 띠 하나(「서버 연결 안 됨 · 다시 연결」 · 시안 u1_8) */▲ {net.why} 로봇 상태를 알 수 없습니다.{net.at === 'lost' ? ' 연결 재시도 중입니다.' : ''}
         {' '}<button type="button" className="btn" onClick={() => rt.reconnect()}>다시 연결</button></span>,
       noWay === 'down' && <span key="none" data-stop-none>▲ 로봇에 닿을 길 없음 · 현장에서 멈추세요. 서버 연결이 끊겼고 이 폰은 로봇과 직결되어 있지 않아 정지 명령을 보내지 못했습니다.</span>,
       noWay === 'back' && <span key="none" data-stop-none data-stop-none-back>▲ 서버 다시 연결됨 · 앞선 정지는 보내지 못했음 · 로봇 상태를 확인하세요. <button type="button" className="btn" onClick={() => setNoWay('')}>닫기</button></span>,
