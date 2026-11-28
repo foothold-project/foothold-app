@@ -1,5 +1,5 @@
 /* 시안 u7 (지도 탭) 화면 <style> 값 그대로 · 선택자 앞에 .u7 한 겹(:root 는 .u7 자체). u7_1 ~ u7_9 가 같은 style 을 쓴다 */
-.u7{--warn:#f2b705;--red:#ff4d4f}
+.u7{--warn:#f2b705;--red:#ff4d4f;--u7-same:#9aa19d}
 .u7 .side{left:24px;top:88px;width:300px;bottom:24px;padding:20px 14px;overflow:hidden}
 .u7 .head{position:absolute;left:348px;top:88px;right:24px;height:56px;display:flex;align-items:center;gap:12px}
 .u7 .st{height:44px;padding:0 14px;border-radius:13px;display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:700;white-space:nowrap}
@@ -89,3 +89,5 @@
 .u7 .view .mx-pane{background:var(--panel,#121820);border-left:1px solid var(--line);border-radius:0;box-shadow:none;padding:14px 12px}
 .proto.light .u7 .view{background:#F6F7F6;border-color:#DCE0DE;box-shadow:none}
 .proto.light .u7 .u7-more>button{background:#FFFFFF;border-color:#DCE0DE}
+/* u7_9 비교 그림 「같음」(바뀌지 않은 벽 · 범례) · 밝은 판 = 밝음 1 보조 글자색 */
+.proto.light .u7{--u7-same:#5E6662}

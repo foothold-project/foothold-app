@@ -1691,7 +1691,9 @@ describe('판 비교·되돌리기(W4c)', () => {
   /** 판 번호 대신 부르는 이름(총괄 = 만든 사람 이름도 앎) */
   const nm = (v: MapVersion) => `${new Date(v.created_at).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' })} · 김총괄`;
   /** 시안 u7_9 버전 기록 열기(처음 = 지금 판과 그 기준 판 비교) · 닫고 다시 열기 */
-  const compare = () => click($('[data-open-u79]'));
+  /** u7_9 차이 목록은 접혀 있다(시안 밖 칸 · 지도를 가리지 않게) → 목록을 보는 시험은 펼친다 */
+  const unfold = async () => { const t = $('[data-diff-list-toggle]'); if (t?.getAttribute('aria-expanded') === 'false') await click(t); };
+  const compare = async () => { await click($('[data-open-u79]')); await unfold(); };
   const reopen = async () => { await click($('[data-u7="u7_9_history"] [data-u7-back]')); await compare(); };
   const pair = () => $('[data-u7-pair]')!.textContent;
   const retry = () => $$('[aria-label="기록 비교"] [role="button"]').find((b) => b.textContent === '다시 시도');
@@ -1743,6 +1745,20 @@ describe('판 비교·되돌리기(W4c)', () => {
     expect(after().style.opacity).toBe(diffSvg().querySelector<SVGImageElement>('image[data-image="before"]')!.style.opacity);   // 두 그림 모두 자기 투명도 그대로
     await click(btn('v2', card('지도 그림')));
     expect(diffSvg().style.getPropertyValue('--fh-map-a')).toBe('0.45'); own();
+  });
+
+  it('u7_9 비교 그림: 바뀌지 않은 벽은 「같음」 회색 한 가지(판 글자색 아님 · 테마마다 뒤집히지 않음) · 차이 목록(시안 밖)은 접힌 채 시작', async () => {
+    serve(signedIn(KIM, { 'GET /map-versions/v2/diff': { status: 200, body: DIFF } }));
+    await open('#/map');
+    await click($('[data-open-u79]'));
+    const floods = [...diffSvg().querySelectorAll('feFlood')].map((f) => (f as SVGElement).style.floodColor);
+    expect(floods.length).toBeGreaterThan(0);
+    expect(floods.every((c) => c === 'var(--u7-same)')).toBe(true);
+    expect($('[data-diff-list-toggle]')!.getAttribute('aria-expanded')).toBe('false');
+    expect($('[aria-label="차이 목록"]')).toBeNull();
+    expect($('[data-diff-float]')!.hasAttribute('data-off-proto')).toBe(true);
+    await unfold();
+    expect(rows()).toHaveLength(4);
   });
 
   it('추가·삭제·바뀜·순서 바뀜을 색으로 구분해 그리고, 차이 목록을 누르면 그 요소만 강조', async () => {
