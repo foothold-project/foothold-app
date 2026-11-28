@@ -465,17 +465,41 @@ describe('관제 탭', () => {
     expect(mk('s1').classList.contains('sim')).toBe(true);
     expect(mk('s1').classList.contains('r')).toBe(false);
   });
-  it('작은 지도를 누르면 지도 보기로(팀장 11-28 · 시안 밖): 작은 지도 자리에서 자라 넘어감 · 위 단추로 가면 자라지 않음', () => {
+  it('작은 지도를 두 번 누르면 지도 보기로(팀장 00:22 · 시안 밖): 한 번 누름으로는 넘어가지 않음 · 작은 지도 자리에서 자라 넘어감 · 위 단추로 가면 자라지 않음 · 고른 로봇 없으면 다가갈 대상 없음', () => {
     mount('u-kim', TWENTY); feed(TWENTY);
     const mini = $('.u5 .mini[data-to-map]') as HTMLElement;
     expect(mini.getAttribute('role')).toBe('button');
     act(() => { mini.click(); });
+    expect($('[aria-label="로봇 타일"]')).not.toBeNull();
+    act(() => { mini.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 })); });
     expect($('[aria-label="로봇 타일"]')).toBeNull();
     expect($('.u5 .big canvas#site')).not.toBeNull();
     expect($('.u5 .big')!.hasAttribute('data-from-mini')).toBe(true);
+    expect($('.u5 .big')!.hasAttribute('data-focus')).toBe(false);
     act(() => { seg('보기', 0).click(); });
     act(() => { seg('보기', 1).click(); });
     expect($('.u5 .big')!.hasAttribute('data-from-mini')).toBe(false);
+  });
+  it('고른 로봇: 작은 지도에서 그 점만 강조(나머지 흐림 · 이름표) · 작은 지도 더블클릭 = 지도 보기에서 그 로봇으로 다가감(data-focus)', async () => {
+    const floor = (id: string, v: string | null) => ({ id, building_id: 'b', name: '1층', level: 1, approved_version_id: v });
+    const sites = vi.spyOn(api, 'sites').mockResolvedValue({ next_cursor: null, items: [
+      { id: 'demo', name: '공장 터', purpose: 'SIM', demo: true, buildings: [{ id: 'b', site_id: 'demo', name: '공장', floors: [floor('f1', 'fac')] }] }] } as never);
+    try {
+      const at = (x: number) => ({ location: { floor_id: 'f1', map_version_id: 'fac', x, y: -50, yaw: 0, confidence: 1, updated_at: '' } } as never);
+      mount('u-kim', EIGHT); feed(EIGHT, { k3: at(100), k4: at(120) });
+      await act(async () => {});
+      act(() => { tile('k3').click(); });
+      const dot = (id: string) => $(`.u5 .mini .dotm[data-dot="${id}"]`);
+      expect(dot('k3').classList.contains('sel')).toBe(true); expect(dot('k4').classList.contains('dim')).toBe(true);
+      expect($('.u5 .mini .dotl.sel')!.textContent).toBe(EIGHT.find((r) => r.id === 'k3')!.name);
+      // 고른 로봇 쪽으로 2 배: k3 가 칸 가운데(가로 50% · 세로 125 px), k4(20 m 동쪽 = 그림 70 px = 작은 지도 8.75 px) 는 2 배 떨어져 17.5 → 18 px
+      expect($('.u5 .mini')!.dataset.zoom).toBe('2');
+      expect([dot('k3').style.left, dot('k3').style.top]).toEqual(['calc(50% + 0px)', '125px']);
+      expect(dot('k4').style.left).toBe('calc(50% + 18px)');
+      expect(($('.u5 .mini') as HTMLElement).style.backgroundSize).toBe('800px 500px');
+      act(() => { $('.u5 .mini[data-to-map]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 })); });
+      expect($('.u5 .big')!.getAttribute('data-focus')).toBe('k3');
+    } finally { sites.mockRestore(); }
   });
 
   it('운영 관리자도 같은 틀(u5_6) · 처음은 «내 로봇»만, «모두»로 받은 목록 전부', () => {
@@ -1227,6 +1251,41 @@ describe('관제 탭', () => {
     expect(FakeWS.last.of('stop')).toHaveLength(0);
     act(() => { go.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true })); });   // 새 Space 누름
     expect(FakeWS.last.of('stop')).toHaveLength(10);
+  });
+  it('데모 표시 스위치(대조표 u5_1): 끄면 데모 로봇을 타일 · 지도 보기 · 수에서 숨기고, 이 브라우저에 기억(저장 API 없음) · 고른 데모 로봇은 풂', async () => {
+    const item = (id: string, demo: boolean) => ({ robot_id: id, robot_name: id, state: 'FREE', busy_until: null, busy_slot_id: null, busy_label: null, battery_pct: 70, demo, sim: false, location_label: null });
+    const av = vi.spyOn(api, 'availability').mockResolvedValue({ items: [item('k1', true), item('k2', true), item('k3', false)] } as never);
+    try {
+      localStorage.setItem('fh-control-demo', '1');
+      mount('u-kim', EIGHT); feed(EIGHT);
+      await act(async () => {});
+      const sw = () => $('[data-demo-show]') as HTMLElement;
+      expect(sw().getAttribute('aria-checked')).toBe('true'); expect(tile('k1')).not.toBeNull();
+      act(() => { tile('k1').click(); }); expect(controlPick.get()).toBe('k1');
+      act(() => { sw().click(); });
+      expect(sw().getAttribute('aria-checked')).toBe('false');
+      expect(tile('k1')).toBeNull(); expect(tile('k2')).toBeNull(); expect(tile('k3')).not.toBeNull();
+      expect(controlPick.get()).toBe('');
+      expect(localStorage.getItem('fh-control-demo')).toBe('0');
+      act(() => { seg('보기', 1).click(); });
+      expect($$('.u5 .mks .mk3').map((e) => e.dataset.r3)).not.toContain('k1');
+      act(() => root?.unmount()); box.parentNode?.removeChild(box);
+      mount('u-kim', EIGHT); feed(EIGHT); await act(async () => {});   // 다시 열어도 꺼진 채
+      expect(sw().getAttribute('aria-checked')).toBe('false'); expect(tile('k1')).toBeNull();
+      act(() => { sw().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+      expect(tile('k1')).not.toBeNull(); expect(localStorage.getItem('fh-control-demo')).toBe('1');
+    } finally { av.mockRestore(); localStorage.setItem('fh-control-demo', '1'); }
+  });
+  it('첫 화면으로(대조표 u5_1): 지도 보기 첫 시점으로 새로 엶(다가가기 없음 · 작은 지도에서 자라기 없음)', () => {
+    mount('u-kim', TWENTY); feed(TWENTY);
+    const home = $('[data-home]') as HTMLElement;
+    expect(home.getAttribute('role')).toBe('button');
+    act(() => { home.click(); });
+    const big = () => $('.u5 .big') as HTMLElement;
+    expect(big()).not.toBeNull(); expect(big().hasAttribute('data-focus')).toBe(false); expect(big().hasAttribute('data-from-mini')).toBe(false);
+    const cv = big().querySelector('canvas');
+    act(() => { home.click(); });
+    expect(big().querySelector('canvas')).not.toBe(cv);   // 카메라를 새로(첫 시점) 잡도록 다시 그림
   });
   it('가용(GET /robots/availability) · 오늘 일정(GET /schedule): 구역 이름 = location_label · 데모 칩 · 충전 = state CHARGING 만 · 지금 걸친 BATTERY_SWAP 칸 = «배터리 교체» · MAINTENANCE = «점검 중» 칩 + busy_label 줄 · 실패면 수를 비움', async () => {
     const item = (id: string, o: object = {}) => ({ robot_id: id, robot_name: id, state: 'FREE', busy_until: null, busy_slot_id: null, busy_label: null, battery_pct: 70, demo: false, sim: false, location_label: null, ...o });

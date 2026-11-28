@@ -282,19 +282,23 @@ function Tile({ f, sel, front, open, boards }: { f: TileFacts; sel: boolean; fro
 /** 데모 현장(/sites 의 demo === true)의 층마다 승인 판 id. 작은 지도(시안 공장 그림)는 이 판의 위치만 그린다 */
 export const demoBoards = (tree: SiteTree | null | undefined) => new Set((tree?.items ?? []).filter((s) => (s as MapSite & { demo?: boolean }).demo === true)
   .flatMap((s) => s.buildings.flatMap((b) => b.floors.map((f) => f.approved_version_id))).filter((v): v is string => !!v));
-function Mini({ all, sel, boards, toMap }: { all: TileFacts[]; sel: string; boards: Set<string>; toMap?: (from: DOMRect) => void }) {
+/** 작은 지도 확대(팀장 00:33): 고른 로봇 점이 있으면 그 로봇 쪽으로 MINI_ZOOM 배(로봇이 칸 가운데). 없으면 그림 한 장 전체 */
+export const MINI_ZOOM = 2;
+function Mini({ all, sel, boards, toMap }: { all: TileFacts[]; sel: string; boards: Set<string>; toMap?: (from: DOMRect, focus: string) => void }) {
+  const at = (f: TileFacts) => { const p = tilePose(locOf(f), boards); if (!p) return null; const [px, py] = toMapPx(p.x, p.z); return { dx: px * 0.125 - 200, dy: py * 0.125 - 125 }; };   // 칸 가운데 기준 px
+  const pf = all.find((f) => f.x.id === sel), c = pf ? at(pf) : null, Z = c ? MINI_ZOOM : 1;
   const dots = [...all].sort((a, b) => a.x.name.localeCompare(b.x.name, 'ko', { numeric: true })).flatMap((f) => {
     // 데모 현장 승인 판의 위치만: 판 id 가 다르거나 없으면 그리지 않음(엉뚱한 자리보다 뺌). 서버 판 m → 시안 그림 px = design.json transform(25 + u·3.5, 20 + v·3.5 · v = -y)
-    const p = tilePose(locOf(f), boards);
-    if (!p) return [];
-    const [px, py] = toMapPx(p.x, p.z), left = `calc(50% + ${Math.round(px * 0.125 - 200)}px)`, top = `${Math.round(py * 0.125)}px`;
+    const q = at(f);
+    if (!q) return [];
+    const left = `calc(50% + ${Math.round((q.dx - (c?.dx ?? 0)) * Z)}px)`, top = `${Math.round(125 + (q.dy - (c?.dy ?? 0)) * Z)}px`;
     const kind = f.sim ? 'sim' : f.level === 'bad' || f.level === 'crit' ? 'r' : f.level === 'warn' || f.lostNow ? 'o' : '';
     const me = f.x.id === sel, label = sel ? me : kind === 'r' || (kind === 'o' && !f.lostNow);
     return [<i key={f.x.id} className={`dotm ${kind}${sel ? (me ? ' sel' : ' dim') : ''}`} style={{ left, top }} data-walk={f.walk ? '1' : undefined} data-dot={f.x.id}></i>,
       label && <span key={`${f.x.id}-l`} className={`dotl${me ? ' sel' : ''}`} style={{ left, top }}>{f.x.name}</span>];
   });
-  return <div className="pane" style={{ padding: '10px' }}><div className="row" style={{ justifyContent: 'space-between', padding: '4px 6px 10px' }}><span className="ttl" style={{ fontSize: '17px' }}>작은 지도</span><span className="mu2" style={{ fontSize: '12.5px' }}>{sel ? '선택한 로봇 강조' : '점 = 로봇 · 점선 = 시뮬'}</span></div><div className="mini" role={toMap ? 'button' : undefined} tabIndex={toMap ? 0 : undefined} aria-label={toMap ? '작은 지도 · 누르면 지도 보기' : undefined} data-to-map={toMap ? '' : undefined}
-    onClick={toMap && ((e) => toMap(e.currentTarget.getBoundingClientRect()))} onKeyDown={toMap && ((e) => { if (e.key === 'Enter') toMap(e.currentTarget.getBoundingClientRect()); })}>{dots}</div></div>;
+  return <div className="pane" style={{ padding: '10px' }}><div className="row" style={{ justifyContent: 'space-between', padding: '4px 6px 10px' }}><span className="ttl" style={{ fontSize: '17px' }}>작은 지도</span><span className="mu2" style={{ fontSize: '12.5px' }}>{sel ? '선택한 로봇 강조' : '점 = 로봇 · 점선 = 시뮬'}</span></div><div className="mini" data-zoom={c ? Z : undefined} style={c ? { backgroundSize: `${400 * Z}px ${250 * Z}px`, backgroundPosition: `calc(50% + ${Math.round(-c.dx * Z)}px) calc(50% + ${Math.round(-c.dy * Z)}px)` } : undefined} role={toMap ? 'button' : undefined} tabIndex={toMap ? 0 : undefined} aria-label={toMap ? '작은 지도 · 두 번 누르면 지도 보기' : undefined} data-to-map={toMap ? '' : undefined}
+    onDoubleClick={toMap && ((e) => toMap(e.currentTarget.getBoundingClientRect(), sel))} onKeyDown={toMap && ((e) => { if (e.key === 'Enter') toMap(e.currentTarget.getBoundingClientRect(), sel); })}>{dots}</div></div>;
 }
 
 /** 최근 경고 = 주의가 필요한 로봇(기존 관제 needs · 관절 온도 · 끊김)에서 경보 칸에 나온 로봇을 뺀 것. 시각 = 받은 시각(발생 시각 필드 없음) · 모르면 칸을 접음 */
@@ -363,21 +367,27 @@ function Alarm({ f, stop, open }: { f: TileFacts; stop?: (id: string) => void; o
 }
 
 // ── 화면 ──────────────────────────────────────────────────
+/** 데모 표시 스위치 기억: 서버에 화면 설정 저장 API 가 없어 이 브라우저에만(localStorage). 못 읽으면 켬 */
+const DEMO_KEY = 'fh-control-demo';
+const demoShown = () => { try { return localStorage.getItem(DEMO_KEY) !== '0'; } catch { return true; } };
+const keepDemo = (on: boolean) => { try { localStorage.setItem(DEMO_KEY, on ? '1' : '0'); } catch { /* 저장 불가 */ } };
 export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: string) => boolean }) {
   useRt();
   const me = c.user.id, admin = c.user.role === 'ORG_ADMIN';
   // 작은 지도 → 지도 보기(팀장 11-28 17:23 · 시안 밖): 작은 지도 칸 자리에서 큰 지도 자리로 자라며 넘어가고, 3D 첫 시점은 위에서 본 틀에서 시안 시점으로 내려앉음
-  const [from, setFrom] = useState<DOMRect | null>(null);
-  const [view, setView] = useState<'tiles' | 'map'>('tiles'), [scope, setScope] = useState<'all' | 'mine'>(admin ? 'all' : 'mine'), [front, setFront] = useState(false), [demo, setDemo] = useState(true);
+  const [from, setFrom] = useState<DOMRect | null>(null), [focus, setFocus] = useState(''), [home, setHome] = useState(0);
+  const toHome = () => { setFrom(null); setFocus(''); setHome((k) => k + 1); setView('map'); };   // 첫 화면으로 = 지도 보기 첫 시점(무리 가운데)
+  const [view, setView] = useState<'tiles' | 'map'>('tiles'), [scope, setScope] = useState<'all' | 'mine'>(admin ? 'all' : 'mine'), [front, setFront] = useState(false), [demo, setDemoNow] = useState(demoShown);
+  const setDemo = (on: boolean) => { setDemoNow(on); keepDemo(on); };
   const sel = useControlPick();
   useEffect(() => () => controlPick.set(''), []);
   const t = useTree(c.cancel), av = useAvail(c.cancel);
   const boards = useMemo(() => demoBoards(t.tree), [t.tree]);
   const places = useMemo(() => new Map(floorsOf(t.tree).map((p) => [p.floor.id, `${p.building.name} ${floorName(p.floor.name)}`])), [t.tree]);
   const list = scope === 'mine' ? c.robots.filter((x) => x.owner === me) : c.robots;
-  const all = order(list.map((x) => facts(x, me, places, av?.get(x.id))));
+  const every = order(list.map((x) => facts(x, me, places, av?.get(x.id)))), all = demo ? every : every.filter((f) => !f.demo);   // 데모 표시 끔 = 데모 로봇을 타일 · 지도 · 수에서 뺌
   const seen = useRef<Since>(new Map()).current; trackSince(seen, all);
-  useEffect(() => { if (sel && !list.some((x) => x.id === sel)) controlPick.set(''); });
+  useEffect(() => { if (sel && !all.some((f) => f.x.id === sel)) controlPick.set(''); });
   const see = (s: 'all' | 'mine') => { if (s !== scope) controlPick.set(''); setScope(s); };
   const open = (id: string) => { c.pick(id); c.go('fleet'); };
   const n = (f: (x: TileFacts) => boolean) => all.filter(f).length;
@@ -389,8 +399,8 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
   const why = dErr ? `요약을 받지 못했습니다. ${dErr}` : undefined;
   const cnt = (k: string, icon: ReactNode, v: number | null, red = false, src?: 'dashboard', none?: string) => <span className="cnt" style={red ? { color: 'var(--u5-red)' } : undefined} data-sum={k} data-src={src} title={src ? why : none} data-none={v == null || undefined}>{I(16, icon, red ? 'var(--u5-red)' : undefined)}{`${k} `}<b style={red ? { color: 'var(--u5-red)' } : undefined}>{v ?? ''}</b></span>;
   return <main className="u5" data-view={view} aria-label="관제">
-    <div className="tb"><div className="seg2" role="group" aria-label="보기">{seg(view === 'tiles', '타일 보기', IC.tiles, () => setView('tiles'))}{seg(view === 'map', '지도 보기', IC.map, () => { setFrom(null); setView('map'); })}</div>
-      <span className="pinf"><i></i>첫 화면으로</span><span className="sep"></span>
+    <div className="tb"><div className="seg2" role="group" aria-label="보기">{seg(view === 'tiles', '타일 보기', IC.tiles, () => setView('tiles'))}{seg(view === 'map', '지도 보기', IC.map, () => { setFrom(null); setFocus(''); setView('map'); })}</div>
+      <span className="pinf" role="button" tabIndex={0} data-home onClick={toHome} onKeyDown={(e) => { if (e.key === 'Enter') toHome(); }} style={{ cursor: 'pointer' }}><i></i>첫 화면으로</span><span className="sep"></span>
       {/* 임무 중 = 타일이 «임무 중» 인 로봇(실행 상태 RUNNING · 끊기지 않음, 시뮬 포함). 서버 요약의 robots_running 은 실기만이라 타일과 어긋나서 쓰지 않음 */}
       {cnt('임무 중', IC.flag, n((f) => f.x.status === 'RUNNING' && !f.lostNow))}
       {cnt('충전', IC.bolt, av ? n((f) => f.charging) : null, false, undefined, av ? undefined : '가용(GET /robots/availability)을 받지 못했습니다')}
@@ -406,14 +416,14 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '14px' }}>
         {view === 'tiles' && <span className="btns flipb" style={{ height: '42px', padding: '0 14px', fontSize: '13.5px', ...(front ? { background: 'var(--u5-ok-bg)', borderColor: 'var(--u5-ok-line)', color: 'var(--u5-ok)' } : {}) }} role="button" tabIndex={0} aria-pressed={front}
           onClick={() => setFront(!front)} onKeyDown={(e) => { if (e.key === 'Enter') setFront(!front); }}>{I(16, IC.flip)}{front ? '뒤 1 m 시점으로' : '정면 상태로 뒤집기'}</span>}
-        <span className={demo ? 'tgl on' : 'tgl'} role="switch" aria-checked={demo} tabIndex={0} onClick={() => setDemo(!demo)}>데모 표시<i></i></span>
+        <span className={demo ? 'tgl on' : 'tgl'} role="switch" aria-checked={demo} tabIndex={0} data-demo-show onClick={() => setDemo(!demo)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDemo(!demo); } }}>데모 표시<i></i></span>
         <div className="seg2 flt" role="group" aria-label="범위"><span className={scope === 'all' ? 'on' : ''} data-f="모두" role="button" tabIndex={0} aria-pressed={scope === 'all'} onClick={() => see('all')}>모두</span><span className={scope === 'mine' ? 'on' : ''} data-f="내 로봇" role="button" tabIndex={0} aria-pressed={scope === 'mine'} onClick={() => see('mine')}>내 로봇</span></div></div></div>
     {view === 'tiles' ? <div className={wall.length > 8 ? 'wall many' : 'wall'} style={{ gridTemplateColumns: `repeat(${g.units ?? g.cols},1fr)`, gridTemplateRows: `repeat(${g.rows},1fr)` }} aria-label="로봇 타일" data-count={wall.length} data-all={all.length}>
       {wall.map((f, i) => <ZoomBox key={f.x.id} zoom={g.zoom} span={g.span?.[i]}><Tile f={f} sel={f.x.id === sel} front={front} open={() => open(f.x.id)} boards={boards} /></ZoomBox>)}</div>
-      : <SiteView all={all} sel={sel} open={open} from={from} />}
+      : <SiteView key={home} all={all} sel={sel} open={open} from={from} focus={focus} />}
     <div className="side">
       {view === 'tiles' ? <>
-        <Mini all={all} sel={sel} boards={boards} toMap={(r) => { setFrom(r); setView('map'); }} />
+        <Mini all={all} sel={sel} boards={boards} toMap={(r, id) => { setFrom(r); setFocus(id); setView('map'); }} />
         {picked && <Picked key={picked.x.id} f={picked} open={() => open(picked.x.id)} me={me} cancel={c.cancel} refresh={c.refresh} />}
         {crit && !picked && <Alarm f={crit} stop={c.mayStop?.(crit.x.id) ? c.stop : undefined} open={() => open(crit.x.id)} />}
         <Recent list={all.filter((f) => (f.alert || f.lostNow) && f.x.id !== crit?.x.id)} pick={(id) => controlPick.set(id)} open={open} seen={seen} /></>
