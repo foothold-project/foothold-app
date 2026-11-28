@@ -2,7 +2,7 @@
 // 태그 · 클래스 · 순서 · 글 · 인라인 style 은 시안 그대로. 머리줄 .bar 는 앱 껍데기(W1)가 그리므로 뺐다.
 // 값: 목록 = 서버 로봇 목록 · 머리 칩 = 실시간 state(연결 왕복 ms · 제어 모드 · 배터리 · 관절 최고 온도 · 조종하는 사람) · 3D = 실제 관절값 ·
 // 보기 = 지도(승인 지도 + 로봇 위치) · 카메라 · 라이다 · 깊이. 값이 없으면 시안 틀은 그대로 두고 그 칸 글을 비우거나 「없음」(시안 u4_8 배터리 칸과 같은 말).
-// 조종 · STOP 은 serverdrive.tsx useServerDrive 하나(이 파일은 자리만): 키는 시안 글대로 ↑ 앞으로 · ← → 돌기 · ↓ 막힘 · Space 정지.
+// 조종 · STOP 은 serverdrive.tsx useServerDrive 하나(이 파일은 자리만): 키는 ↑ 앞으로 · ↓ 뒤로 · ← → 옆걸음 · A D 돌기 · Space 정지(팀장 11-28 17:25 · Q · E 없음).
 import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type PointerEvent as PEv, type ReactNode } from 'react';
 import type { MapVersion, RunSnapshot, ScreenAction } from '../../../../contracts/ts';
 import { api } from '../../api';
@@ -456,7 +456,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
           <svg className="ic" viewBox="0 0 24 24" style={{ width: '18px', height: '18px' }}><line x1="6" x2="10" y1="11" y2="11" /><line x1="8" x2="8" y1="9" y2="13" /><line x1="15" x2="15.01" y1="12" y2="12" /><line x1="18" x2="18.01" y1="10" y2="10" /><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z" /></svg>{mine ? '조종 중' : '조종 시작'}</div>
         <div data-go="u4_3_voice" className="g dk btn talk" role="button" tabIndex={0} onClick={() => say('말하기는 아직 서버에 없습니다')}>
           <svg className="ic" viewBox="0 0 24 24" style={{ width: '18px', height: '18px' }}><path d="M12 19v3" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><rect x="9" y="2" width="6" height="13" rx="3" /></svg>말하기</div>
-        <div className="g dk keys" data-u4-keys><span><kbd>↑</kbd>앞으로</span><span><kbd>←</kbd><kbd>→</kbd>돌기</span><span><kbd>↓</kbd>뒤로</span><span><kbd>Q</kbd><kbd>E</kbd>옆걸음</span><span><kbd>Space</kbd>정지</span><span><kbd>Shift</kbd><kbd>1</kbd>~<kbd>4</kbd>모드</span></div>
+        <div className="g dk keys" data-u4-keys><span><kbd>↑</kbd>앞으로</span><span><kbd>↓</kbd>뒤로</span><span><kbd>←</kbd><kbd>→</kbd>옆걸음</span><span><kbd>A</kbd><kbd>D</kbd>돌기</span><span><kbd>Space</kbd>정지</span><span><kbd>Shift</kbd><kbd>1</kbd>~<kbd>4</kbd>모드</span></div>
       </div>
       <div className={`deck joybig${latched ? ' dim' : ''}`} data-u4-deck data-ready={ready || undefined}>
         <Stick side="L" put={d.stick} blocked={say} /><Stick side="R" put={d.stick} blocked={say} />

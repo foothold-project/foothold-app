@@ -105,25 +105,26 @@ describe('서버 경유 시험 조종 패널', () => {
     expect($('[data-u4-can]')).not.toBeNull();
   });
 
-  it('키(d5): W·↑ 전진 · S·↓ 후진 · A·← / D·→ 제자리 회전 · Q/E 옆걸음, ↑+A/D · 표의 SI 값 그대로, 그 밖 조합은 0', () => {
+  it('키(11-28 17:25): W·↑ 전진 · S·↓ 후진 · ← / → 옆걸음 · A / D 제자리 회전 · Q · E 없음, ↑+A/D · 표의 SI 값 그대로, 그 밖 조합은 0', () => {
     ready();
     expect(document.body.textContent).toContain('누르고 있으면 2초에 걸쳐 최고 속도까지 올라가고, 떼면 바로(약 0.3초) 멈춥니다');   // 앞뒤·옆·회전 공통 안내(11-20)
     for (const k of ['ArrowUp', 'KeyW']) expect(hold([k])).toBe('1.5,0,0');
     for (const k of ['ArrowDown', 'KeyS']) expect(hold([k])).toBe('-1.5,0,0');
-    for (const k of ['KeyA', 'ArrowLeft']) expect(hold([k])).toBe('0,0,2.5');
-    for (const k of ['KeyD', 'ArrowRight']) expect(hold([k])).toBe('0,0,-2.5');
-    expect(hold(['KeyQ'])).toBe('0,1,0');
-    expect(hold(['KeyE'])).toBe('0,-1,0');
+    expect(hold(['KeyA'])).toBe('0,0,2.5');
+    expect(hold(['KeyD'])).toBe('0,0,-2.5');
+    expect(hold(['ArrowLeft'])).toBe('0,1,0');
+    expect(hold(['ArrowRight'])).toBe('0,-1,0');
     expect(hold(['ArrowUp', 'KeyA'])).toBe('1.5,0,2.5');
-    expect(hold(['KeyW', 'ArrowLeft'])).toBe('1.5,0,2.5');
+    expect(hold(['KeyW', 'KeyA'])).toBe('1.5,0,2.5');
     expect(hold(['KeyD', 'ArrowUp'])).toBe('1.5,0,-2.5');
-    for (const k of [['ArrowDown', 'KeyA'], ['KeyQ', 'ArrowUp'], ['KeyA', 'KeyD'], ['ArrowLeft', 'ArrowRight'], ['KeyQ', 'KeyE'], ['KeyZ']]) expect(hold(k)).toBe('0,0,0');
+    for (const k of [['KeyQ'], ['KeyE'], ['KeyQ', 'KeyE']]) expect(hold(k)).toBe('0,0,0');   // Q · E 는 뺌: 아무 동작 없음
+    for (const k of [['ArrowDown', 'KeyA'], ['ArrowLeft', 'ArrowUp'], ['KeyA', 'KeyD'], ['ArrowLeft', 'ArrowRight'], ['KeyZ']]) expect(hold(k)).toBe('0,0,0');
     expect(lastAxes()).toBe('0,0,0');
     expect(axes().every((a) => ALLOWED.has(a))).toBe(true);
   });
-  it('표에 없는 키 조합(W+Q · A+Q · W+S · Q+E)은 0 + 까닭 한 줄, 표에 있는 키를 새로 누르면 사라짐', () => {
+  it('표에 없는 키 조합(W+← · A+← · W+S · ←+→)은 0 + 까닭 한 줄, 표에 있는 키를 새로 누르면 사라짐', () => {
     ready();
-    for (const ks of [['KeyW', 'KeyQ'], ['KeyA', 'KeyQ'], ['KeyW', 'KeyS'], ['KeyQ', 'KeyE']]) {
+    for (const ks of [['KeyW', 'ArrowLeft'], ['KeyA', 'ArrowLeft'], ['KeyW', 'KeyS'], ['ArrowLeft', 'ArrowRight']]) {
       ks.forEach((k) => key('keydown', k)); tick(60);
       expect(lastAxes()).toBe('0,0,0');
       expect($('[data-sd-why]')!.textContent).toBe('이 키 조합은 함께 보낼 수 없어 입력을 0으로 보냅니다.');   // 멈춤 확인 아님(입력 0 만)
@@ -133,22 +134,22 @@ describe('서버 경유 시험 조종 패널', () => {
     expect($('[data-sd-why]')).toBeNull();
     key('keyup', 'KeyW');
   });
-  it('d5 옆걸음: 조직 옆 상한(real_max_vy)이 표 값 1 을 허락하지 않으면 Q/E = 0 + 까닭 한 줄, 단추는 흐림 · 글 입력칸·창 밖이면 0', () => {
+  it('옆걸음(← / →): 조직 옆 상한(real_max_vy)이 표 값 1 을 허락하지 않으면 0 + 까닭 한 줄, 단추는 흐림 · 글 입력칸·창 밖이면 0', () => {
     ready(); view();
-    expect($('[data-sd-move="left"]')!.textContent).toContain('Q');
-    expect($('[data-sd-move="right"]')!.textContent).toContain('E');
-    key('keydown', 'KeyQ'); tick(60); expect(lastAxes()).toBe('0,1,0');
+    expect($('[data-sd-move="left"]')!.textContent).toContain('←');
+    expect($('[data-sd-move="right"]')!.textContent).toContain('→');
+    key('keydown', 'ArrowLeft'); tick(60); expect(lastAxes()).toBe('0,1,0');
     act(() => { window.dispatchEvent(new Event('blur')); }); tick(60); expect(lastAxes()).toBe('0,0,0');
-    key('keyup', 'KeyQ');
+    key('keyup', 'ArrowLeft');
     const input = document.createElement('input'); document.body.append(input); input.focus();
-    const typed = (type: string) => act(() => { input.dispatchEvent(new KeyboardEvent(type, { code: 'KeyE', bubbles: true, cancelable: true })); });
+    const typed = (type: string) => act(() => { input.dispatchEvent(new KeyboardEvent(type, { code: 'ArrowRight', bubbles: true, cancelable: true })); });
     typed('keydown'); tick(60); expect(lastAxes()).toBe('0,0,0');
     typed('keyup'); input.remove();
     act(() => simTune({ ...ORG, real_max_vy: 0 }));
     expect($('[data-sd-move="left"]')!.getAttribute('aria-disabled')).toBe('true');
-    key('keydown', 'KeyQ'); tick(60); expect(lastAxes()).toBe('0,0,0');
+    key('keydown', 'ArrowLeft'); tick(60); expect(lastAxes()).toBe('0,0,0');
     expect($('[data-sd-why]')!.textContent).toBe(SIDE_BLOCK);
-    key('keyup', 'KeyQ');
+    key('keyup', 'ArrowLeft');
   });
   it('조직 상한을 넘는 단추·키는 0, 저장으로 낮추면 즉시 0이며 올려도 자동 재개 없음', () => {
     ready(); view();
