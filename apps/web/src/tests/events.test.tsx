@@ -127,7 +127,7 @@ describe('기록 탭 — 서버 목록 그대로', () => {
     expect([...card('사건').querySelectorAll('th')].map((t) => t.textContent)).toEqual(['시각', '종류', '상태', '내용', '로봇·사람']);
     const [a, b] = [...card('사건').querySelectorAll('tbody tr')].map((r) => [...r.children].map((td) => td.textContent));
     expect(a.slice(1)).toEqual(['안전', '▲주의', '사건 2 문장', 'Go2-A · 김총괄']);
-    expect(b.slice(1)).toEqual(['계정', 'ⓘ정보', '사건 1 문장', '—']);   // INFO = 옅은 ⓘ정보 알약(U8-10 시안, 11-28 조정 결정)
+    expect(b.slice(1)).toEqual(['계정', 'ⓘ정보', '사건 1 문장', '없음']);   // INFO = 옅은 ⓘ정보 알약(U8-10 시안, 11-28 조정 결정)
     expect(card('사건').querySelector('[data-kind="SAFETY"]')!.textContent).toBe('안전');
   });
   it('INFO 는 «정상»이라 단정하지 않음 — 서버가 INFO 로 저장한 실패 코드(정지 확인 실패 등)는 ▲주의', async () => {

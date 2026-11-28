@@ -69,6 +69,14 @@ describe('Q2 표시만 실행', () => {
   });
 });
 
+describe('t19 빈 칸은 줄표 대신 말', () => {
+  it('도착 기록이 없는 지점의 구간 걸린 시간 = 「도착 전」', async () => {
+    serve(() => ok(HIST), () => ok({ items: [wp('1', 'RUN_WAYPOINT_RECORDED', local(27, 10, 4), { idx: 0, mission_name: '가', results: { mode: 'DISPLAY_ONLY' } })], next_cursor: null }));
+    await render();
+    expect(cells()[0].slice(1, 3)).toEqual(['도착 기록 없음', '도착 전']);
+  });
+});
+
 describe('Q3 여는 초점', () => {
   it('열면 초점이 보고서 제목으로', async () => {
     serve(() => ok(HIST), () => ok({ items: [], next_cursor: null }));
