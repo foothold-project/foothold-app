@@ -1573,6 +1573,9 @@ class Realtime:
                             self.send_action(rid, actor, msg)
                         elif msg.t == 'posture':
                             self.send_posture(rid, actor, msg)
+                        elif msg.t == 'gait':
+                            # 계약만 먼저 (11/28). 에이전트 전달이 붙기 전에는 받은 척하지 않는다.
+                            raise LeaseError('GAIT_UNSUPPORTED', '걷기 모드 바꾸기는 아직 준비 중입니다.', 501)
                         elif msg.t == 'unlock':
                             self.apply(self.arbiter.unlock(rid, actor, str(msg.lease_id), msg.stop_gen))
                     self.put(peer, C.ScreenReply(id=msg.id, ok=True, delivered=(
