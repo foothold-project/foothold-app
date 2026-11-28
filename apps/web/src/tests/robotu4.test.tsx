@@ -586,3 +586,8 @@ describe('로봇 탭 · 다시 시작 확인 창', () => {
     expect(w.of('unlock').map((m) => m.robot)).toEqual(['r7']);
   });
 });
+
+// 3D 칸 말풍선 안 안내(조종권 받음 · 잠금 해제 후 등)는 폰 조종 화면의 어두운 칸(.dv-note) 이 아니라 말풍선 글자 그대로(5195 사진에서 어두운 칸 위 어두운 글자)
+it('로봇 탭 말풍선 안 dv-note 는 바탕 없이 말풍선 글자색', () => {
+  expect(u4css).toMatch(/\.u4 \.bub \.dv-note\{[^}]*background:none[^}]*color:inherit/);
+});
