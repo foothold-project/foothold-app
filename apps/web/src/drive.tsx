@@ -368,7 +368,7 @@ function Screen(c: Ctx) {
       {([['follow', '로봇', <path key="p" d="M12 3l7 16-7-4-7 4z" />], ['top', '평면', <><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z" /><path d="M9 3v15M15 6v15" /></>]] as const).map(([v, t, ic]) =>
         <button key={v} type="button" className="btn" aria-pressed={mview === v} onClick={() => setMview(v)}><svg className="ic" viewBox="0 0 24 24">{ic}</svg>{t}</button>)}
       <button type="button" className="btn" aria-pressed={false} aria-disabled="true" title="3D 지도 준비 중" onClick={() => setD3(true)} data-view-3d-off><svg className="ic" viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" /><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5" /></svg>3D</button>
-      {d3 && <p className="u1-vnote" role="status">3D 지도 준비 중</p>}
+      {d3 && <p className="g u1-vnote" role="status">3D 지도 준비 중</p>}
     </div>}
     {!light && <div className="vig" />}
     <div className="tl">
@@ -413,7 +413,7 @@ function Screen(c: Ctx) {
       /* 시안 u1_8: 서버가 끊기면 띠 하나. 시안 「점검」 → 「다시 연결」(rt.reconnect): 폰에 망 점검 화면(u2_5 · u9_4)이 없어 시안 밖 · 새로 그림 */
       ? <p className="ban amb" role="status">서버 연결 안 됨 <button type="button" className="banbt" data-off-proto="reconnect" onClick={() => rt.reconnect()}>다시 연결</button></p>
       : <>
-      {!mine && ban('u1-who', holderText(l, me, r))}
+      {!mine && !mrun && ban('u1-who', holderText(l, me, r))}   {/* 임무 화면은 칩 · 카드가 같은 정보(시안 u1_1) */}
       {why && <p className={`ban ${driveBlock(c.user, r) ? 'amb' : 'u1-info'}`} role="status"><span id={whyId} className="fh-why" data-why>{why}</span>
         {l.outgoing && <button type="button" className="banbt" disabled={l.outgoing.canceling} onClick={() => rt.cancel(r.id)}>요청 취소</button>}</p>}
       {stalled && ban('red', STALLED, { 'data-stalled': true })}

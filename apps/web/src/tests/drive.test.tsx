@@ -2432,6 +2432,26 @@ describe('폰 u1 임무 화면(보이기만)', () => {
     expect($('.u1-chip .u1-st')!.textContent).toBe('일시정지됨');   // 잠금이 풀리면 임무 글로
   });
 
+  it('위 띠: 임무 화면이면 「시나리오 실행 중」 u1-who 띠는 숨김(칩 · 카드가 대신) · dv-run 「멈추려면 STOP」 은 그대로 · 잠기면 칩에 잠금 글', async () => {
+    apis();
+    mount(true, 'u-park', '#/drive/r7', ROBOTS.map((r) => (r.id === 'r7' ? { ...r, mission: '공정 순찰 A' } : r))); serve(PARK, 'r7');
+    recv(lease('r7', { id: null, name: '', type: 'RUN' })); act(() => push('r7', { run: RUN, latched: false } as never));
+    await act(async () => {}); await act(async () => {});
+    expect($('.u1d')!.hasAttribute('data-mission')).toBe(true);
+    expect($('.u1d .u1-who')).toBeNull();
+    expect([...document.querySelectorAll('.u1d .ban')].map((b) => b.textContent).join()).not.toContain('시나리오 실행 중');   // 칩 펼침(닫힌 .pane)의 조종 줄은 그대로
+    expect($('.u1d .dv-run [data-run-stop]')!.textContent).toBe('멈추려면 STOP');
+    act(() => push('r7', { latched: null, run: RUN } as never));
+    expect($('.u1-chip .u1-st')!.textContent).toBe('정지 잠금');
+    expect($('.u1d .dv-run')).not.toBeNull();
+  });
+
+  it('위 띠: 다른 사람이 쥐면(임무 아님) u1-who 띠는 그대로', async () => {
+    await open(null);
+    recv(lease('r7', LEE, null));
+    expect($('.u1d .u1-who')!.textContent).toContain('이OO');
+  });
+
   it('임무가 없을 때: 시안 빈 상태 그대로(지도 · 카드 없음 · 작은 지도 칸 · 일정 받지 않음)', async () => {
     await open(null);
     expect($('.u1d')!.hasAttribute('data-mission')).toBe(false);
@@ -2455,6 +2475,8 @@ describe('폰 u1 임무 화면(보이기만)', () => {
     expect(d3.getAttribute('aria-disabled')).toBe('true');
     click(d3);
     expect(text()).toContain('3D 지도 준비 중');
+    expect($('.u1-vnote')!.classList.contains('g')).toBe(true);   // 어두운 판 대비: 시안 유리 알약 .g · 글 --ink
+    expect(u1AppCss).toMatch(/\.u1-vnote\{[^}]*color:var\(--ink\)\}/);
     expect($('.u1d svg.u1-mmap')!.getAttribute('viewBox')).toBe('0 0 200 100');
     expect(u1AppCss).toMatch(/\.u1d \.u1-vcol\{position:absolute;left:12px;top:118px;width:46px;padding:5px;display:flex;flex-direction:column;gap:4px;border-radius:16px/);
   });
