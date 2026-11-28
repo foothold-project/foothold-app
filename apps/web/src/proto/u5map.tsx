@@ -18,10 +18,35 @@ const poseOf = (f: TileFacts) => sitePose((f.x.unknown === 'summary' ? null : rt
 
 type R = { id: string; g: THREE.Group; body: Body; ring: THREE.Line; col: number; sim: boolean; top: number; t: number; at?: Held | null };
 
+/** 지도 보기 첫 시점(팀장 00:22 · 시안 밖): 원근 · 정북을 보고(옆 틂 0) · 아래로 SITE_EL. 로봇 무리 둘레 상자 가운데가 화면 가로 가운데 · 세로 SITE_Y,
+ *  화면 폭 = 무리 폭 × SITE_SPAN(SITE_MIN_W ~ 현장 폭 × SITE_MAX_K: 무리가 넓게 퍼져도 공장이 화면 가로를 채우고 위 하늘이 좁게). 로봇이 없거나 한 대면 현장 가운데 · 화면 폭 = 현장 폭.
+ *  작은 지도 더블클릭 + 고른 로봇 = 첫 시점에서 그 로봇 가운데 가까운 시점(NEAR_D)으로 FLY_S 초 ease-in-out. 움직임 줄이기면 바로 끝 시점 */
+export const SITE_FOV = 32, SITE_EL = 42, SITE_Y = 0.57, SITE_SPAN = 2.5, SITE_MIN_W = 160, SITE_MAX_K = 0.65, NEAR_D = 150, FLY_S = 1.0;
+export type SiteShot = { tgt: THREE.Vector3; el: number; az: number; d: number };
+const SITE_C = () => toWorld(SITE_PX_W / 2, SITE_PX_H / 2), SITE_W = SITE_PX_W / K;
+/** 보이는 가로 폭 viewW 와 화면 세로 자리 SITE_Y 를 맞춘 시점: 바라볼 점(tgt)을 가운데 c 에서 북쪽(-z)으로 옮겨 c 가 SITE_Y 에 오게 */
+function shotAt(c: THREE.Vector3, viewW: number, aspect: number): SiteShot {
+  const half = Math.tan((SITE_FOV * Math.PI) / 360), el = (SITE_EL * Math.PI) / 180, dip = el + Math.atan((SITE_Y - 0.5) * 2 * half);
+  const k = Math.cos(el) - Math.sin(el) / Math.tan(dip);   // 북쪽으로 옮길 거리 ÷ d
+  const d = viewW / (2 * half * aspect) / (1 - k * Math.cos(el));   // c 깊이에서 보이는 가로 폭 = viewW
+  return { tgt: new THREE.Vector3(c.x, 0, c.z - k * d), el, az: 0, d };
+}
+export function siteShot(pts: { x: number; z: number }[], aspect: number): SiteShot {
+  if (pts.length < 2) return shotAt(SITE_C(), SITE_W * SITE_MAX_K, aspect);
+  const xs = pts.map((p) => p.x), zs = pts.map((p) => p.z), x0 = Math.min(...xs), x1 = Math.max(...xs), z0 = Math.min(...zs), z1 = Math.max(...zs);
+  return shotAt(new THREE.Vector3((x0 + x1) / 2, 0, (z0 + z1) / 2), Math.min(SITE_W * SITE_MAX_K, Math.max(SITE_MIN_W, (x1 - x0) * SITE_SPAN)), aspect);
+}
+/** 고른 로봇 가까운 시점: 로봇이 화면 가운데 */
+export const nearShot = (p: { x: number; z: number }): SiteShot => ({ tgt: new THREE.Vector3(p.x, 0, p.z), el: (SITE_EL * Math.PI) / 180, az: 0, d: NEAR_D });
+/** 두 시점 사이(t 0~1, ease-in-out) */
+export const shotMix = (a: SiteShot, b: SiteShot, t: number): SiteShot => { const e = ease(Math.min(1, Math.max(0, t)));
+  return { tgt: a.tgt.clone().lerp(b.tgt, e), el: a.el + (b.el - a.el) * e, az: a.az + (b.az - a.az) * e, d: a.d + (b.d - a.d) * e }; };
+/** 움직임 시간: 움직임 줄이기면 0(바로 끝) */
+export const flyTime = () => (calm() ? 0 : FLY_S);
 const calm = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
-/** from = 작은 지도 칸 자리(화면 px). 있으면 그 자리에서 큰 지도 자리로 자라고(320 ms), 3D 첫 시점은 위에서 본 틀(작은 지도와 같은 북쪽 위)에서 시안 시점으로 내려앉음(1.1 s). 움직임 줄이기면 바로 */
-export function SiteView({ all, sel, open, from }: { all: TileFacts[]; sel: string; open: (id: string) => void; from?: DOMRect | null }) {
+/** from = 작은 지도 칸 자리(화면 px). 있으면 그 자리에서 큰 지도 자리로 자람(320 ms). focus = 작은 지도 더블클릭 때 고른 로봇: 첫 시점에서 그 로봇으로 다가감. 움직임 줄이기면 바로 */
+export function SiteView({ all, sel, open, from, focus }: { all: TileFacts[]; sel: string; open: (id: string) => void; from?: DOMRect | null; focus?: string }) {
   const box = useRef<HTMLDivElement>(null), fromTop = useRef(!!from && !calm());
   useLayoutEffect(() => {
     const el = box.current; if (!el || !from || !fromTop.current || typeof el.animate !== 'function') return;
@@ -40,12 +65,17 @@ export function SiteView({ all, sel, open, from }: { all: TileFacts[]; sel: stri
     r.outputColorSpace = THREE.SRGBColorSpace; r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.0;
     const BG = 0x07090b; r.setClearColor(BG, 1);
     const scene = new THREE.Scene(), over = new THREE.Scene(); scene.fog = new THREE.Fog(BG, 700, 1700);
-    const cam = new THREE.PerspectiveCamera(32, w / h, 5, 5000);
-    const tgt = toWorld(1960, 880), el = (58 * Math.PI) / 180, az = (-6 * Math.PI) / 180, d = 760;   // 시안 data-site cam 값 그대로
-    const top = toWorld(1600, 1000), elTop = (89.5 * Math.PI) / 180, dTop = 1000, tv = new THREE.Vector3();
-    const aim = (e: number, a: number, dd: number, t: THREE.Vector3) => { cam.position.set(t.x + Math.sin(a) * Math.cos(e) * dd, Math.sin(e) * dd, t.z + Math.cos(a) * Math.cos(e) * dd); cam.lookAt(t); };
-    let settle = fromTop.current ? -0.25 : 1;   // -0.25 ~ 0 = 칸이 자라는 동안 위에서 본 틀 유지
-    if (settle < 1) aim(elTop, 0, dTop, top); else aim(el, az, d, tgt);
+    const cam = new THREE.PerspectiveCamera(SITE_FOV, w / h, 5, 5000);
+    const aim = (s: SiteShot) => { const t = s.tgt; cam.position.set(t.x + Math.sin(s.az) * Math.cos(s.el) * s.d, Math.sin(s.el) * s.d, t.z + Math.cos(s.az) * Math.cos(s.el) * s.d); cam.lookAt(t); };
+    // 첫 시점 = 로봇 무리(위치가 온 로봇) 둘레 상자 · 작은 지도 더블클릭 + 고른 로봇이면 그 로봇으로 다가감(FLY_S · 움직임 줄이기면 바로 끝)
+    const pts = () => now.current.flatMap((f) => { const p = poseOf(f); return p ? [{ id: f.x.id, x: p.x, z: p.z }] : []; });
+    const first = () => siteShot(pts(), w / h);
+    let a0 = first(), touched = false, framed = pts().length >= 2;
+    const near = () => { const p = focus ? pts().find((q) => q.id === focus) : undefined; return p ? nearShot(p) : null; };
+    let end = near() ?? a0, fly = end === a0 ? 1 : 0, look = focus && fly >= 1 ? 3 : 0;   // 고른 로봇 위치가 아직 없으면 3 초까지 기다렸다 다가감
+    const dur = flyTime(); if (dur === 0) fly = 1;
+    let pause = fromTop.current && fly < 1 ? 0.32 : 0;   // 칸이 자라는 동안(320 ms)은 첫 시점에 머묾
+    aim(fly < 1 ? a0 : end);
     const hemis: THREE.HemisphereLight[] = [], rims: THREE.DirectionalLight[] = [], suns: THREE.DirectionalLight[] = [];
     for (const sc of [scene, over]) {
       const hemi = new THREE.HemisphereLight(0xaab8c8, 0x07090b, 1.1); hemis.push(hemi); sc.add(hemi);
@@ -103,12 +133,13 @@ export function SiteView({ all, sel, open, from }: { all: TileFacts[]; sel: stri
       return { id: f.x.id, g, body: { root, joints, top: proto.top }, ring, col, sim, top: proto.top, t: Math.random() * 2 };
     };
     const ctl = new OrbitControls(cam, canvas);
-    ctl.target.copy(tgt); ctl.enableDamping = true; ctl.dampingFactor = 0.08; ctl.screenSpacePanning = false;
-    ctl.minDistance = 60; ctl.maxDistance = 1500; ctl.maxPolarAngle = 1.38; ctl.enabled = settle >= 1; if (settle >= 1) ctl.update();
+    ctl.target.copy(fly < 1 ? a0.tgt : end.tgt); ctl.enableDamping = true; ctl.dampingFactor = 0.08; ctl.screenSpacePanning = false;
+    ctl.minDistance = 60; ctl.maxDistance = 1500; ctl.maxPolarAngle = 1.38; ctl.enabled = fly >= 1; if (fly >= 1) ctl.update();
+    ctl.addEventListener('start', () => { touched = true; });
     const v = new THREE.Vector3(), clock = new THREE.Clock(); let raf = 0;
     r.autoClear = false;
     const frame = () => {
-      const dt = Math.min(0.05, clock.getDelta());
+      const raw = clock.getDelta(), dt = Math.min(0.05, raw);   // 카메라 움직임(raw)은 벽시계대로 · 걸음 · 따라가기(dt)는 한 판 0.05 s 까지
       const l = lightNow(); if (l !== light) { light = l; shade(l); }
       const cw = canvas.clientWidth, ch = canvas.clientHeight;
       if (cw && ch && (cw !== w || ch !== h)) { w = cw; h = ch; r.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); }
@@ -144,10 +175,16 @@ export function SiteView({ all, sel, open, from }: { all: TileFacts[]; sel: stri
         const st = L.el.querySelector('i'); if (st) (st as HTMLElement).style.height = `${STEM + lift}px`;
         L.el.style.transform = `translate(${L.x.toFixed(1)}px,${L.y.toFixed(1)}px) translate(-50%,-100%)`;
       }
-      if (settle < 1) {
-        settle = Math.min(1, settle + dt / 1.1); const e = ease(Math.max(0, settle));
-        tv.lerpVectors(top, tgt, e); aim(elTop + (el - elTop) * e, az * e, dTop + (d - dTop) * e, tv);
-        if (settle >= 1) { ctl.target.copy(tgt); ctl.enabled = true; ctl.update(); }
+      if (look > 0 && !touched) {
+        look -= raw; const n = near();
+        if (n) { look = 0; a0 = first(); framed = true; end = n; if (dur === 0) { aim(end); ctl.target.copy(end.tgt); ctl.update(); } else { fly = 0; ctl.enabled = false; } }
+      }
+      if (fly < 1) {
+        if (pause > 0) pause -= raw; else fly = Math.min(1, fly + raw / dur);
+        const s = shotMix(a0, end, fly); aim(s);
+        if (fly >= 1) { ctl.target.copy(end.tgt); ctl.enabled = true; ctl.update(); }
+      } else if (!touched && !framed && look <= 0 && end === a0 && pts().length >= 2) {   // 위치가 늦게 오면 손대기 전 한 번 첫 시점을 다시 잡음
+        framed = true; a0 = end = first(); aim(a0); ctl.target.copy(a0.tgt); ctl.update();
       } else ctl.update();
       r.clear(); r.render(scene, cam); r.clearDepth(); r.render(over, cam);
       raf = requestAnimationFrame(frame);
@@ -157,7 +194,7 @@ export function SiteView({ all, sel, open, from }: { all: TileFacts[]; sel: stri
   }, []);
   const icon = (f: TileFacts): ReactNode => (f.sim ? ic(13, IC.box, '#4c9bff') : f.level === 'bad' || f.level === 'crit' ? ic(13, IC.warn, '#ff4d4f') : f.lostNow ? ic(13, IC.wifi, '#f2b705') : f.charging ? ic(13, IC.bolt, 'var(--u5-ok)') : null);   // 시안 K-04 충전 = 번개
   const sub = (f: TileFacts) => f.mission?.name ?? (f.lostNow ? '연결 끊김' : f.sim ? '시뮬 대기' : f.x.status ? STATUS_NAME[f.x.status] : '');
-  return <div className="big st3" ref={box} data-from-mini={from ? '' : undefined}>
+  return <div className="big st3" ref={box} data-from-mini={from ? '' : undefined} data-focus={focus || undefined}>
     <canvas id="site" ref={cv} aria-label="현장 3D"></canvas>
     <div className="mks" ref={marks}>{all.map((f) => { const k = tone(f); return <div key={f.x.id} className={`mk3 ${k === 'bad' ? 'r' : k === 'link' ? 'o' : k === 'rest' ? 'sim' : ''}${f.x.id === sel ? ' sel' : ''}`} data-n={f.x.name} data-r3={f.x.id} style={{ display: 'none' }}
       role="button" tabIndex={0} aria-pressed={f.x.id === sel} {...pickPress(f.x.id, f.x.id === sel, () => open(f.x.id))}><span className="lb">{icon(f)}{f.x.name}<small>{sub(f)}</small></span><i></i></div>; })}</div>
