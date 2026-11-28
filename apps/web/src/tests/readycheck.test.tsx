@@ -36,7 +36,7 @@ describe('순서 점검 · 단계와 상태 셋', () => {
     expect([...box.querySelectorAll('[data-check] .ck-name')].map((x) => x.textContent)).toEqual(['에이전트 Wi-Fi', '서버', '에이전트', '걷기 정책', '몸통', '센서', '배터리 · 관절']);   // 로봇 쪽 컴퓨터 프로그램은 다른 화면처럼 «에이전트» 한 말로
     expect(why('wifi')).toBe('에이전트가 붙은 Wi-Fi 이름은 서버가 아직 보내지 않습니다.');
     expect(why('policy')).toBe('걷기 정책 상태는 서버가 아직 보내지 않습니다.');
-    expect(why('power')).toBe('배터리 84 % · 관절 값 받음');
+    expect(why('power')).toBe('배터리 84 % · 관절 값 받음 · 최고 관절 온도 서버에 값 없음');
   });
 
   it('처음엔 접힘(「자세히 점검 (7 단계)」), 막힌 단계가 없으면 접힌 줄은 아무것도 · 조종을 허락하는 말 없음', () => {
@@ -102,9 +102,25 @@ describe('순서 점검 · 단계와 상태 셋', () => {
 
   it('배터리 · 관절: 둘 다 받으면 확인됨(값만, 기준 없이 막지 않음), 하나라도 없으면 서버에 값 없음', () => {
     const one = (p: Partial<Robot>) => { render(robot(p)); const x = [steps()[6][1], why('power')]; act(() => root?.unmount()); root = null; box.remove(); return x; };
-    expect(one({ battery: 9 })).toEqual(['ok', '배터리 9 % · 관절 값 받음']);
-    expect(one({ battery: null })).toEqual(['none', '배터리 값 없음 · 관절 값 받음']);
-    expect(one({ robotInfo: INFO({ joints: undefined }) })).toEqual(['none', '배터리 84 % · 관절 값 없음']);
+    expect(one({ battery: 9 })).toEqual(['ok', '배터리 9 % · 관절 값 받음 · 최고 관절 온도 서버에 값 없음']);
+    expect(one({ battery: null })).toEqual(['none', '배터리 값 없음 · 관절 값 받음 · 최고 관절 온도 서버에 값 없음']);
+    expect(one({ robotInfo: INFO({ joints: undefined }) })).toEqual(['none', '배터리 84 % · 관절 값 없음 · 최고 관절 온도 서버에 값 없음']);
+  });
+
+  // u4_4 (가): 최고 관절 온도 = 값 · 어느 관절. 문턱이 정해지지 않아(#389 잠정) 단계 상태 · 색을 바꾸지 않는다. 오래된 값(3 초 넘음) · 끊김은 서버에 값 없음
+  it('최고 관절 온도: 값과 관절 이름만 · 상태는 그대로 · 없거나 오래되면 서버에 값 없음', () => {
+    const T = (joints: (number | null)[], age_s = 0.5) => INFO({ temperature: { joints, battery: [null, null, null, null], imu: null, body: [null, null], age_s } } as Partial<Go2RobotInfo>);
+    const hot = [40, 41, 42, 43, 44, 61, 30, 30, 30, 30, 30, 30];   // 6 번째 = FL_calf (JOINTS 순서 FR · FL · RR · RL × hip · thigh · calf)
+    const one = (p: Partial<Robot>) => { render(robot(p)); const x = [steps()[6][1], why('power'), box.querySelector('[data-check="power"]')!.getAttribute('data-state')]; act(() => root?.unmount()); root = null; box.remove(); return x; };
+    expect(one({ robotInfo: T(hot) })).toEqual(['ok', '배터리 84 % · 관절 값 받음 · 최고 관절 온도 61 °C (앞 왼 종아리)', 'ok']);   // 61 이어도 막힘 · 경고로 바꾸지 않음
+    expect(one({ robotInfo: T([null, null, null, null, null, null, null, null, null, null, null, 48]) })[1]).toBe('배터리 84 % · 관절 값 받음 · 최고 관절 온도 48 °C (뒤 왼 종아리)');
+    expect(one({ robotInfo: T(hot.map(() => null)) })[1]).toBe('배터리 84 % · 관절 값 받음 · 최고 관절 온도 서버에 값 없음');
+    expect(one({ robotInfo: T(hot, 3.5) })[1]).toBe('배터리 84 % · 관절 값 받음 · 최고 관절 온도 서버에 값 없음');   // 오래된 값은 지금 값이 아님
+    expect(one({ robotInfo: T(hot.slice(0, 11)) })[1]).toBe('배터리 84 % · 관절 값 받음 · 최고 관절 온도 서버에 값 없음');   // 12 개가 아니면 어느 관절인지 모름
+    expect(one({ robotInfo: T(hot), online: false })[1]).toBe('로봇이 연결되어 있지 않아 지금 값이 없습니다.');
+    render(robot({ robotInfo: T(hot) }));
+    expect(box.querySelector('[data-check="power"]')!.getAttribute('style')).toBeNull();   // 색 판정 없음
+    expect(box.querySelector('[data-check="power"] [data-check-why]')!.getAttribute('style')).toBeNull();
   });
 
   it('상태는 글 + 기호(색만으로 구분 0)', () => {
