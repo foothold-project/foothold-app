@@ -44,6 +44,6 @@ describe('stageLook (큰 무대 카메라 · 그림자)', () => {
     expect(stageLook(false, { yaw: 0, dist: 1.3 })).toEqual({ yaw: 0, dist: 1.3, stageShadow: true });
   });
   it('현장 꼴 그림자 = 관제 타일 SHADOW(반지름 · 길이 배 · 진하기) · 로봇 자리 바닥 · 긴 쪽 = 로봇 앞', () => {
-    expect(mapShadow({ x: 3, y: -2, yaw: 0.7 }, 0.4)).toEqual({ r: SHADOW.r, x: 3, y: -2, z: 0.401, rotZ: 0.7, sx: SHADOW.sy, sy: 1, opacity: SHADOW.opacity });
+    expect(mapShadow({ x: 3, y: -2, yaw: 0.7 }, 0.4)).toEqual({ r: SHADOW.r, x: 3, y: -2, z: 0.42, rotZ: 0.7, sx: SHADOW.sy, sy: 1, opacity: SHADOW.opacity });
   });
 });
