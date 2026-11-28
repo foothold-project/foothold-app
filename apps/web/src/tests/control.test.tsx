@@ -7,7 +7,7 @@ import { App } from '../App';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
 import { EmptyControl, UNPICK_MS, actOf, controlPick, lastly } from '../screens/control';
-import { CELLS_MAX, WALK_MIN_SPEED, badgeDot, facts, fakeRobots, jointLerp, jointsNow, lying, order, resetSiteBoards, labelsBelow, tempLevel, tileBadge, tileView, wallGrid, wallPick, walking } from '../proto/u5';
+import { CELLS_MAX, MIN_TEXT_PX, WALK_MIN_SPEED, badgeDot, dropLines, facts, fakeRobots, jointLerp, jointsNow, lying, order, resetSiteBoards, labelsBelow, tempLevel, tileBadge, tileView, wallGrid, wallPick, walking } from '../proto/u5';
 import { JOINTS } from '../go2model';
 import { api } from '../api';
 import { sim } from '../phone';
@@ -193,6 +193,35 @@ describe('관제 탭', () => {
     url(''); mount('u-kim', EIGHT); feed(EIGHT);
     expect($('[data-fake]')).toBeNull(); expect(tiles()).toHaveLength(8);
   });
+  it('글 바닥(MIN_TEXT_PX · 조정 03:00): zoom 에 따라 줄을 뺌(위치 → 진행 → 임무) · 이름 · 배지 · 경고 띠는 남김 · 글 칸은 --minpx 로 키움', () => {
+    expect(MIN_TEXT_PX).toBe(10);
+    expect([1, 0.95, 0.85, 0.75, 0.555].map(dropLines)).toEqual([0, 0, 1, 2, 3]);   // 11 px × zoom 이 바닥의 1 · 0.9 · 0.8 배
+    expect(dropLines(wallGrid(8).zoom)).toBe(0); expect(dropLines(wallGrid(20).zoom)).toBe(3);
+    mount('u-kim', TWENTY); feed(TWENTY);
+    expect($('main.u5').dataset.drop).toBe('3');
+    const t = tile('g9');
+    expect(t.querySelectorAll('.inf .ln, .inf .pg')).toHaveLength(0);   // 임무 · 진행 · 위치 줄 모두 뺌
+    expect(t.querySelector('.nm b')!.textContent).toBe(t.dataset.t); expect(t.querySelector('[data-badge], [data-stop-line]')).not.toBeNull(); expect(t.querySelector('[data-warn-flag]')).not.toBeNull();
+    const z = t.closest<HTMLElement>('[data-tz]')!; expect(z.style.getPropertyValue('--minpx')).toBe(`${(10 / wallGrid(20).zoom).toFixed(2)}px`);
+    expect(u5Css).toContain('.u5 .tile .chip,.u5 .tile .s small{font-size:max(11px,var(--minpx,0px))}');
+  });
+  it('가짜 로봇(조정 03:00): 데모 꼴(카메라 칸 «신호 없음» 없음) · 줄은 진짜 로봇 뒤', async () => {
+    url('?fake=20'); mount('u-kim', EIGHT); feed(EIGHT);
+    await act(async () => {});
+    const ids = tiles().map((t) => t.dataset.robot!), firstFake = ids.findIndex((id) => id.startsWith('fake-'));
+    expect(firstFake).toBe(8); expect(ids.slice(firstFake).every((id) => id.startsWith('fake-'))).toBe(true);
+    const fk = tiles().filter((t) => t.dataset.robot!.startsWith('fake-'));
+    expect(fk.every((t) => t.querySelector('[data-demo]') && !t.querySelector('.chip.sim') && !t.classList.contains('sim'))).toBe(true);
+    expect(fk.some((t) => t.textContent!.includes('신호 없음'))).toBe(false);
+  });
+  it('밝은 판 배지 대비(조정 03:00): 흰 칸 바탕 · 흰 칸 위 4.5 : 1 모자라는 노랑 · 회색 글은 글자 · 흐린 글자 토큰', () => {
+    expect(u5Css).toContain('.proto.light .u5 .stb{background:#FFFFFF;backdrop-filter:none}');
+    expect(u5Css).toMatch(/\.proto\.light \.u5 \.stb\[data-badge="paused"\][^{]*\{color:#1F2421!important/);
+    expect(u5Css).toMatch(/\.proto\.light \.u5 \.stb\[data-badge="maint"\][^{]*\{color:#5E6662!important/);
+    const lum = (h: string) => { const c = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+    const cr = (a: string, b: string) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+    for (const fg of ['#0E7F63', '#2F6FE0', '#B8361F', '#1F2421', '#5E6662']) expect(cr(fg, '#FFFFFF'), fg).toBeGreaterThanOrEqual(4.5);   // 임무 · 시뮬 · 잠금 · 충전/노랑 · 회색
+  });
   it('타일 8 칸 고르기(wallPick · 팀장 23:53): 위험 · 경고 → 실기(Go2 X) → 점검 · 충전 · 시뮬 · 끊김/주의 한 대씩 → 임무 중 → 나머지, 차례는 줄 차례 그대로', () => {
     const base = { owner: 'u-kim', ownerName: '김OO', battery: 70, online: true, seenAt: '14:05:20' };
     const av = (demo: boolean, x: Partial<{ charging: boolean; job: { kind: 'maint' | 'swap'; text: string } }> = {}) => ({ demo, label: null, charging: false, job: null, ...x });
@@ -295,8 +324,8 @@ describe('관제 탭', () => {
   });
 
   it('값이 없는 칸은 시안 칸을 두고 글을 비움(em dash 없음) · 온도 · 배터리 · 위치를 지어내지 않는다 · «미확인» 글자 없음', () => {
-    url('?cells=on');   // 20 대 = 네 칸 없는 판이 기본 · 칸 값 시험은 네 칸을 켠 판으로
-    mount('u-kim', TWENTY); feed(TWENTY);
+    const TW = SOME('g3', 'g4', 'g5', 'g15');   // 칸 값 · 줄 시험은 8 대 이하 판(20 대는 네 칸 · 둘째 줄을 뺌)
+    mount('u-kim', TW); feed(TW);
     expect(fact('g3', 'temp')).toBe('');
     expect(small('g3', 'temp')).toBe('');
     expect(fact('g3', 'battery')).toBe('70 %');
@@ -310,9 +339,9 @@ describe('관제 탭', () => {
   });
 
   it('관절 온도는 로봇이 보낸 robot_info.temperature 의 최고값 · 단계(보통 · 주의 · 경고 · 위험), 위치는 state 값', () => {
-    url('?cells=on');   // 20 대 = 네 칸 없는 판이 기본 · 칸 값 시험은 네 칸을 켠 판으로
-    mount('u-kim', TWENTY);
-    feed(TWENTY, { g3: { ...temp([40, 41, 42, 43, 61, 44, 45, 46, 47, 48, 49, null]), location: { floor_id: 'f1', map_version_id: 'v1', x: 1.25, y: 2, yaw: 0, confidence: 1, updated_at: '' } } });
+    const TW = SOME('g3', 'g4', 'g5', 'g15');   // 칸 값 · 줄 시험은 8 대 이하 판(20 대는 네 칸 · 둘째 줄을 뺌)
+    mount('u-kim', TW);
+    feed(TW, { g3: { ...temp([40, 41, 42, 43, 61, 44, 45, 46, 47, 48, 49, null]), location: { floor_id: 'f1', map_version_id: 'v1', x: 1.25, y: 2, yaw: 0, confidence: 1, updated_at: '' } } });
     expect(fact('g3', 'temp')).toBe('61 °C');
     expect(small('g3', 'temp')).toBe('경고');
     expect(tile('g3').querySelector('[data-fact="temp"]')!.className).toBe('s r');
@@ -1544,8 +1573,8 @@ describe('관제 탭', () => {
     av.mockRestore(); sc.mockRestore();
   });
   it('글이 없는 줄 · 칸은 아이콘을 보이지 않게(줄 높이는 지킴) · 걸음 이름이 없으면 아이콘 없음', () => {
-    url('?cells=on');   // 20 대 = 네 칸 없는 판이 기본 · 칸 값 시험은 네 칸을 켠 판으로
-    mount('u-kim', TWENTY); feed(TWENTY);
+    const TW = SOME('g3', 'g4', 'g5', 'g15');   // 칸 값 · 줄 시험은 8 대 이하 판(20 대는 네 칸 · 둘째 줄을 뺌)
+    mount('u-kim', TW); feed(TW);
     const ln = tile('g15').querySelector('.ln')!;   // 정지 잠금 · 꺼짐 = 임무 줄 글 없음(머리표가 상태)
     expect(ln.querySelector('span')!.textContent).toBe('');
     expect((ln.querySelector('svg') as SVGElement).style.visibility).toBe('hidden');
