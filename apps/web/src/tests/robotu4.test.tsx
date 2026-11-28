@@ -874,3 +874,13 @@ describe('관절 경고 말풍선 · 마우스 온도 (시안 u4_2 · u4_4)', ()
     expect(u4src).toContain("temps={tab === 'check' ? temps?.joints ?? null : null}");
   });
 });
+
+describe('어두운 판 지도 (리드 사진 00:30)', () => {
+  it('서버 판 그림은 어두운 판에서 밝기를 --paper ~ 벽 회색으로 옮김 · 공장 그림은 그대로 · 칸 바탕 --paper', () => {
+    expect(u4src).toContain("const dark = !light() && !!src && src !== fac;");
+    expect(u4src).toContain('tableValues="0.2745 0.0706"');   // R: 벽 0x46 → 바탕 0x12
+    expect(u4src).toContain("filter: dark ? 'url(#u4-plan-d)' : undefined");
+    expect(u4css).toContain('.u4.proto:not(.light) .mapv{background:#12161d}');
+  });
+});
+

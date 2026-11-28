@@ -138,6 +138,8 @@ const xy = (l: Board['loc']) => (l && l.x != null && l.y != null ? { x: l.x, y: 
 
 /** 지도 칸: 로봇이 있는 승인 지도 + 내 위치(가운데) + 임무 경로(끝낸 길 초록 · 남은 길 점선 · 지점 번호) + 같은 판의 다른 로봇. 시안처럼 3200 px 폭 그림 위에 그린다.
  *  그림 = 서버 판 그림(…/image). 그 그림을 못 받으면 판이 시안 공장 터와 같은 좌표계일 때만 시안 공장 지도, 아니면 그림 없이 점 · 경로만 */
+/** 서버 판 그림 어두운 판 색: 회색으로 뺀 밝기 0 (벽) → #464e56 · 1 (빈 곳) → --paper #12161d · 미확인 회색은 그 사이 */
+export const PLAN_DARK = <><feColorMatrix type="saturate" values="0" /><feComponentTransfer><feFuncR type="table" tableValues="0.2745 0.0706" /><feFuncG type="table" tableValues="0.3059 0.0863" /><feFuncB type="table" tableValues="0.3373 0.1137" /></feComponentTransfer></>;
 function MapView({ c, r, b, run, route, onFactory }: { c: Ctx; r: Robot; b: Board; run: Run | null; route: Route | null; onFactory: boolean }) {
   useRt();
   const { loc, v } = b, view = useRef<HTMLDivElement>(null), [box, setBox] = useState({ w: 816, h: 600 });
@@ -161,8 +163,11 @@ function MapView({ c, r, b, run, route, onFactory }: { c: Ctx; r: Robot; b: Boar
   const left = nx != null && me ? [me, ...wps.filter(({ i }) => i >= nx).map(({ w }) => at(w.x, w.y))] : wps.map(({ w }) => at(w.x, w.y));
   const fac = SITE_TOP[light() ? 'light' : 'dark'];   // 공장 질감판 위에서 본 그림(관제 작은 지도와 같은 파일 · 같은 자리)
   const src = !v ? null : onFactory ? (miss ? null : fac) : miss === 'server' ? (factoryFrame(v) ? fac : null) : api.imageUrl(v.id);
+  // 어두운 판에서 서버 판 그림(흰 바탕 · 검은 벽)을 그대로 깔면 흰 판이 된다 → 밝기를 어두운 바탕 --paper(#12161d) ~ 벽(관제 공장 그림 어두운 판의 건물 회색 #464e56)으로 옮겨 칠함. 공장 그림은 그대로
+  const dark = !light() && !!src && src !== fac;
   return <div className="mapv" ref={view} data-u4-map={v?.id ?? ''}><div className="mapin" style={{ transform: shift }}>
-    {src && <img src={src} alt="" style={{ width: `${W}px`, height: `${H}px` }} data-u4-mapimg={onFactory || miss ? 'factory' : 'server'}
+    {dark && <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden><filter id="u4-plan-d" colorInterpolationFilters="sRGB">{PLAN_DARK}</filter></svg>}
+    {src && <img src={src} alt="" style={{ width: `${W}px`, height: `${H}px`, filter: dark ? 'url(#u4-plan-d)' : undefined }} data-u4-mapimg={onFactory || miss ? 'factory' : 'server'} data-u4-plan={dark ? 'dark' : undefined}
       onError={() => setMiss((m) => (m ? 'none' : 'server'))} />}
     <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ position: 'absolute', left: '0', top: '0' }}>
       {left.length > 1 && <polyline points={pts(left)} fill="none" stroke="rgba(255,255,255,.75)" strokeWidth="4" strokeDasharray="2 12" strokeLinecap="round" data-u4-route="left" />}
