@@ -16,6 +16,20 @@
       "default": null,
       "title": "Assignment Id"
     },
+    "busy_label": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Busy Label"
+    },
     "end": {
       "format": "date-time",
       "title": "End",
@@ -43,7 +57,8 @@
       "enum": [
         "CONFIRMED",
         "DRAFT",
-        "BATTERY_SWAP"
+        "BATTERY_SWAP",
+        "MAINTENANCE"
       ],
       "title": "Kind",
       "type": "string"

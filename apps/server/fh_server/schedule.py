@@ -31,13 +31,13 @@ GAIT_TABLE_UNMEASURED = {
 # 시간 값이 없는 할 일의 미실측 고정 시간 (초). WAIT · SENSOR_LOG 는 임무에 적힌 초를 쓴다.
 TASK_TABLE_UNMEASURED = {'PHOTO': 5.0, 'OPERATOR_CONFIRM': 30.0}
 
-LABELS = {'BATTERY_SWAP': '배터리 교체'}
+LABELS = {'BATTERY_SWAP': '배터리 교체', 'MAINTENANCE': '정비'}
 
 
 def slot_object(row):
     return C.ScheduleSlot(id=row.id, robot_id=row.robot_id, scenario_id=row.scenario_id,
         scenario_version=row.scenario_version, gait=row.gait, start=row.start_at, end=row.end_at,
-        kind=row.kind, assignment_id=row.assignment_id, memo=row.memo,
+        kind=row.kind, assignment_id=row.assignment_id, memo=row.memo, busy_label=row.busy_label,
         created_by=row.created_by, created_at=row.created_at,
         run_state=row.run_state, run_id=row.run_id, run_code=row.run_code, confirmed_by=row.confirmed_by)
 
@@ -166,7 +166,7 @@ def install(app, DB, Identity, fail):
         require_free(db, user.org_id, body.robot_id, body.start, body.end, fail)
         row = ScheduleSlot(org_id=user.org_id, robot_id=body.robot_id, scenario_id=body.scenario_id,
             scenario_version=body.scenario_version, gait=body.gait, start_at=body.start, end_at=body.end,
-            kind=body.kind, assignment_id=body.assignment_id, memo=body.memo, created_by=user.id,
+            kind=body.kind, assignment_id=body.assignment_id, memo=body.memo, busy_label=body.busy_label, created_by=user.id,
             confirmed_by=user.id if body.kind == 'CONFIRMED' else None)
         db.add(row)
         db.flush()
@@ -201,8 +201,8 @@ def install(app, DB, Identity, fail):
         kind = values.get('kind', row.kind)
         if end <= start:
             fail(400, 'VALIDATION', '끝 시각은 시작 시각보다 뒤여야 합니다.')
-        if row.scenario_id is None and kind != 'BATTERY_SWAP':
-            fail(400, 'VALIDATION', '시나리오 없는 일정은 배터리 교체만 됩니다.')
+        if row.scenario_id is None and kind not in C.SCENARIOLESS_KINDS:
+            fail(400, 'VALIDATION', '시나리오 없는 일정은 배터리 교체 · 정비만 됩니다.')
         require_gait_ready(kind, values.get('gait', row.gait), fail)
         require_free(db, user.org_id, target, start, end, fail, exclude=row.id)
         if kind != row.kind:  # who confirmed is who pre-pressed unlock (simulation scheduled run)
@@ -210,6 +210,8 @@ def install(app, DB, Identity, fail):
         row.robot_id, row.start_at, row.end_at, row.kind = target, start, end, kind
         if 'gait' in values:
             row.gait = values['gait']
+        if 'busy_label' in values:
+            row.busy_label = values['busy_label']
         db.flush()
         record(db, user, row, 'SCHEDULE_SLOT_UPDATED')
         return slot_object(row)
@@ -236,7 +238,7 @@ def install(app, DB, Identity, fail):
             for version in db.scalars(select(ScenarioVersion).where(ScenarioVersion.org_id == org_id,
                     ScenarioVersion.scenario_id.in_({k[0] for k in keys}))):
                 names[(version.scenario_id, version.number)] = version.name
-        return {r.id: LABELS.get(r.kind) or names.get((r.scenario_id, r.scenario_version)) for r in rows}
+        return {r.id: r.busy_label or LABELS.get(r.kind) or names.get((r.scenario_id, r.scenario_version)) for r in rows}
 
     def floor_labels(db, org_id, floor_ids):
         if not floor_ids:
@@ -285,8 +287,10 @@ def install(app, DB, Identity, fail):
         for robot in robots:
             summary = summaries[robot.id]
             slot, label = busy.get(robot.id, (None, None))
-            # 겹치는 일정이 먼저다. CHARGING 신호는 서버에 아직 없어 내지 않는다.
-            state = 'BUSY' if slot else 'OFFLINE' if summary.connection == 'OFFLINE' else 'FREE'
+            # 겹치는 일정이 먼저다. 정비 칸은 MAINTENANCE, 그 밖의 칸 (배터리 교체 포함) 은 BUSY.
+            # CHARGING 은 내지 않는다: 배터리가 실제로 오르는 신호가 서버에 없다 (지어낸 값 금지, 11/28 15:03).
+            state = (('MAINTENANCE' if slot.kind == 'MAINTENANCE' else 'BUSY') if slot
+                     else 'OFFLINE' if summary.connection == 'OFFLINE' else 'FREE')
             items.append(C.RobotAvailability(robot_id=robot.id, robot_name=robot.name, state=state,
                 busy_until=slot.end_at if slot else None, busy_slot_id=slot.id if slot else None,
                 busy_label=label, battery_pct=summary.battery.soc if summary.battery else None,

@@ -782,3 +782,21 @@ def test_real_robot_flag_is_the_one_switch(demo, seeded):
     factory = sessionmaker(client.app.state.engine, expire_on_commit=False)
     claimed = S.claim_due(factory, seeded['org'], T0 + timedelta(minutes=3), real_enabled=True)
     assert [c['slot_id'] for c in claimed] == [slot_id]
+
+
+def test_maintenance_slot_on_a_real_robot_sends_nothing(demo, seeded):
+    """11/28 15:04: 정비 칸은 일정 표시뿐이다. 실기에 걸려 있어도 서버는 로봇에 아무 명령도 보내지 않는다."""
+    client, sched, clock = demo
+    with agent_ws(client, seeded, 'theirs') as ws:  # theirs = 실기 (demo fixture)
+        ws.send_json(hello())
+        agent = FakeAgent(ws)
+        run_ticks(client, sched, agent, 3)
+        baseline = list(agent.kinds())
+        slot_id = add_slot(seeded, robot='theirs', kind='MAINTENANCE', start=T0 + timedelta(minutes=2), minutes=30)
+        for minutes in (1, 3, 20, 40):  # 칸 전 · 걸린 동안 · 끝난 뒤
+            clock[0] = T0 + timedelta(minutes=minutes)
+            run_ticks(client, sched, agent, 3)
+        after = agent.kinds()[len(baseline):]
+        assert [k for k in after if k not in ('ping',)] == [], after
+        assert slot_row(seeded, slot_id) == dict(state=None, run_id=None, code=None)
+    assert [c for c in codes(seeded)] == []

@@ -2023,7 +2023,7 @@ export interface RefreshRequest {
 export interface RobotAvailability {
   robot_id: string;
   robot_name: string;
-  state: "FREE" | "BUSY" | "CHARGING" | "OFFLINE";
+  state: "FREE" | "BUSY" | "CHARGING" | "OFFLINE" | "MAINTENANCE";
   busy_until: string | null;
   busy_slot_id: string | null;
   busy_label: string | null;
@@ -2089,6 +2089,8 @@ export interface RobotPatch {
   owner_user_id?: string | null;
   /** 시뮬 로봇만 바꿀 수 있다. 실기는 409 DEMO_REQUIRES_SIMULATION. */
   demo?: boolean;
+  /** 총괄만 바꾼다 (담당 운영자는 403 FORBIDDEN). null = 정하지 않음. */
+  equipment_tier?: "STANDARD" | "UPPER" | null;
 }
 
 export interface RobotResponseHealth {
@@ -2113,6 +2115,8 @@ export interface RobotSummary {
   simulation: boolean;
   /** 하루 일과를 계속 도는 시연 로봇. 시뮬 로봇만 true 일 수 있고 실기는 늘 false. */
   demo?: boolean;
+  /** 장비 등급 (11/28 15:04). 정하지 않으면 null. */
+  equipment_tier?: "STANDARD" | "UPPER" | null;
   server_drive_allowed: boolean;
   /** 표시용 조종 불가 이유. 전체 보기 가능한 실기만 목록, 허용이면 빈 목록, 그 외 null. 허용 판단에는 쓰지 않는다. FIELD_GATE_CLOSED: 서버 쪽 이유가 없는데 에이전트 현장 승인 관문이 닫혀 앱 정지가 로봇에 가지 않는다(허용 값과 함께 올 수 있음). */
   server_drive_blocked?: ("SWITCH_OFF" | "NO_OWNER" | "NO_SERIAL" | "AGENT_OFFLINE" | "FIELD_GATE_CLOSED")[] | null;
@@ -2390,6 +2394,7 @@ export interface ScheduleDay {
 }
 
 export interface ScheduleSlot {
+  busy_label?: string | null;
   id: string;
   robot_id: string;
   scenario_id: string | null;
@@ -2397,7 +2402,7 @@ export interface ScheduleSlot {
   gait: "classic" | "sport" | "start" | "ame2" | null;
   start: string;
   end: string;
-  kind: "CONFIRMED" | "DRAFT" | "BATTERY_SWAP";
+  kind: "CONFIRMED" | "DRAFT" | "BATTERY_SWAP" | "MAINTENANCE";
   assignment_id: string | null;
   memo: string;
   created_by: string;
@@ -2415,17 +2420,19 @@ export interface ScheduleSlotCreate {
   gait?: "classic" | "sport" | "start" | "ame2" | null;
   start: string;
   end: string;
-  kind: "CONFIRMED" | "DRAFT" | "BATTERY_SWAP";
+  kind: "CONFIRMED" | "DRAFT" | "BATTERY_SWAP" | "MAINTENANCE";
   assignment_id?: string | null;
   memo?: string;
+  busy_label?: string | null;
 }
 
 export interface ScheduleSlotPatch {
   robot_id?: string;
   start?: string;
   end?: string;
-  kind?: "CONFIRMED" | "DRAFT" | "BATTERY_SWAP";
+  kind?: "CONFIRMED" | "DRAFT" | "BATTERY_SWAP" | "MAINTENANCE";
   gait?: "classic" | "sport" | "start" | "ame2";
+  busy_label?: string | null;
 }
 
 export interface ScreenAction {
@@ -3096,8 +3103,8 @@ export type MediaSource = "d435i_rgb" | "go2_front" | "gazebo_external" | "l1" |
 export type ExecutionCapabilityKey = "wait" | "photo.rgb" | "photo.depth" | "operator_confirm" | "sensor_log.rgb" | "sensor_log.depth" | "sensor_log.lidar" | "sensor_log.battery";
 export type GaitName = "classic" | "sport" | "start" | "ame2";
 export type GaitRejectCode = "GAIT_MOVING" | "GAIT_NOT_STANDING" | "GAIT_NOT_READY" | "GAIT_LATCHED" | "GAIT_BUSY" | "GAIT_UNSUPPORTED" | "GAIT_CANCELLED" | "GAIT_LEASE_LOST" | "GAIT_TIMEOUT" | "GAIT_SDK_ERROR" | "GAIT_NOT_ALLOWED";
-export type ScheduleKind = "CONFIRMED" | "DRAFT" | "BATTERY_SWAP";
-export type AvailabilityState = "FREE" | "BUSY" | "CHARGING" | "OFFLINE";
+export type ScheduleKind = "CONFIRMED" | "DRAFT" | "BATTERY_SWAP" | "MAINTENANCE";
+export type AvailabilityState = "FREE" | "BUSY" | "CHARGING" | "OFFLINE" | "MAINTENANCE";
 export type EstimateSource = "MEASURED" | "TABLE_UNMEASURED";
 export type LowlevelAction = "Sit" | "RiseSit" | "StandDown" | "Stretch" | "Hello" | "Heart" | "Damp" | "Greet";
 export type ControlMode = "FACTORY" | "LOWLEVEL";

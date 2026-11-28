@@ -1037,6 +1037,23 @@
       "title": "Devices",
       "type": "array"
     },
+    "equipment_tier": {
+      "anyOf": [
+        {
+          "enum": [
+            "STANDARD",
+            "UPPER"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "장비 등급 (11/28 15:04). 정하지 않으면 null.",
+      "title": "Equipment Tier"
+    },
     "field_approval_expires_at": {
       "anyOf": [
         {

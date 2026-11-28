@@ -227,3 +227,70 @@ def test_ame2_cannot_be_confirmed_and_events_are_run_category(maps, seeded):
         rows = db.scalars(select(Event).where(Event.code.like('SCHEDULE_SLOT_%'))).all()
         assert rows and {r.category for r in rows} == {'RUN'}
     engine.dispose()
+
+
+def avail(http, headers, start, end):
+    response = http.get(P + '/robots/availability', headers=headers, params={'start': start, 'end': end})
+    assert response.status_code == 200, response.text
+    return {i['robot_name']: i for i in response.json()['items']}
+
+
+def test_maintenance_slot_state_before_during_after(maps, seeded):
+    """11/28 15:04: 정비 칸이 걸린 동안만 MAINTENANCE, busy_label 은 칸 값. 시나리오 없이 만든다."""
+    http, admin, _ = maps
+    mine, theirs = seeded['robots']['mine'], seeded['robots']['theirs']
+    online(http, mine, 64)
+    made = slot(http, admin, mine, '2026-12-03T01:00:00Z', '2026-12-03T02:00:00Z', kind='MAINTENANCE',
+                busy_label='정기 점검 · 다리 관절')
+    assert made.status_code == 201, made.text
+    made = made.json()
+    assert made['kind'] == 'MAINTENANCE' and made['scenario_id'] is None and made['busy_label'] == '정기 점검 · 다리 관절'
+    before = avail(http, admin, '2026-12-03T00:00:00Z', '2026-12-03T01:00:00Z')['mine']  # [start, end) 맞닿음은 안 걸림
+    assert (before['state'], before['busy_slot_id'], before['busy_label']) == ('FREE', None, None)
+    during = avail(http, admin, '2026-12-03T01:30:00Z', '2026-12-03T01:31:00Z')['mine']
+    assert during['state'] == 'MAINTENANCE' and during['busy_label'] == '정기 점검 · 다리 관절'
+    assert during['busy_slot_id'] == made['id'] and during['busy_until'] == '2026-12-03T02:00:00Z'
+    assert during['battery_pct'] == 64.0
+    after = avail(http, admin, '2026-12-03T02:00:00Z', '2026-12-03T03:00:00Z')['mine']
+    assert (after['state'], after['busy_slot_id']) == ('FREE', None)
+    # 꺼진 로봇이라도 정비 칸이 걸리면 정비다 (일정이 먼저).
+    off = slot(http, admin, theirs, '2026-12-03T01:00:00Z', '2026-12-03T02:00:00Z', kind='MAINTENANCE').json()
+    item = avail(http, admin, '2026-12-03T01:30:00Z', '2026-12-03T01:31:00Z')['theirs']
+    assert item['state'] == 'MAINTENANCE' and item['busy_label'] == '정비' and off['busy_label'] is None
+    # 칸 이름 고치기 · 지우기, 시나리오 없는 칸을 CONFIRMED 로 바꾸기는 400.
+    path = P + '/schedule/slots/' + made['id']
+    renamed = http.patch(path, headers=admin, json={'busy_label': '배터리 단자 청소'})
+    assert renamed.status_code == 200 and renamed.json()['busy_label'] == '배터리 단자 청소'
+    assert avail(http, admin, '2026-12-03T01:30:00Z', '2026-12-03T01:31:00Z')['mine']['busy_label'] == '배터리 단자 청소'
+    assert http.patch(path, headers=admin, json={'busy_label': None}).json()['busy_label'] is None
+    assert http.patch(path, headers=admin, json={'kind': 'CONFIRMED'}).status_code == 400
+    assert [s['busy_label'] for s in day(http, admin, '2026-12-03', 'UTC')['slots'] if s['id'] == made['id']] == [None]
+
+
+def test_battery_swap_slot_stays_busy_with_its_label_before_during_after(maps, seeded):
+    """11/28 15:03: 배터리가 실제로 오르지 않으니 CHARGING 을 내지 않는다. 교체 칸은 바쁨 · 「배터리 교체」 로 고정."""
+    http, admin, _ = maps
+    mine = seeded['robots']['mine']
+    online(http, mine, 30)
+    swap = slot(http, admin, mine, '2026-12-04T01:00:00Z', '2026-12-04T01:30:00Z', kind='BATTERY_SWAP').json()
+    assert avail(http, admin, '2026-12-04T00:00:00Z', '2026-12-04T01:00:00Z')['mine']['state'] == 'FREE'
+    during = avail(http, admin, '2026-12-04T01:10:00Z', '2026-12-04T01:11:00Z')['mine']
+    assert (during['state'], during['busy_label'], during['busy_slot_id']) == ('BUSY', '배터리 교체', swap['id'])
+    assert during['battery_pct'] == 30.0  # 교체 칸이 배터리 값을 지어내지 않는다
+    assert avail(http, admin, '2026-12-04T01:30:00Z', '2026-12-04T02:00:00Z')['mine']['state'] == 'FREE'
+
+
+def test_equipment_tier_is_admin_only_and_defaults_to_null(maps, seeded):
+    http, admin, _ = maps
+    mine = str(seeded['robots']['mine'])
+    one = auth(http, 'one')  # mine 의 담당 운영자
+    assert http.get(P + '/robots/' + mine, headers=admin).json()['equipment_tier'] is None
+    denied = http.patch(P + '/robots/' + mine, headers=one, json={'equipment_tier': 'UPPER'})
+    assert denied.status_code == 403 and denied.json()['error']['code'] == 'FORBIDDEN'
+    assert http.patch(P + '/robots/' + mine, headers=one, json={'name': 'mine'}).status_code == 200  # 다른 칸은 담당도 됨
+    done = http.patch(P + '/robots/' + mine, headers=admin, json={'equipment_tier': 'UPPER'})
+    assert done.status_code == 200 and done.json()['equipment_tier'] == 'UPPER'
+    listing = http.get(P + '/robots?scope=all', headers=admin).json()['items']
+    assert next(r for r in listing if r['id'] == mine)['equipment_tier'] == 'UPPER'
+    assert http.patch(P + '/robots/' + mine, headers=admin, json={'equipment_tier': 'GOLD'}).status_code == 400
+    assert http.patch(P + '/robots/' + mine, headers=admin, json={'equipment_tier': None}).json()['equipment_tier'] is None

@@ -729,6 +729,8 @@ def create_app(settings: Settings | None = None):
         authorize(user, 'ROBOT_WRITE', row)
         if row.simulation and 'owner_user_id' in body.model_fields_set:
             fail(409, 'SIM_ROBOT_MANAGED', '시뮬 관리자에서만 담당자를 관리합니다.')
+        if 'equipment_tier' in body.model_fields_set and user.role != 'ORG_ADMIN':
+            fail(403, 'FORBIDDEN', '장비 등급은 총괄 관리자만 바꿀 수 있습니다.')
         if not row.simulation and 'demo' in body.model_fields_set:
             fail(409, C.DEMO_REQUIRES_SIMULATION, '데모 로봇은 시뮬 로봇만 될 수 있습니다.')
         changing_owner = ('owner_user_id' in body.model_fields_set

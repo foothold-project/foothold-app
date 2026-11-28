@@ -75,6 +75,7 @@ class Robot(Tenant, Base):
     simulation: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text('false'))
     # Demo robots run the day cycle in simulation; real robots stay false (0039).
     demo: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text('false'))
+    equipment_tier: Mapped[str | None] = mapped_column(Text)  # 'STANDARD' | 'UPPER' | null, admin-set display attribute
     sim_generation: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text('0'))
     sim_state: Mapped[str] = mapped_column(Text, default='IDLE', server_default=text("'IDLE'"))
     # Keep simulation bookkeeping out of existing full Robot reads.
@@ -93,6 +94,7 @@ class Robot(Tenant, Base):
         ForeignKeyConstraint(['org_id', 'last_floor_id'], ['floors.org_id', 'floors.id'], name='robots_last_floor_fk'),
         CheckConstraint("last_floor_source IN ('HUMAN','AUTO')", name='floor_source'),
         CheckConstraint('simulation OR NOT demo', name='robot_demo_simulation'),
+        CheckConstraint("equipment_tier IS NULL OR equipment_tier IN ('STANDARD','UPPER')", name='robot_equipment_tier'),
     )
     id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
     name: Mapped[str] = mapped_column(Text)
@@ -576,10 +578,11 @@ class ScheduleSlot(Tenant, Base):
         ForeignKeyConstraint(['org_id', 'assignment_id'], ['assignments.org_id', 'assignments.id']),
         ForeignKeyConstraint(['org_id', 'created_by'], ['users.org_id', 'users.id']),
         CheckConstraint('end_at > start_at', name='schedule_slot_order'),
-        CheckConstraint("kind IN ('CONFIRMED','DRAFT','BATTERY_SWAP')", name='schedule_slot_kind'),
+        CheckConstraint("kind IN ('CONFIRMED','DRAFT','BATTERY_SWAP','MAINTENANCE')", name='schedule_slot_kind'),
         CheckConstraint("gait IS NULL OR gait IN ('classic','sport','start','ame2')", name='schedule_slot_gait'),
         CheckConstraint('(scenario_id IS NULL) = (scenario_version IS NULL)', name='schedule_slot_scenario_pair'),
-        CheckConstraint("scenario_id IS NOT NULL OR kind = 'BATTERY_SWAP'", name='schedule_slot_scenario_required'),
+        CheckConstraint("scenario_id IS NOT NULL OR kind IN ('BATTERY_SWAP','MAINTENANCE')", name='schedule_slot_scenario_required'),
+        CheckConstraint('busy_label IS NULL OR char_length(busy_label) BETWEEN 1 AND 64', name='schedule_slot_busy_label'),
         Index('schedule_slots_robot_time', 'org_id', 'robot_id', 'start_at'),
         CheckConstraint("run_state IS NULL OR run_state IN ('STARTING','STARTED','DONE','FAILED','SKIPPED','MISSED')",
                         name='schedule_slot_run_state'),
@@ -605,6 +608,7 @@ class ScheduleSlot(Tenant, Base):
     run_code: Mapped[str | None] = mapped_column(Text)
     run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     confirmed_by: Mapped[UUID | None] = mapped_column(PGUUID)  # who made it CONFIRMED (pre-unlock authority)
+    busy_label: Mapped[str | None] = mapped_column(Text)  # availability display name; null = default label
 
 
 class IdempotencyReceipt(Tenant, Base):

@@ -442,10 +442,14 @@ class PhoneRelayState(Contract):
     valid_for_s: float = Field(ge=0, le=3)
 
 
+# 로봇 장비 등급 (11/28 15:04): 총괄이 정하는 속성. 로봇 동작 · 권한 판단에는 쓰지 않는다.
+EquipmentTier = Literal['STANDARD', 'UPPER']
+
+
 class RobotSummary(Contract):
     model_config = ConfigDict(json_schema_extra=optional_response_fields(
         'last_state_received_at', 'state_stale', 'controller', 'controller_device', 'controller_connected', 'phone_relay',
-        'robot_serial', 'field_approval_expires_at', 'robot_info', 'server_drive_blocked', 'demo'))
+        'robot_serial', 'field_approval_expires_at', 'robot_info', 'server_drive_blocked', 'demo', 'equipment_tier'))
     robot_info: Go2RobotInfo | None = None
     phone_relay: PhoneRelayState | None = None
     last_state_received_at: UTCDateTime | None = None
@@ -455,6 +459,7 @@ class RobotSummary(Contract):
     controller_connected: bool | None = None
     simulation: bool = False
     demo: bool = Field(default=False, description='하루 일과를 계속 도는 시연 로봇. 시뮬 로봇만 true 일 수 있고 실기는 늘 false.')
+    equipment_tier: EquipmentTier | None = Field(default=None, description='장비 등급 (11/28 15:04). 정하지 않으면 null.')
     server_drive_allowed: bool = False
     server_drive_blocked: list[Literal['SWITCH_OFF', 'NO_OWNER', 'NO_SERIAL', 'AGENT_OFFLINE', 'FIELD_GATE_CLOSED']] | None = Field(
         default=None, description='표시용 조종 불가 이유. 전체 보기 가능한 실기만 목록, 허용이면 빈 목록, 그 외 null. 허용 판단에는 쓰지 않는다. '
@@ -1857,6 +1862,7 @@ class RobotPatch(Contract):
         '실기는 담당 운영이 넘긴다. 담당 없는 실기에 한해 총괄이 이 필드만 보내 '
         '같은 조직의 활성 운영을 지정할 수 있으며 null은 허용하지 않는다.'))
     demo: bool = omitted(description='시뮬 로봇만 바꿀 수 있다. 실기는 409 DEMO_REQUIRES_SIMULATION.')
+    equipment_tier: EquipmentTier | None = omitted(description='총괄만 바꾼다 (담당 운영자는 403 FORBIDDEN). null = 정하지 않음.')
 
 
 class RobotCreated(Contract):
@@ -2848,7 +2854,11 @@ class AssignmentList(Contract):
 
 
 # 일정 · 가용 · 예상 (app-design-lx 11/28 합의). 구간은 [start, end) 반열린 구간이다.
-ScheduleKind = Literal['CONFIRMED', 'DRAFT', 'BATTERY_SWAP']
+# MAINTENANCE (11/28 15:04): 정비 칸. 일정 표시뿐이라 로봇에 아무것도 보내지 않고, BATTERY_SWAP 처럼 시나리오 없이 만든다.
+ScheduleKind = Literal['CONFIRMED', 'DRAFT', 'BATTERY_SWAP', 'MAINTENANCE']
+SCENARIOLESS_KINDS = ('BATTERY_SWAP', 'MAINTENANCE')
+# 칸 표시 이름 (가용 busy_label 로 나감). 비우면 서버 기본 이름 (배터리 교체 · 정비 · 시나리오 이름).
+SlotLabel = Annotated[str, Field(min_length=1, max_length=64)]
 # 예약 실행 상태. STARTING 은 서버가 칸을 잡고 시작 중 (다시 켜면 MISSED SCHEDULER_RESTARTED).
 # SKIPPED 까닭: LEASE_HELD · RUN_ACTIVE · NO_ASSIGNMENT · ASSIGNMENT_INVALID ·
 #   MULTI_FLOOR · STOP_LATCHED (로봇이 잠겨 있음, 사람만 푼다) · SAFETY_STOP · CONFIRMER_NOT_ALLOWED (확정한 사람이
@@ -2856,7 +2866,8 @@ ScheduleKind = Literal['CONFIRMED', 'DRAFT', 'BATTERY_SWAP']
 # FAILED 코드: 에이전트 run_result 거절 코드 · 실행 fail_code · START_TIMEOUT · LEASE_LOST · STOP_CONFIRM_FAILED ·
 #   RUN_REPORT_LOST (end_at + 60 초 넘게 보고 없음, 늦은 보고는 SCHEDULE_RUN_LATE_REPORT 사건만).
 ScheduleRunState = Literal['STARTING', 'STARTED', 'DONE', 'FAILED', 'SKIPPED', 'MISSED']
-AvailabilityState = Literal['FREE', 'BUSY', 'CHARGING', 'OFFLINE']
+# MAINTENANCE: 정비 칸이 걸린 동안. CHARGING 은 서버가 내지 않는다 (배터리가 실제로 오르는 신호가 없음, 11/28 15:03).
+AvailabilityState = Literal['FREE', 'BUSY', 'CHARGING', 'OFFLINE', 'MAINTENANCE']
 EstimateSource = Literal['MEASURED', 'TABLE_UNMEASURED']
 
 
@@ -2870,6 +2881,7 @@ class ScheduleSlotCreate(Contract):
     kind: ScheduleKind
     assignment_id: UUID | None = None
     memo: ApprovalText = Field(default='', max_length=2000)
+    busy_label: SlotLabel | None = None
 
     @model_validator(mode='after')
     def slot_shape(self):
@@ -2877,12 +2889,14 @@ class ScheduleSlotCreate(Contract):
             raise ValueError('end must be after start')
         if (self.scenario_id is None) != (self.scenario_version is None):
             raise ValueError('scenario_id and scenario_version go together')
-        if self.scenario_id is None and self.kind != 'BATTERY_SWAP':
-            raise ValueError('only BATTERY_SWAP may omit scenario')
+        if self.scenario_id is None and self.kind not in SCENARIOLESS_KINDS:
+            raise ValueError('only BATTERY_SWAP or MAINTENANCE may omit scenario')
         return self
 
 
 class ScheduleSlot(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('busy_label'))
+    busy_label: str | None = None
     id: UUID
     robot_id: UUID
     scenario_id: UUID | None
@@ -2910,6 +2924,7 @@ class ScheduleSlotPatch(Contract):
     end: UTCDateTime = omitted()
     kind: ScheduleKind = omitted()
     gait: GaitName = omitted()
+    busy_label: SlotLabel | None = omitted()  # null = 지움 (기본 이름으로)
 
 
 class ScheduleDay(Contract):
