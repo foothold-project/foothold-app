@@ -9,6 +9,7 @@ import { realDash } from '../screens/fleet';
 import { stopLine } from '../serverdrive';
 import { ownerName, robotStatus, runOn, type Robot } from '../fake';
 import { GAITS } from '../gait';
+import { pickInfo } from '../go2status';
 import { JOINTS, REPORT_STALE_MS, go2Pose } from '../go2model';
 import { fleetKind, fleetOrder } from '../fleetorder';
 import { rt, useRt } from '../rt';
@@ -136,7 +137,7 @@ export function facts(x: Robot, me: string, places: Map<string, string>, av?: Av
   const level: Level = lvTemp === 'crit' ? 'crit' : lvTemp === 'bad' || lk === 'bad' ? 'bad' : lvTemp ?? lk;
   const byTemp = !!lvTemp && !!h && (lvTemp === 'crit' || !latched), lw = latched ? lockWhy(x, s) : '';
   const why = byTemp ? `${jointName(h!.j)} ${Math.round(h!.t)} °C` : latched ? (lw ? `${st.text} · ${lw}` : st.text) : flagNote(x) || st.text;
-  const run = s?.run ?? null, paused = run?.status === 'PAUSED' ? (run.wait_reason === 'LINK_LOST' ? '일시정지 · 연결 끊김' : '일시정지') : null;
+  const run = s?.run ?? null, pr = s ? run : x.run ?? null, paused = pr?.status === 'PAUSED' ? (('wait_reason' in pr ? pr.wait_reason : null) === 'LINK_LOST' ? '일시정지 · 연결 끊김' : '일시정지') : null;
   // 진행 막대: 목록 current_run(x.mission), 없으면 화면 state.run 이 아직 도는 임무일 때만(01:02 K-07: 끝난 run 이 state 에 남아 «할 일 34/36» 이 남던 것)
   const m = missionOf(x.mission) ?? (run && runOn(x, s) && run.progress.total ? { name: '', done: run.progress.done, total: run.progress.total } : null);
   const loc = s?.location ?? (x.unknown === 'summary' ? null : x.location ?? null);
@@ -249,10 +250,7 @@ function Cv({ f, front, hotMap, boards }: { f: TileFacts; front: boolean; hotMap
       : f.x.sim ? <span className="g dk ov" style={{ left: '8px', top: '8px' }}>{I(14, IC.cam)}뒤 1 m</span>
       : <RealCam id={f.x.id} />}
     {f.stop ? <span className="stb" style={{ color: TONE_COL[f.stop.tone] ?? 'var(--mu2)' }} data-stop-line={f.stop.tone} title={f.stop.text}>{I(14, IC.stop)}{f.stop.text}</span>
-      : !front && f.paused ? <span className="stb chk" style={{ color: 'var(--u5-amb)' }} data-paused>{I(14, IC.warn)}{f.paused}<i></i></span>
-      : !front && f.charging ? <span className="stb" style={{ color: 'var(--u5-ok)' }} data-charging>{I(14, IC.bolt)}충전 중<span className="bt"><i style={f.x.battery != null ? { width: `${Math.round(f.x.battery)}%` } : undefined}></i></span></span>
-      : !front && f.job ? (f.job.kind === 'maint' ? <span className="stb chk" style={{ color: '#a9b8c6' }} data-maint>{I(14, IC.wrench)}점검 중<i></i></span>
-        : <span className="stb" style={{ color: '#a9b8c6' }} data-swap>{I(14, IC.bat)}배터리 교체</span>) : null}
+      : (() => { const b = tileBadge(f); return b && <BadgeTag b={b} battery={f.x.battery} />; })()}
   </div>;
 }
 
@@ -264,6 +262,32 @@ function RealCam({ id }: { id: string }) {
     <span className="g dk ov" style={{ left: '8px', top: '8px' }}>{I(14, IC.cam)}카메라</span></>;
   return <><span className="g dk ov" style={{ left: '8px', top: '8px' }}>{I(14, IC.cam)}뒤 1 m</span>
     <span className="g dk ov" style={{ left: '8px', top: '40px', maxWidth: 'calc(100% - 16px)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} data-cam="none" title={text}>{I(14, IC.cam)}{text || NO_SIGNAL.rgb}</span></>;
+}
+
+/** 타일 오른쪽 위 상태 배지(팀장 01:17 · 01:19 · 시안 K-06 «점검 중» 꼴). 시뮬 · 데모 · 실기 · 새 로봇 모두 이 함수 하나, 위에서 먼저 맞는 하나:
+ *  1 끊김(다시 붙는 중 = «다시 연결 중», 꺼짐 = «연결 끊김») 2 정지 잠금 3 넘어짐(robot_info.fallen) 4 점검(가용 MAINTENANCE · 배터리 교체)
+ *  5 충전(가용 CHARGING) 6 임무(사용자 시뮬 = «시뮬 중», 데모 · 실기 = «임무 중», 멈춤 = «임무 멈춤») 7 그 밖 «대기 · 임무 전».
+ *  «조종 중»은 서버가 조종권 안에 실제 입력 여부를 줄 때까지 내지 않는다(값 없으면 7). 상태를 아직 모르면(요약 · 받는 중) null */
+export type Badge = { key: 'relink' | 'lost' | 'pre' | 'latched' | 'fallen' | 'maint' | 'swap' | 'charging' | 'paused' | 'run' | 'simrun' | 'idle'; text: string; icon: keyof typeof IC; col: string; blink?: boolean; bat?: boolean; why?: string };
+const GREY = '#a9b8c6';
+export function tileBadge(f: TileFacts): Badge | null {
+  const x = f.x;
+  if (f.lostNow) return { key: 'relink', text: '다시 연결 중', icon: 'wifi', col: 'var(--u5-amb)', blink: true };
+  // 한 번도 붙은 적 없는 로봇(seenAt 없음)은 끊김 경고가 아니라 «연결 전»(관제 끊김 규칙과 같음)
+  if (!x.unknown && !x.online && !x.seenAt) return { key: 'pre', text: '연결 전', icon: 'wifi', col: GREY };
+  if (x.unknown === 'link' || (!x.unknown && !x.online) || x.attention?.includes('OFFLINE')) return { key: 'lost', text: '연결 끊김', icon: 'wifi', col: 'var(--u5-amb)' };
+  if (x.unknown) return null;
+  if (x.status === 'STOP_LATCHED') return { key: 'latched', text: '정지 잠금', icon: 'stop', col: 'var(--u5-red)' };
+  if (pickInfo(x)?.v?.fallen) return { key: 'fallen', text: '넘어짐', icon: 'warn', col: 'var(--u5-red)' };
+  if (f.job) return f.job.kind === 'maint' ? { key: 'maint', text: '점검 중', icon: 'wrench', col: GREY, blink: true } : { key: 'swap', text: '배터리 교체', icon: 'bat', col: GREY };
+  if (f.charging) return { key: 'charging', text: '충전 중', icon: 'bolt', col: 'var(--u5-ok)', bat: true };
+  if (f.onRun) return f.paused ? { key: 'paused', text: '임무 멈춤', icon: 'warn', col: 'var(--u5-amb)', blink: true, why: f.paused }
+    : f.sim ? { key: 'simrun', text: '시뮬 중', icon: 'box', col: GREY } : { key: 'run', text: '임무 중', icon: 'flag', col: 'var(--u5-ok)' };
+  return { key: 'idle', text: '대기 · 임무 전', icon: 'home', col: GREY };
+}
+function BadgeTag({ b, battery }: { b: Badge; battery: number | null }) {
+  return <span className={`stb${b.blink ? ' chk' : ''}`} style={{ color: b.col }} title={b.why} data-badge={b.key} {...{ [`data-${b.key}`]: '' }}>{I(14, IC[b.icon])}{b.text}
+    {b.bat ? <span className="bt"><i style={battery != null ? { width: `${Math.round(battery)}%` } : undefined}></i></span> : b.blink ? <i></i> : null}</span>;
 }
 
 function Tile({ f, sel, front, open, boards }: { f: TileFacts; sel: boolean; front: boolean; open: () => void; boards: Set<string> }) {
