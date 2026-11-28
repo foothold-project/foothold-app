@@ -104,7 +104,7 @@ def create_app(settings, launcher=None):
                     slots=[rid for rid, slot in settings.slots.items() if slot.org_id == org_id],
                     max_robots=1 if manager.launcher.real else settings.max_robots,
                     manager_instance_id=app.state.instance_id,
-                    launcher='native-single' if manager.launcher.real else 'fake')
+                    launcher='native-single' if manager.launcher.real else getattr(manager.launcher, 'label', 'fake'))
 
     @app.post('/v1/worlds', dependencies=[Depends(authenticate)])
     async def world(body: C.SimWorldStart):

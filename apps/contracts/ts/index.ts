@@ -2370,7 +2370,7 @@ export interface SimCatalog {
   worlds: SimWorld[];
   slots: string[];
   max_robots: number;
-  launcher: "fake" | "native-single";
+  launcher: "fake" | "native-single" | "mujoco-local";
   manager_instance_id: string | null;
 }
 
@@ -2451,7 +2451,7 @@ export interface SimRobot {
   namespace: string;
   tf_prefix: string;
   command_topic: string;
-  launcher: "fake" | "native-single";
+  launcher: "fake" | "native-single" | "mujoco-local";
   expires_at: string | null;
   /** Manager monotonic runtime remaining at this response, in seconds. */
   remaining_s: number | null;

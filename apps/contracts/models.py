@@ -3264,7 +3264,7 @@ class SimCatalog(Contract):
     worlds: list[SimWorld]
     slots: list[UUID]
     max_robots: int = Field(ge=1, le=2)
-    launcher: Literal['fake', 'native-single']
+    launcher: Literal['fake', 'native-single', 'mujoco-local']
     manager_instance_id: UUID | None = None
 
 
@@ -3297,7 +3297,7 @@ class SimRobot(Contract):
     namespace: str
     tf_prefix: str
     command_topic: str
-    launcher: Literal['fake', 'native-single']
+    launcher: Literal['fake', 'native-single', 'mujoco-local']
     expires_at: UTCDateTime | None = None
     remaining_s: int | None = Field(default=None, ge=0, le=3600,
                                   description='Manager monotonic runtime remaining at this response, in seconds.')
