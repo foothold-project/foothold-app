@@ -8,6 +8,7 @@ import { rt } from '../rt';
 import { TEX_LOOK, K, OX, OY, SITE_PX_H, SITE_PX_W, applyRest, applyWalk, lightNow, loadGo2, loadSite, loadWalk, ringLine, sitePose, toWorld, toneSite, type Body, type Walk } from './site';
 import { follow, type Held } from './tileview';
 import { IC, ic, type TileFacts } from './u5';
+import { pickPress } from '../screens/control';
 
 const ST_COL = { walk: 0x00c389, link: 0xf2b705, rest: 0x4c9bff, bad: 0xff4d4f, idle: 0xa9b8c6 } as const;
 const S = 20, STEM = 16;   // 시안 data-site scale 20
@@ -20,7 +21,7 @@ type R = { id: string; g: THREE.Group; body: Body; ring: THREE.Line; col: number
 const calm = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 /** from = 작은 지도 칸 자리(화면 px). 있으면 그 자리에서 큰 지도 자리로 자라고(320 ms), 3D 첫 시점은 위에서 본 틀(작은 지도와 같은 북쪽 위)에서 시안 시점으로 내려앉음(1.1 s). 움직임 줄이기면 바로 */
-export function SiteView({ all, sel, pick, open, from }: { all: TileFacts[]; sel: string; pick: (id: string) => void; open: (id: string) => void; from?: DOMRect | null }) {
+export function SiteView({ all, sel, open, from }: { all: TileFacts[]; sel: string; open: (id: string) => void; from?: DOMRect | null }) {
   const box = useRef<HTMLDivElement>(null), fromTop = useRef(!!from && !calm());
   useLayoutEffect(() => {
     const el = box.current; if (!el || !from || !fromTop.current || typeof el.animate !== 'function') return;
@@ -159,7 +160,7 @@ export function SiteView({ all, sel, pick, open, from }: { all: TileFacts[]; sel
   return <div className="big st3" ref={box} data-from-mini={from ? '' : undefined}>
     <canvas id="site" ref={cv} aria-label="현장 3D"></canvas>
     <div className="mks" ref={marks}>{all.map((f) => { const k = tone(f); return <div key={f.x.id} className={`mk3 ${k === 'bad' ? 'r' : k === 'link' ? 'o' : k === 'rest' ? 'sim' : ''}${f.x.id === sel ? ' sel' : ''}`} data-n={f.x.name} data-r3={f.x.id} style={{ display: 'none' }}
-      onClick={() => (f.x.id === sel ? open(f.x.id) : pick(f.x.id))}><span className="lb">{icon(f)}{f.x.name}<small>{sub(f)}</small></span><i></i></div>; })}</div>
+      role="button" tabIndex={0} aria-pressed={f.x.id === sel} {...pickPress(f.x.id, f.x.id === sel, () => open(f.x.id))}><span className="lb">{icon(f)}{f.x.name}<small>{sub(f)}</small></span><i></i></div>; })}</div>
     <span className="g dk ov" style={{ left: '14px', bottom: '14px' }}>{ic(14, IC.box)}실시간 3D · 끌어서 돌리기 · 휠 확대</span>
   </div>;
 }
