@@ -29,11 +29,11 @@ export function SiteView({ all, sel, pick, open }: { all: TileFacts[]; sel: stri
     const cam = new THREE.PerspectiveCamera(32, w / h, 5, 5000);
     const tgt = toWorld(1960, 880), el = (58 * Math.PI) / 180, az = (-6 * Math.PI) / 180, d = 760;
     cam.position.set(tgt.x + Math.sin(az) * Math.cos(el) * d, Math.sin(el) * d, tgt.z + Math.cos(az) * Math.cos(el) * d); cam.lookAt(tgt);
-    const hemis: THREE.HemisphereLight[] = [];
+    const hemis: THREE.HemisphereLight[] = [], rims: THREE.DirectionalLight[] = [];
     for (const sc of [scene, over]) {
       const hemi = new THREE.HemisphereLight(0xaab8c8, 0x07090b, 1.1); hemis.push(hemi); sc.add(hemi);
       const sun = new THREE.DirectionalLight(0xffffff, 2.0); sun.position.set(-300, 500, 400); sc.add(sun);
-      const rim = new THREE.DirectionalLight(0x6fd6b8, 0.35); rim.position.set(300, 200, -500); sc.add(rim);
+      const rim = new THREE.DirectionalLight(0x6fd6b8, 0.35); rims.push(rim); rim.position.set(300, 200, -500); sc.add(rim);
     }
     const W = 3200 / K, H = 2000 / K;
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), new THREE.MeshStandardMaterial({ color: 0x0b0e12, roughness: 1 }));
@@ -51,6 +51,7 @@ export function SiteView({ all, sel, pick, open }: { all: TileFacts[]; sel: stri
     const shade = (l: boolean) => {
       const bg = l ? 0xf6f7f6 : BG; r.setClearColor(bg, 1); (scene.fog as THREE.Fog).color.setHex(bg);
       (ground.material as THREE.MeshStandardMaterial).color.setHex(l ? 0xeef0ee : 0x0b0e12); gridM.color.setHex(l ? 0xc3cac5 : 0x2a3440);
+      for (const m of rims) m.intensity = l ? 0.05 : 0.35;
       for (const h of hemis) { h.color.setHex(l ? 0xffffff : 0xaab8c8); h.groundColor.setHex(l ? 0xc8cfcb : 0x07090b); }
       if (site) toneSite(site, l);
     };
