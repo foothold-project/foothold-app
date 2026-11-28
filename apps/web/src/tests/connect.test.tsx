@@ -247,7 +247,7 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
     serve(signedIn(LEE, ROBOTS, { 'POST /auth/logout': { status: 204 } }));
     await open('#/fleet', true);
     expect([...box.querySelectorAll('.dv-card b')].map((b) => b.textContent)).toEqual(['Go2-A']);
-    expect([...$('header details')!.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['기록', '로그아웃']);
+    expect([...$('header details')!.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['지도 스캔', '기록', '로그아웃']);   // 지도 스캔 = 담당 실기 Go2-A(scanentry.test.tsx)
     click(btn('기록')!);
     expect(location.hash).toBe('#/history');
     expect($('header')!.lastElementChild).toBe($('[data-stop]'));   // STOP 은 여전히 맨 오른쪽
