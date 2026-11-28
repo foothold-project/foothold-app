@@ -334,6 +334,23 @@ describe('로봇 탭 보기 칸 · 지도 경로 · 시뮬 시점(서버 값만)
     expect(text($('.views .small [data-sd-cam]'))).toBe('카메라 신호 없음 · 이 브라우저는 3D 를 그리지 못합니다');
   });
 
+  it('큰 무대 = 관제 타일과 같은 판정(proto/u5 onRun): 진행 중 임무 + 서버 위치 · 방향 + 현장 판 = 현장 + 뒤 따라가기, 임무 없음 · 끝남 · 위치 없음 = 정면', async () => {
+    board([ASG('a1')], [WP(10, -60, '밸브 확인')]);
+    mount('u-park', withRun()); serve('r7');
+    const stage = () => $('.stage3d')!.getAttribute('data-u4-stage');
+    act(() => { push('r7', { location: LOC } as Partial<ScreenState>); });
+    await flush();
+    expect(stage()).toBe('front');   // 상태에 임무 없음
+    act(() => { push('r7', { run: { ...RUN, status: 'MOVING' } } as unknown as Partial<ScreenState>); });
+    expect(stage()).toBe('world');
+    act(() => { push('r7', { run: { ...RUN, status: 'PAUSED' } } as unknown as Partial<ScreenState>); });
+    expect(stage()).toBe('world');   // 일시정지도 임무 중(타일과 같음)
+    act(() => { push('r7', { run: { ...RUN, status: 'COMPLETED' } } as unknown as Partial<ScreenState>); });
+    expect(stage()).toBe('front');
+    act(() => { push('r7', { run: { ...RUN, status: 'MOVING' }, location: { ...LOC, yaw: null } } as unknown as Partial<ScreenState>); });
+    expect(stage()).toBe('front');   // 방향 없으면 현장을 놓지 않음
+  });
+
   it('같은 이름 배정이 둘이면 경로를 고르지 않는다(지어내지 않음): 지점 0 · 진행과 상태만', async () => {
     board([ASG('a1'), ASG('a2')], [WP(10, -60, '밸브 확인')]);
     mount('u-park', withRun()); serve('r7');
@@ -616,6 +633,24 @@ describe('railOrder', () => {
 });
 
 describe('걷기 모드 창(시안 u4_7)', () => {
+  it('조종권 없이 모드 칸을 누르면 창을 열지 않고 까닭 한 줄 · gait 0 (검토 21:25)', () => {
+    mount('u-park'); serve('r7');
+    act(() => { push('r7', { gait: { gait: 'classic', available: ['classic', 'sport'] } } as Partial<ScreenState>); });
+    click($('[data-cell="mode"]')!);
+    expect($('[data-u4-mode]')).toBeNull();
+    expect(text($('[data-u4-why]'))).toBe('조종을 시작해야 걷기 모드를 바꿀 수 있습니다.');
+    expect(w.of('gait')).toEqual([]);
+  });
+
+  it('연 뒤 조종권을 잃으면 창이 닫히고 gait 0 (검토 21:25)', () => {
+    mount('u-park'); serve('r7'); drive();
+    act(() => { push('r7', { gait: { gait: 'classic', available: ['classic', 'sport'] } } as Partial<ScreenState>); });
+    const n0 = w.of('gait').length;
+    click($('[data-cell="mode"]')!); click($('[data-u4-gait="sport"]')!);
+    act(() => { w.recv(lease('r7', null)); });
+    expect($('[data-u4-mode]')).toBeNull(); expect(w.of('gait').length).toBe(n0);
+  });
+
   it('L3: 못 쓰는 모드는 눌러도 고르지 않고 보내지 않음', () => {
     mount('u-park'); serve('r7'); drive();
     act(() => { push('r7', { gait: { gait: 'classic', available: ['classic', 'sport'] } } as Partial<ScreenState>); });
