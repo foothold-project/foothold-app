@@ -43,7 +43,8 @@ describe('타일 3D 바닥 맞춤', () => {
   it('pad 모양 = 시안 u5_1 pad() 값: 충전 초록 고리 둘(r 0.34 · 0.40, 앞뒤 1.25 배) · 점검 회색 네모 둘(0.38 × 0.5, 바깥 +0.06)', () => {
     const c = padGroup('charge'), k = padGroup('check');
     const box = (o: THREE.Object3D) => new THREE.Box3().setFromObject(o);
-    expect(c.children.length).toBe(2); expect(k.children.length).toBe(2);
+    expect(c.children.length).toBe(3); expect(k.children.length).toBe(3);   // 바닥 꼴 둘 + 오르는 층 무리(padanim)
+    expect(c.children[2].name).toBe('rise'); expect(k.children[2].name).toBe('rise');
     const [r1, r2] = c.children as THREE.LineLoop[];
     expect(box(r1).max.x).toBeCloseTo(0.34, 3); expect(box(r1).max.z).toBeCloseTo(0.34 * 1.25, 3); expect(box(r2).max.x).toBeCloseTo(0.40, 3);
     expect((r1.material as THREE.LineBasicMaterial).color.getHex()).toBe(0x00c389); expect((r1.material as THREE.LineBasicMaterial).opacity).toBe(0.85); expect((r2.material as THREE.LineBasicMaterial).opacity).toBe(0.3);

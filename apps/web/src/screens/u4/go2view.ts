@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { applyWalk, loadWalk, type Walk } from '../../proto/site';
 import { REAR_DIST, SHADOW, feetUp } from '../../proto/tileview';
+import { padGroup, padTick } from '../../proto/padanim';
 
 export const GO2_GLB = '/proto-assets/shared/go2_isaac.glb';
 const SIM = 0x4c9bff;
@@ -55,12 +56,13 @@ function cyberMat() {
 export type Go2Opt = { pin?: boolean; orbit?: boolean; glow?: boolean; cyber?: boolean; hot?: Record<string, string>; pose?: 'down'; yaw?: number; dist?: number; floor?: number; src?: string };
 export type Go2Api = { q: number[] | null; /** 서버 posture LYING (q 없을 때만 씀) */ down: boolean; /** 관절값 없이 서버 speed ≥ WALK_MIN_SPEED (q · down 이 이김) */ walk: boolean;
   /** 임무 중 무대(팀장 21:16 · 관제 타일 tileView 와 같은 규칙): 받아 둔 현장 장면(simcam site · 지도 좌표 z 위)과 로봇의 서버 자리. 있으면 뒤에서 따라 보고 현장을 뒤에 그림, null 이면 정면 + 점 바닥 */
-  world: { scene: THREE.Scene; z: number; pose: { x: number; y: number; yaw: number } } | null; drive: { v: number; turn: number; side: number } | null; setHot: (m: Record<string, string>) => void; dispose: () => void; fallback?: boolean };
+  world: { scene: THREE.Scene; z: number; pose: { x: number; y: number; yaw: number } } | null;
+  /** 멈춘 로봇 바닥 표시(관제 타일 tilePad 와 같은 값 · 점 바닥일 때만): 충전 고리 · 점검 네모 + 오르는 층(padanim) */ pad?: 'charge' | 'check' | null; drive: { v: number; turn: number; side: number } | null; setHot: (m: Record<string, string>) => void; dispose: () => void; fallback?: boolean };
 
 export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
   const w = canvas.clientWidth || 760, h = canvas.clientHeight || 900;
   let r: THREE.WebGLRenderer;
-  const api: Go2Api = { q: null, down: false, walk: false, world: null, drive: null, setHot, dispose: () => {} };
+  const api: Go2Api = { q: null, down: false, walk: false, world: null, pad: null, drive: null, setHot, dispose: () => {} };
   try { r = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true }); }
   catch { api.fallback = true; return api; }   // WebGL 이 없는 PC: 캔버스만 빈 채로 (시안의 정면 그림은 자산이라 넣지 않음)
   r.setPixelRatio(Math.min(2, devicePixelRatio)); r.setSize(w, h, false);
@@ -163,6 +165,7 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
     shadow.material.opacity = l ? 0.07 : 0.35;   // 흰 바탕에서 0.18 은 큰 회색 원으로 보임
     pools.forEach((o) => { o.visible = !l; });
   };
+  const pads = { charge: padGroup('charge'), check: padGroup('check') }; pads.charge.visible = pads.check.visible = false; scene.add(pads.charge, pads.check);
   const clock = new THREE.Clock(); let t = 0.35, off = 0, raf = 0, lastQ: number[] | null = null;
   function frame() {
     tone();
@@ -173,6 +176,7 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
       cam.position.set(Math.sin(v.yaw) * v.dist, 0.55, Math.cos(v.yaw) * v.dist); cam.lookAt(0, 0.17, 0); shadow.visible = v.stageShadow && !opt.cyber; ctl?.update(); lit = null;   // 나오면 판 색(점 바닥 · 빛 웅덩이)을 다시 맞춤
     }
     grid.visible = !wd; if (wd) pools.forEach((o) => { o.visible = false; });
+    for (const k of ['charge', 'check'] as const) { pads[k].visible = !wd && api.pad === k; if (pads[k].visible) padTick(pads[k], t); }
     const d = api.drive;
     if (d) { off -= d.v * dt * 0.75; gm.uniforms.off.value = off; grid.rotation.y -= d.turn * dt * 0.9; grid.position.x = ((grid.position.x - (d.side || 0) * dt * 0.75) + 2) % 4 - 2; }
     const q = api.q;

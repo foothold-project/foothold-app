@@ -3,6 +3,7 @@
 // 빛 · 바닥 점 · 핀 조명 · 그림자 · 시점 값은 시안 go2view.js 그대로. 걷기는 임무 · 조종 중일 때 시안 걷기 기록(go2_walk.json)을 튼다.
 import * as THREE from 'three';
 import { STAND, ground } from '../screens/u4/go2view';
+import { padGroup, padTick } from './padanim';
 import { TEX_LOOK, applyDown, applyRest, applyWalk, lightNow, loadGo2, loadSite, loadWalk, toneSite, type Body, type Walk } from './site';
 
 export type TileLook = {
@@ -74,18 +75,8 @@ export function poseBody(b: Body, look: Pick<TileLook, 'q' | 'walk' | 'down' | '
 
 /** 숨 높이(m · 위로만): 시안 go2view.js 쉬는 자세 흔들림(0.003 · sin 2t)과 같은 폭. 임무 전 시뮬만(look.breathe) */
 export const BREATH = 0.003;
-/** 시안 u5_1 pad() 그대로: 충전 = #00c389 고리 r 0.34(진하기 0.85) · 0.40(0.3), 앞뒤 1.25 배 · 점검 = #a9b8c6 네모 W 0.38 · D 0.5(0.75), 바깥 +0.06(0.22) */
-export const PAD = { charge: { col: 0x00c389, rings: [[0.34, 0.85], [0.40, 0.3]] as [number, number][], sz: 1.25 }, check: { col: 0xa9b8c6, W: 0.38, D: 0.5, out: 0.06, op: [0.75, 0.22] } };
-export function padGroup(kind: 'charge' | 'check') {
-  const col = kind === 'charge' ? PAD.charge.col : PAD.check.col, g = new THREE.Group(); g.name = `pad-${kind}`;
-  const line = (pts: THREE.Vector3[], op: number) => g.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: op })));
-  if (kind === 'charge') for (const [r, op] of PAD.charge.rings) line(Array.from({ length: 96 }, (_, i) => new THREE.Vector3(Math.cos((i / 96) * 6.2832) * r, 0.002, Math.sin((i / 96) * 6.2832) * r * PAD.charge.sz)), op);
-  else {
-    const { W, D, out, op } = PAD.check, sq = (w: number, d: number) => [[-w, -d], [w, -d], [w, d], [-w, d]].map(([x, z]) => new THREE.Vector3(x, 0.002, z));
-    line(sq(W, D), op[0]); line(sq(W + out, D + out), op[1]);
-  }
-  return g;
-}
+/** 바닥 표시 꼴 · 오르는 층은 padanim 한 곳(로봇 탭 무대와 같은 함수) */
+export { PAD, padGroup } from './padanim';
 
 let one: Tiles | null = null;
 export const tiles = () => (one ??= new Tiles());
@@ -197,6 +188,7 @@ class Tiles {
       const p = v.at;
       const ly = layers(!!p, !!this.site); this.world.visible = ly.world; this.grid.visible = ly.dots;
       if (this.pads) { this.pads.charge.visible = ly.dots && look.pad === 'charge'; this.pads.check.visible = ly.dots && look.pad === 'check'; }
+      if (this.pads && look.pad) padTick(this.pads[look.pad], this.t);
       if (p) { this.world.rotation.set(0, -p.rot, 0); this.world.position.set(0, 0, 0); this.world.updateMatrix();
         const off = new THREE.Vector3(-p.x, 0, -p.z).applyAxisAngle(new THREE.Vector3(0, 1, 0), -p.rot); this.world.position.copy(off);
         // 가림 광선은 로봇이 0.2 m(또는 0.2 rad) 넘게 움직였거나 시점이 바뀌었을 때만 다시 쏜다(매 판 쏘지 않음)

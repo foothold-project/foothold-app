@@ -10,7 +10,7 @@ import { rt, useLive, useRt } from '../../rt';
 import { useStopPress } from '../../App';
 import { ADMIN_LATER, idleSim, ownerName, robotStatus, type Robot } from '../../fake';
 import { fleetKind, fleetOrder, type Urgent } from '../../fleetorder';
-import { facts, hotJoint as hotOf, tempLevel } from '../../proto/u5';
+import { facts, hotJoint as hotOf, tempLevel, tilePad } from '../../proto/u5';
 import { isLost, needs } from '../control';
 import type { ApiFail } from '../../api';
 import { NO_SIGNAL, driveFeedHeld, driveFeedText, useDriveFeed } from '../../drivemedia';
@@ -51,18 +51,20 @@ const IC17: CSSProperties = { width: '17px', height: '17px' }, IC24: CSSProperti
 
 /** 데모 로봇(가용 RobotAvailability.demo = true)은 시뮬이어도 실기와 같은 꼴(개 그림 · 배터리 · 연결 ms · 걷기 · 위치 알약 · 실기 모형), 차이는 「데모」 칩 하나. 시뮬 꼴은 사용자 시뮬만 */
 const Demo = createContext<ReadonlySet<string>>(new Set());
+/** 로봇 id → 가용 상태(충전 · 점검). 바닥 표시(padanim)를 관제 타일 tilePad 와 같은 규칙으로 */
+const Avail = createContext<ReadonlyMap<string, { charging: boolean; maint: boolean }>>(new Map());
 const useSimLook = () => { const d = useContext(Demo); return (x: Robot) => !!x.sim && !d.has(x.id); };
 /** 10 초마다 GET /robots/availability(지금 ~ 1 분 뒤)의 demo. 받지 못하면 지난 값 그대로(처음엔 빈 묶음 = 시뮬 꼴, 지어내지 않음) */
 function useDemo(cancel?: AbortSignal) {
-  const [got, setGot] = useState<ReadonlySet<string>>(() => new Set());
+  const [got, setGot] = useState<ReadonlySet<string>>(() => new Set()), [av, setAv] = useState<ReadonlyMap<string, { charging: boolean; maint: boolean }>>(() => new Map());
   useEffect(() => {
     let live = true;
     const load = () => { const now = new Date(); api.availability(now.toISOString(), new Date(now.getTime() + 60_000).toISOString(), cancel)
-      .then((a) => { if (live) setGot(new Set(a.items.filter((x) => x.demo).map((x) => x.robot_id))); }, () => {}); };
+      .then((a) => { if (live) { setGot(new Set(a.items.filter((x) => x.demo).map((x) => x.robot_id))); setAv(new Map(a.items.map((x) => [x.robot_id, { charging: x.state === 'CHARGING', maint: (x.state as string) === 'MAINTENANCE' }]))); } }, () => {}); };
     load(); const h = setInterval(load, 10_000);
     return () => { live = false; clearInterval(h); };
   }, []);
-  return got;
+  return { demo: got, av };
 }
 const DEMO = <span className="tag" style={{ position: 'static', display: 'inline-flex', verticalAlign: 'middle', marginLeft: '10px', fontSize: '12px', color: '#9aa4ae' }} data-demo>데모</span>;
 /** 남은 시간 = 서버 battery.minutes_left(정수 0 ~ 1440 · 실기는 null). 계약 타입이 base 에 오기 전이라 선택 칸으로 읽음. 없으면 null(지어내지 않음) */
@@ -223,7 +225,8 @@ function Cam({ fs, big, can, b }: { fs: Feeds; big: boolean; can: boolean; b: Bo
 /** 가운데 3D: 시안 go2view 를 그대로 띄우고 실제 관절값 · 나간 명령으로 움직인다 */
 type StageWorld = { v: MapVersion; pose: { x: number; y: number; yaw: number } } | null;
 function Stage({ r, q, down, walk, world, drive, hot }: { r: Robot; q: number[] | null; down: boolean; walk: boolean; world: StageWorld; drive: Go2Api['drive']; hot: Record<string, string> }) {
-  const cv = useRef<HTMLCanvasElement>(null), g = useRef<Go2Api | null>(null), sim = useSimLook()(r);
+  const cv = useRef<HTMLCanvasElement>(null), g = useRef<Go2Api | null>(null), sim = useSimLook()(r), a0 = useContext(Avail).get(r.id);
+  const pad = tilePad({ sim, charging: !!a0?.charging, job: a0?.maint ? { kind: 'maint', text: '' } : null });   // 관제 타일과 같은 규칙
   // 현장은 앞 카메라 칸(simcam site)이 받아 둔 것을 같이 쓴다(판 · 모형 마다 하나). WebGL 이 없으면 받지 않음
   const [ws, setWs] = useState<Awaited<ReturnType<typeof site>> | null>(null), wk = world ? siteKey(world.v) : null;
   useEffect(() => {
@@ -237,7 +240,7 @@ function Stage({ r, q, down, walk, world, drive, hot }: { r: Robot; q: number[] 
     if (a.fallback) cv.current.style.visibility = 'hidden';   // WebGL 을 못 만든 캔버스는 숨겨 시안 어두운 바탕 그대로
     return () => { a.dispose(); g.current = null; };
   }, [r.id, sim]);
-  useEffect(() => { if (g.current) { g.current.q = q; g.current.down = down; g.current.walk = walk; g.current.world = world && ws ? { scene: ws.scene, z: ws.z, pose: world.pose } : null; g.current.drive = drive; } });
+  useEffect(() => { if (g.current) { g.current.q = q; g.current.down = down; g.current.walk = walk; g.current.world = world && ws ? { scene: ws.scene, z: ws.z, pose: world.pose } : null; g.current.drive = drive; g.current.pad = pad; } });
   const key = JSON.stringify(hot);
   useEffect(() => { g.current?.setHot(hot); }, [key]);
   // 로봇 · 꼴(데모가 늦게 와 시뮬 → 실기 꼴)이 바뀌면 새 캔버스: 지난 렌더러가 forceContextLoss 한 캔버스에 다시 붙이면 맥락을 잃어 흰 판이 된다
@@ -593,11 +596,11 @@ function Empty({ add, none }: { add: () => void; none?: ReactNode }) {
 /** 목록 = 시안 u4 처럼 실기 + 시뮬(시뮬 줄은 rehearse 파란 점선). 끝낸 시뮬 슬롯(fake idleSim: 담당 없음 · 데모 아님 · 임무 없음)만 뺀다.
  *  임무 판정 state 는 App 고르기와 같게(요약만 받는 로봇은 목록 current_run). 고른 로봇이 목록에 없으면 첫 줄로(머리줄 STOP 대상 = 화면) */
 function Real({ c, add }: { c: Ctx; add: () => void }) {
-  const robots = c.robots.filter((x) => !idleSim(x, x.unknown === 'summary' ? null : rt.get(x.id).state)), robot = robots.find((x) => x.id === c.robot.id) ?? robots[0], demo = useDemo(c.cancel);
+  const robots = c.robots.filter((x) => !idleSim(x, x.unknown === 'summary' ? null : rt.get(x.id).state)), robot = robots.find((x) => x.id === c.robot.id) ?? robots[0], { demo, av } = useDemo(c.cancel);
   useEffect(() => { if (robot && robot.id !== c.robot.id) c.pick(robot.id); }, [robot?.id, c.robot.id]);
   if (!robot) return <Empty add={add} />;
   const rc = { ...c, robot, robots };
-  return <Demo.Provider value={demo}><Rail c={rc} sel={robot.id} add={add} /><Robot1 key={robot.id} c={rc} r={robot} /></Demo.Provider>;
+  return <Demo.Provider value={demo}><Avail.Provider value={av}><Rail c={rc} sel={robot.id} add={add} /><Robot1 key={robot.id} c={rc} r={robot} /></Avail.Provider></Demo.Provider>;
 }
 
 const light = () => typeof document !== 'undefined' && document.documentElement.dataset.theme === 'light';
