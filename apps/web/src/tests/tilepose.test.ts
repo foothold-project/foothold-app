@@ -3,7 +3,7 @@
 // 고친 뒤: 자세마다 발 끝(종아리) 가장 낮은 점이 y = 0 위(흔들림은 위로만), 엎드림 · 서버 관절은 몸 전체 최저점 y = 0
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { camPull, feetUp, poseBody } from '../proto/tileview';
+import { BREATH, PAD, camPull, feetUp, padGroup, poseBody } from '../proto/tileview';
 import { STAND } from '../screens/u4/go2view';
 import type { Body, Walk } from '../proto/site';
 
@@ -29,9 +29,28 @@ const WALK: Walk = { dt: 0.1, frames: [[0, 0, 0, 0, 0.3, -0.2, -0.2, 0.3, -0.4, 
 describe('타일 3D 바닥 맞춤', () => {
   it('선 자세: 발 끝 최저점이 y = 0 위 · 흔들림은 3 mm 안 위로만(고치기 전: 원점 높이로 덮어써 0.42 m 묻힘)', () => {
     for (const t of [0, 0.4, 0.8, 1.6, 2.3]) {
-      const b = fake(); b.root.position.y = 0.42; poseBody(b, { walk: false, down: false }, null, t);
+      const b = fake(); b.root.position.y = 0.42; poseBody(b, { walk: false, down: false, breathe: true }, null, t);
       expect(feetY(b)).toBeGreaterThanOrEqual(-1e-6); expect(feetY(b)).toBeLessThan(0.0031);
     }
+  });
+  it('숨(임무 전 시뮬만): breathe 면 몸통이 위로만 0 ~ 3 mm 오르내림 · 아니면(실기 · 데모) 실제 자세 그대로 움직이지 않음', () => {
+    const ys = (breathe: boolean) => [0, 0.4, 0.8, 1.6, 2.3].map((t) => { const b = fake(); poseBody(b, { walk: false, down: false, breathe }, null, t); return feetY(b); });
+    const on = ys(true), off = ys(false);
+    for (const y of on) { expect(y).toBeGreaterThanOrEqual(-1e-6); expect(y).toBeLessThanOrEqual(BREATH + 1e-6); }
+    expect(Math.max(...on) - Math.min(...on)).toBeGreaterThan(0.001);
+    for (const y of off) expect(Math.abs(y)).toBeLessThan(1e-6);
+  });
+  it('pad 모양 = 시안 u5_1 pad() 값: 충전 초록 고리 둘(r 0.34 · 0.40, 앞뒤 1.25 배) · 점검 회색 네모 둘(0.38 × 0.5, 바깥 +0.06)', () => {
+    const c = padGroup('charge'), k = padGroup('check');
+    const box = (o: THREE.Object3D) => new THREE.Box3().setFromObject(o);
+    expect(c.children.length).toBe(2); expect(k.children.length).toBe(2);
+    const [r1, r2] = c.children as THREE.LineLoop[];
+    expect(box(r1).max.x).toBeCloseTo(0.34, 3); expect(box(r1).max.z).toBeCloseTo(0.34 * 1.25, 3); expect(box(r2).max.x).toBeCloseTo(0.40, 3);
+    expect((r1.material as THREE.LineBasicMaterial).color.getHex()).toBe(0x00c389); expect((r1.material as THREE.LineBasicMaterial).opacity).toBe(0.85); expect((r2.material as THREE.LineBasicMaterial).opacity).toBe(0.3);
+    const [s1, s2] = k.children as THREE.LineLoop[];
+    expect(box(s1).max.x).toBeCloseTo(0.38, 6); expect(box(s1).max.z).toBeCloseTo(0.5, 6); expect(box(s2).max.x).toBeCloseTo(0.44, 6); expect(box(s2).max.z).toBeCloseTo(0.56, 6);
+    expect((s1.material as THREE.LineBasicMaterial).color.getHex()).toBe(PAD.check.col); expect(PAD.check.col).toBe(0xa9b8c6);
+    expect((s1.material as THREE.LineBasicMaterial).opacity).toBe(0.75); expect((s2.material as THREE.LineBasicMaterial).opacity).toBe(0.22);
   });
   it('걷기: 매 판 발 끝 최저점이 y = 0 위 · 6 mm 안', () => {
     for (const t of [0, 0.05, 0.13, 0.27, 0.31]) {

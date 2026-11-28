@@ -16,7 +16,7 @@ import type { Ctx } from '../screens';
 import { actOf, controlPick, flagNote, isLost, lastly, needs, useControlPick } from '../screens/control';
 import { floorName, floorsOf, useTree } from '../screens/maps';
 import { sitePose, toMapPx } from './site';
-import { FRONT_DIST, REAR_DIST, tiles as tileGl, type TileLook } from './tileview';
+import { FRONT_DIST, REAR_DIST, tiles as tileGl, type TileLook, type TilePad } from './tileview';
 import { SiteView } from './u5map';
 import './u5.css';
 
@@ -195,6 +195,10 @@ export const tilePose = (l: Location | null | undefined, boards: Set<string>) =>
  *  뒤집기(정면)는 임무 중이어도 시안 u5_4 대로 현장 없이 어두운 바탕(조정 22:03) */
 export const tileView = (f: TileFacts, front: boolean, l: Location | null | undefined, boards: Set<string>) =>
   ({ front: front || !f.onRun, pose: f.onRun && !front ? tilePose(l, boards) : null });
+/** 바닥 표시(시안 pad): 충전 = 가용 state CHARGING(f.charging) · 점검 = 가용 state MAINTENANCE(f.job.kind maint). 시뮬은 없음 */
+export const tilePad = (f: Pick<TileFacts, 'charging' | 'job' | 'sim'>): TilePad => (f.sim ? null : f.charging ? 'charge' : f.job?.kind === 'maint' ? 'check' : null);
+/** 숨: 임무 전 시뮬 로봇이 서 있을 때만(걷기 · 엎드림 아님). 실기 · 데모는 실제 자세만 */
+export const tileBreathe = (f: Pick<TileFacts, 'sim' | 'onRun' | 'walk'>, down: boolean) => f.sim && !f.onRun && !f.walk && !down;
 const locOf = (f: TileFacts) => stateOf(f.x)?.location ?? (f.x.unknown === 'summary' ? null : f.x.location);
 /** 정면 온도 칩: 관절 온도가 문턱(tempLevel · 50 / 60 / 70 °C)을 넘을 때만 경고색 · 관절 이름, 아니면 회색 «최고 관절 온도 N °C»(잠금 등 다른 경고 색을 빌리지 않음) */
 function TempOv({ f }: { f: TileFacts }) {
@@ -205,11 +209,12 @@ function Cv({ f, front, hotMap, boards }: { f: TileFacts; front: boolean; hotMap
   const ref = useRef<HTMLCanvasElement>(null), look = useRef<TileLook>({ pose: null, front, cyber: f.sim, walk: false, down: false, hot: {} });
   // 시뮬도 실기 · 데모와 같은 규칙(팀장 20:49 · 21:16). 파란 결은 로봇 재질 · 테두리 · 이름표로만
   const v = tileView(f, front, locOf(f), boards);
-  look.current = { pose: v.pose, front: v.front, cyber: f.sim, walk: f.walk, down: lying(f), hot: hotMap };
+  const down = lying(f), pad = tilePad(f);
+  look.current = { pose: v.pose, front: v.front, cyber: f.sim, walk: f.walk, down, hot: hotMap, pad, breathe: tileBreathe(f, down) };
   const id = f.x.id, summary = f.x.unknown === 'summary';
   // 서버 관절은 그릴 때마다 새로 읽는다(같은 화면 값이면 다시 그리지 않아도 관절은 바뀜 · 1 초 넘게 묵으면 버림)
   useEffect(() => (ref.current ? tileGl().add(ref.current, () => ({ ...look.current, q: summary ? null : jointsNow(id) })) : undefined), []);
-  const go2 = JSON.stringify({ walk: f.walk, glow: !f.sim, pin: !f.sim, hot: hotMap, cyber: f.sim, yaw: v.front ? 0 : 'back', dist: v.front ? FRONT_DIST : REAR_DIST, floor: 0.5 });
+  const go2 = JSON.stringify({ walk: f.walk, glow: !f.sim, pin: !f.sim, hot: hotMap, cyber: f.sim, yaw: v.front ? 0 : 'back', dist: v.front ? FRONT_DIST : REAR_DIST, ...(pad && !v.pose ? { pad } : {}), ...(down ? { pose: 'down' } : {}), floor: 0.5 });
   const showFront = v.front;
   return <div style={{ height: '222px' }} className={showFront ? 'cv st' : 'cv'} data-face={showFront ? 'front' : 'live'}>
     <canvas ref={ref} className={showFront ? 'front' : 'rear'} data-go2={go2}></canvas>
