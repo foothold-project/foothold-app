@@ -1,0 +1,18 @@
+/* 시안 u9 를 앱으로 옮기며 더한 것(시안 값 아님): 시안의 span 단추 · 칸을 button · input 으로 바꾼 데서 생기는 브라우저 기본 모양만 지운다 */
+.u9 button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;letter-spacing:inherit}
+.u9 button:disabled{cursor:default;opacity:.45}
+.u9 button:focus-visible,.u9 [role="tab"]:focus-visible{outline:2px solid var(--pr3);outline-offset:2px}
+.u9 .inp input{flex:1;min-width:0;height:100%;border:0;background:none;color:inherit;font:inherit;outline:none}
+.u9 .inp input.dots{font-size:18px;letter-spacing:.18em}
+.u9 .ni{cursor:pointer}
+.u9 .u9-why{font-size:13px;font-weight:600;padding:14px 0;border-top:1px solid var(--line)}
+.u9 .u9-pager .btns.sb{width:38px;padding:0}
+.u9 [aria-disabled="true"]{opacity:.45;cursor:default}
+.u9 .ni[hidden]{display:none}
+.u9 .pv[aria-disabled="true"]{opacity:1}
+/* 시안 그림이 없는 묶음: 지금 앱 판을 시안 칸 안에. 시안 공통의 여백 지우기(*{margin:0;padding:0})를 이 칸 안에서는 앱 값으로 되돌린다 */
+.u9 .u9-legacy{overflow:auto}
+.u9 .u9-legacy .st{display:block}
+.u9 .u9-legacy .st-grid{display:flex;flex-direction:column;gap:16px}
+/* 앱 frame.css 의 전역 .nav(왼쪽 주 메뉴 항목: flex 세로 · 가운데 · 11 px …)가 시안의 .pane.nav 에도 걸린다. 시안 값으로 되돌린다 */
+.u9 .pane.nav{display:block;align-items:normal;gap:normal;font-size:inherit;color:inherit;min-height:0;text-decoration:none}

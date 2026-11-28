@@ -45,7 +45,8 @@ export const SIM_MODELS = [['nvidia-demo', 'nvidia'], ['ame2-demo', 'AME-2'], ['
 
 /** 로봇이 0대여도 열리는 탭이라 Ctx 전체가 아니라 필요한 것만 받는다. 고른 탭은 화면 상태(주소 #해시 아님).
  *  묶음은 늘 그려 두고 hidden 으로만 숨긴다. 탭을 바꿔도 쓰던 칸·한 번만 보이는 임시 비밀번호가 사라지지 않게 */
-export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) {
+/** only = 시안 u9 화면(settingsu9.tsx)에서 시안 그림이 없는 묶음만 이 판으로 그릴 때: 옆 묶음 목록 · 표시 뜻 없이 그 묶음들을 펼쳐 그린다 */
+export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'> & { only?: string[] }) {
   const admin = c.user.role === 'ORG_ADMIN', [tab, setTab] = useState<Tab>('acct'), org = useOrg(c.cancel), list = useRef<HTMLDivElement>(null);
   const TABS = GROUPS.flatMap(([, ts]) => ts.filter((t) => admin || !t[2]).map(([id, name]) => [id, name] as [Tab, string]));
   // 탭 목록 키(WAI-ARIA tabs): ←/→ 앞뒤(끝에서 돌아감), Home/End 처음·끝 — 고르면서 초점도 옮긴다
@@ -63,7 +64,8 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) 
     if (!to) return;
     e.preventDefault(); setTab(to); document.getElementById(`st-t-${to}`)?.focus();
   };
-  const panel = (id: Tab, kids: ReactNode) => <div className="st-grid" role="tabpanel" id={`st-p-${id}`} aria-labelledby={`st-t-${id}`} hidden={tab !== id}>{kids}</div>;
+  const panel = (id: Tab, kids: ReactNode) => (c.only ? c.only.includes(id) && <div className="st-grid" data-only-panel={id}>{kids}</div>
+    : <div className="st-grid" role="tabpanel" id={`st-p-${id}`} aria-labelledby={`st-t-${id}`} hidden={tab !== id}>{kids}</div>);
   const card = (p: Omit<CardProps, 'org' | 'admin' | 'cancel'>) => <OrgCard org={org} admin={admin} cancel={c.cancel} {...p} />;
   // 고른 모델의 카드는 처음 고를 때 그려 두고 hidden 으로만 숨긴다 — 모델을 오가도 쓰던 칸이 사라지지 않게(탭과 같은 방식). '' = 공통
   const [model, setModel] = useState(''), [opened, setOpened] = useState<string[]>([]);
@@ -75,13 +77,13 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) 
   </div>;
   const modelName = SIM_MODELS.find(([id]) => id === model)?.[1];
   return <div className="st">
-    <div className="st-tabs st-side" role="tablist" aria-label="설정 묶음" aria-orientation="vertical" ref={list} onKeyDown={key}>
+    {!c.only && <div className="st-tabs st-side" role="tablist" aria-label="설정 묶음" aria-orientation="vertical" ref={list} onKeyDown={key}>
       {GROUPS.map(([g, ts]) => <Fragment key={g}><span className="st-group" aria-hidden="true" data-st-group>{g}</span>
         {ts.filter((t) => admin || !t[2]).map(([id, name, , only]) => <button key={id} type="button" role="tab" id={`st-t-${id}`} aria-controls={`st-p-${id}`} aria-selected={tab === id} tabIndex={tab === id ? 0 : -1} onClick={() => setTab(id)} data-only={only || undefined} title={only ? '총괄만' : undefined}>{name}</button>)}
       </Fragment>)}
-    </div>
+    </div>}
     <div className="st-body">
-    <div className="st-legend" aria-label="표시 뜻"><span className="st-tag adm">총괄만 고침</span><span className="st-tag cap">시뮬 모드·연결 상한 안에서만</span><span className="st-tag lock">바꾸려면 별도 승인(보기만)</span></div>
+    {!c.only && <div className="st-legend" aria-label="표시 뜻"><span className="st-tag adm">총괄만 고침</span><span className="st-tag cap">시뮬 모드·연결 상한 안에서만</span><span className="st-tag lock">바꾸려면 별도 승인(보기만)</span></div>}
     {org.err && <p className="fh-msg" role="alert">{org.err}</p>}
     {panel('acct', <MyInfo user={c.user} setMe={c.setMe} cancel={c.cancel} />)}
     {admin && panel('users', <Accounts me={c.user} cancel={c.cancel} />)}
@@ -341,7 +343,7 @@ function MyInfo({ user, setMe, cancel }: { user: User; setMe: (u: ApiUser) => vo
 export const LAST_ADMIN = '남은 총괄 계정이 이 계정 하나뿐이라 잠그거나 지우거나 운영 관리자로 바꿀 수 없습니다. 다른 총괄 계정을 먼저 만드세요.';
 export const HAS_ROBOTS = '담당 로봇이 있어 지울 수 없습니다. 로봇의 담당자를 먼저 바꾸세요.';
 export const TAKEN = '같은 아이디가 이미 있습니다(지운 계정 포함). 다른 아이디를 쓰세요.';
-const failText = (e: unknown, conflict?: string) => {
+export const failText = (e: unknown, conflict?: string) => {
   const f = e as ApiFail;
   return f.code === 'LAST_ORG_ADMIN' ? LAST_ADMIN : f.code === 'VERSION_CONFLICT' && conflict ? conflict : f.message;
 };
