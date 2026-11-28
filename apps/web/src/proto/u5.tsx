@@ -7,7 +7,7 @@ import { api, type ApiFail } from '../api';
 import { RUN } from '../screens';
 import { realDash } from '../screens/fleet';
 import { stopLine } from '../serverdrive';
-import { ownerName, robotStatus, type Robot } from '../fake';
+import { ownerName, robotStatus, runOn, type Robot } from '../fake';
 import { GAITS } from '../gait';
 import { JOINTS, REPORT_STALE_MS, go2Pose } from '../go2model';
 import { fleetKind, fleetOrder } from '../fleetorder';
@@ -116,7 +116,6 @@ export const lockWhy = (x: Robot, s: ReturnType<typeof stateOf>) => {
   const st = s as { latch_reason?: string | null } | null | undefined, v = st && 'latch_reason' in st ? st.latch_reason : x.latchReason;
   return (v && LATCH_WHY[v]) || '까닭 미상';
 };
-const RUN_END = new Set<string>(['COMPLETED', 'FAILED', 'CANCELED', 'ABORTED']);   // 서버 TERMINAL_RUNS 와 같음(ABORTED 는 계약 열거 밖이지만 서버가 씀)
 /** 타일 한 장의 글 · 칸(서버 값만 · 없으면 그 글을 비움) */
 export type TileFacts = {
   x: Robot; demo: boolean; charging: boolean; job: Job | null; level: Level; flag: string | null; why: string; alert: boolean; sim: boolean; lostAt: string | null; lostNow: boolean;
@@ -144,7 +143,7 @@ export function facts(x: Robot, me: string, places: Map<string, string>, av?: Av
   const place = at ? `${at}${gone ? ' (마지막 위치)' : ''}` : '', charging = !!av?.charging;
   const lat = s?.latency_ms, act = actOf(x, false);
   // 임무 중 = state.run, state 를 받지 않는 로봇(요약만)은 목록 current_run
-  const rs = s ? run : x.run ?? null, onRun = !!rs && !RUN_END.has(rs.status);
+  const rs = s ? run : x.run ?? null, onRun = runOn(x, s);
   // 걷기: speed 가 오면 speed(0 = 서 있음). 요약만 받는 로봇은 speed 칸 자체가 없어 임무 중 + RUNNING(일시정지 · 잠금 · 끊김 아님)이면 걷기(D1 · 조정 21:27)
   const noSpeed = s ? s.speed === undefined : x.unknown === 'summary';   // 첫 state 전(wait)은 모름 = 걷지 않음
   // 요약 로봇은 rt 가 online 을 false 로 덮어 끊김을 모름 → 서버 목록 attention OFFLINE 으로 끊김을 봄

@@ -6,7 +6,7 @@
 import { Component, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { User as ApiUser } from '../../contracts/ts';
 import { BrandLogo } from './BrandLogo';
-import { ROBOTS, ROLE_NAME, USERS, idleSim, lost, lostText, myRobots, robotsFor, type Robot, type User } from './fake';
+import { ROBOTS, ROLE_NAME, USERS, idleSim, lost, lostText, myRobots, robotsFor, runOn, type Robot, type User } from './fake';
 import { PC_BOTTOM, PC_TABS, PHONE_SCAN, labelOf, leaving, oldScenario, tabFromHash, tabsFor, type Tab, type TabId } from './menu';
 import { rt, undelivered, useRt, withLive, type Live } from './rt';
 import { BODY, EmptyFleet, inApp, useDash, type Ctx } from './screens';
@@ -203,7 +203,8 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   // 알림 링크 #/history?event_id=<id> — 기록 탭이면 그 사건을 위에 보인다, #/approvals?approval_id=<id> — 결재 탭이면 그 결재를 연다(주소에도 남김)
   const fk = FOCUS[tab], focus = fk ? new URLSearchParams(want.split('?')[1] ?? '').get(fk) ?? undefined : undefined;
   // 고를 수 있는 로봇: PC 는 받은 목록(총괄 전체, 운영 관리자 내 로봇), 폰은 내 로봇(총괄은 전체 · 11/28). 끝낸 시뮬 슬롯(idleSim)은 둘 다 뺀다. 고른 값이 범위 밖이면 첫 로봇
-  const pool = (phone ? myRobots(user, robots) : robotsFor(user, robots)).filter((r) => !idleSim(r));
+  const liveOf = (r: Robot) => (r.unknown === 'summary' ? null : rt.get(r.id).state);   // 임무 판정용 state(요약만 받는 로봇은 목록 current_run)
+  const pool = (phone ? myRobots(user, robots) : robotsFor(user, robots)).filter((r) => !idleSim(r, liveOf(r)));
   // 기록 탭 로봇 거르기·배정 해제는 끝낸 시뮬 슬롯도 찾아야 한다(지난 시뮬 기록·슬롯에 남은 배정) — PC 의 그 두 탭만 슬롯을 남긴 목록(새 배정·임무 로봇 고르기는 그 화면이 뺀다)
   // 로봇 탭도 슬롯을 남긴 목록 — 화면은 시뮬을 모두 빼고, 요약(서버 /dashboard 는 슬롯도 셈)에서 그 몫을 뺀다(REVIEW-315 2)
   const withSlots = phone ? pool : robotsFor(user, robots);
@@ -224,8 +225,9 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   const [stopped, setStopped] = useState<Robot[]>([]), [ctlOff, setCtlOff] = useState<string[]>([]), [relatch, setRelatch] = useState<string[]>([]), [simStop, setSimStop] = useState(false), [, light] = useTheme();   // stopped = 마지막으로 STOP 한 로봇(관제 «모두 정지»면 여러 대)
   // STOP 대상(F-COM-01) = 지금 화면이 가리키는 로봇: 폰은 조종 화면의 로봇(내 로봇이 한 대뿐이면 어느 화면이든 그 로봇), PC 는 로봇 탭에서 고른 로봇.
   // 그 밖(로봇 연결·시나리오·기록 등)은 대상이 없어 STOP 이 «로봇 고르기»를 펼친다 — 내 조종권 로봇이 기본, 다시 누르면 그 로봇 정지
-  // 총괄도 실기 STOP(11/28 · 서버 #544 · #547): 실기는 운영 관리자처럼 후보. 시뮬은 내가 띄운 것만(IDLE 슬롯은 담당을 비운 채 남는다)
-  const mayStop = (r: Robot) => !idleSim(r) && (user.role !== 'ORG_ADMIN' || !r.sim || r.owner === user.id);
+  // 총괄도 실기 STOP(11/28 · 서버 #544 · #547): 실기는 운영 관리자처럼 후보. 사용자 시뮬은 내가 띄운 것만(IDLE 슬롯은 담당을 비운 채 남는다)
+  // 데모(목록 demo)는 실기처럼 총괄 정지 대상 · 남이 띄운 사용자 시뮬(demo false 로 확실)이고 임무 중이 아닐 때만 뺀다. demo 를 모르면(undefined) 정지 쪽으로(reviewer · app-lx 22:04 · 22:06)
+  const mayStop = (r: Robot) => !idleSim(r, liveOf(r)) && !(user.role === 'ORG_ADMIN' && r.sim && r.demo === false && r.owner !== user.id && !runOn(r, liveOf(r)));
   // 관제 탭(D1 · app-design-lx 05:12): 타일에서 고른 로봇(관제 안 고름 — 로봇 탭의 rid 가 아님)이 정지 가능하면 그 로봇이 대상(한 번 누름).
   // 고른 것이 없으면 대상 없음 → 첫 누름 = 고르기, 맨 위 «모두 정지(N 대)» = 정지 가능한 연결된 로봇 전부(같은 자리 두 번째 누름·Enter 로 보냄)
   const ctl = !phone && tab === 'control', ctlSel = useControlPick(), ctlPick = ctl ? pool.find((r) => r.id === ctlSel && mayStop(r)) : undefined;

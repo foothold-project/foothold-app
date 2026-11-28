@@ -14,7 +14,8 @@ import { sim } from '../phone';
 import { rt } from '../rt';
 import { oldScenario } from '../menu';
 import { stopLine } from '../serverdrive';
-import { toRobot } from '../fake';
+import { idleSim, toRobot } from '../fake';
+import { fleetRow } from './fleetRow';
 import { en } from '../lang';
 // 옛 PC 관제 부품(관제 요약 · 상세 서랍 · 연결 상태 · 조종 준비) 시험: PC 로봇 탭은 시안 u4 라 부품을 앱 맥락 안에 직접 그린다 → W1 u5
 beforeEach(() => { pcBoard.on = true; });
@@ -730,7 +731,7 @@ describe('관제 탭', () => {
     expect(band().textContent).not.toContain(NOT_SENT);
   });
   it('이 계정이 못 세우는 타일(총괄이 남의 시뮬)을 고르면 정지 단추 글은 «모두 정지» 그대로(reviewer G1)', () => {
-    const T = TWENTY.map((r) => (r.id === 'g6' ? { ...r, sim: true, owner: 'u-lee' } : r));
+    const T = TWENTY.map((r) => (r.id === 'g6' ? { ...r, sim: true, owner: 'u-lee', demo: false } : r));   // 사용자 시뮬(데모 아님 · 22:04)
     mount('u-kim', T); feed(T);
     act(() => { tile('g6').click(); });
     expect(stopBtn().textContent).toBe('모두 정지');
@@ -1234,5 +1235,64 @@ describe('관제 탭', () => {
     expect(al).not.toBeNull();
     expect(al.querySelector('div')!.firstChild!.textContent).not.toContain('관절');
     expect(al.textContent).not.toContain('관절');
+  });
+});
+
+// reviewer 22:04 정지 안 (가) · app-lx 22:06 · reviewer 22:06: 데모는 실기처럼 총괄 정지 대상. 빼는 것은 남이 띄운 사용자 시뮬(demo false 로 확실)이고 임무 중이 아닐 때만.
+// demo 모름(undefined) = 정지 쪽. 임무 중 = 관제 걷기(D1)와 같은 판정(state run 이 있으면 그것, 없으면 목록 current_run · PAUSED 도 임무 중).
+// 세 자리(경보 칸 「K-0N 정지」 · 로봇 탭 머리줄 정지 · 관제 고르기)와 모두 정지 수를 같이 본다. 운영자는 그대로
+describe('총괄 정지 대상: 데모 sim · 사용자 sim · demo 모름 · 임무 중', () => {
+  const CR = (status: string) => ({ run_id: 'r1', status, scenario_id: 's', scenario_name: '공정 순찰 A', progress: { done: 2, total: 4 } }) as never;
+  const S = (id: string, name: string, demo: boolean | undefined, owner = 'u-park', run?: string): Robot => ({ id, name, owner, ownerName: owner ? '박OO' : undefined, battery: 70, online: true, seenAt: '14:02:00',
+    status: 'RUNNING', sim: true, serverDrive: true, ...(demo === undefined ? {} : { demo }), ...(run ? { run: CR(run), mission: '공정 순찰 A 2/4' } : {}) });
+  const D = S('d1', 'K-05', true), U = S('u1', 'K-06', false), X = S('x1', 'K-07', undefined);
+  const UR = S('ur', 'K-08', false, 'u-park', 'MOVING'), UP = S('up', 'K-09', false, 'u-park', 'PAUSED'), D0 = S('d0', 'K-10', true, '');
+  const M = S('m1', 'K-11', false, 'u-kim');   // 내가 띄운 사용자 시뮬 = 임무 없어도 정지
+  const LIST = [D, U, X, UR, UP, D0, M];
+  /** state 도 목록과 같은 run(임무 판정은 state run 이 먼저) */
+  const runState = { ur: RUN('MOVING'), up: RUN('PAUSED') };
+  const hot = temp([40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 72]);
+  const space = () => act(() => { document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true })); });
+  const opts = () => [...box.querySelectorAll<HTMLOptionElement>('[aria-label="정지할 로봇 고르기"] option')];
+  const allOpt = () => opts().map((o) => o.textContent).find((t) => t!.includes('모두 정지'));
+  const pickIds = () => opts().map((o) => o.value).filter((v) => LIST.some((r) => r.id === v)).sort();
+  const CAN: [Robot, boolean][] = [[D, true], [X, true], [U, false], [UR, true], [UP, true], [D0, true], [M, true]];
+  const close = () => { act(() => root?.unmount()); box.remove(); };
+
+  it('총괄 관제: 데모 · demo 모름 · 임무 중(PAUSED 포함) 사용자 시뮬 · 담당 없는 데모 · 내 사용자 시뮬은 고르기 · 모두 정지 수에, 임무 없는 남의 사용자 시뮬만 빠짐', () => {
+    mount('u-kim', LIST, '#/control'); feed(LIST, runState);
+    space();
+    expect(pickIds()).toEqual(['d0', 'd1', 'm1', 'up', 'ur', 'x1']);
+    expect(allOpt()).toBe('모두 정지 (6 대)');
+    close();
+  });
+  it('총괄 관제: 경보 칸 「정지」 와 고른 타일의 머리줄 이름이 같은 판정', () => {
+    for (const [r, can] of CAN) {
+      mount('u-kim', LIST, '#/control'); feed(LIST, { ...runState, [r.id]: { ...(runState as Record<string, object>)[r.id], ...hot } });
+      expect(!!$(`[data-alarm="${r.id}"]`).querySelector('.rstop'), r.name).toBe(can);
+      act(() => { tile(r.id).click(); });   // 관제 고르기 = 머리줄 단추가 그 로봇 이름(못 세우면 «모두 정지» 그대로)
+      expect($('[data-stop]').textContent!.includes(`${r.name} 정지`), r.name).toBe(can);
+      close();
+    }
+  });
+  it('총괄 로봇 탭: 고른 로봇을 세울 수 있으면 머리줄 정지가 그 로봇으로, 임무 없는 남의 사용자 시뮬은 머리줄 정지 없음', () => {
+    pcBoard.on = false;
+    for (const [r, can] of CAN.filter(([x]) => x.owner)) {   // 담당 없는 시뮬은 로봇 탭 목록(robotu4 · W2)이 따로 빼서 여기서는 보지 않음
+      mount('u-kim', LIST, '#/fleet'); feed(LIST, runState);
+      act(() => { fleetRow(box, r.name).click(); });
+      const b = box.querySelector<HTMLElement>('[data-stop]');
+      expect(!!b, r.name).toBe(can);
+      if (b) { act(() => { b.click(); }); expect(FakeWS.last.of('stop').map((m) => m.robot), r.name).toEqual([r.id]); }
+      close();
+    }
+  });
+  it('운영자는 그대로: 남이 띄운 사용자 시뮬도 정지 고르기에 듦 · 담당 없는 데모 · 임무 중 사용자 시뮬은 끝낸 슬롯(idleSim)이 아님', () => {
+    mount('u-lee', LIST, '#/control'); feed(LIST, runState);
+    space();
+    expect(pickIds()).toEqual(['d0', 'd1', 'm1', 'u1', 'up', 'ur', 'x1']);
+    close();
+    expect([idleSim({ sim: true, owner: '', demo: true }), idleSim({ sim: true, owner: '', demo: false }), idleSim({ sim: true, owner: '' }),
+      idleSim({ sim: true, owner: '', demo: false, run: CR('MOVING') }), idleSim({ sim: true, owner: '', demo: false, run: CR('COMPLETED') }),
+      idleSim({ sim: true, owner: '', demo: false, run: CR('MOVING') }, { run: null })]).toEqual([false, true, true, false, true, true]);
   });
 });
