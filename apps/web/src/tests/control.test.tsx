@@ -195,7 +195,7 @@ describe('관제 탭', () => {
   });
   it('글 바닥(MIN_TEXT_PX · 조정 03:00): zoom 에 따라 줄을 뺌(위치 → 진행 → 임무) · 이름 · 배지 · 경고 띠는 남김 · 글 칸은 --minpx 로 키움', () => {
     expect(MIN_TEXT_PX).toBe(10);
-    expect([1, 0.95, 0.85, 0.75, 0.555].map(dropLines)).toEqual([0, 0, 1, 2, 3]);   // 11 px × zoom 이 바닥의 1 · 0.9 · 0.8 배
+    expect([1, 0.95, 0.85, 0.75, 0.555].map((z) => dropLines(z))).toEqual([0, 0, 1, 2, 3]);   // 11 px × zoom 이 바닥의 1 · 0.9 · 0.8 배
     expect(dropLines(wallGrid(8).zoom)).toBe(0); expect(dropLines(wallGrid(20).zoom)).toBe(3);
     mount('u-kim', TWENTY); feed(TWENTY);
     expect($('main.u5').dataset.drop).toBe('3');
@@ -204,6 +204,10 @@ describe('관제 탭', () => {
     expect(t.querySelector('.nm b')!.textContent).toBe(t.dataset.t); expect(t.querySelector('[data-badge], [data-stop-line]')).not.toBeNull(); expect(t.querySelector('[data-warn-flag]')).not.toBeNull();
     const z = t.closest<HTMLElement>('[data-tz]')!; expect(z.style.getPropertyValue('--minpx')).toBe(`${(10 / wallGrid(20).zoom).toFixed(2)}px`);
     expect(u5Css).toContain('.u5 .tile .chip,.u5 .tile .s small{font-size:max(11px,var(--minpx,0px))}');
+    act(() => root!.unmount()); root = null; box.remove();
+    url('?minpx=0'); mount('u-kim', TWENTY); feed(TWENTY);   // 바닥 끈 판(빠지기 전): 줄을 빼지 않고 글도 키우지 않음
+    expect($('main.u5').dataset.drop).toBe('0'); expect(tile('g9').querySelectorAll('.inf .ln').length).toBe(2);
+    expect(tile('g9').closest<HTMLElement>('[data-tz]')!.style.getPropertyValue('--minpx')).toBe('');
   });
   it('가짜 로봇(조정 03:00): 데모 꼴(카메라 칸 «신호 없음» 없음) · 줄은 진짜 로봇 뒤', async () => {
     url('?fake=20'); mount('u-kim', EIGHT); feed(EIGHT);

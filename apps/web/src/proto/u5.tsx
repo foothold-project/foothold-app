@@ -304,7 +304,9 @@ export const CELLS_MAX = 8;
 /** 타일 안 글의 실제 크기 바닥(조정 03:00): zoom 으로 이보다 작아지면 글을 키우고(CSS --minpx), 덜 중요한 줄부터 뺀다 */
 export const MIN_TEXT_PX = 10;
 /** 뺄 줄 수: 타일의 가장 작은 글(11 px)이 zoom 뒤 바닥의 몇 배인가로. 1 = 둘째 줄 위치, 2 = + 진행 막대 · 할 일 수, 3 = + 임무 줄. 이름 · 배지 · 경고 띠는 늘 남김 */
-export const dropLines = (zoom: number) => { const r = (11 * zoom) / MIN_TEXT_PX; return r >= 1 ? 0 : r >= 0.9 ? 1 : r >= 0.8 ? 2 : 3; };
+/** 쓰는 바닥: 주소 ?minpx=0 이면 끔(빠지기 전 판 · 팀장이 고를 수 있게), 아니면 MIN_TEXT_PX */
+export const minTextPx = () => (urlParam('minpx') === '0' ? 0 : MIN_TEXT_PX);
+export const dropLines = (zoom: number, min = minTextPx()) => { if (!min) return 0; const r = (11 * zoom) / min; return r >= 1 ? 0 : r >= 0.9 ? 1 : r >= 0.8 ? 2 : 3; };
 export const cellsOn = (n: number) => { const v = urlParam('cells'); return v === 'on' ? true : v === 'off' ? false : n <= CELLS_MAX; };
 /** 화면 검토용 가짜 로봇(팀장 02:41 · ?fake=10|20): 서버 로봇에 더해 그 대수를 채운다. 서버에 띄우지 않고, 쓰기 요청 · 로봇 탭 열기를 막는다 */
 export const FAKE_PREFIX = 'fake-';
@@ -585,7 +587,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
 }
 /** 대수가 많을 때만 타일을 줄인다(8 대 이하는 시안 그대로 zoom 1 · 감싸지 않음) */
 /** zoom 으로 줄인 칸. --minpx = 글 바닥을 zoom 앞 크기로(실제 MIN_TEXT_PX 아래로 줄지 않게 · u5.css 가 글 칸마다 max 로 씀) */
-const ZoomBox = ({ zoom, span, children }: { zoom: number; span?: number; children: ReactNode }) => (zoom >= 1 && !span ? children : <div data-tz={zoom < 1 ? zoom.toFixed(3) : undefined} style={{ ...(zoom < 1 ? { zoom, ['--minpx' as string]: `${(MIN_TEXT_PX / zoom).toFixed(2)}px` } : {}), ...(span ? { gridColumn: `span ${span}` } : {}), display: 'grid', minWidth: 0, minHeight: 0 }}>{children}</div>);
+const ZoomBox = ({ zoom, span, children }: { zoom: number; span?: number; children: ReactNode }) => (zoom >= 1 && !span ? children : <div data-tz={zoom < 1 ? zoom.toFixed(3) : undefined} style={{ ...(zoom < 1 ? { zoom, ...(minTextPx() ? { ['--minpx' as string]: `${(minTextPx() / zoom).toFixed(2)}px` } : {}) } : {}), ...(span ? { gridColumn: `span ${span}` } : {}), display: 'grid', minWidth: 0, minHeight: 0 }}>{children}</div>);
 
 function MapSide({ all, sel, open }: { all: TileFacts[]; sel: string; open: (id: string) => void }) {
   const moving = all.filter((f) => f.walk).length;
