@@ -11,6 +11,12 @@ import { ControlsGuide } from './controls';
 import { THEMES, setThemePref, useTheme } from '../theme';
 import './settings.css';
 
+const NO_VALUE = '값을 받지 못했습니다';
+/** 슬라이더 옆 값 글: 빈 값 · null · 숫자가 아닌 값(NaN · 무한)은 0.00 으로 그리지 않는다(REVIEW-PR573 P2 · 낮은 지적) */
+export const simOut = (v: unknown, unit = '') => {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
+  return Number.isFinite(n) ? `${n.toFixed(2)}${unit ? ` ${unit}` : ''}` : NO_VALUE;
+};
 const REAL_CAPS = { ...phoneCaps, real_max_wz: orgSettingsSchema.properties.real_max_wz.maximum };
 
 type Msg = { text: string; ok?: boolean } | null;
@@ -256,8 +262,8 @@ function OrgCard({ org, admin, id, model, label, note, bad, cap, confirm, fields
       <span id={`st-h-${f.key}`} className="st-note">{f.hint}</span>{tail}</div>;
     const head = <span className="st-lab">{f.label} <span className="lbl">({range(f)}{f.hint ? `, ${f.hint}` : ''})</span>{tags}</span>;
     if (f.kind === 'range') return <label key={f.key} className="fh-field">{head}
-      <span className="st-rng"><input type="range" name={f.key} min={f.min} max={f.max} step={f.step} value={String(v)} disabled={!admin} aria-describedby={desc} onChange={(e) => edit(f, e.target.value)} />
-        <output>{v === '' || v == null || !Number.isFinite(Number(v)) ? '값을 받지 못했습니다' : `${Number(v).toFixed(2)} ${f.unit}`}</output></span>{tail}</label>;
+      <span className="st-rng"><input type="range" name={f.key} min={f.min} max={f.max} step={f.step} value={String(v)} disabled={!admin || simOut(v, '') === NO_VALUE} aria-describedby={desc} onChange={(e) => edit(f, e.target.value)} />
+        <output>{simOut(v, f.unit)}</output></span>{tail}</label>;
     return <label key={f.key} className="fh-field">{head}
       <span className="st-unit"><input className="inp" name={f.key} type="number" inputMode="decimal" min={f.min} max={f.max} step={f.step} readOnly={!admin} aria-describedby={desc}
         aria-invalid={er ? true : undefined} value={String(v)} onChange={(e) => edit(f, e.target.value)} />{f.unit && <span className="lbl">{f.unit}</span>}</span>{tail}</label>;

@@ -10,6 +10,7 @@ import { now } from './rt';
 import { kept } from './screens/mapedit';
 import { clearPlans } from './screens/missions';
 import { useTheme } from './theme';
+import { ACCOUNT_ASK, LoginFields, type LoginBad } from './loginform';
 
 const ENDED = '로그인이 끝났습니다. 다시 로그인하세요.';
 /** 운영 관리자의 로봇 목록(새로 배정된 로봇·목록 요약)을 다시 받는 간격 */
@@ -83,25 +84,24 @@ export function Root() {
 }
 
 function Login({ note, enter }: { note?: string; enter: () => Promise<void> }) {
-  const [msg, setMsg] = useState(note), [busy, setBusy] = useState(false), fh = useTheme()[1] ? 'fh light' : 'fh';
+  const [msg, setMsg] = useState(note), [busy, setBusy] = useState(false), fh = useTheme()[1] ? 'fh light' : 'fh', [bad, setBad] = useState<LoginBad>(null), [tick, setTick] = useState(0);
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (busy) return;
     const f = new FormData(e.currentTarget), id = String(f.get('username')).trim(), pw = String(f.get('password'));
-    if (!id || !pw) return setMsg('계정과 비밀번호를 입력하세요.');
-    setBusy(true); setMsg(undefined);
+    setTick((n) => n + 1);
+    if (!id || !pw) { setBad(!id ? 'username' : 'password'); return setMsg('계정과 비밀번호를 입력하세요.'); }
+    setBusy(true); setMsg(undefined); setBad(null);
     try { await api.login(id, pw); await enter(); }
-    catch (err) { setMsg((err as ApiFail).message); setBusy(false); }
+    catch (err) { setBad((err as ApiFail).status === 401 ? 'both' : null); setMsg((err as ApiFail).message); setBusy(false); }   // 서버 401 은 계정 · 비밀번호를 가르지 않는다(api.py login)
   };
   return <div className={fh}><main className="fh-login" aria-label="로그인">
     <form onSubmit={submit} noValidate>
       <BrandLogo kind="primary" h={40} />
       <div className="fh-field"><h2>로그인</h2><span className="lbl">현장 서버에 연결해 로봇을 보고 조종합니다</span></div>
-      <label className="fh-field"><span className="lbl">계정</span><input className="inp" name="username" autoComplete="username" autoFocus /></label>
-      <label className="fh-field"><span className="lbl">비밀번호</span><input className="inp" name="password" type="password" autoComplete="current-password" /></label>
-      {msg && <p className="fh-msg" role="alert">{msg}</p>}
-      <button type="submit" className="btn pri" disabled={busy}>{busy ? '로그인 중…' : '로그인'}</button>
+      <LoginFields msg={msg} bad={bad} tick={tick} busy={busy} note={tick === 0} />
       <span className="lbl">5분 안에 5번 틀리면 잠시 로그인할 수 없습니다.</span>
+      <span className="lbl" data-account-ask>{ACCOUNT_ASK}</span>
     </form>
   </main></div>;
 }
