@@ -5,9 +5,9 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from 'react';
 import type { MapConnector, MapEdit, MapFeatures, MapVersion, MapWaypoint, MapZone } from '../../../contracts/ts';
 import { ApiFail, api, type ZoneOverlaps } from '../api';
-import { MapFrame, MapImage, toView } from '../mapframe';
+import { FactoryImage, MapFrame, MapImage, toView } from '../mapframe';
 import { leaving } from '../menu';
-import { EDIT, KIND, Note, Shapes, ZONE, canon, fillOf, isVersion, reasonBad, shape, toPixel, useFit, type Msg, type Place } from './maps';
+import { EDIT, KIND, Note, Shapes, ZONE, canon, demoBoard, fillOf, isVersion, reasonBad, shape, toPixel, useFit, type Msg, type Place } from './maps';
 import { Hint, Pane } from './mapscen';
 
 type P = [number, number];
@@ -415,9 +415,9 @@ export function Editor({ v, p, cancel, saved, toScen, quit, recheck, moved, slot
           <button type="button" className="btn" aria-pressed={tool === t} title={text} disabled={lock} onClick={() => pick(t)}>{ICON[t]}<span className="mx-sr">{text}</span></button></span>)}
       </div>
       <div className="mx-map">
-        <MapFrame ref={svg} {...fit} photo={v} edit at={{ right: 8, bottom: 8, alignItems: 'flex-end' }} role="img" aria-label="편집 중인 지도" data-map data-edit onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
+        <MapFrame ref={svg} {...fit} photo={demoBoard(p.site, p.building) ? null : v} edit at={{ right: 8, bottom: 8, alignItems: 'flex-end' }} role="img" aria-label="편집 중인 지도" data-map data-edit onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
           style={{ display: 'block', width: '100%', height: '100%', userSelect: 'none', WebkitUserSelect: 'none', cursor: tool === 'pick' ? 'default' : 'crosshair' }}>
-          <MapImage id={v.id} width={v.width} height={v.height} onError={() => setMsg({ text: '지도 그림을 불러오지 못했습니다. 보기로 돌아가 다시 불러오세요.' })} />
+          <MapImage id={v.id} width={v.width} height={v.height} onError={() => setMsg({ text: '지도 그림을 불러오지 못했습니다. 보기로 돌아가 다시 불러오세요.' })} />{demoBoard(p.site, p.building) && <FactoryImage v={v} />}
           <Shapes v={v} f={f} sel={sel} bad={bad ? keyOf(bad.path) : undefined} />
           {pts.length > 0 && <g data-drawing>
             <polyline points={pts.map(([x, y]) => toPixel(v, x, y).join(',')).join(' ')} style={{ fill: 'none', stroke: color, strokeWidth: 2, strokeDasharray: '4 3' }} vectorEffect="non-scaling-stroke" />
