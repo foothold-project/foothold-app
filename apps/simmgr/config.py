@@ -83,8 +83,10 @@ class Settings:
             import math
             if not math.isfinite(self.arrival_pose_max_age_s) or self.arrival_pose_max_age_s <= 0:
                 raise ValueError('arrival pose maximum age must be positive and finite')
-        if type(self.runtime_seconds) is not int or not 5 <= self.runtime_seconds <= 3600:
-            raise ValueError('simulation runtime must be 5..3600 seconds')
+        # Local MuJoCo demo keeps robots up for a day (app-design-lx 11/28 13:32); everywhere else 3600.
+        runtime_cap = 86400 if self.local_backend == 'mujoco' else 3600
+        if type(self.runtime_seconds) is not int or not 5 <= self.runtime_seconds <= runtime_cap:
+            raise ValueError(f'simulation runtime must be 5..{runtime_cap} seconds')
         # The 1..2 cap came with the native Gazebo/ROS first launch (P1-C, FIRST-LAUNCH.md: native 1 robot,
         # fake 2 for namespace/topic/port planning). A local MuJoCo agent is one Node + one Python process
         # per robot with no ROS graph; local integration allows 4 (demo-day 11/28, not a product decision).

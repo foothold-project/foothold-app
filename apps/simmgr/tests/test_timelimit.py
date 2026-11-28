@@ -24,6 +24,18 @@ def test_shared_runtime_default_and_maximum():
     assert replace(cfg, runtime_seconds=3600).unit_runtime_seconds == 3690
 
 
+def test_mujoco_local_runtime_up_to_a_day():
+    """Local MuJoCo demo only (app-design-lx 11/28 13:32): up to 86400 s; others keep 3600."""
+    cfg = replace(settings(), local_backend='mujoco')
+    assert cfg.runtime_seconds == 1800
+    day = replace(cfg, runtime_seconds=86400)
+    assert day.runtime_seconds == 86400 and day.unit_runtime_seconds == 86490
+    with pytest.raises(ValueError, match='runtime'):
+        replace(cfg, runtime_seconds=86401)
+    with pytest.raises(ValueError, match='runtime'):
+        replace(settings(), runtime_seconds=3601)
+
+
 @pytest.mark.parametrize('seconds', [5, 299])
 def test_native_runtime_rejects_short_values(native_episode, seconds):
     cfg, _ = native_episode

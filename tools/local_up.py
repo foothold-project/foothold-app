@@ -158,7 +158,7 @@ def extra_sim_robot_id(org_id, number):
 
 
 # Read from the shell (or .env) only for --sim mujoco; never reaches the API server.
-POLICY_KEYS = ('FH_SIM_ORT_NODE', 'FH_SIM_START_MAP', 'FH_SIM_POLICY_DIR', 'FH_SIM_MAX_PER_OWNER', 'FH_SIM_STEP_STATS')
+POLICY_KEYS = ('FH_SIM_ORT_NODE', 'FH_SIM_START_MAP', 'FH_SIM_POLICY_DIR', 'FH_SIM_MAX_PER_OWNER', 'FH_SIM_STEP_STATS', 'FH_SIM_RUNTIME_SECONDS')
 
 
 def sim_setup(repository, values, data):

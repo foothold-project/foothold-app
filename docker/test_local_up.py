@@ -321,7 +321,7 @@ def test_sim_world_slots_and_policy_env_from_env(checkout, tmp_path, monkeypatch
     monkeypatch.setenv('FH_SIM_WORLD', 'plant_a')
     monkeypatch.setenv('FH_SIM_SLOTS', '4')
     for key, value in (('FH_SIM_ORT_NODE', '/x/ort/index.js'), ('FH_SIM_START_MAP', 'off'), ('FH_SIM_POLICY_DIR', '/x/m15500'),
-                       ('FH_SIM_MAX_PER_OWNER', '3')):
+                       ('FH_SIM_MAX_PER_OWNER', '3'), ('FH_SIM_RUNTIME_SECONDS', '86400')):
         monkeypatch.setenv(key, value)
     values, _ = local_up.prepare(checkout, tmp_path / 'accounts.env', docker=False, check=False)
     data = tmp_path / 'data'
@@ -337,6 +337,7 @@ def test_sim_world_slots_and_policy_env_from_env(checkout, tmp_path, monkeypatch
     assert manager['FH_SIM_MAX_ROBOTS'] == '4'
     assert (manager['FH_SIM_ORT_NODE'], manager['FH_SIM_START_MAP'], manager['FH_SIM_POLICY_DIR']) == ('/x/ort/index.js', 'off', '/x/m15500')
     assert manager['FH_SIM_MAX_PER_OWNER'] == '3'
+    assert manager['FH_SIM_RUNTIME_SECONDS'] == '86400'
     # back to the default: one slot, collapsed house (the pass-key file follows the slots)
     monkeypatch.delenv('FH_SIM_WORLD')
     monkeypatch.delenv('FH_SIM_SLOTS')
