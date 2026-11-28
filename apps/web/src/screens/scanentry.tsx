@@ -2,7 +2,7 @@
 // 실기 조종 화면 ⋯ «지도 스캔»(App) = 조종 화면 영상 칸 위 겹(ScanOver · 시안 u14_2 배치). 모두 PhoneScan(시안 u14_2 틀)을 연다.
 // 권한은 PhoneScan 과 같은 makers()(운영자 · 자기 담당 실기, 서버도 403 MAPPING_OWNER_ONLY). 없으면 단추 대신 까닭 한 줄.
 // 층은 실기 현장(REAL)만 고른다. 이 파일은 주행 명령을 만들지 않는다(조종 · STOP 은 폰 조종 화면).
-import { useState } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
 import type { Robot, User } from '../fake';
 import { makers } from './mapmake';
 import { floorsOf, purposeOf, useTree } from './maps';
@@ -10,10 +10,11 @@ import { CLOSE_IC, PhoneScan, ScanFrame, SideBtn } from './phonescan';
 
 export const SCAN_NO = '지도 스캔은 로봇의 담당 운영자만 할 수 있습니다.';
 
-/** 단추 하나 또는 까닭 한 줄 */
-export function ScanStart({ user, robots, label, start }: { user: User; robots: Robot[]; label: string; start: () => void }) {
-  return makers(user, robots).length ? <button type="button" className="btn" onClick={start} data-scan-start>{label}</button>
-    : <p className="lbl" data-scan-no>{SCAN_NO}</p>;
+/** 단추 하나 또는 까닭 한 줄. look = 시안 화면에 놓을 때의 꼴(단추 class · 인라인 style · 아이콘 · 까닭 줄 class, 폰 붙이기 끝 u2_3 .scanb) · 동작은 같다 */
+export function ScanStart({ user, robots, label, start, look }: { user: User; robots: Robot[]; label: string; start: () => void;
+  look?: { cls: string; style?: CSSProperties; icon?: ReactNode; noCls: string } }) {
+  return makers(user, robots).length ? <button type="button" className={look?.cls ?? 'btn'} style={look?.style} onClick={start} data-scan-start>{look?.icon}{label}</button>
+    : <p className={look?.noCls ?? 'lbl'} data-scan-no>{SCAN_NO}</p>;
 }
 
 /** 스캔 칸(시안 u14_2 틀 · phonescan.tsx): 고를 로봇(담당 실기)이 여럿이면 오른쪽 단추 줄 맨 위에 고르기 → PhoneScan. 칸 안 칸 없이 화면 하나 */

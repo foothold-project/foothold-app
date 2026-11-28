@@ -7,6 +7,7 @@ import { api, type ApiFail } from './api';
 import { PHONE_Q } from './App';
 import { toRobot, type Robot, type User } from './fake';
 import { ScanPanel, ScanStart } from './screens/scanentry';
+import { PairDone, PairName } from './screens/phonepair';
 import { Chip, inApp } from './screens';
 import { OwnerSelect, robotFail } from './screens/settings';
 
@@ -170,6 +171,11 @@ export function AddRobot({ user, mine, close, refresh, cancel }: { user?: User; 
   const again = <p className="lbl">이미 등록한 로봇을 노트북에 다시 설치했으면 같은 방법으로 다시 연결하세요 — 같은 로봇으로 이어지고 옛 연결 키는 바로 폐기됩니다.</p>;
   // 붙이기 끝 → 지도 스캔: 새 로봇 추가 카드를 스캔 칸으로 바꾼다(닫기 = 내 로봇으로와 같이 목록 다시 받기)
   if (step.at === 'scan' && user) return <ScanPanel user={user} robots={[step.robot]} close={() => { refresh(); close(); }} cancel={cancel} />;
+  // 폰 확인 · 완료 = 시안 u2_2 · u2_3 꼴(screens/phonepair.tsx). 흐름 · 요청 · 값은 아래 옛 카드와 같다(PC 와 코드 단계는 옛 카드 그대로)
+  if (phone && step.at === 'name') return <PairName serial={step.p.robot_serial} expires={step.p.expires_at} name={name} setName={setName} busy={busy} msg={msg}
+    submit={(e) => confirm(e, step.p)} restart={restart} close={close} />;
+  if (phone && step.at === 'done') return <PairDone name={step.name} again={step.again} robot={step.robot} user={user}
+    scan={() => setStep({ at: 'scan', robot: step.robot })} toMine={() => { refresh(); close(); }} close={close} />;
   return <section className={phone ? 'lv-card' : 'lv-card pair-pc'} style={{ flexBasis: '100%' }} aria-label="새 로봇 추가" data-pair={step.at}>
     <div className="fh-row"><h2>새 로봇 추가</h2><Steps n={STEP_N[step.at]} /><span className="fh-grow" /><button type="button" className="btn" onClick={close}>닫기</button></div>
     {step.at === 'code' && (phone ? <><Installer cancel={cancel} phone />{note}{qr}{form}{again}</>
