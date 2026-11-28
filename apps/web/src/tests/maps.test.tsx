@@ -476,9 +476,6 @@ describe('지도 탭 — 보기', () => {
     await open('#/map');
     const view = card('지도 보기');
     expect(view.textContent).not.toMatch(/판 \d/);                                       // 화면 글에 판 번호 없음(11-04)
-    expect(saveRow(0).textContent).toContain('이유 2');                                  // 이유·만든 사람·시각은 저장 기록 줄에
-    expect(saveRow(0).textContent).toContain('김총괄');
-    expect(saveRow(0).textContent).toContain(new Date('2026-10-20T05:00:00Z').toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }));
     expect($('[data-summary]')!.textContent).toContain('1구역1지점1연결점');
     expect(view.textContent).not.toMatch(/[0-9a-f]{7,}/);                                // 해시 등 16진 문자열 0(금지어)
     const svg = view.querySelector('svg')!;
@@ -489,24 +486,22 @@ describe('지도 탭 — 보기', () => {
     const k = svg.querySelector('[data-connector="STAIRS"]')!;
     expect([Number(k.getAttribute('x')) + 1, Number(k.getAttribute('y')) + 1]).toEqual([20, 40]);   // (0,0) 중심, 반지름 = 100/100
     expect(svg.querySelector('[data-robot]')).toBeNull();                                // 로봇 점은 그리지 않음(D5 전)
+    await click($('[data-open-u79]'));                                                    // 이유·만든 사람·시각은 버전 기록(시안 u7_9) 줄에
+    const row = $('[data-save="v2"]')!.textContent!;
+    expect(row).toContain('이유 2'); expect(row).toContain('김총괄'); expect(row).toMatch(/\d+\/\d+ \d\d:\d\d/);
   });
-  it('판 목록에서 옛 판 보기 — 그림·정보가 그 판으로, «지난 판» 표시', async () => {
+  it('저장 기록 = 시안 u7_9 버전 기록(옛 접기 없음): 줄 = vN · 이유 · 시각 · 만든 사람 · 상태, 「지도로」 면 층 화면', async () => {
     serve(signedIn(KIM));
     await open('#/map');
-    const hist = $<HTMLDetailsElement>('details[data-history]')!;
-    expect(hist.open).toBe(false);                                                         // 저장 기록은 기본 닫힘
-    expect(hist.textContent).not.toMatch(/판 \d/);                                         // 판 번호 대신 저장 시각·만든 사람
+    expect($('details[data-history]')).toBeNull();                                        // 층 화면에 옛 저장 기록 접기 없음
+    await click($('[data-open-u79]'));
     expect($$('[data-save]').map((r) => r.getAttribute('data-save'))).toEqual(['v2', 'v1']);
-    expect(saveRow(0).textContent).toContain('김총괄'); expect(saveRow(0).textContent).toContain('지금 지도');
-    expect(saveRow(1).textContent).toContain('처음 올림');
-    await click(saveRow(1));
-    expect(img()!.getAttribute('href')).toBe('/api/v1/map-versions/v1/image');
-    expect($('[data-old-save]')!.textContent).toContain('지난 저장 기록을 보는 중입니다.');
-    expect(saveRow(1).getAttribute('aria-pressed')).toBe('true');
-    expect($('[data-summary]')!.textContent).toContain('0구역0지점0연결점');
-    await click(btn('지금 지도 보기'));
+    expect($('[data-save="v2"]')!.textContent).toContain('현재 버전');
+    expect($('[data-save="v1"]')!.textContent).toContain('처음 올림'); expect($('[data-save="v1"]')!.textContent).toContain('지난 저장');
+    expect($('[data-u7-pair]')!.textContent).toBe('v1 와 v2 비교');
+    await click($('[data-u7-back]'));
+    expect($('[data-u7="u7_9_history"]')).toBeNull();
     expect(img()!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
-    expect($('[data-old-save]')).toBeNull();
   });
   it('승인 판이 없는 층 → «아직 지도가 없습니다»(그림 요청 없음)', async () => {
     serve(signedIn(LEE));
@@ -989,15 +984,13 @@ describe('지도 편집 — 보기/편집 토글·권한', () => {
     expect(note.textContent).toContain('저장했지만 서버가 아직 적용하지 않았습니다. 적용되기 전에는 지금 지도를 그대로 씁니다.');
     expect(canvas()).toBeNull();
     expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층');
-    expect($$('[data-save]').map((r) => r.getAttribute('data-save'))).toEqual(['v3', 'v2', 'v1']);
-    expect(saveRow(0).textContent).toContain('적용 안 됨'); expect(saveRow(1).textContent).toContain('지금 지도');
-    expect(saveRow(1).getAttribute('aria-pressed')).toBe('true');
     expect(img()!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
     expect(sent('GET', '/dashboard').length).toBe(dash + 1);
-    await click(saveRow(0));
-    expect($('[data-old-save]')!.textContent).toContain('적용되지 않은 저장 기록을 보는 중입니다. 실행에는 이 기록을 쓰지 않습니다.');
+    await click($('[data-open-u79]'));                                   // 버전 기록(u7_9): 대기 판은 「적용 안 됨」, 지금 판은 그대로
+    expect($$('[data-save]').map((r) => r.getAttribute('data-save'))).toEqual(['v3', 'v2', 'v1']);
+    expect($('[data-save="v3"]')!.textContent).toContain('적용 안 됨'); expect($('[data-save="v2"]')!.textContent).toContain('현재 버전');
     await stopSends();
-    await click(btn('지금 지도 보기'));
+    await click($('[data-u7-back]'));
     expect(btn('내 요청 보기')).toBeUndefined();
     act(() => root?.unmount()); box.remove();
     serve(editSrv());
@@ -1685,24 +1678,25 @@ describe('판 비교·되돌리기(W4c)', () => {
   const V3 = ver('v3', 3, { base_version_id: 'v2', copied_from_id: 'v1', source: 'ROLLBACK', reason: '되돌림', created_at: '2026-10-21T05:00:00Z' });
   const TREE3: SiteTree = { ...TREE, items: [{ ...TREE.items[0], buildings: [{ ...TREE.items[0].buildings[0], floors: [floor('f1', '1층', 1, 'v3'), floor('f2', '2층', 2, null)] }] }] };
   const rows = () => [...card('차이 목록').querySelectorAll('button')].map((b) => b.textContent!.replace(/^■ /, ''));
-  /** 저장 기록 줄을 눌러 그 기록을 본다 */
-  const see = (id: string) => click($(`[data-save="${id}"] button`));
-  const seen = (id: string) => $(`[data-save="${id}"] button`)!.getAttribute('aria-pressed');
   /** 판 번호 대신 부르는 이름(총괄 = 만든 사람 이름도 앎) */
   const nm = (v: MapVersion) => `${new Date(v.created_at).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' })} · 김총괄`;
-  const compare = () => click(btn('비교', card('저장 기록 관리')));
-  const undoBtn = () => btn('이 기록으로 되돌리기', card('저장 기록 관리'));
+  /** 시안 u7_9 버전 기록 열기(처음 = 지금 판과 그 기준 판 비교) · 닫고 다시 열기 */
+  const compare = () => click($('[data-open-u79]'));
+  const reopen = async () => { await click($('[data-u7="u7_9_history"] [data-u7-back]')); await compare(); };
+  const pair = () => $('[data-u7-pair]')!.textContent;
+  const retry = () => $$('[aria-label="기록 비교"] [role="button"]').find((b) => b.textContent === '다시 시도');
+  const undoBtn = () => $('[data-u7-restore]') ?? undefined;
   const diffSvg = () => $<SVGSVGElement>('svg[data-diff]')!;
   const back = async (reason = '잘못 편집함') => { await setVal(field('되돌리는 이유', card('이 기록으로 되돌리기')), reason); await click(btn('되돌리기', card('이 기록으로 되돌리기'))); };
-  const rollSrv = (post: Route, more: Record<string, Route> = {}, me = KIM) => signedIn(me, { 'GET /map-versions/v1/diff': { status: 200, body: { ...DIFF, version: V1, against: null, changes: [] } }, 'POST /map-versions/v1/rollback': post, ...more });
+  const rollSrv = (post: Route, more: Record<string, Route> = {}, me = KIM) => signedIn(me, { 'GET /map-versions/v1/diff': { status: 200, body: { ...DIFF, version: V1, against: null, changes: [] } }, 'GET /map-versions/v2/diff': { status: 200, body: DIFF }, 'POST /map-versions/v1/rollback': post, ...more });
 
-  it('비교: 고른 판(승인 판 2) vs 그 판의 기준 판(판 1) — against 없이 요청, 그림이 바뀌면 겹쳐 보기(앞 판 아래·뒤 판 반투명)와 전/후 전환', async () => {
+  it('비교(시안 u7_9): 지금 판(v2) vs 그 기준 판(v1) · ?against=v1, 그림이 바뀌면 겹쳐 보기(앞 판 아래·뒤 판 반투명)와 전/후 전환, 「지도로」 면 층 화면', async () => {
     serve(signedIn(KIM, { 'GET /map-versions/v2/diff': { status: 200, body: DIFF } }));
     await open('#/map');
     await compare();
     const q = sent('GET', '/map-versions/v2/diff');
-    expect(q).toHaveLength(1); expect(q[0].q.has('against')).toBe(false);
-    expect(card('기록 비교').textContent).toContain(`${nm(V1)} → ${nm(V2)}`);
+    expect(q).toHaveLength(1); expect(q[0].q.get('against')).toBe('v1');
+    expect(pair()).toBe('v1 와 v2 비교');
     expect(card('기록 비교').textContent).not.toMatch(/판 \d/);
     expect(card('지도 그림').textContent).toContain('지도 그림이 바뀌었습니다.');
     const before = () => diffSvg().querySelector('image[data-image="before"]'), after = () => diffSvg().querySelector<SVGImageElement>('image[data-image="after"]');
@@ -1710,11 +1704,11 @@ describe('판 비교·되돌리기(W4c)', () => {
     expect(after()!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
     expect(after()!.parentElement!.getAttribute('opacity')).toBe('0.5');
     expect($('[aria-label="지도 보기"] svg[data-map]')).toBeNull();        // 비교 중엔 판 그림 하나 대신 비교 그림
-    await click(btn(nm(V1), card('지도 그림')));
+    await click(btn('v1', card('지도 그림')));
     expect(before()).toBeTruthy(); expect(after()).toBeNull();
-    await click(btn(nm(V2), card('지도 그림')));
+    await click(btn('v2', card('지도 그림')));
     expect(before()).toBeNull(); expect(after()!.parentElement!.getAttribute('opacity')).toBeNull();
-    await compare();                                                    // 다시 누르면 보기로
+    await click($('[data-u7-back]'));                                   // 지도로 = 층 화면
     expect(diffSvg()).toBeNull(); expect(img()!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
   });
 
@@ -1731,13 +1725,13 @@ describe('판 비교·되돌리기(W4c)', () => {
     expect(diffSvg().querySelector('[data-map-top]')).not.toBeNull();
     expect(diffSvg().style.getPropertyValue('--fh-map-a')).toBe('0.45');
     own();
-    await compare(); diff = { ...diff, against: null }; await compare();   // 첫 판(빈 지도와 비교)
-    expect(card('기록 비교').textContent).toContain(`빈 지도 → ${nm(S2)}`);
+    diff = { ...diff, against: null }; await reopen();   // 첫 판(빈 지도와 비교)
+    expect(card('기록 비교').textContent).toContain('첫 저장이라 빈 지도와 비교합니다.');
     expect(diffSvg().style.getPropertyValue('--fh-map-a')).toBe('0.45'); own();
-    await compare(); diff = { ...diff, against: S1, image_changed: true }; await compare();   // 그림이 바뀜: 겹쳐 보기 → 뒤 판 단독
+    diff = { ...diff, against: S1, image_changed: true }; await reopen();   // 그림이 바뀜: 겹쳐 보기 → 뒤 판 단독
     expect(after().parentElement!.getAttribute('opacity')).toBe('0.5');
     expect(after().style.opacity).toBe(diffSvg().querySelector<SVGImageElement>('image[data-image="before"]')!.style.opacity);   // 두 그림 모두 자기 투명도 그대로
-    await click(btn(nm(S2), card('지도 그림')));
+    await click(btn('v2', card('지도 그림')));
     expect(diffSvg().style.getPropertyValue('--fh-map-a')).toBe('0.45'); own();
   });
 
@@ -1765,34 +1759,26 @@ describe('판 비교·되돌리기(W4c)', () => {
     expect(diffSvg().querySelector('[data-hi]')).toBeNull();
   });
 
-  it('두 판 고르기: 비교할 판을 바꾸면 ?against= 로 다시 요청(늦은 옛 답은 버림), 첫 판은 빈 지도와 비교·그림 하나', async () => {
+  it('두 판 고르기: 줄을 누르면 그 판과 뒤 판을 ?against= 로 다시 요청(늦은 옛 답은 버림)', async () => {
     const V2s = { ...V2, status: 'SUPERSEDED' as const }, slow: ((r: Reply) => void)[] = [];
     serve(signedIn(KIM, {
       'GET /sites': { status: 200, body: TREE3 }, 'GET /map-versions/v3': { status: 200, body: V3 },
       'GET /floors/f1/map-versions': { status: 200, body: { items: [V3, V2s, V1], next_cursor: null } },
       'GET /map-versions/v3/diff': (q) => (q.get('against') === 'v1' ? { status: 200, body: { ...DIFF, version: V3, against: V1, image_changed: false, changes: [] } }
         : new Promise<Reply>((r) => slow.push(r))),
-      'GET /map-versions/v1/diff': { status: 200, body: { version: V1, against: null, image_changed: true, changes: [chg('waypoints', 'added', null, OLD_W)] } },
     }));
     await open('#/map');
     await compare();
-    const pick = $<HTMLSelectElement>('select[aria-label="비교할 기록"]')!;
-    expect([...pick.options].map((o) => o.textContent)).toEqual([`${nm(V2s)} (바로 앞 기록)`, nm(V1)]);
-    await setVal(pick, 'v1');
-    expect(sent('GET', '/map-versions/v3/diff').map((c) => c.q.get('against'))).toEqual([null, 'v1']);
-    expect(card('기록 비교').textContent).toContain(`${nm(V1)} → ${nm(V3)}`);
+    expect(pair()).toBe('v2 와 v3 비교');
+    await click($('[data-save="v1"]'));
+    expect(sent('GET', '/map-versions/v3/diff').map((c) => c.q.get('against'))).toEqual(['v2', 'v1']);
+    expect(pair()).toBe('v1 와 v3 비교');
+    expect($$('[data-save]').map((r) => r.getAttribute('aria-pressed'))).toEqual(['true', 'false', 'true']);
     expect(card('기록 비교').textContent).toContain('지도 그림은 같습니다.');
     expect(diffSvg().querySelectorAll('image')).toHaveLength(1);
     expect(card('기록 비교').textContent).toContain('바뀐 것이 없습니다.');
     act(() => slow[0]({ status: 200, body: { ...DIFF, version: V3, against: V2s } })); await flush();   // 기준 판 비교가 늦게 와도 덮지 않음
-    expect(card('기록 비교').textContent).toContain(`${nm(V1)} → ${nm(V3)}`);
-    await see('v1');                                         // 기록을 바꾸면 비교 대상은 그 기록의 기본으로
-    expect(sent('GET', '/map-versions/v1/diff')[0].q.has('against')).toBe(false);
-    expect([...$<HTMLSelectElement>('select[aria-label="비교할 기록"]')!.options].map((o) => o.textContent)).toEqual(['빈 지도 (첫 저장)', nm(V3), nm(V2s)]);
-    expect(card('기록 비교').textContent).toContain('첫 저장이라 빈 지도와 비교합니다.');
-    expect($('[aria-label="지도 그림"]')).toBeNull();
-    expect([...diffSvg().querySelectorAll('image')].map((i) => i.getAttribute('data-image'))).toEqual(['after']);
-    expect(rows()).toEqual(['추가 · 지점 «옛 지점»']);
+    expect(pair()).toBe('v1 와 v3 비교'); expect(card('기록 비교').textContent).toContain('지도 그림은 같습니다.');
   });
 
   it('그림 해상도·원점이 다르면 앞 판 그림을 지도 좌표로 맞춰 겹침(matrix), 비교 그림 범위는 두 그림을 다 담음', async () => {
@@ -1855,15 +1841,15 @@ describe('판 비교·되돌리기(W4c)', () => {
     await open('#/map');
     await compare();
     expect(alertText()).toContain('두 기록의 차이가 너무 커서 비교할 수 없습니다. 더 가까운 기록을 골라 비교하세요.');
-    await click(btn('다시 시도', card('기록 비교')));
+    await click(retry());
     expect(alertText()).toContain('지도 요소가 너무 많은 기록이 있어 비교할 수 없습니다.');
-    await click(btn('다시 시도', card('기록 비교')));
+    await click(retry());
     expect(alertText()).toContain('받은 지도 형식이 맞지 않습니다.');
     expect(diffSvg()).toBeNull();
+    await click(retry());
+    expect(alertText()).toContain('이 기록을 찾을 수 없습니다. 지워졌을 수 있어 새로 불러오세요.');
     const lists = sent('GET', '/floors/f1/map-versions').length, trees = sent('GET', '/sites').length;
-    await click(btn('다시 시도', card('기록 비교')));
-    expect($('[aria-label="기록 비교"]')).toBeNull();                   // 비교를 닫고 판 목록·나무를 다시 받아 알림
-    expect(box.textContent).toContain('비교할 기록을 찾을 수 없습니다. 지워졌을 수 있어 저장 기록을 다시 받았습니다.');
+    await click(retry());                                               // 404 의 다시 시도 = 판 목록·나무 다시 받기(저절로 되풀이 없음)
     expect(sent('GET', '/floors/f1/map-versions').length).toBe(lists + 1); expect(sent('GET', '/sites').length).toBe(trees + 1);
     await stopSends();
   });
@@ -1872,7 +1858,7 @@ describe('판 비교·되돌리기(W4c)', () => {
     serve(signedIn(KIM, { 'GET /map-versions/v2/diff': () => new Promise<Reply>(() => {}) }));
     await open('#/map');
     await compare();
-    expect(card('기록 비교').textContent).toContain('두 기록을 비교하는 중…');
+    expect(card('기록 비교').textContent).toContain('두 기록을 비교하는 중');
     await stopSends();
   });
 
@@ -1880,10 +1866,9 @@ describe('판 비교·되돌리기(W4c)', () => {
     const P3 = { ...V3, status: 'PENDING' as const, created_by: LEE.id };
     serve(rollSrv({ status: 201, body: P3 }, {}, LEE));
     await open('#/map');
-    await see('v1');
     await compare();
-    expect(sent('GET', '/map-versions/v1/diff')).toHaveLength(1);
-    expect(btns(card('저장 기록 관리')).map((b) => b.textContent)).toEqual(['비교', '이 기록으로 되돌리기']);
+    expect(sent('GET', '/map-versions/v2/diff')).toHaveLength(1);
+    expect(undoBtn()!.textContent).toBe('v1 로 되돌리기');
     await click(undoBtn());
     expect(card('이 기록으로 되돌리기').textContent).toContain('새로 저장합니다. 지금 지도는 저장 기록에 남고');
     expect(btn('결재 요청')).toBeUndefined();
@@ -1892,13 +1877,14 @@ describe('판 비교·되돌리기(W4c)', () => {
     expect(sent('POST', '/map-versions/v1/rollback')[0].body).toEqual({ base_version_id: 'v2', reason: '잘못 편집함' });
     expect(card('지도 보기').textContent).toContain('저장했지만 서버가 아직 적용하지 않았습니다. 적용되기 전에는 지금 지도를 그대로 씁니다.');
     expect($('[aria-label="이 기록으로 되돌리기"]')).toBeNull();
-    expect(seen('v2')).toBe('true'); expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층');
+    expect($('[data-u7="u7_9_history"]')).toBeNull(); expect(img()!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
+    expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층');
   });
 
   it('운영 관리자도 답 끊김은 총괄과 같이(목록 다시 받기 — 내 대기 요청 조회·«상태 확인» 없음, 10-27)', async () => {
     serve(rollSrv(() => { throw new TypeError('Failed to fetch'); }, {}, LEE));
     await open('#/map');
-    await see('v1');
+    await compare();
     await click(undoBtn());
     await setVal(field('되돌리는 이유', card('이 기록으로 되돌리기')), '잘못 편집함'); await click(btn('되돌리기', card('이 기록으로 되돌리기')));
     expect(alertText()).toContain('되돌리기 응답을 받지 못했습니다.');
@@ -1910,20 +1896,20 @@ describe('판 비교·되돌리기(W4c)', () => {
     const T = { ...TREE, items: [{ ...TREE.items[0], buildings: [{ ...TREE.items[0].buildings[0], floors: [{ ...floor('f1', '1층', 1, 'v2'), pending_count: 2 }, floor('f2', '2층', 2, null)] }] }] };
     serve(signedIn(KIM, { 'GET /sites': { status: 200, body: T }, 'GET /floors/f1/map-versions': { status: 200, body: { items: list, next_cursor: null } } }));
     await open('#/map');
-    ['취소됨', '반려됨', '적용 불가(지도가 바뀜)', '적용 안 됨', '지금 지도', '지난 저장'].forEach((s, i) => expect(saveRow(i).textContent).toContain(s));
-    expect(card('지도 보기').textContent).not.toMatch(/결재 대기|판 \d/);
-    await see('v4');
-    expect($('[data-old-save]')!.textContent).toContain('적용되지 않은 저장 기록을 보는 중입니다.');
+    await compare();
+    ['취소됨', '반려됨', '적용 불가(지도가 바뀜)', '적용 안 됨', '현재 버전', '지난 저장'].forEach((s, i) => expect($$('[data-save]')[i].textContent).toContain(s));
+    expect(card('버전 기록').textContent).not.toMatch(/결재 대기|판 \d/);
   });
 
-  it('되돌리기 단추는 한때 승인된 판(SUPERSEDED)에만 — 지금 승인 판·대기·반려 판에는 없음', async () => {
+  it('되돌리기 단추는 비교의 앞 판이 한때 승인된 판(SUPERSEDED)일 때만 · 지금 승인 판·대기·반려 판에는 없음', async () => {
     const P = ver('v4', 4, { status: 'PENDING' }), R = ver('v5', 5, { status: 'REJECTED' });
     serve(signedIn(KIM, { 'GET /floors/f1/map-versions': { status: 200, body: { items: [R, P, V2, V1], next_cursor: null } } }));
     await open('#/map');
-    expect(undoBtn()).toBeUndefined();                                  // 승인 판 2
-    for (const id of ['v4', 'v5']) { await see(id); expect(undoBtn()).toBeUndefined(); }
-    await see('v1');
-    expect(undoBtn()).toBeTruthy();
+    await compare();
+    expect(undoBtn()!.textContent).toBe('v1 로 되돌리기');             // 처음 = 지금 판 v2 와 그 기준 v1(한때 승인)
+    await click($('[data-save="v5"]')); expect(undoBtn()).toBeUndefined();   // v2 와 v5: 앞 판 = 지금 승인 판
+    await click($('[data-save="v4"]')); expect(undoBtn()).toBeUndefined();   // v4 와 v5: 앞 판 = 대기
+    await click($('[data-save="v1"]')); expect(undoBtn()!.textContent).toBe('v1 로 되돌리기');
   });
 
   it('되돌리기: 이유 필수(요청 0) → POST {base_version_id: 지금 승인 판, reason} → 201 이면 새 승인 판으로 보기 전환', async () => {
@@ -1932,7 +1918,7 @@ describe('판 비교·되돌리기(W4c)', () => {
       'GET /sites': () => ({ status: 200, body: rolled ? TREE3 : TREE }), 'GET /map-versions/v3': { status: 200, body: V3 },
       'GET /floors/f1/map-versions': () => ({ status: 200, body: { items: rolled ? [V3, { ...V2, status: 'SUPERSEDED' }, V1] : [V2, V1], next_cursor: null } }) }));
     await open('#/map');
-    await see('v1');
+    await compare();
     await click(undoBtn());
     expect(card('이 기록으로 되돌리기').textContent).toContain(`${nm(V1)} 기록으로 되돌리기`);
     expect(card('이 기록으로 되돌리기').textContent).toContain('지금 지도는 저장 기록에 남고');
@@ -1948,7 +1934,7 @@ describe('판 비교·되돌리기(W4c)', () => {
     expect(box.textContent).toContain(`${nm(V1)} 기록으로 되돌렸습니다. 다음 실행부터 이 지도를 씁니다.`);
     expect($('[aria-label="이 기록으로 되돌리기"]')).toBeNull();
     expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층');
-    expect(seen('v3')).toBe('true'); expect(img()!.getAttribute('href')).toBe('/api/v1/map-versions/v3/image');
+    expect(img()!.getAttribute('href')).toBe('/api/v1/map-versions/v3/image');
   });
 
   it('되돌리기 실패: 409 STALE·ALREADY_APPROVED 는 새로 불러오기, 422 지운 층 연결점·403·503 은 쉬운 말/서버 문구, 칸과 이유는 그대로', async () => {
@@ -1958,7 +1944,7 @@ describe('판 비교·되돌리기(W4c)', () => {
       err(409, 'ALREADY_APPROVED', '이미 승인된 지도 판입니다.')];
     serve(rollSrv(() => replies.shift()!));
     await open('#/map');
-    await see('v1');
+    await compare();
     await click(undoBtn());
     await back();
     expect(alertText()).toContain('되돌리지 못했습니다. 다른 사람이 먼저 이 층의 지도를 바꿨습니다. 새로 불러온 뒤 다시 되돌리세요.');
@@ -1986,7 +1972,7 @@ describe('판 비교·되돌리기(W4c)', () => {
     const fetcher = globalThis.fetch;
     vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => (init.method === 'POST' && url.endsWith('/rollback') ? (await fetcher(url, init), make()) : fetcher(url, init)));
     await open('#/map');
-    await see('v1');
+    await compare();
     await click(undoBtn());
     const lists = sent('GET', '/floors/f1/map-versions').length, trees = sent('GET', '/sites').length;
     await back();
@@ -2003,7 +1989,7 @@ describe('판 비교·되돌리기(W4c)', () => {
   it('두 번 누름: 답을 기다리는 동안 한 번만 보내고 입력 잠김, STOP 은 보이고 실제로 정지 요청', async () => {
     serve(rollSrv(() => new Promise<Reply>(() => {})));
     await open('#/map');
-    await see('v1');
+    await compare();
     await click(undoBtn());
     await setVal(field('되돌리는 이유', card('이 기록으로 되돌리기')), '잘못 편집함');
     const go = btn('되돌리기', card('이 기록으로 되돌리기'))!;
@@ -2020,7 +2006,7 @@ describe('판 비교·되돌리기(W4c)', () => {
   it('STOP: 되돌리기 확인 칸이 떠 있을 때도 보이고 실제로 정지 요청(칸은 그대로)', async () => {
     serve(rollSrv({ status: 201, body: V3 }));
     await open('#/map');
-    await see('v1');
+    await compare();
     await click(undoBtn());
     await stopSends();
     expect(card('이 기록으로 되돌리기')).toBeTruthy(); expect(writes().filter((w) => w.includes('rollback'))).toEqual([]);
@@ -2030,14 +2016,14 @@ describe('판 비교·되돌리기(W4c)', () => {
     serve(editSrv({ 'POST /map-versions/v1/rollback': { status: 201, body: V3 } }));
     await startEdit();
     await tool('연결점'); await tap(1, 1);
-    expect($('[aria-label="저장 기록 관리"]')).toBeNull();
+    expect($('[data-open-u79]')).toBeNull();
     await click($('[data-u7-back]'));
     expect(card('확인').textContent).toContain('편집한 내용을 버리고 보기로 나갈까요?');
     await click(btn('계속 편집', card('확인')));
-    expect($('[aria-label="저장 기록 관리"]')).toBeNull(); expect(canvas()).toBeTruthy();
+    expect($('[data-open-u79]')).toBeNull(); expect(canvas()).toBeTruthy();
     await click($('[data-u7-back]'));
     await click(btn('버리고 나가기', card('확인')));
-    await see('v1');
+    await compare();
     const { leaving } = await import('../menu');
     const asked = vi.fn();
     leaving.ask = asked;                                                 // 남은 나가기 확인이 있으면 되돌리기 칸보다 먼저
@@ -2259,8 +2245,9 @@ describe('지도 탭 REAL · 시뮬 탭 SIM', () => {
     it('지도 탭(REAL)은 그대로: 편집·새 지도 올리기·되돌리기·+ 장소', async () => {
       serve(signedIn(KIM)); await open('#/map');
       expect(btn('편집', card('보기·편집'))).toBeTruthy(); expect(btn('새 지도 올리기…')).toBeTruthy(); expect($('[data-lone]')).toBeNull();
-      await click(saveRow(1));
-      expect(btn('이 기록으로 되돌리기')).toBeTruthy();
+      await click($('[data-open-u79]'));
+      expect($('[data-u7-restore]')).toBeTruthy();
+      await click($('[data-u7-back]'));
       await toWhere();
       expect(['+ 장소', '+ 건물', '+ 층'].every((t) => btn(t, card('장소')))).toBe(true);
     });

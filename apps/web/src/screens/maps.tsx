@@ -184,7 +184,7 @@ export function useTree(cancel?: AbortSignal) {
 
 const day = (at: string) => new Date(at).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' });
 /** 저장 기록 상태 이름. 옛 PENDING 판이 기준 판 이후 승인 판이 바뀌었으면 적용할 수 없다(서버 판정과 같은 규칙 — DB 에는 PENDING 으로 남음) */
-const stateOf = (v: MapVersion, approved: string | null): { tone: Tone; text: string } => v.id === approved ? { tone: 'ok', text: '지금 지도' }
+export const stateOf = (v: MapVersion, approved: string | null): { tone: Tone; text: string } => v.id === approved ? { tone: 'ok', text: '지금 지도' }
   : v.status === 'PENDING' ? (v.base_version_id === approved ? { tone: 'warn', text: '적용 안 됨' } : { tone: 'bad', text: '적용 불가(지도가 바뀜)' })
   : v.status === 'REJECTED' ? { tone: 'bad', text: '반려됨' } : v.status === 'CANCELED' ? { tone: 'off', text: '취소됨' } : { tone: 'off', text: '지난 저장' };
 /** 서버가 아직 PENDING(201)으로 받은 경우(결재 없는 서버 전) — 승인 판을 그대로 보인다 */
@@ -754,7 +754,6 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, toPick, sid
       <dt>3D 모형</dt><dd>{model ? '있음' : '없음'}</dd>
       {who && <><dt>만든 사람</dt><dd>{who}</dd></>}</dl></div>}
     <span className="fh-grow" />
-    {hist}{/* 옛 저장 기록 접기: 시험 28 개를 u7_9 로 옮길 때까지 남김(보고에 적음) */}
     {!!list?.length && now && <button type="button" className="btn" data-open-u79 onClick={() => { setCmp(false); setH9(true); }}>버전 기록 · 비교 · 되돌리기</button>}
   </aside>;
   return <section className="mx" aria-label="지도 보기">

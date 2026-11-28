@@ -193,9 +193,8 @@ describe('지도 만들기 — 진행', () => {
     await wait(1100); await flush(); await flush();
     expect(dlg()).toBeNull();   // 시안 화면을 닫고 층 화면으로
     expect(box.textContent).toContain('로봇으로 만든 지도와 시뮬 지형을 만들었습니다.');
-    const row = $('[data-save="v3"] button')!;
-    expect(row.getAttribute('aria-pressed')).toBe('true');
-    expect(row.querySelector('[data-slam-chip]')!.textContent).toBe('로봇으로 만든 지도');
+    const kv = $('[aria-label="이 지도"]')!.textContent!;   // 층 화면 「이 지도」 = 새 지도(v3 · 로봇으로 그림)
+    expect(kv).toContain('v3'); expect(kv).toContain('로봇으로 그림');
     // 다시 열면 이미 알린 SAVED 는 다시 알리지 않고 새로 시작할 수 있다
     await openMake();
     expect(btn('스캔 시작', dlg())).toBeTruthy();
@@ -211,7 +210,7 @@ describe('지도 만들기 — 진행', () => {
   });
   const madeV3 = () => {
     expect(box.textContent).toContain('로봇으로 만든 지도와 시뮬 지형을 만들었습니다.');
-    expect($('[data-save="v3"] button')!.getAttribute('aria-pressed')).toBe('true');
+    expect($('[aria-label="이 지도"]')!.textContent).toContain('v3');
   };
 
   it('회귀: 1층 저장 중 창을 닫고 2층 창에서 SAVED 를 받아도, 1층으로 돌아와 열면 완료 알림 + 새 지도 선택', async () => {
@@ -377,7 +376,7 @@ describe('지도 만들기 — 받은 칸 놓기(11-25 RB-SLAM-WEB2, 브라우�
     await click(btn('받은 지도 보기', dlg()));
     expect(dlg()).toBeNull();   // 시안 화면을 닫고 층 화면으로
     expect(box.textContent).toContain(RECEIVED_TEXT);
-    expect($('[data-save="v9"] button')!.getAttribute('aria-pressed')).toBe('true');
+    expect($('[aria-label="이 지도"]')!.textContent).toContain('v9');
   });
 
   it('요청을 보내는 동안 회색인 단추 아래 «요청을 보내는 중» 한 줄, 답이 오면 사라짐 (U11-02)', async () => {
@@ -415,13 +414,13 @@ describe('로봇으로 만든 지도 다시 열기(bundle voxels·grid)', () => 
   const manifest = (voxel_count: number) => ({ status: 200, body: { map_version_id: 'v3', terrain_id: null, bundle: { ...B, voxel_count, floor_z: -0.3, odom: ODOM,
     grid: { revision: 2, resolution: 0.05, frame_id: 'map', origin: [-1, -2, 0], floor_z: -0.3, width: 4, height: 2 } } } });
   const bytes = (a: ArrayLike<number>, T: typeof Int32Array | typeof Uint8Array) => new T(Array.from(a)).buffer as ArrayBuffer;
-  const server = (count: number) => signedIn(LEE, true, () => null, {
+  const server = (count: number) => signedIn(LEE, true, () => null, { 'GET /sites': { status: 200, body: tree('v3') },
     'GET /floors/f1/map-versions': { status: 200, body: { items: [V3B, V2], next_cursor: null } }, 'GET /map-versions/v3': { status: 200, body: V3B },
     [`GET /robots/r-a/slam/${SID}/bundle`]: manifest(count),
     [`GET /robots/r-a/slam/${SID}/bundle/voxels`]: { status: 200, raw: bytes([0, 0, 0, 1, 2, 3, -4, -5, 6], Int32Array) },
     [`GET /robots/r-a/slam/${SID}/bundle/grid`]: { status: 200, raw: bytes([2, 1, 1, 0, 0, 1, 2, 2], Uint8Array) },
   });
-  const view3d = async () => { await click($('[data-save="v3"] button')); await click($('[data-voxel-toggle]')); await flush(); };
+  const view3d = async () => { await click($('[data-voxel-toggle]')); await flush(); };
 
   it('담당 운영자: «3D 로 보기» = 저장 묶음의 3D 칸·2D 격자를 같은 그리기로(3D 를 못 그리는 브라우저면 위에서 보기)', async () => {
     serve(server(3)); await open(); await view3d();
@@ -439,7 +438,6 @@ describe('로봇으로 만든 지도 다시 열기(bundle voxels·grid)', () => 
     expect($('[data-slam-saved] [role="alert"]')!.textContent).toContain('형식이 맞지 않습니다');
     act(() => root?.unmount()); root = null; box.remove();
     serve({ ...server(3), 'GET /me': { status: 200, body: PARK } }); await open();
-    await click($('[data-save="v3"] button'));
     expect($('[data-voxel-toggle]')).toBeNull();
   });
 });
