@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { STATUS_NAME } from '../fake';
 import { rt } from '../rt';
-import { K, OX, OY, applyRest, applyWalk, loadGo2, loadSite, loadWalk, ringLine, sitePose, toWorld, type Body, type Walk } from './site';
+import { K, OX, OY, applyRest, applyWalk, lightNow, loadGo2, loadSite, loadWalk, ringLine, sitePose, toWorld, toneSite, type Body, type Walk } from './site';
 import { IC, ic, type TileFacts } from './u5';
 
 const ST_COL = { walk: 0x00c389, link: 0xf2b705, rest: 0x4c9bff, bad: 0xff4d4f, idle: 0xa9b8c6 } as const;
@@ -29,8 +29,9 @@ export function SiteView({ all, sel, pick, open }: { all: TileFacts[]; sel: stri
     const cam = new THREE.PerspectiveCamera(32, w / h, 5, 5000);
     const tgt = toWorld(1960, 880), el = (58 * Math.PI) / 180, az = (-6 * Math.PI) / 180, d = 760;
     cam.position.set(tgt.x + Math.sin(az) * Math.cos(el) * d, Math.sin(el) * d, tgt.z + Math.cos(az) * Math.cos(el) * d); cam.lookAt(tgt);
+    const hemis: THREE.HemisphereLight[] = [];
     for (const sc of [scene, over]) {
-      sc.add(new THREE.HemisphereLight(0xaab8c8, 0x07090b, 1.1));
+      const hemi = new THREE.HemisphereLight(0xaab8c8, 0x07090b, 1.1); hemis.push(hemi); sc.add(hemi);
       const sun = new THREE.DirectionalLight(0xffffff, 2.0); sun.position.set(-300, 500, 400); sc.add(sun);
       const rim = new THREE.DirectionalLight(0x6fd6b8, 0.35); rim.position.set(300, 200, -500); sc.add(rim);
     }
@@ -41,9 +42,18 @@ export function SiteView({ all, sel, pick, open }: { all: TileFacts[]; sel: stri
     for (let x = 0; x <= 900; x += 50) gl.push(x, 0.02, 0, x, 0.02, 560);
     for (let z = 0; z <= 560; z += 50) gl.push(0, 0.02, z, 900, 0.02, z);
     const gg = new THREE.BufferGeometry(); gg.setAttribute('position', new THREE.Float32BufferAttribute(gl, 3));
-    scene.add(new THREE.LineSegments(gg, new THREE.LineBasicMaterial({ color: 0x2a3440, transparent: true, opacity: 0.35 })));
+    const gridM = new THREE.LineBasicMaterial({ color: 0x2a3440, transparent: true, opacity: 0.35 });
+    scene.add(new THREE.LineSegments(gg, gridM));
     const robots = new Map<string, R>(); let proto: Body | null = null, walk: Walk | null = null, live = true;
-    loadSite().then((s) => { if (live && s) scene.add(s); });
+    let site: THREE.Group | null = null, light: boolean | null = null;
+    loadSite().then((s) => { if (live && s) { site = s; scene.add(s); light = null; } });
+    // 밝은 판: 바탕 · 땅 · 격자 · 빛 · 현장 재질을 밝음 1 흰 점토 결로(시안 shared/map_large_factory_top.jpg). 판이 바뀌면 그때 다시 칠함
+    const shade = (l: boolean) => {
+      const bg = l ? 0xf6f7f6 : BG; r.setClearColor(bg, 1); (scene.fog as THREE.Fog).color.setHex(bg);
+      (ground.material as THREE.MeshStandardMaterial).color.setHex(l ? 0xeef0ee : 0x0b0e12); gridM.color.setHex(l ? 0xc3cac5 : 0x2a3440);
+      for (const h of hemis) { h.color.setHex(l ? 0xffffff : 0xaab8c8); h.groundColor.setHex(l ? 0xc8cfcb : 0x07090b); }
+      if (site) toneSite(site, l);
+    };
     loadWalk().then((x) => { walk = x; });
     loadGo2(S).then((b) => { proto = b; });
     const make = (f: TileFacts): R | null => {
@@ -72,6 +82,7 @@ export function SiteView({ all, sel, pick, open }: { all: TileFacts[]; sel: stri
     r.autoClear = false;
     const frame = () => {
       const dt = Math.min(0.05, clock.getDelta());
+      const l = lightNow(); if (l !== light) { light = l; shade(l); }
       const cw = canvas.clientWidth, ch = canvas.clientHeight;
       if (cw && ch && (cw !== w || ch !== h)) { w = cw; h = ch; r.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); }
       const seen = new Set<string>(), vis: { el: HTMLElement; x: number; y: number; hw: number; bh: number }[] = [];
@@ -114,7 +125,7 @@ export function SiteView({ all, sel, pick, open }: { all: TileFacts[]; sel: stri
   }, []);
   const icon = (f: TileFacts): ReactNode => (f.level === 'bad' || f.level === 'crit' ? ic(13, IC.warn, '#ff4d4f') : f.lostNow ? ic(13, IC.wifi, '#f2b705') : f.sim ? ic(13, IC.box, '#4c9bff') : null);
   const sub = (f: TileFacts) => f.mission?.name ?? (f.lostNow ? '연결 끊김' : f.sim ? '시뮬 대기' : f.x.status ? STATUS_NAME[f.x.status] : '');
-  return <div className="big" style={{ background: '#07090b' }}>
+  return <div className="big st3">
     <canvas id="site" ref={cv} aria-label="현장 3D"></canvas>
     <div className="mks" ref={marks}>{all.map((f) => { const k = tone(f); return <div key={f.x.id} className={`mk3 ${k === 'bad' ? 'r' : k === 'link' ? 'o' : k === 'rest' ? 'sim' : ''}${f.x.id === sel ? ' sel' : ''}`} data-n={f.x.name} data-r3={f.x.id} style={{ display: 'none' }}
       onClick={() => (f.x.id === sel ? open(f.x.id) : pick(f.x.id))}><span className="lb">{icon(f)}{f.x.name}<small>{sub(f)}</small></span><i></i></div>; })}</div>

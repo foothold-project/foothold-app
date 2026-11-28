@@ -149,3 +149,15 @@
 .proto.light .u5 .mk .pt{background:#18A07E}
 .proto.light .u5 .mk.r .pt{background:#E04A2F}
 .proto.light .u5 .mk.o .pt{background:#D9A21F}
+/* 3D 현장(지도 보기) · 작은 지도 · 타일 3D 바탕: 밝은 판은 시안 흰 점토 정사영(shared/map_large_factory_top.jpg) 결로 */
+.u5 .big.st3{background:#07090b}
+.proto.light .u5 .big.st3{background:#F6F7F6}
+.proto.light .u5 .mini{background:#F6F7F6 url(/proto-assets/shared/map_large_factory_top.jpg) no-repeat;background-size:400px 250px;background-position:center}
+.proto.light .u5 .cv{background:radial-gradient(120% 95% at 50% 78%,#FFFFFF 0%,#F6F7F6 55%,#DCE0DE 100%);box-shadow:inset 0 0 0 1px #DCE0DE}
+.proto.light .u5 .cv.st{background:radial-gradient(260px 180px at 50% 45%,#FFFFFF,#F6F7F6 75%)}
+.proto.light .u5 .mk3 .lb{color:#1F2421;background:rgba(255,255,255,.92);border-color:#DCE0DE}
+.proto.light .u5 .mk3 .lb small{color:#5E6662}
+.proto.light .u5 .mk3 i{background:linear-gradient(rgba(31,36,33,.45),rgba(31,36,33,0))}
+.proto.light .u5 .mk3.r .lb{border-color:#E04A2F}
+.proto.light .u5 .mk3.o .lb{border-color:#D9A21F}
+.proto.light .u5 .mk3.sim .lb{border-color:#2F6FE0}
