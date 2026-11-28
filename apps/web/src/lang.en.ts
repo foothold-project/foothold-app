@@ -98,6 +98,13 @@ export const EN: Record<string, string> = {
   '로봇 추가': 'Add robot', '데모 · 정지 잠금': 'Demo · stop latched', '시뮬 · 정지 잠금': 'Sim · stop latched', '실제 · 연결 끊김': 'Real · disconnected', '바꿀 수 있는 모드 없음': 'No modes to switch',
   '조종자': 'Driver', '조종': 'Drive', '로봇 설정': 'Robot settings', '끌어서 돌려 보기': 'Drag to rotate', '서 있음': 'Standing', '위치 추정 켜짐': 'Localization on',
   '관절값을 받지 않아 서 있는 모양 그대로': 'No joint values · shown standing', '카메라': 'Camera', '라이다': 'LiDAR', '깊이': 'Depth', '시뮬 시점': 'Sim view', '앞 카메라': 'Front camera', '임무 없음': 'No mission',
+  // 조종 단추 글 「조종」 · 「다시 시작」 (폰 조종 · 직결 시뮬 · 실기 · PC 시뮬 탭) · 다시 시작 확인 창(u4_10) · 이어 가기 안내
+  '다시 시작': 'Restart', '그 자리에서 일어선 뒤 조종과 동작이 다시 켜집니다. 주변에 사람이 없는지 보세요.': 'The robot stands up where it is, then driving and actions turn back on. Make sure no one is nearby.',
+  '먼저 «조종»을 누르세요.': 'Press «Drive» first.', '먼저 «다시 시작»을 누르세요.': 'Press «Restart» first.',
+  '이어가려면 «조종»을 누르세요.': 'To resume, press «Drive».', '이어가려면 STOP 을 확인한 뒤 «다시 시작»을 누르세요.': 'To resume, check STOP, then press «Restart».',
+  '실행 중에는 수동 조종이 막혀 있습니다. 수동으로 바꾸려면 «일시정지» → 로봇이 멈춘 뒤 «조종» → «다시 시작».': 'Manual driving is blocked while a run is going. To switch to manual, «Pause» → once the robot stops, «Drive» → «Restart».',
+  '아직 이어갈 수 없습니다. 로봇의 목표 취소 확인을 기다렸다가 «조종» → «다시 시작» → 손을 뗀 뒤 다시 누르세요.': 'Cannot resume yet. Wait for the robot to confirm the goal was canceled, then «Drive» → «Restart» → let go and press again.',
+  '조종 → 다시 시작 뒤 키보드로 움직입니다': 'Press Drive → Restart, then move with the keyboard',
   '조종 시작': 'Start driving', '말하기': 'Talk', '옆걸음': 'Strafe', '화면': 'View', '모드': 'Mode', '앉기': 'Sit', '일어서기': 'Stand up', '엎드리기': 'Lie down', '기지개': 'Stretch', '악수': 'Shake', '하트': 'Heart', '인사': 'Hello',
   '순정 확인 전': 'Stock app not checked', '흐린 단추는 아직 준비 중인 기능입니다(권한 때문인 비활성은 단추 옆에 이유가 따로 나옵니다).': 'Dimmed buttons are not ready yet (buttons disabled by permission show the reason next to them).',
   '나(총괄)': 'Me (Admin)', '이 로봇은 걷기 모드를 바꿀 수 없습니다 (로봇이 보낸 쓸 수 있는 모드 없음).': 'This robot cannot change walking mode (it reported no available modes).', '로봇 보기': 'Robot view',
@@ -129,6 +136,7 @@ const joint = (s: string) => { const g = /^(.+) (\S+)$/.exec(s); return g && SID
 
 /** 값이 섞인 글(숫자 · 이름 · 시각). 위에서부터 처음 맞는 것 하나 */
 export const EN_RULES: [RegExp, (m: RegExpExecArray) => string][] = [
+  [/^(.+) 을 일으킬까요\?$/, (m) => `Stand ${m[1]} up?`],   // 다시 시작 확인 창(u4_10 · robotact RESTART_ASK)
   [/^로봇 (\d+) 대 연결$/, (m) => `${m[1]} robots connected`],
   [/^내 로봇 (\d+) 대 연결$/, (m) => `${m[1]} of my robots connected`],
   [/^([^가-힣]+) 정지$/, (m) => `Stop ${m[1]}`],

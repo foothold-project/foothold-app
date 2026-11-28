@@ -86,9 +86,9 @@ async function ready(w = welcome(), more: typeof routes = {}) {
   await recv(a, w);
   await recv(a, phoneState());
   if (!w.simulation) return a;
-  await click(btn('조종 시작'));
+  await click(btn('조종'));
   await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true }));
-  await click(btn('잠금 해제'));
+  await click(btn('다시 시작'));
   expect(a.of('unlock')[0]).toMatchObject({ lease_id: LEASE, stop_gen: 1 });
   await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: false }));
   return a;
@@ -270,8 +270,8 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
     await sleep(60);
     expect(a.of('cmd').slice(n).every((m) => m.vx === 0 && m.wz === 0)).toBe(true);
     await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: true, stop_gen: 2 }));
-    expect(btn('잠금 해제')).toBeTruthy();
-    await click(btn('잠금 해제'));
+    expect(btn('다시 시작')).toBeTruthy();
+    await click(btn('다시 시작'));
     await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: false, stop_gen: 2 }));
     await key('keydown', 'KeyW', { repeat: true });   // 정지 전부터 누르던 W — 다시 눌러야 움직임
     expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0 });
@@ -452,7 +452,7 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
   it('에이전트가 simulation 이 아니라고 알리면 키보드 조종·조종 시작 없음', async () => {
     const a = await ready(welcome({ simulation: false }));
     expect($('[data-sim-keys]')).toBeNull();
-    expect(btn('조종 시작')).toBeUndefined();
+    expect(btn('조종')).toBeUndefined();
     await key('keydown', 'KeyW');
     await sleep(60);
     expect(a.of('lease.take')).toHaveLength(0);

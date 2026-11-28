@@ -142,8 +142,8 @@ describe('PC «시뮬» 탭', () => {
     expect(box.querySelector<HTMLImageElement>('img[alt="RGB 영상"]')!.src).toBe('data:image/jpeg;base64,AAAA');
     // 조이스틱 없음(PC 는 키보드 — ④), 조종 시작을 누르기 전에는 에이전트로 조종권·명령을 보내지 않음
     expect(box.querySelector('[aria-label$="조이스틱"]')).toBeNull();
-    expect(btn('조종 시작')).toBeTruthy();
-    expect(btn('잠금 해제')).toBeUndefined();
+    expect(btn('조종')).toBeTruthy();
+    expect(btn('다시 시작')).toBeUndefined();
     expect(a.sent.map((m) => m.t).filter((t) => t !== 'hello' && t !== 'ping')).toEqual([]);
     expect($('[data-stop]')).toBeTruthy();   // 운영 관리자 STOP 그대로
     expect(refresh).toHaveBeenCalled();      // 띄운 로봇이 목록·STOP 후보에 바로 보이게
@@ -385,16 +385,16 @@ describe('시뮬 탭 RUN 이 쥐면 (#537 state.holder_type · 08:04)', () => {
     const a = agent(); a.auto = ((m: Msg) => (['hello', 'ping', 'lease.take'].includes(m.t) ? undefined : {})) as FakeWS['auto'];
     act(() => a.open()); await flush();
     await recv(a, welcome); await recv(a, phoneState({ holder_type: 'RUN', holder_name: null, run: { run_id: 'run-o', status: 'MOVING', step: 0, progress: { done: 0, total: 3 }, wait_reason: null, fail_code: null } }));
-    expect(btn('조종 시작')!.disabled).toBe(true);
+    expect(btn('조종')!.disabled).toBe(true);
     expect($('[data-sim-view] [data-held-run] button')).toBeNull();
     expect(box.textContent!.split('예약 임무가 조종 중입니다 · 임무가 끝나거나 멈춘 뒤 조종할 수 있습니다.')).toHaveLength(2);   // 한 곳
     expect(box.textContent!.split('이 화면에서는 일시정지할 수 없습니다')).toHaveLength(2);   // 실행 칸 한 곳
     expect($('[data-sim-view] [data-held-run]')!.textContent).toBe('예약 임무가 조종 중입니다 · 임무가 끝나거나 멈춘 뒤 조종할 수 있습니다.');
     expect([...box.querySelectorAll<HTMLButtonElement>('[data-sim-view] .btn.pri')].filter((b) => !b.disabled).map((b) => b.textContent)).toEqual([]);
-    await click(btn('조종 시작'));
+    await click(btn('조종'));
     expect(a.sent.filter((m) => m.t === 'lease.take')).toEqual([]);   // 정해진 거절(LEASE_HELD)을 보내지 않음
     await recv(a, phoneState({ holder_type: null, holder_name: null }));
-    expect(btn('조종 시작')!.disabled).toBe(false);
+    expect(btn('조종')!.disabled).toBe(false);
     expect($('[data-held-run]')).toBeNull();
   });
 });
