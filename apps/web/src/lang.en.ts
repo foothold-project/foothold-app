@@ -115,7 +115,7 @@ export const EN: Record<string, string> = {
   'AME-2 는 아직 일정에 넣을 수 없습니다': 'AME-2 cannot be scheduled yet', '예상': 'Estimate', '다음 일정까지 여유': 'Slack before next slot', '로봇 줄 앞 쪽': 'Robot rows previous', '로봇 줄 다음 쪽': 'Robot rows next',
   '조종권': 'Control', '묶음별 건수는 서버가 주지 않습니다.': 'The server does not give counts per group.', '등급': 'Level', '정보': 'Info', '실제 · 모의 실행': 'Real · simulated',
   '서버에 실제 · 모의 실행 거르기가 없어 모두 보입니다.': 'The server has no real/simulated filter, so all are shown.', '모든 로봇': 'All robots', '클립 있는 것만': 'With clips only', '서버에 클립 거르기가 없습니다.': 'The server has no clip filter.',
-  '클립 보관 기간 ·': 'Clip retention ·', '서버가 보관 일수를 주지 않아 비워 둡니다.': 'The server gives no retention days, so it is left blank.', '서버에 찾기 없음': 'No search on server', '오늘': 'Today', '7 일': '7 days', '30 일': '30 days',
+  '서버에 값 없음. 클립을 며칠 보관할지 서버가 값을 주면 여기서 바꿉니다.': 'No value from server. Once the server gives a retention period, change it here.', '클립 보관 기간': 'Clip retention period', '클립 보관 기간 ·': 'Clip retention ·', '서버가 보관 일수를 주지 않아 비워 둡니다.': 'The server gives no retention days, so it is left blank.', '서버에 찾기 없음': 'No search on server', '오늘': 'Today', '7 일': '7 days', '30 일': '30 days',
   '지금 장면 저장': 'Save this moment', '내보내기': 'Export', '필터 없음': 'No filter', '클립': 'Clips', '사건': 'Events', '시각': 'Time', '클립 길이': 'Clip length', '정보 단계': 'Info level', '기록만': 'Record only',
   '전체': 'All', '모드 전환': 'Mode switches', '서버에 없음': 'Not on server', '연결 · 시스템': 'Link · system', '사용자 작업': 'User actions',
   '기록 거르기': 'History filters', '묶음': 'Group', '서버에 모드 전환 기록이 없습니다': 'The server has no mode-switch records', '찾기': 'Search', '사건 · 로봇 · 메모 찾기': 'Search events · robots · notes', '기간': 'Period',
