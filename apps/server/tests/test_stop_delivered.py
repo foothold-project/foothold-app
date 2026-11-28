@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session as DBSession
 
 from apps.contracts import models as C
 from apps.server.fh_server.models import Event
-from .test_realtime import agent, app_token, drain_audit, receive, reply, rt, screen, send  # noqa: F401
+from .test_realtime import agent, app_token, drain_audit, hello, receive, reply, rt, screen, send  # noqa: F401
 
 
 def stop_events(client):
@@ -67,3 +67,32 @@ def test_stop_not_delivered_when_connected_agent_cannot_take_it(client, seeded, 
         response = client.post(f'/api/v1/robots/{rid}/stop', headers=headers)
         assert response.status_code == 202
         assert response.json() == {'requested': True, 'delivered': False}
+
+
+def test_reconnect_stop_cannot_reach_real_agent_with_server_drive_off(client, seeded, rt):
+    # Review #536 M2: with the server drive switch off, a physical Go2 agent's
+    # reconnect STOP is filtered by blocked_agent_control like any server STOP.
+    # The phone link or the remote stops that robot, not a reconnect. The HTTP
+    # STOP itself is refused there (PHONE_DIRECT_REQUIRED), so only a STOP made
+    # while the switch was on can be waiting when the agent reconnects.
+    from apps.server.fh_server.models import Robot
+    headers = app_token(client)
+    rid = seeded['robots']['mine']
+    with DBSession(client.app.state.engine) as db:
+        db.get(Robot, rid).simulation = False
+        db.commit()
+    assert not rt.settings.drive_enabled(rid)
+    response = client.post(f'/api/v1/robots/{rid}/stop', headers=headers)
+    assert response.status_code == 403
+    assert response.json()['error']['code'] == 'PHONE_DIRECT_REQUIRED'
+    # Same handshake as test_realtime.agent(direct=True), but every frame up to
+    # the first ping is kept: the reconnect STOP would be queued before it.
+    with client.websocket_connect('wss://testserver/api/v1/agent/ws', headers={
+            'authorization': 'Bearer fake-test-' + str(rid)}) as ag:
+        ag.send_json(hello())
+        seen = []
+        receive(ag, predicate=lambda body: seen.append(body.get('t')) or body.get('t') == 'ping')
+        peer = rt.agents[str(rid)]
+        assert not peer.simulation and not peer.server_drive
+        assert rt.blocked_agent_control(peer, {'t': 'stop', 'cause': 'agent_connected'})
+        assert 'stop' not in seen, seen

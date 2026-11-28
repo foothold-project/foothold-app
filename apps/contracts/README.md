@@ -44,11 +44,14 @@ AgentState와 이를 상속하는 PhoneState의 선택 필드 `safety_reason`은
 
 정지 접수 `POST /robots/{id}/stop` 202 본문은 `StopAccepted {requested: true, delivered}`이고,
 화면 `stop`의 성공 `ScreenReply`에도 같은 뜻의 `delivered`가 붙는다(다른 회신에는 없다).
-`delivered=true`는 그 순간 정지가 연결된 에이전트 대기열에 들어갔다는 뜻이다. 소켓으로 실제 보냈다는 보증은 아니다 (대기열에 넣은 직후 끊기면 다시 붙을 때 서버가 정지를 먼저 보낸다).
+`delivered=true`는 그 순간 정지가 연결된 에이전트 대기열에 들어갔다는 뜻이다. 소켓으로 실제 보냈다는 보증은 아니다.
 `delivered=false`는 로봇이 멈췄다는 뜻도, 안 멈췄다는 뜻도 아니다. 에이전트 연결이 없거나
-막혀 서버가 지금 보낼 길이 없다는 뜻이다. 정지 감사 기록은 그대로 남고, 에이전트가 다시 붙으면
-서버가 다른 명령보다 먼저 정지를 보낸다. 물리 정지 확인은 이 칸이 아니라 기존 `stop_requested`·
-`latched` 피드백이다.
+막혀 서버가 지금 보낼 길이 없다는 뜻이다. 정지 감사 기록은 그대로 남는다.
+에이전트가 없을 때 누른 STOP은 큐에 넣지 않는다. 다시 붙으면 서버가 연결 STOP(cause `agent_connected`)을
+보내 잠긴 채 시작한다. 단 서버 조종 스위치가 꺼진 실기는 서버가 STOP을 보낼 수 없다(재연결 STOP도
+막힌다. 폰 직결·리모컨으로 멈춘다).
+`latched`는 제어 잠금(우리 출력이 멈춰 있음)일 뿐 물리 정지 확인이 아니다. 움직이던 기체가 실제로
+섰는지는 에이전트의 `GO2_STOP_HELD` 같은 측정 증거로만 말한다. `delivered`도 `latched`도 그 증거를 대신하지 않는다.
 
 `AgentState`·`PhoneState`·`ScreenState`의 선택 `unlock_refused`는
 `{reason, at, axes}` 또는 null이다. `at`은 UTC 시각, `reason`은 `UnlockRefused`의

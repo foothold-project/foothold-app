@@ -110,7 +110,7 @@
 | POST | `/robots/{id}/agent-token` | 실기 직접 발급 폐지 →403 `PAIRING_REQUIRED`, 시뮬 기존409 `SIM_TOKEN_MANAGED` | 없음 |
 | GET | `/robots/{id}/telemetry` | 그래프용 요약 `?from&to&fields=battery,speed,latency&step=10s` | A, O(내). 담당 밖 운영 관리자는 404 |
 | POST | `/robots/{id}/floor` | 현재 층 사람 입력 `{floor_id}` | A, O(내) |
-| POST | `/robots/{id}/stop` | STOP (WS 를 못 쓸 때 대체 경로) → 202 `{requested:true, delivered}` (`StopAccepted`. delivered=false 는 지금 연결된 에이전트가 없거나 정지 길이 막혀 보낼 길이 없다는 뜻이고 정지 여부가 아니다. 다시 붙으면 정지를 먼저 보냄. 계약 README). 웹은 `X-FH-CSRF` 필요. 실시간 중재기가 없는 서버면 503 `SERVER_BUSY` | 로그인 (볼 수 있으면) |
+| POST | `/robots/{id}/stop` | STOP (WS 를 못 쓸 때 대체 경로) → 202 `{requested:true, delivered}` (`StopAccepted`. delivered=false 는 지금 연결된 에이전트가 없거나 정지 길이 막혀 보낼 길이 없다는 뜻이고 정지 여부가 아니다. 에이전트가 없을 때 누른 STOP 은 큐에 넣지 않고, 다시 붙으면 서버가 연결 STOP(cause `agent_connected`)을 보내 잠긴 채 시작한다. 단 서버 조종 스위치가 꺼진 실기는 서버가 STOP 을 보낼 수 없다(폰 직결·리모컨으로 멈춤). `latched` 도 제어 잠금일 뿐이고 물리 정지는 에이전트 `GO2_STOP_HELD` 같은 측정 증거로만 말한다. 계약 README). 웹은 `X-FH-CSRF` 필요. 실시간 중재기가 없는 서버면 503 `SERVER_BUSY` | 로그인 (볼 수 있으면) |
 
 **관제·조종 고르기의 로봇 범위**
 - PC 관제·조종 고르기: 총괄·운영 관리자 모두 `scope=all` 로 전체 로봇을 받는다. 운영 관리자 화면은 자기 담당을 먼저 놓는다(서버 목록은 만든 순서이고, 순서는 화면이 정함).
