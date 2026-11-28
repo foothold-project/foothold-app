@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom';
 import type { MapBuilding, MapFeatures, MapFloor, MapSite, MapUpload, MapVersion, MapZone, Scenario, SiteTree } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import type { Robot, Tone, User } from '../fake';
-import { MapFrame, MapImage, around, useWalls, type Box } from '../mapframe';
+import { FactoryImage, MapFrame, MapImage, around, useWalls, type Box } from '../mapframe';
 import { leaving } from '../menu';
 import { Chip, inApp, type Ctx, type Dash } from '../screens';
 import { Compare, Rollback } from './mapdiff';
@@ -48,6 +48,8 @@ export const mapTabSite = (s: MapSite): MapSite | null => {
   const bs = s.buildings.filter((b) => (b as { demo?: boolean }).demo === true);
   return bs.length ? { ...s, buildings: bs } : null;
 };
+/** 지도 탭 데모 판(시안 공장 그림을 깐다): 데모 SIM 현장 안의 데모 건물(mapTabSite 와 같은 규칙). 실제 현장(REAL)은 서버 판 그대로 */
+export const demoBoard = (s: MapSite, b: MapBuilding) => purposeOf(s) !== 'REAL' && !!mapTabSite(s)?.buildings.some((x) => x.id === b.id);
 /** 시뮬 탭 «짝 없는 층»(SIM-PAIR 11-09): 지도가 없거나 시뮬 세계·지형과 이어지지 않은 층(simAt 실패). v = 승인 판(못 받았으면 undefined → 모름 = false) */
 const lone = (f: MapFloor, v?: MapVersion) => !f.approved_version_id || (!!v && typeof simAt(f, v) === 'string');
 /** 짝 없는 층 안내 — 시뮬 지도는 지도 탭 «지형 만들기» 저장으로만 만든다(11-19 입구를 지도 탭으로) */
@@ -122,8 +124,8 @@ export function Shapes({ v, f, sel, bad, red }: { v: Pick<MapVersion, 'origin' |
       style={{ fill: 'none', stroke: EDIT[e.op]?.color, strokeWidth: e.width / v.resolution, strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.85, ...(mark(`edits.${i}`).stroke && { stroke: mark(`edits.${i}`).stroke, strokeDasharray: mark(`edits.${i}`).strokeDasharray }) }}><title>{`${EDIT[e.op]?.text ?? ''} 선`}</title></polyline>)}
     {f.zones.map((z, i) => <polygon key={`z${i}`} data-key={`zones.${i}`} data-zone={z.type} points={z.polygon.map(([x, y]) => p(x, y).join(',')).join(' ')}
       style={{ fill: red && z.type === 'NO_GO' ? 'var(--bad)' : fillOf(i), fillOpacity: 0.3, stroke: red && z.type === 'NO_GO' ? 'var(--bad)' : fillOf(i), ...ZONE[z.type]?.line, ...mark(`zones.${i}`) }} vectorEffect="non-scaling-stroke"><title>{`${ZONE[z.type]?.text ?? ''} 구역 ${z.name}`.trim()}</title></polygon>)}
-    {f.zones.map((z, i) => { const q = z.polygon.map(([x, y]) => p(x, y)), cx = q.reduce((a, [x]) => a + x, 0) / q.length, cy = q.reduce((a, [, y]) => a + y, 0) / q.length;   // 이름표는 꼭짓점 평균 자리(누름은 구역이 받음)
-      return <text key={`zt${i}`} x={cx} y={cy} fontSize={r * 2.4} textAnchor="middle" dominantBaseline="middle" style={{ fill: 'var(--text)', stroke: 'var(--bg)', strokeWidth: r * 0.6, paintOrder: 'stroke', pointerEvents: 'none' }}>{z.name}</text>; })}
+    {f.zones.map((z, i) => { const q = z.polygon.map(([x, y]) => p(x, y)), lx = Math.min(...q.map(([x]) => x)), ly = Math.min(...q.map(([, y]) => y));   // 이름표 = 시안 u7_3 구역 이름 꼴: 구역 왼쪽 위 안쪽 · 작은 흐린 글 · 테두리 없음(누름은 구역이 받음)
+      return <text key={`zt${i}`} data-zone-name x={lx + r * 0.4} y={ly + r * 0.4} fontSize={r * 0.7} dominantBaseline="hanging" style={{ fill: 'var(--muted)', pointerEvents: 'none' }}>{z.name}</text>; })}
     {f.waypoints.map((w, i) => { const [x, y] = p(w.x, w.y), [hx, hy] = aim(v, w, r);
       return <g key={`w${i}`} data-key={`waypoints.${i}`} data-waypoint={w.name}>
         <line x1={x} y1={y} x2={hx} y2={hy} style={{ stroke: 'var(--accent)', strokeWidth: 2 }} vectorEffect="non-scaling-stroke" />
@@ -144,15 +146,15 @@ export function useFit(v?: MapVersion) {
 
 /** 판 그림 + 저장된 요소(구역·지점·연결점·지우개·벽 선). 그림을 못 받으면 칸 안 글 + 다시 불러오기 */
 export type Layers = Record<'zones' | 'waypoints' | 'connectors' | 'edits', boolean>;
-export function MapView({ v, fill, terrain, show, children }: { v: MapVersion; fill?: boolean; terrain?: boolean; show?: Layers; children?: ReactNode }) {
+export function MapView({ v, fill, terrain, show, demo, children }: { v: MapVersion; fill?: boolean; terrain?: boolean; show?: Layers; demo?: boolean; children?: ReactNode }) {
   const framing = useFit(v), f = show ? { zones: show.zones ? v.features.zones : [], waypoints: show.waypoints ? v.features.waypoints : [], connectors: show.connectors ? v.features.connectors : [], edits: show.edits ? v.features.edits : [] } : v.features;
   // 지형은 바닥 전체가 작업 공간이다. 물체 하나의 벽 범위로 잘라 시작하지 않는다.
   if (terrain) framing.fit = framing.full;
   const [at, setAt] = useState<'wait' | 'ok' | 'bad'>('wait'), [n, setN] = useState(0);
   // fill = 지도·시나리오 틀(.mx-map)을 꽉 채움 — 확대 단추는 지도 오른쪽 아래 겹침, 불러오기·실패 글은 지도 아래쪽 띠
   if (fill) return <>
-    <MapFrame {...framing} photo={v} at={{ right: 8, bottom: 8, alignItems: 'flex-end' }} role="img" aria-label="지도" data-map style={{ display: 'block', width: '100%', height: '100%' }}>
-      <MapImage key={n} id={v.id} width={v.width} height={v.height} onLoad={() => setAt('ok')} onError={() => setAt('bad')} />
+    <MapFrame {...framing} photo={demo ? null : v} at={{ right: 8, bottom: 8, alignItems: 'flex-end' }} role="img" aria-label="지도" data-map style={{ display: 'block', width: '100%', height: '100%' }}>
+      <MapImage key={n} id={v.id} width={v.width} height={v.height} onLoad={() => setAt('ok')} onError={() => setAt('bad')} />{demo && <FactoryImage v={v} />}
       <Shapes v={v} f={f} />{children}
     </MapFrame>
     {at !== 'ok' && <div className="mx-over" style={{ top: 'auto', bottom: 48 }}>
@@ -161,8 +163,8 @@ export function MapView({ v, fill, terrain, show, children }: { v: MapVersion; f
         <button type="button" className="btn" onClick={() => { setAt('wait'); setN(n + 1); }}>다시 불러오기</button></div>}</div>}
   </>;
   return <div>
-      <MapFrame {...framing} photo={v} role="img" aria-label="지도" data-map style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8 }}>
-        <MapImage key={n} id={v.id} width={v.width} height={v.height} onLoad={() => setAt('ok')} onError={() => setAt('bad')} />
+      <MapFrame {...framing} photo={demo ? null : v} role="img" aria-label="지도" data-map style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8 }}>
+        <MapImage key={n} id={v.id} width={v.width} height={v.height} onLoad={() => setAt('ok')} onError={() => setAt('bad')} />{demo && <FactoryImage v={v} />}
         <Shapes v={v} f={v.features} />
       </MapFrame>
     {at === 'wait' && <p className="lv-note" role="status">지도 그림을 불러오는 중…</p>}
@@ -385,7 +387,7 @@ export function SimPlaces({ user, robots }: { user: User; robots: Robot[] }) {
 
 /** 카드 위 작은 지도(SIM-CARDS-WIDE 11-09): 승인 판 그림(MapImage, 벽 범위로 자른 처음 화면) — 카드가 화면 가까이 올 때만 받는다.
  *  판이 없거나 그림이 실패하면 같은 높이 회색 칸 «지도 없음»(판 받는 중은 빈 회색 칸) — 카드 높이는 CSS(.mx-thumb) 고정 */
-function Thumb({ id, v }: { id?: string | null; v?: MapVersion }) {
+function Thumb({ id, v, demo }: { id?: string | null; v?: MapVersion; demo?: boolean }) {
   const ref = useRef<HTMLSpanElement>(null), [near, setNear] = useState(typeof IntersectionObserver === 'undefined'), [bad, setBad] = useState(false), { fit } = useFit(near ? v : undefined);
   useEffect(() => {
     if (near || !ref.current) return;
@@ -393,7 +395,7 @@ function Thumb({ id, v }: { id?: string | null; v?: MapVersion }) {
     o.observe(ref.current); return () => o.disconnect();
   }, [near]);
   return <span ref={ref} className="mx-thumb" data-thumb={id && !bad ? id : ''} aria-hidden="true">{!id || bad ? <small>지도 없음</small> : v && near && <svg viewBox={fit.join(' ')} preserveAspectRatio="xMidYMid meet">
-    <MapImage id={v.id} width={v.width} height={v.height} onError={() => setBad(true)} /></svg>}</span>;
+    <MapImage id={v.id} width={v.width} height={v.height} onError={() => setBad(true)} />{demo && <FactoryImage v={v} />}</svg>}</span>;
 }
 /** 카드 그림 층: 1층, 그 층에 지도가 없으면 지도 있는 가장 낮은 층 */
 const picFloor = (b: MapBuilding) => [firstFloor(b), ...byLevel(b.floors)].find((x) => x?.approved_version_id);
@@ -469,14 +471,14 @@ function Pick({ maker, t, places, vers, choose, make, note, manage, setManage, e
         <section className="lv-card mp-floors" aria-label="층 목록"><div className="fh-row"><h2 className="fh-grow">{cur.building.name} · 층</h2><span className="lbl">층마다 지도 하나</span></div>
           <div className="mp-rows">{floors.map((f) => { const x = f.approved_version_id ? vers[f.approved_version_id] : undefined;
             return <button key={f.id} type="button" className="mp-row" data-floor-row={f.id} aria-pressed={f.id === fl?.id} onClick={() => setFid(f.id)}>
-              <Thumb id={f.approved_version_id} v={x} />
+              <Thumb id={f.approved_version_id} v={x} demo={demoBoard(cur.site, cur.building)} />
               <span className="mp-rt"><span className="fh-row"><b>{f.name}</b>{x ? <span className="lv-chip ok">{howMade(x)}</span> : f.approved_version_id ? null : <span className="lv-chip off">지도 없음</span>}
                 {x && voxelOf(x) && <span className="lv-chip" data-voxel-chip title="3D 지도 파일에서 만든 지도 · 시뮬 지형 연결됨">3D</span>}</span>
                 {x && <small>{meters(x).wh} · {md(x.created_at)} · v{x.number}</small>}</span><span className="mp-chev" aria-hidden="true">›</span></button>; })}</div>
           {floors.length >= 2 && <Stack floors={floors} sel={fl?.id} pick={setFid} />}
         </section>
         {fl && <section className="lv-card mp-prev" aria-label="미리 보기">
-          <div className="mp-pv">{v ? <MapView key={v.id} v={v} fill />
+          <div className="mp-pv">{v ? <MapView key={v.id} v={v} fill demo={demoBoard(cur.site, cur.building)} />
             : <div className="mx-center"><p className="lv-note">{fl.approved_version_id ? '지도를 불러오는 중…' : '이 층에 아직 지도가 없습니다. 지도를 열어 올리거나 로봇으로 그립니다.'}</p></div>}
             {v && <span className="mp-tag">위에서 본 지도 · {meters(v).wh}{modelOf(v) ? ' · 3D 모형 있음' : ''}</span>}</div>
           <div className="mp-pf"><div className="fh-row"><b className="mp-pt" data-prev-title>{cur.building.name} · {fl.name}</b>{v && <span className="lv-chip ok">{howMade(v)}</span>}</div>
@@ -685,7 +687,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, toPick, sid
             <div className="fh-row"><button type="button" className="btn" onClick={() => setCmp(false)}>비교 닫기</button></div></div>
           : v && show3 && !on3d ? <Map3D key={v.id} v={v} robots={robots} missing={(why) => { setM3(false); setDone({ text: `${why || '이 층은 3D 모형이 없습니다.'} 2D 지도로 봅니다.` }); }} />
           : v && on3d ? (vox ? <VoxelView key={v.id} v={v} cancel={cancel} /> : <SlamSavedView key={v.id} robot={sb!.robot_id} session={sb!.session_id} cancel={cancel} />)
-          : v ? <MapView key={v.id} v={v} fill terrain={!!p.floor.terrain_id} show={left ? lay : undefined}>{hov && <Route v={v} x={hov} floor={p.floor.id} />}</MapView>
+          : v ? <MapView key={v.id} v={v} fill terrain={!!p.floor.terrain_id} show={left ? lay : undefined} demo={!sim && demoBoard(p.site, p.building)}>{hov && <Route v={v} x={hov} floor={p.floor.id} />}</MapView>
           : list && !err && (sim ? <div className="mx-center">{real ? <p className="lv-note">아직 지도가 없습니다. 실기 지도는 «지도» 탭에서 올립니다.</p> : LONE}</div> : <div className="mx-center">
             {/* 층에 지도 0 개(U11-04 빈 화면): 다음 할 일 하나 = 올리기. «지도 만들기»는 ··· 메뉴에 그대로 */}
             <Empty kind="floor" title="이 층에 아직 지도가 없습니다" why="지도 파일(그림 · yaml)을 올리면 이 층 지도가 됩니다." card={false}>

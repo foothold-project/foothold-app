@@ -10,6 +10,7 @@ import { Root } from '../session';
 import { SIM_SAVE, Shapes, floorName, pixelTo, toPixel } from '../screens/maps';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { featSub, kept } from '../screens/mapedit';
+import { FACTORY_PNG, FactoryImage } from '../mapframe';
 import { leaving } from '../menu';
 import { clearPlans, keptPlan } from '../screens/missions';
 import { TERRAIN_REASON } from '../simstart';
@@ -2430,14 +2431,32 @@ describe('지도 탭 · 시안 u7', () => {
     expect(sites.querySelector('[data-building="b1"]')).not.toBeNull();
     expect(sites.querySelector('[data-building="b9"]')).not.toBeNull();
     expect(sites.querySelector('[data-building="b8"]')).toBeNull();
+    expect(box.querySelector('[data-factory]')).toBeNull();   // 실제 현장(REAL) = 서버 판 그대로
     await click(sites.querySelector('[data-building="b9"]'));
+    expect(card('층 목록').querySelector('.mx-thumb [data-factory]')!.getAttribute('href')).toBe(FACTORY_PNG);   // 데모 판 = 시안 공장 그림(썸네일 · 미리 보기 · 층 화면)
+    expect(card('미리 보기').querySelector('[data-factory]')).not.toBeNull();
     await click($('[data-open-map]'));
     expect(card('지도 보기').querySelector('h2')!.textContent).toBe('시안 공장 터 큰 공장 1층');
+    expect(card('지도 보기').querySelector('[data-map] [data-factory]')).not.toBeNull();
     expect($('[aria-label="보기·편집"]')).toBeNull();
     expect($('[data-demo-ro]')!.textContent).toBe(SIM_SAVE);
     expect(box.textContent).not.toContain('«편집»');
     expect([...box.querySelectorAll('button')].some((b) => b.textContent === '새 지도 올리기…')).toBe(false);
     expect($('[data-fix-open]')).toBeNull();
+  });
+
+  it('데모 판 공장 그림 자리 = 로봇 탭과 같은 좌표(proto/site.ts): 서버 데모 판(0.5 m/px · 원점 (0,-560)) 위 공장 땅 (25,20)~(3175,1980) px 이 판 끝에서 끝', () => {
+    const html = renderToStaticMarkup(<svg><FactoryImage v={{ origin: [0, -560, 0], resolution: 0.5, height: 1120 }} /></svg>);
+    const [a, b, c, d, e, f] = html.match(/matrix\(([^)]+)\)/)![1].split(' ').map(Number), at = (x: number, y: number) => [a * x + c * y + e, b * x + d * y + f];
+    for (const [[x, y], [u, w]] of [[[25, 20], [0, 0]], [[3175, 1980], [1800, 1120]]] as const) { const [px, py] = at(x, y); expect(px).toBeCloseTo(u, 6); expect(py).toBeCloseTo(w, 6); }
+  });
+
+  it('구역 이름표 = 시안 u7 꼴(왼쪽 위 안쪽 · 작은 흐린 글 · 흰 테두리 없음)', () => {
+    const f = { zones: [{ id: 'z', type: 'NO_GO', name: '공정 C 배관 밑', polygon: [[0, 0], [4, 0], [4, 4], [0, 4]] }], waypoints: [], connectors: [], edits: [] } as unknown as MapFeatures;
+    const t = new DOMParser().parseFromString(renderToStaticMarkup(<svg xmlns="http://www.w3.org/2000/svg"><Shapes v={{ origin: [0, 0, 0], resolution: 0.5, width: 10, height: 10 }} f={f} /></svg>), 'image/svg+xml').querySelector('[data-zone-name]')!;
+    expect(t.textContent).toBe('공정 C 배관 밑');
+    [0.04, 2.04, 0.07].forEach((n, i) => expect(Number(t.getAttribute(['x', 'y', 'font-size'][i]))).toBeCloseTo(n, 9));   // r = 10/100 · 왼쪽 위 (0, 2) px + 0.4r · 글 0.7r
+    expect(t.getAttribute('style')).toBe('fill:var(--muted);pointer-events:none');
   });
 
   it('구역 종류 AREA(서버 시드): 이름만 보이고 접근 금지 · 감속 표시와 선 강조는 없다', () => {
