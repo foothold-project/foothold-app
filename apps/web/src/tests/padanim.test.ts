@@ -52,7 +52,12 @@ describe('바닥 표시 오르는 층', () => {
 
   it('관제 타일 · 로봇 탭 큰 무대가 같은 함수(padGroup · padTick) · 로봇 탭 padMesh = padGroup 한 줄', () => {
     expect(tileSrc).toContain("import { padGroup, padTick } from './padanim';");
-    expect(tileSrc).toContain('padTick(this.pads[look.pad], this.t)');
+    expect(tileSrc).toContain('padTick(this.pads[+light][look.pad], this.t)');
+    // 관제 타일도 밝은 판이면 밝음 1 색(점검 #5E6662) 바닥 표시를 고름
+    expect(tileSrc).toContain("this.pads = [false, true].map((l) => ({ charge: padGroup('charge', l), check: padGroup('check', l) }));");
+    expect(tileSrc).toContain("i === +light");
+    const lightCheck = padGroup('check', true);
+    expect(((lightCheck.children[0] as THREE.LineLoop).material as THREE.LineBasicMaterial).color.getHex()).toBe(0x5e6662);
     expect(go2Src).toContain("import { padGroup, padTick } from '../../proto/padanim';");
     expect(go2Src).toContain("export const padMesh = (kind: PadKind, light = false): THREE.Group => padGroup(kind === 'maint' ? 'check' : kind, light);");
     expect(go2Src).toContain('if (padG) padTick(padG, t);');

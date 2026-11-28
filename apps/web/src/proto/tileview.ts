@@ -86,7 +86,7 @@ class Tiles {
   r: THREE.WebGLRenderer | null = null;
   scene = new THREE.Scene(); cam = new THREE.PerspectiveCamera(30, 1, 0.05, 1200);
   world = new THREE.Group(); body: Body | null = null; walk: Walk | null = null; cyber: THREE.ShaderMaterial | null = null;
-  pads: Record<'charge' | 'check', THREE.Group> | null = null;
+  /** 바닥 표시 [어두운 판, 밝은 판](밝은 판 = 밝음 1 색 · padanim PAD_LIGHT) */ pads: Record<'charge' | 'check', THREE.Group>[] | null = null;
   grid!: THREE.Points; gm!: THREE.ShaderMaterial; site: THREE.Group | null = null;
   t = 0.35; last = 0; raf = 0; failed = false; hemi!: THREE.HemisphereLight; rims: [THREE.DirectionalLight, number, number][] = [];
 
@@ -120,7 +120,7 @@ class Tiles {
     this.gm = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: { off: { value: 0 }, col: { value: new THREE.Color(0x00c389).lerp(new THREE.Color(0xffffff), 0.4) } },
       vertexShader: vs('2.6'), fragmentShader: 'uniform vec3 col; varying float a; void main(){ vec2 c=gl_PointCoord-0.5; if(length(c)>0.5) discard; gl_FragColor=vec4(col,a*1.0*0.50);} ' });
     this.grid = new THREE.Points(gg, this.gm); s.add(this.grid);
-    this.pads = { charge: padGroup('charge'), check: padGroup('check') }; s.add(this.pads.charge, this.pads.check);
+    this.pads = [false, true].map((l) => ({ charge: padGroup('charge', l), check: padGroup('check', l) })); for (const p of this.pads) s.add(p.charge, p.check);
     const hm = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: { off: this.gm.uniforms.off, col: { value: this.gm.uniforms.col.value.clone() } },
       vertexShader: vs('10.0'), fragmentShader: 'uniform vec3 col; varying float a; void main(){ float d=length(gl_PointCoord-0.5)*2.0; if(d>1.0) discard; gl_FragColor=vec4(col,a*0.5*0.50*(1.0-d)*(1.0-d));} ' });
     this.grid.add(new THREE.Points(gg, hm));
@@ -185,8 +185,8 @@ class Tiles {
       v.at = look.pose ? follow(v.at, look.pose, dt) : null;
       const p = v.at;
       const ly = layers(!!p, !!this.site); this.world.visible = ly.world; this.grid.visible = ly.dots;
-      if (this.pads) { this.pads.charge.visible = ly.dots && look.pad === 'charge'; this.pads.check.visible = ly.dots && look.pad === 'check'; }
-      if (this.pads && look.pad) padTick(this.pads[look.pad], this.t);
+      if (this.pads) this.pads.forEach((p, i) => { p.charge.visible = ly.dots && look.pad === 'charge' && i === +light; p.check.visible = ly.dots && look.pad === 'check' && i === +light; });
+      if (this.pads && look.pad) padTick(this.pads[+light][look.pad], this.t);
       if (p) { this.world.rotation.set(0, -p.rot, 0); this.world.position.set(0, 0, 0); this.world.updateMatrix();
         const off = new THREE.Vector3(-p.x, 0, -p.z).applyAxisAngle(new THREE.Vector3(0, 1, 0), -p.rot); this.world.position.copy(off);
         // 가림 광선은 로봇이 0.2 m(또는 0.2 rad) 넘게 움직였거나 시점이 바뀌었을 때만 다시 쏜다(매 판 쏘지 않음)
