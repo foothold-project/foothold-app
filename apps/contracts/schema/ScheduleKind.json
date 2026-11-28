@@ -4,8 +4,7 @@
   "enum": [
     "CONFIRMED",
     "DRAFT",
-    "BATTERY_SWAP",
-    "MAINTENANCE"
+    "BATTERY_SWAP"
   ],
   "type": "string"
 }

@@ -2529,7 +2529,7 @@ class Realtime:
         peer.state['action_result'] = data.get('action_result')
         peer.state['control'] = data.get('control')
         peer.state['response_health'] = data.get('response_health')
-        peer.state['battery'] = C.Battery(soc=msg.battery.soc, updated_at=now(), minutes_left=msg.battery.minutes_left).model_dump(mode='json') if msg.battery.soc is not None else None
+        peer.state['battery'] = C.Battery(soc=msg.battery.soc, updated_at=now()).model_dump(mode='json') if msg.battery.soc is not None else None
         pose = data['pose']
         context = pose.get('floor_context')
         stale_floor = False

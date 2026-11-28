@@ -24,7 +24,7 @@ def binding(world_id, floor):
 
 def test_world_floor_table_is_the_single_source():
     assert C.SIM_WORLD_FLOORS == {'v5_building': ('l1', 'l2'), 'plant_a': ('l1', 'l2', 'l3'),
-                                  'warehouse': ('f1',), 'factory_site': ('f1',)}
+                                  'warehouse': ('f1',)}
 
 
 @pytest.mark.parametrize('spawn,current', [('l1', 'l1'), ('l1', 'l3'), ('l3', 'l2'), ('l2', None)])

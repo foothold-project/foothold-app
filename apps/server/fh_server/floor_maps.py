@@ -37,9 +37,9 @@ def connected_source(meta, version, world_id):
     return source
 
 
-# Approved floor heights; plant_a and factory_site mirror simmgr/worlds/worlds.json.
+# Approved floor heights; plant_a mirrors simmgr/worlds/worlds.json.
 FLOOR_Z = {('warehouse', 'f1'): .034226, ('v5_building', 'l1'): 0.0, ('v5_building', 'l2'): 2.4,
-           ('plant_a', 'l1'): 0.0, ('plant_a', 'l2'): 3.375, ('plant_a', 'l3'): 6.75, ('factory_site', 'f1'): 0.0}
+           ('plant_a', 'l1'): 0.0, ('plant_a', 'l2'): 3.375, ('plant_a', 'l3'): 6.75}
 
 
 def approved_bindings(db, org_id, world_id='v5_building'):

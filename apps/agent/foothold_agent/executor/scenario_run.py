@@ -19,9 +19,6 @@ from .scenario import plan_from_data
 from .steps import ExecutionSupport, StepRunner
 
 TERMINAL = {'COMPLETED', 'FAILED', 'CANCELED'}
-# Core latch causes the simulation side raised by itself (#640): the sim reported STOP while the
-# app was not latched (bridge hold on stale/invalid state, sim reset) or its episode changed.
-SIM_SELF_STOPS = frozenset({'robot_stop', 'episode_changed'})
 
 
 class ServerRelay:
@@ -218,9 +215,6 @@ class ScenarioRun:
         if self.active and self.current['peer'] is peer and self.current['status'] != 'PAUSED':
             self._halt('PAUSED', 'LINK_LOST')
 
-    def _latch_reason(self):
-        return 'SIM_SELF_STOP' if self.hub.session.core.latch_cause in SIM_SELF_STOPS else 'STOPPED_BY_USER'
-
     def stopped(self):
         if self.active and self.current['status'] != 'PAUSED':
             self._halt('PAUSED', 'STOPPED_BY_USER')
@@ -375,7 +369,7 @@ class ScenarioRun:
             self.expire()
             return
         if s.core.latch:
-            self._halt('PAUSED', self._latch_reason())
+            self._halt('PAUSED', 'STOPPED_BY_USER')
             return
         if c['peer'] not in h.peers or h.now() - h.peers[c['peer']].last_ping >= 3:
             self.lost(c['peer'])
@@ -387,14 +381,11 @@ class ScenarioRun:
                 try:
                     if c['plan'] is None:
                         c['plan'], c['end'] = plan_from_data(self.preparing.result(), c['request'], self.support)
-                    if not self.nav.actions.ready():
-                        # No fresh pose/action health is not a map identity mismatch (#640).
-                        raise ValueError('NAV_UNAVAILABLE')
                     if not self.context(c['request'], c['plan']):
                         raise ValueError('MAP_VERSION_MISMATCH')
                     c['progress']['total'] = len(c['plan']['segments'][0]['goals'])
                 except Exception as exc:
-                    code = str(exc) if str(exc) in ('FLOOR_TRANSITION_UNSUPPORTED', 'MAP_VERSION_MISMATCH', 'EXECUTION_UNAVAILABLE', 'NAV_UNAVAILABLE') else 'PLAN_UNAVAILABLE'
+                    code = str(exc) if str(exc) in ('FLOOR_TRANSITION_UNSUPPORTED', 'MAP_VERSION_MISMATCH', 'EXECUTION_UNAVAILABLE') else 'PLAN_UNAVAILABLE'
                     if code == 'EXECUTION_UNAVAILABLE':
                         self._event(code, dict(requested_run_id=c['run_id'], reason=getattr(exc, 'reason', code)))
                     self._halt('FAILED', code)
@@ -537,7 +528,7 @@ class ScenarioRun:
         # Only ZERO health: the normal Session/Core/sink gates still decide it.
         h._emit(s.executor_command(c['run_id'], Z))
         if s.run is None or s.run['status'] != 'RUNNING' or s.core.latch:
-            self._halt('PAUSED', self._latch_reason() if s.core.latch else 'STOPPED_BY_USER')
+            self._halt('PAUSED', 'STOPPED_BY_USER')
             return
         if e['phase'] == 'GATING':
             zero = s.core.out == Z and s.core.intent == Z

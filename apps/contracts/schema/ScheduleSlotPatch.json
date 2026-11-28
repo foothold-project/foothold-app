@@ -3,19 +3,6 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
-    "busy_label": {
-      "anyOf": [
-        {
-          "maxLength": 64,
-          "minLength": 1,
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "title": "Busy Label"
-    },
     "end": {
       "format": "date-time",
       "title": "End",
@@ -35,8 +22,7 @@
       "enum": [
         "CONFIRMED",
         "DRAFT",
-        "BATTERY_SWAP",
-        "MAINTENANCE"
+        "BATTERY_SWAP"
       ],
       "title": "Kind",
       "type": "string"

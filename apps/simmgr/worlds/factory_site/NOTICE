@@ -1,5 +1,0 @@
-공장 터 (factory_site) · 초안
-출처: 시안 공장 터 3D (factory_site.glb, 절차 생성 가상 현장 「국내 석유화학 단지 한 구역」 900 x 560 m). 실제 현장 배치 아님.
-생성: apps/simmgr/tools/import_site.py 가 glb 에서 만든 0.5 m 격자 상자 월드. 원본 메쉬 · 텍스처 · 그림은 저장소에 없음 (sources.json 의 SHA 만).
-시나리오: design.json (시안 화면 u5_3 · u7_3 경로 px, u6_1 일정 시각) 에서 만듦.
-실행 · 보행 · 서버 run.start 지도 묶음 미검증. 도로 · 포장 턱 (0.1 m 이하) 은 물리에 없음 (평평한 땅).

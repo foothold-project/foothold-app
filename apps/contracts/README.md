@@ -139,18 +139,6 @@ RUN 과 null. 이름은 표시용이며 권한 판단에 쓰지 않는다. 모�
 - STOP 잠금이 우선이다. pause · resume 은 잠금을 풀지 않는다.
 - 모든 pause 는 사건 `RUN_PAUSE_REQUESTED` (user_id = 보낸 사람, `data.run_id` · `data.holder_type` · `data.connection`).
 
-## 화면이 서버 WS 로 시작한 run 의 조종권 유지 (11/28 #640)
-
-서버 WS 로 `ScreenRunStart` 를 보낸 화면 (쥔 쪽 USER) 은 run 이 끝날 때까지 같은 `lease_id` 로 0 축 `cmd`
-(`axes: [0, 0, 0]`, `seq` 는 계속 증가) 를 15 s 안에 한 번 이상 계속 보낸다 (1 Hz 이면 충분). 서버는 `cmd` 로만
-lease 심장 박동을 늘리고 `ping` 으로는 늘리지 않는다. 15 s 동안 `cmd` 가 없으면 lease 가 EXPIRE 되고, 에이전트는
-서버 lease 가 바뀌거나 없어진 것으로 보고 run 을 `PAUSED` `LINK_LOST` 로 둔다. 0 축 `cmd` 는 Hub 로 가지 않으므로
-run 의 움직임에 끼어들지 않는다. 예약 실행 (RUN lease) 과 폰 직결 실행은 이 규칙 밖이다 (폰 직결은 1 s `ping`).
-
-`wait_reason` `SIM_SELF_STOP` 은 사람 STOP 이 아니라 시뮬 쪽이 스스로 STOP 한 일시정지다 (상태 끊김 · 형식 오류로
-다리가 잡은 STOP, 시뮬 리셋 · 에피소드 바뀜). `STOPPED_BY_USER` 는 사람 · 서버 STOP 에만 쓴다. 계획 수락 때 새 자세가
-없어 길 찾기가 준비되지 않았으면 `fail_code` 는 `MAP_VERSION_MISMATCH` 가 아니라 `NAV_UNAVAILABLE` 이다.
-
 ## 지도 (S3a)
 
 `SiteTree`, `MapVersionCreate`/`MapVersion`/`MapVersionList`, `MapFeatures`,

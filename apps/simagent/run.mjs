@@ -19,7 +19,7 @@ const summary = () => ({ map: a.map, seed, t: +world.sim.t.toFixed(3), base_heig
 
 if (!a.ws) {
   const t0 = performance.now();
-  await world.run(seconds, [0, 0, 0]);
+  world.run(seconds, [0, 0, 0]);
   console.log(JSON.stringify({ ...summary(), wall_ms: +(performance.now() - t0).toFixed(1) }));
   world.dispose();
 } else {
@@ -29,22 +29,17 @@ if (!a.ws) {
   if (!token || /[\s\x00-\x1f]/.test(token)) throw new Error('FH_SIM_AGENT_TOKEN 필요');
   const log = (o) => console.log(JSON.stringify({ at: +world.sim.t.toFixed(2), ...o }));
   const ws = new WebSocket(url, { headers: { Authorization: 'Bearer ' + token } });
-  let timer, sent = 0, opened = false, stepping = null;
+  let timer, sent = 0, opened = false;
   // 한 번도 열리지 않으면 (인증 거부 403 · 서버 없음) 0 이 아닌 값으로 끝낸다. 브라우저식 WebSocket 은 HTTP 상태를 보여 주지 않는다.
-  // 비동기 step 이 도는 중이면 끝난 뒤에 월드를 닫는다 (닫힌 MjData 를 읽지 않게).
-  const finish = async (why) => { clearInterval(timer); await stepping; log({ end: why, opened, sent, ...summary() }); world.dispose(); if (!opened) process.exitCode = 2; };
+  const finish = (why) => { clearInterval(timer); log({ end: why, opened, sent, ...summary() }); world.dispose(); if (!opened) process.exitCode = 2; };
   ws.onopen = () => {
     opened = true; log({ open: true });
     ws.send(JSON.stringify(helloMessage({ agentVersion: 'simagent/0.0.1' }))); sent++;
-    const start = performance.now(); let steps = 0, lastState = -1, busy = false;
-    timer = setInterval(async () => {
-      // 벽시계를 따라 정책 주기 단위로 진행 (밀리면 최대 0.2 s 만 따라잡음). ONNX step 은 비동기라 한 번에 하나만.
-      if (busy) return;
-      busy = true;
+    const start = performance.now(); let steps = 0, lastState = -1;
+    timer = setInterval(() => {
+      // 벽시계를 따라 정책 주기 단위로 진행 (밀리면 최대 0.2 s 만 따라잡음)
       const due = Math.min(Math.floor((performance.now() - start) / 1000 / POLICY_DT), steps + 10);
-      stepping = (async () => { for (; steps < due; steps++) await world.sim.step(); })();
-      try { await stepping; } finally { busy = false; }
-      if (ws.readyState !== WebSocket.OPEN) return;
+      for (; steps < due; steps++) world.sim.step();
       const slot = Math.floor(world.sim.t * 2);
       if (slot !== lastState && ws.readyState === WebSocket.OPEN) { ws.send(JSON.stringify(stateMessage(world.sim))); sent++; lastState = slot; }
       if (world.sim.t >= seconds) ws.close(1000);

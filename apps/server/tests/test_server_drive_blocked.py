@@ -17,7 +17,7 @@ from .test_server_drive import trial  # noqa: F401 — isolated fixture
 @pytest.mark.parametrize('approved', [False, True])
 def test_reasons_and_allowed_match_existing_conditions(simulation, switch, owned, serial, approved):
     owner, org_id = uuid4(), uuid4()
-    robot = SimpleNamespace(id=uuid4(), name='fake', model='unitree_go2', simulation=simulation, demo=False,
+    robot = SimpleNamespace(id=uuid4(), name='fake', model='unitree_go2', simulation=simulation,
         owner_user_id=owner if owned else None, serial=serial)
     realtime = SimpleNamespace(agents={}, settings=SimpleNamespace(drive_enabled=lambda rid: switch),
         field_approved=lambda rid: approved, arbiter=SimpleNamespace(robots={}))
@@ -46,7 +46,7 @@ def test_switch_off_with_connected_laptop_only_reports_switch(relay):
     realtime.settings.drive_enabled = lambda robot_id: False
     # The real composite gate is now false despite the connected fake peer.
     assert not realtime.field_approved(rid)
-    robot = SimpleNamespace(id=UUID(rid), name='fake', model='unitree_go2', simulation=False, demo=False,
+    robot = SimpleNamespace(id=UUID(rid), name='fake', model='unitree_go2', simulation=False,
         owner_user_id=owner, serial='1234-test')
     user = SimpleNamespace(id=owner, org_id=uuid4(), role='OPERATOR')
     db = MagicMock()

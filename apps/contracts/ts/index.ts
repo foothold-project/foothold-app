@@ -43,7 +43,6 @@ export interface AgentAction {
 export interface AgentBattery {
   soc: number | null;
   voltage?: number | null;
-  minutes_left?: number | null;
 }
 
 export interface AgentCmdAck {
@@ -229,7 +228,7 @@ export interface AgentRunUpdate {
   progress: Progress | null;
   path_deviation_m?: number | null;
   fail_code?: string | null;
-  wait_reason?: "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE" | "SIM_SELF_STOP" | null;
+  wait_reason?: "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE" | null;
   agent_instance_id?: string;
   report_seq?: number;
   monotonic_s?: number;
@@ -421,7 +420,6 @@ export interface AssignmentList {
 export interface Battery {
   soc: number;
   updated_at: string;
-  minutes_left?: number | null;
 }
 
 export interface CameraFrame {
@@ -502,7 +500,7 @@ export interface DurableAgentRunUpdate {
   progress: Progress | null;
   path_deviation_m?: number | null;
   fail_code?: string | null;
-  wait_reason?: "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE" | "SIM_SELF_STOP" | null;
+  wait_reason?: "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE" | null;
   agent_instance_id: string;
   report_seq: number;
   monotonic_s: number;
@@ -698,7 +696,7 @@ export interface FloorContext {
   run_id: string;
   epoch: number;
   floor_rev: number;
-  world_id: "v5_building" | "plant_a" | "warehouse" | "factory_site";
+  world_id: "v5_building" | "plant_a" | "warehouse";
   building_id: string;
   spawn_floor_id: "l1" | "l2" | "l3" | "f1";
   current_floor_id: "l1" | "l2" | "l3" | "f1" | null;
@@ -873,7 +871,6 @@ export interface MapBuilding {
   site_id: string;
   name: string;
   floors: MapFloor[];
-  demo: boolean;
 }
 
 export interface MapConnector {
@@ -951,7 +948,6 @@ export interface MapSite {
   name: string;
   purpose: "SIM" | "REAL";
   buildings: MapBuilding[];
-  demo: boolean;
 }
 
 export interface MapUpdateReason {
@@ -1012,7 +1008,7 @@ export interface MapWaypoint {
 
 export interface MapZone {
   id: string;
-  type: "NO_GO" | "SLOW" | "AREA";
+  type: "NO_GO" | "SLOW";
   name: string;
   polygon: [number, number][];
   max_speed_mps?: number | null;
@@ -1796,7 +1792,7 @@ export interface PhoneRunUpdate {
   status: "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED";
   step: number;
   progress: Progress;
-  wait_reason: "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE" | "SIM_SELF_STOP" | null;
+  wait_reason: "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE" | null;
   fail_code: string | null;
   t: "run.update";
 }
@@ -2023,7 +2019,7 @@ export interface RefreshRequest {
 export interface RobotAvailability {
   robot_id: string;
   robot_name: string;
-  state: "FREE" | "BUSY" | "CHARGING" | "OFFLINE" | "MAINTENANCE";
+  state: "FREE" | "BUSY" | "CHARGING" | "OFFLINE";
   busy_until: string | null;
   busy_slot_id: string | null;
   busy_label: string | null;
@@ -2087,10 +2083,6 @@ export interface RobotPatch {
   name?: string;
   /** 실기는 담당 운영이 넘긴다. 담당 없는 실기에 한해 총괄이 이 필드만 보내 같은 조직의 활성 운영을 지정할 수 있으며 null은 허용하지 않는다. */
   owner_user_id?: string | null;
-  /** 시뮬 로봇만 바꿀 수 있다. 실기는 409 DEMO_REQUIRES_SIMULATION. */
-  demo?: boolean;
-  /** 총괄만 바꾼다 (담당 운영자는 403 FORBIDDEN). null = 정하지 않음. */
-  equipment_tier?: "STANDARD" | "UPPER" | null;
 }
 
 export interface RobotResponseHealth {
@@ -2113,10 +2105,6 @@ export interface RobotSummary {
   controller_device?: string | null;
   controller_connected?: boolean | null;
   simulation: boolean;
-  /** 하루 일과를 계속 도는 시연 로봇. 시뮬 로봇만 true 일 수 있고 실기는 늘 false. */
-  demo?: boolean;
-  /** 장비 등급 (11/28 15:04). 정하지 않으면 null. */
-  equipment_tier?: "STANDARD" | "UPPER" | null;
   server_drive_allowed: boolean;
   /** 표시용 조종 불가 이유. 전체 보기 가능한 실기만 목록, 허용이면 빈 목록, 그 외 null. 허용 판단에는 쓰지 않는다. FIELD_GATE_CLOSED: 서버 쪽 이유가 없는데 에이전트 현장 승인 관문이 닫혀 앱 정지가 로봇에 가지 않는다(허용 값과 함께 올 수 있음). */
   server_drive_blocked?: ("SWITCH_OFF" | "NO_OWNER" | "NO_SERIAL" | "AGENT_OFFLINE" | "FIELD_GATE_CLOSED")[] | null;
@@ -2249,7 +2237,7 @@ export interface RunSnapshot {
   status: "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED";
   step: number;
   progress: Progress;
-  wait_reason: "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE" | "SIM_SELF_STOP" | null;
+  wait_reason: "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE" | null;
   fail_code: string | null;
 }
 
@@ -2394,7 +2382,6 @@ export interface ScheduleDay {
 }
 
 export interface ScheduleSlot {
-  busy_label?: string | null;
   id: string;
   robot_id: string;
   scenario_id: string | null;
@@ -2402,7 +2389,7 @@ export interface ScheduleSlot {
   gait: "classic" | "sport" | "start" | "ame2" | null;
   start: string;
   end: string;
-  kind: "CONFIRMED" | "DRAFT" | "BATTERY_SWAP" | "MAINTENANCE";
+  kind: "CONFIRMED" | "DRAFT" | "BATTERY_SWAP";
   assignment_id: string | null;
   memo: string;
   created_by: string;
@@ -2420,19 +2407,17 @@ export interface ScheduleSlotCreate {
   gait?: "classic" | "sport" | "start" | "ame2" | null;
   start: string;
   end: string;
-  kind: "CONFIRMED" | "DRAFT" | "BATTERY_SWAP" | "MAINTENANCE";
+  kind: "CONFIRMED" | "DRAFT" | "BATTERY_SWAP";
   assignment_id?: string | null;
   memo?: string;
-  busy_label?: string | null;
 }
 
 export interface ScheduleSlotPatch {
   robot_id?: string;
   start?: string;
   end?: string;
-  kind?: "CONFIRMED" | "DRAFT" | "BATTERY_SWAP" | "MAINTENANCE";
+  kind?: "CONFIRMED" | "DRAFT" | "BATTERY_SWAP";
   gait?: "classic" | "sport" | "start" | "ame2";
-  busy_label?: string | null;
 }
 
 export interface ScreenAction {
@@ -2696,7 +2681,7 @@ export interface SimFailureDetail {
 }
 
 export interface SimMapBinding {
-  world_id: "v5_building" | "plant_a" | "warehouse" | "factory_site";
+  world_id: "v5_building" | "plant_a" | "warehouse";
   building_id: string;
   ros_building_id: string;
   ros_floor_id: "l1" | "l2" | "l3" | "f1";
@@ -2716,8 +2701,6 @@ export interface SimProvision {
   world_id: string;
   spawn_floor_id?: "l1" | "l2" | "l3" | null;
   robot_id: string;
-  /** 새로 여는 세대를 데모 로봇으로 둔다. 이미 같은 사람이 쓰는 슬롯이면 바꾸지 않는다. */
-  demo?: boolean;
   map_bindings?: SimMapBinding[];
   generation: number;
   owner_id: string;
@@ -2768,8 +2751,6 @@ export interface SimStartRequest {
   world_id: string;
   spawn_floor_id?: "l1" | "l2" | "l3" | null;
   robot_id: string;
-  /** 새로 여는 세대를 데모 로봇으로 둔다. 이미 같은 사람이 쓰는 슬롯이면 바꾸지 않는다. */
-  demo?: boolean;
 }
 
 export interface SimWorld {
@@ -3085,11 +3066,10 @@ export interface ZoneOverlaps {
   scenarios: ZoneOverlapScenario[];
 }
 
-export type RobotDemoErrorCode = "DEMO_REQUIRES_SIMULATION";
 export type ScenarioTargetErrorCode = "SIM_MAP_REQUIRES_SIM_ROBOT" | "SIM_SCENARIO_NO_ASSIGN" | "SCENARIO_MIXED_PURPOSE";
 export type RunStatus = "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED";
 export type RunRecordStatus = "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED" | "ABORTED";
-export type RunWaitReason = "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE" | "SIM_SELF_STOP";
+export type RunWaitReason = "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE";
 export type RunFailCode = "NAV_GOAL_REJECTED" | "NAV_TIMEOUT" | "LOCALIZATION_LOST" | "BATTERY_LOW" | "DEVICE_MISSING" | "OPERATOR_ABORT" | "PAUSE_TIMEOUT" | "FLOOR_TRANSITION_FAILED" | "NAV_UNAVAILABLE" | "MAP_VERSION_MISMATCH" | "FLOOR_TRANSITION_UNSUPPORTED" | "PLAN_UNAVAILABLE" | "RECORDING_REJECTED";
 export type RunRejectCode = "NOT_CONTROLLER" | "FORBIDDEN" | "RUN_ACTIVE" | "RUN_CONFLICT" | "RUN_NOT_FOUND" | "RUN_STATE_CONFLICT" | "RUN_OWNER_MISMATCH" | "RESUME_REJECTED" | "UNSUPPORTED_OPERATION" | "RECORDING_UNAVAILABLE" | "NAV_UNAVAILABLE" | "MAP_VERSION_MISMATCH" | "FLOOR_TRANSITION_UNSUPPORTED" | "PLAN_UNAVAILABLE";
 export type RunReportTransientCode = "RUN_REPORT_SEQUENCE" | "RUN_REPORT_STORAGE";
@@ -3105,8 +3085,8 @@ export type MediaSource = "d435i_rgb" | "go2_front" | "gazebo_external" | "l1" |
 export type ExecutionCapabilityKey = "wait" | "photo.rgb" | "photo.depth" | "operator_confirm" | "sensor_log.rgb" | "sensor_log.depth" | "sensor_log.lidar" | "sensor_log.battery";
 export type GaitName = "classic" | "sport" | "start" | "ame2";
 export type GaitRejectCode = "GAIT_MOVING" | "GAIT_NOT_STANDING" | "GAIT_NOT_READY" | "GAIT_LATCHED" | "GAIT_BUSY" | "GAIT_UNSUPPORTED" | "GAIT_CANCELLED" | "GAIT_LEASE_LOST" | "GAIT_TIMEOUT" | "GAIT_SDK_ERROR" | "GAIT_NOT_ALLOWED";
-export type ScheduleKind = "CONFIRMED" | "DRAFT" | "BATTERY_SWAP" | "MAINTENANCE";
-export type AvailabilityState = "FREE" | "BUSY" | "CHARGING" | "OFFLINE" | "MAINTENANCE";
+export type ScheduleKind = "CONFIRMED" | "DRAFT" | "BATTERY_SWAP";
+export type AvailabilityState = "FREE" | "BUSY" | "CHARGING" | "OFFLINE";
 export type EstimateSource = "MEASURED" | "TABLE_UNMEASURED";
 export type LowlevelAction = "Sit" | "RiseSit" | "StandDown" | "Stretch" | "Hello" | "Heart" | "Damp" | "Greet";
 export type ControlMode = "FACTORY" | "LOWLEVEL";

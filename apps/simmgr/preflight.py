@@ -2,7 +2,6 @@
 from datetime import datetime, timezone
 import json
 import logging
-import os
 from pathlib import Path
 import subprocess
 import sys
@@ -53,14 +52,7 @@ def isolation_preflight(folder):
     return preflight(folder)  # existing 93/DDS/resource/61 baseline gates unchanged
 
 
-def mujoco_resources_ok(snapshot):
-    """MuJoCo local (demo-day 11/28): load1 <= core count; memory as isolation.preflight (2500 MiB)."""
-    return snapshot['mem_available_mib'] >= 2500 and snapshot['load1'] <= (os.cpu_count() or 1)
-
-
-def startup_preflight(real=False, mujoco=None):
-    if mujoco is None:  # same source as Settings.local_backend
-        mujoco = os.environ.get('FH_SIM_LOCAL_BACKEND') == 'mujoco'
+def startup_preflight(real=False):
     resources_ok = True
     folder = ROOT / 'tmp/p1c/startup'
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -77,9 +69,8 @@ def startup_preflight(real=False, mujoco=None):
             snapshot = json.loads((Path(evidence) / 'preflight.json').read_text())
             if snapshot['domain93'] or snapshot['dds_ports']:
                 raise RuntimeError('isolation unavailable; startup refused') from None
-            resources_ok = mujoco and mujoco_resources_ok(snapshot)
-            if not resources_ok:
-                LOGGER.warning('fake launcher resource warning: MemAvailable/load gate exceeded')
+            LOGGER.warning('fake launcher resource warning: MemAvailable/load gate exceeded')
+            resources_ok = False
     try:
         result = subprocess.run(['systemctl', '--user', 'list-units', '--all', '--plain',
             '--no-legend', '--no-pager', OBSERVER_UNIT_PATTERN, *UNIT_PATTERNS], text=True, capture_output=True,

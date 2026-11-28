@@ -16,11 +16,6 @@
           "default": null,
           "title": "Archived At"
         },
-        "demo": {
-          "default": false,
-          "title": "Demo",
-          "type": "boolean"
-        },
         "floors": {
           "items": {
             "$ref": "#/$defs/MapFloor"
@@ -59,8 +54,7 @@
         "id",
         "site_id",
         "name",
-        "floors",
-        "demo"
+        "floors"
       ],
       "title": "MapBuilding",
       "type": "object"
@@ -184,11 +178,6 @@
           "title": "Buildings",
           "type": "array"
         },
-        "demo": {
-          "default": false,
-          "title": "Demo",
-          "type": "boolean"
-        },
         "id": {
           "format": "uuid",
           "title": "Id",
@@ -211,8 +200,7 @@
         "id",
         "name",
         "purpose",
-        "buildings",
-        "demo"
+        "buildings"
       ],
       "title": "MapSite",
       "type": "object"

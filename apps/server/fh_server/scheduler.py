@@ -166,12 +166,9 @@ def started(factory, org_id, at):
 
 
 class Scheduler:
-    def __init__(self, realtime, factory, org_id, *, clock=None, real_enabled=False, pre_unlock=False):
+    def __init__(self, realtime, factory, org_id, *, clock=None, real_enabled=False):
         self.rt, self.factory, self.org_id = realtime, factory, org_id
         self.real_enabled = real_enabled  # the one switch for real robots (default off)
-        # Pre-unlock of a release latch (11/28 10:58) is off unless FH_SCHEDULE_PRE_UNLOCK=1: Codex review of
-        # #633 (11/28 15:20) found paths where it can clear a STOP. Off = only a person unlocks (local integration).
-        self.pre_unlock = pre_unlock
         self.clock = clock or (lambda: now().astimezone(timezone.utc))
         self.pending = {}   # slot_id -> start state machine (memory only; restart = MISSED)
         self.reported = {}  # slot_id -> last time a report (or, after a restart, the first look) was seen
@@ -209,7 +206,7 @@ class Scheduler:
         fresh = 0 <= rt.clock() - peer.state_received_at <= .5
         pre_unlock = False
         if not fresh or peer.state.get('latched') is not False:
-            if not (self.pre_unlock and fresh and rt.release_latched_only(rid)):
+            if not (fresh and rt.release_latched_only(rid)):
                 return [(slot_id, 'SKIPPED', 'STOP_LATCHED')]  # only a person unlocks (SF-02); never auto-resume
             pre_unlock = True  # the confirmer pre-pressed unlock (1); audited below
         if peer.state.get('safety_reason') is not None:

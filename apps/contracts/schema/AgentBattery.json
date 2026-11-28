@@ -2,20 +2,6 @@
   "$id": "fh-app/1/AgentBattery",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "minutes_left": {
-      "anyOf": [
-        {
-          "maximum": 1440,
-          "minimum": 0,
-          "type": "integer"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Minutes Left"
-    },
     "soc": {
       "anyOf": [
         {

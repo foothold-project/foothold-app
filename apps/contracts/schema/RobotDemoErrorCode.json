@@ -1,6 +1,0 @@
-{
-  "$id": "fh-app/1/RobotDemoErrorCode",
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "const": "DEMO_REQUIRES_SIMULATION",
-  "type": "string"
-}

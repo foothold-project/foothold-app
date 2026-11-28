@@ -23,8 +23,6 @@ def omitted(**constraints):
 SIM_MAP_REQUIRES_SIM_ROBOT = 'SIM_MAP_REQUIRES_SIM_ROBOT'
 SIM_SCENARIO_NO_ASSIGN = 'SIM_SCENARIO_NO_ASSIGN'
 SCENARIO_MIXED_PURPOSE = 'SCENARIO_MIXED_PURPOSE'
-# 409: demo is a simulation robot role; real robots stay demo=false.
-DEMO_REQUIRES_SIMULATION = 'DEMO_REQUIRES_SIMULATION'
 
 SitePurpose = Literal['SIM', 'REAL']
 
@@ -38,7 +36,7 @@ RunStatus = Literal['QUEUED', 'PREPARING', 'MOVING', 'AT_WAYPOINT', 'PERFORMING'
                     'WAIT_CONFIRM', 'PAUSED', 'COMPLETED', 'FAILED', 'CANCELED']
 # Read compatibility only: new direct reports must use RunStatus.
 RunRecordStatus = RunStatus | Literal['ABORTED']
-RunWaitReason = Literal['LINK_LOST', 'STOPPED_BY_USER', 'RECORDING_UNAVAILABLE', 'SIM_SELF_STOP']
+RunWaitReason = Literal['LINK_LOST', 'STOPPED_BY_USER', 'RECORDING_UNAVAILABLE']
 RunFailCode = Literal['NAV_GOAL_REJECTED', 'NAV_TIMEOUT', 'LOCALIZATION_LOST',
                       'BATTERY_LOW', 'DEVICE_MISSING', 'OPERATOR_ABORT', 'PAUSE_TIMEOUT',
                       'FLOOR_TRANSITION_FAILED', 'NAV_UNAVAILABLE', 'MAP_VERSION_MISMATCH',
@@ -168,23 +166,13 @@ class Person(Contract):
     display_name: str
 
 
-# 배터리 남은 분 (11/28): 정수 분, 모르면 null. 표시용이라 틀린 값은 null 로 바꾸고 상태 프레임은 버리지 않는다.
-# 실기는 모형이 없어 null, 시뮬은 남은 에너지 ÷ 최근 평균 전력 (apps/simagent/vitals.mjs).
-MinutesLeft = Annotated[
-    Annotated[int, Field(ge=0, le=1440, strict=True)] | None,
-    BeforeValidator(lambda v: v if type(v) is int and 0 <= v <= 1440 else None),
-]
-
-
 class Battery(Contract):
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('minutes_left'))
     soc: float = Field(ge=0, le=100)
     updated_at: UTCDateTime
-    minutes_left: MinutesLeft = None
 
 
 # Sim worlds whose observations carry a floor context; the only world-to-floor table.
-SIM_WORLD_FLOORS = {'v5_building': ('l1', 'l2'), 'plant_a': ('l1', 'l2', 'l3'), 'warehouse': ('f1',), 'factory_site': ('f1',)}
+SIM_WORLD_FLOORS = {'v5_building': ('l1', 'l2'), 'plant_a': ('l1', 'l2', 'l3'), 'warehouse': ('f1',)}
 
 
 class FloorContext(Contract):
@@ -198,7 +186,7 @@ class FloorContext(Contract):
     run_id: str = Field(min_length=1, max_length=128)
     epoch: int = Field(ge=0, strict=True)
     floor_rev: int = Field(ge=0, strict=True)
-    world_id: Literal['v5_building', 'plant_a', 'warehouse', 'factory_site']
+    world_id: Literal['v5_building', 'plant_a', 'warehouse']
     building_id: UUID
     spawn_floor_id: Literal['l1', 'l2', 'l3', 'f1']
     current_floor_id: Literal['l1', 'l2', 'l3', 'f1'] | None
@@ -442,14 +430,10 @@ class PhoneRelayState(Contract):
     valid_for_s: float = Field(ge=0, le=3)
 
 
-# 로봇 장비 등급 (11/28 15:04): 총괄이 정하는 속성. 로봇 동작 · 권한 판단에는 쓰지 않는다.
-EquipmentTier = Literal['STANDARD', 'UPPER']
-
-
 class RobotSummary(Contract):
     model_config = ConfigDict(json_schema_extra=optional_response_fields(
         'last_state_received_at', 'state_stale', 'controller', 'controller_device', 'controller_connected', 'phone_relay',
-        'robot_serial', 'field_approval_expires_at', 'robot_info', 'server_drive_blocked', 'demo', 'equipment_tier'))
+        'robot_serial', 'field_approval_expires_at', 'robot_info', 'server_drive_blocked'))
     robot_info: Go2RobotInfo | None = None
     phone_relay: PhoneRelayState | None = None
     last_state_received_at: UTCDateTime | None = None
@@ -458,8 +442,6 @@ class RobotSummary(Contract):
     controller_device: UUID | None = None
     controller_connected: bool | None = None
     simulation: bool = False
-    demo: bool = Field(default=False, description='하루 일과를 계속 도는 시연 로봇. 시뮬 로봇만 true 일 수 있고 실기는 늘 false.')
-    equipment_tier: EquipmentTier | None = Field(default=None, description='장비 등급 (11/28 15:04). 정하지 않으면 null.')
     server_drive_allowed: bool = False
     server_drive_blocked: list[Literal['SWITCH_OFF', 'NO_OWNER', 'NO_SERIAL', 'AGENT_OFFLINE', 'FIELD_GATE_CLOSED']] | None = Field(
         default=None, description='표시용 조종 불가 이유. 전체 보기 가능한 실기만 목록, 허용이면 빈 목록, 그 외 null. 허용 판단에는 쓰지 않는다. '
@@ -1101,7 +1083,6 @@ class AgentPose(AgentInput):
 class AgentBattery(AgentInput):
     soc: Annotated[float, Field(ge=0, le=100)] | None
     voltage: float | None = None
-    minutes_left: MinutesLeft = None
 
 
 class PostureState(Contract):
@@ -1269,7 +1250,7 @@ class AgentRunUpdate(AgentInput):
             raise ValueError('report identity and monotonic time must be supplied together')
         if self.wait_reason is not None and self.status != 'PAUSED':
             raise ValueError('wait_reason is only valid while PAUSED')
-        if self.fail_code in ('LINK_LOST', 'STOPPED_BY_USER', 'RECORDING_UNAVAILABLE', 'SIM_SELF_STOP'):
+        if self.fail_code in ('LINK_LOST', 'STOPPED_BY_USER', 'RECORDING_UNAVAILABLE'):
             raise ValueError('pause reasons are not failure codes')
         return self
 
@@ -1864,8 +1845,6 @@ class RobotPatch(Contract):
     owner_user_id: UUID | None = omitted(description=(
         '실기는 담당 운영이 넘긴다. 담당 없는 실기에 한해 총괄이 이 필드만 보내 '
         '같은 조직의 활성 운영을 지정할 수 있으며 null은 허용하지 않는다.'))
-    demo: bool = omitted(description='시뮬 로봇만 바꿀 수 있다. 실기는 409 DEMO_REQUIRES_SIMULATION.')
-    equipment_tier: EquipmentTier | None = omitted(description='총괄만 바꾼다 (담당 운영자는 403 FORBIDDEN). null = 정하지 않음.')
 
 
 class RobotCreated(Contract):
@@ -2064,7 +2043,6 @@ class MapBuilding(Contract):
     site_id: UUID
     name: str
     floors: list[MapFloor] = Field(default_factory=list)
-    demo: bool = False  # this building's sim world has a demo robot; REAL buildings stay false
 
 
 class MapSite(Contract):
@@ -2074,8 +2052,6 @@ class MapSite(Contract):
     name: str
     purpose: SitePurpose
     buildings: list[MapBuilding] = Field(default_factory=list)
-    # SIM site whose world has a demo robot (Robot.demo); REAL sites are always false.
-    demo: bool = False
 
 
 class SiteTree(Contract):
@@ -2087,12 +2063,11 @@ MapCoordinate = Annotated[float, Field(strict=True)]
 
 
 class MapZone(Contract):
-    # AREA = a named place only (location label). No movement rule, so no speed value.
-    model_config = ConfigDict(json_schema_serialization_defaults_required=False, json_schema_extra={'allOf': [
-        {'if': {'properties': {'type': {'const': kind}}}, 'then': {'not': {'required': ['max_speed_mps']}}}
-        for kind in ('NO_GO', 'AREA')]})
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False, json_schema_extra={
+        'if': {'properties': {'type': {'const': 'NO_GO'}}},
+        'then': {'not': {'required': ['max_speed_mps']}}})
     id: str = Field(min_length=1, max_length=128, pattern=r'\S')
-    type: Literal['NO_GO', 'SLOW', 'AREA']
+    type: Literal['NO_GO', 'SLOW']
     name: str = Field(min_length=1, max_length=128, pattern=r'\S')
     polygon: list[tuple[MapCoordinate, MapCoordinate]] = Field(min_length=3, max_length=256)
     max_speed_mps: Annotated[float, Field(strict=True, ge=0.3, le=1.5)] | None = Field(
@@ -2100,8 +2075,8 @@ class MapZone(Contract):
 
     @model_validator(mode='after')
     def slow_speed_only(self):
-        if self.type in ('NO_GO', 'AREA') and 'max_speed_mps' in self.model_fields_set:
-            raise ValueError(f'{self.type} cannot specify max_speed_mps')
+        if self.type == 'NO_GO' and 'max_speed_mps' in self.model_fields_set:
+            raise ValueError('NO_GO cannot specify max_speed_mps')
         return self
 
 
@@ -2857,11 +2832,7 @@ class AssignmentList(Contract):
 
 
 # 일정 · 가용 · 예상 (app-design-lx 11/28 합의). 구간은 [start, end) 반열린 구간이다.
-# MAINTENANCE (11/28 15:04): 정비 칸. 일정 표시뿐이라 로봇에 아무것도 보내지 않고, BATTERY_SWAP 처럼 시나리오 없이 만든다.
-ScheduleKind = Literal['CONFIRMED', 'DRAFT', 'BATTERY_SWAP', 'MAINTENANCE']
-SCENARIOLESS_KINDS = ('BATTERY_SWAP', 'MAINTENANCE')
-# 칸 표시 이름 (가용 busy_label 로 나감). 비우면 서버 기본 이름 (배터리 교체 · 정비 · 시나리오 이름).
-SlotLabel = Annotated[str, Field(min_length=1, max_length=64)]
+ScheduleKind = Literal['CONFIRMED', 'DRAFT', 'BATTERY_SWAP']
 # 예약 실행 상태. STARTING 은 서버가 칸을 잡고 시작 중 (다시 켜면 MISSED SCHEDULER_RESTARTED).
 # SKIPPED 까닭: LEASE_HELD · RUN_ACTIVE · NO_ASSIGNMENT · ASSIGNMENT_INVALID ·
 #   MULTI_FLOOR · STOP_LATCHED (로봇이 잠겨 있음, 사람만 푼다) · SAFETY_STOP · CONFIRMER_NOT_ALLOWED (확정한 사람이
@@ -2869,8 +2840,7 @@ SlotLabel = Annotated[str, Field(min_length=1, max_length=64)]
 # FAILED 코드: 에이전트 run_result 거절 코드 · 실행 fail_code · START_TIMEOUT · LEASE_LOST · STOP_CONFIRM_FAILED ·
 #   RUN_REPORT_LOST (end_at + 60 초 넘게 보고 없음, 늦은 보고는 SCHEDULE_RUN_LATE_REPORT 사건만).
 ScheduleRunState = Literal['STARTING', 'STARTED', 'DONE', 'FAILED', 'SKIPPED', 'MISSED']
-# MAINTENANCE: 정비 칸이 걸린 동안. CHARGING 은 서버가 내지 않는다 (배터리가 실제로 오르는 신호가 없음, 11/28 15:03).
-AvailabilityState = Literal['FREE', 'BUSY', 'CHARGING', 'OFFLINE', 'MAINTENANCE']
+AvailabilityState = Literal['FREE', 'BUSY', 'CHARGING', 'OFFLINE']
 EstimateSource = Literal['MEASURED', 'TABLE_UNMEASURED']
 
 
@@ -2884,7 +2854,6 @@ class ScheduleSlotCreate(Contract):
     kind: ScheduleKind
     assignment_id: UUID | None = None
     memo: ApprovalText = Field(default='', max_length=2000)
-    busy_label: SlotLabel | None = None
 
     @model_validator(mode='after')
     def slot_shape(self):
@@ -2892,14 +2861,12 @@ class ScheduleSlotCreate(Contract):
             raise ValueError('end must be after start')
         if (self.scenario_id is None) != (self.scenario_version is None):
             raise ValueError('scenario_id and scenario_version go together')
-        if self.scenario_id is None and self.kind not in SCENARIOLESS_KINDS:
-            raise ValueError('only BATTERY_SWAP or MAINTENANCE may omit scenario')
+        if self.scenario_id is None and self.kind != 'BATTERY_SWAP':
+            raise ValueError('only BATTERY_SWAP may omit scenario')
         return self
 
 
 class ScheduleSlot(Contract):
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('busy_label'))
-    busy_label: str | None = None
     id: UUID
     robot_id: UUID
     scenario_id: UUID | None
@@ -2927,7 +2894,6 @@ class ScheduleSlotPatch(Contract):
     end: UTCDateTime = omitted()
     kind: ScheduleKind = omitted()
     gait: GaitName = omitted()
-    busy_label: SlotLabel | None = omitted()  # null = 지움 (기본 이름으로)
 
 
 class ScheduleDay(Contract):
@@ -3260,7 +3226,7 @@ class RunSnapshot(Contract):
     def paused_reason(self):
         if self.wait_reason is not None and self.status != 'PAUSED':
             raise ValueError('wait_reason is only valid while PAUSED')
-        if self.fail_code in ('LINK_LOST', 'STOPPED_BY_USER', 'RECORDING_UNAVAILABLE', 'SIM_SELF_STOP'):
+        if self.fail_code in ('LINK_LOST', 'STOPPED_BY_USER', 'RECORDING_UNAVAILABLE'):
             raise ValueError('pause reasons are not failure codes')
         return self
 
@@ -3689,7 +3655,6 @@ class SimWorldStart(Contract):
 
 class SimStartRequest(SimWorldStart):
     robot_id: UUID
-    demo: bool = Field(default=False, description='새로 여는 세대를 데모 로봇으로 둔다. 이미 같은 사람이 쓰는 슬롯이면 바꾸지 않는다.')
 
 
 class SimRemove(Contract):
@@ -3699,7 +3664,7 @@ class SimRemove(Contract):
 
 class SimMapBinding(Contract):
     """Server-verified canonical GT registration; PNG and PGM hashes are distinct."""
-    world_id: Literal['v5_building', 'plant_a', 'warehouse', 'factory_site']
+    world_id: Literal['v5_building', 'plant_a', 'warehouse']
     building_id: UUID
     ros_building_id: str = Field(min_length=1, max_length=64)
     ros_floor_id: Literal['l1', 'l2', 'l3', 'f1']
@@ -3732,7 +3697,7 @@ class SimProvision(SimStartRequest):
 class SimCatalog(Contract):
     worlds: list[SimWorld]
     slots: list[UUID]
-    max_robots: int = Field(ge=1, le=8)  # MuJoCo local up to 8; native Gazebo stays 1..2 in simmgr config
+    max_robots: int = Field(ge=1, le=4)  # MuJoCo local up to 4; native Gazebo stays 1..2 in simmgr config
     launcher: Literal['fake', 'native-single', 'mujoco-local']
     manager_instance_id: UUID | None = None
 
@@ -3768,7 +3733,7 @@ class SimRobot(Contract):
     command_topic: str
     launcher: Literal['fake', 'native-single', 'mujoco-local']
     expires_at: UTCDateTime | None = None
-    remaining_s: int | None = Field(default=None, ge=0, le=86400,
+    remaining_s: int | None = Field(default=None, ge=0, le=3600,
                                   description='Manager monotonic runtime remaining at this response, in seconds.')
 
 
@@ -3945,7 +3910,6 @@ REQUEST_MODELS.update({PhonePassRequest, CameraHello, SimWorldStart, SimStartReq
 REQUEST_MODELS.update({PhotoParams, WaitParams, ConfirmParams, SensorLogParams, MissionStep,
                        MissionWrite, ScenarioPoint, ScenarioWaypoint, ScenarioFinish, ScenarioWrite})
 
-TOP['RobotDemoErrorCode'] = Literal['DEMO_REQUIRES_SIMULATION']
 TOP['ScenarioTargetErrorCode'] = Literal['SIM_MAP_REQUIRES_SIM_ROBOT', 'SIM_SCENARIO_NO_ASSIGN', 'SCENARIO_MIXED_PURPOSE']
 TOP.update(RunStatus=RunStatus, RunRecordStatus=RunRecordStatus, RunWaitReason=RunWaitReason,
            RunFailCode=RunFailCode, RunRejectCode=RunRejectCode,
