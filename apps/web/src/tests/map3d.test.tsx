@@ -9,7 +9,8 @@ import { kept } from '../screens/mapedit';
 import { clearPlans } from '../screens/missions';
 import * as THREE from 'three';
 import { api, expireAuth } from '../api';
-import { floorZ, gltfToWorld, modelBytes, onBoard, resetModels, robotMark, worldGroup, worldToGltf } from '../screens/map3d';
+import { eyeCam, floorZ, gltfToWorld, modelBytes, onBoard, resetModels, robotMark, worldGroup, worldToGltf } from '../screens/map3d';
+import m3src from '../screens/map3d.tsx?raw';
 import { FakeWS } from './fakeWs';
 
 // 그리기까지 가는 시험만: WebGL · GLB 읽기를 가짜로(fake.on). 그 밖은 진짜(jsdom 은 WebGL 이 없어 실패 경로)
@@ -299,5 +300,17 @@ describe('3D 바닥 높이 = 받은 model_floor_z (그리기까지, WebGL · GLB
     await click(pick('3D')); await flush();
     expect(+$('[data-map3d]')!.getAttribute('data-floor-z')!).toBeCloseTo(-0.175, 6);
     near(marks().robot, -0.175 + 0.55);
+  });
+});
+
+// 시안 u7_4 로봇 눈높이: 실제 판 Map3D 에도(데모 현장 site3d 와 같은 규칙 · z 위)
+describe('Map3D 로봇 눈높이', () => {
+  it('대상 앞 6 m · 바닥 + 0.45 m 에서 대상(바닥 + 0.4 m) 쪽으로 · 바로 위에서 보던 중이면 남쪽에서 · 단추가 있다', () => {
+    const e = eyeCam([10, 5, 2], [10, -15, 30], 2);
+    expect(e.pos).toEqual([10, -1, 2.45]); expect(e.at).toEqual([10, 5, 2.4]);
+    const d = eyeCam([0, 0, 0], [3, 4, 9], 0);
+    expect(d.pos[0]).toBeCloseTo(3.6, 6); expect(d.pos[1]).toBeCloseTo(4.8, 6); expect(d.pos[2]).toBeCloseTo(0.45, 6);
+    expect(eyeCam([1, 1, 0], [1, 1, 20], 0).pos).toEqual([1, -5, 0.45]);
+    expect(m3src).toContain('data-eye onClick={() => rig.current?.eye()}>로봇 눈높이</button>');
   });
 });

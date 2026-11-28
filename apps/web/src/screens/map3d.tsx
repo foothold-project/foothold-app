@@ -68,10 +68,17 @@ export function onBoard<R>(robots: R[], vid: string, where: (x: R) => Partial<Pi
 const TONE_VAR: Record<Tone, string> = { ok: '--accent', warn: '--warn', bad: '--bad', off: '--muted' };
 export const whereOf = (x: Robot) => (x.unknown === 'summary' ? null : rt.get(x.id).state?.location ?? x.location ?? null);
 
-type Rig = { draw: () => void; marks: THREE.Group; z: number; view: (top: boolean) => void; dispose: () => void; look?: (light: boolean) => void };
+type Rig = { draw: () => void; marks: THREE.Group; z: number; view: (top: boolean) => void; eye: () => void; dispose: () => void; look?: (light: boolean) => void };
 
 /** missing(까닭) = 404: 모형 없음 · 판 없음. 부르는 쪽이 2D 로 돌아가 그 까닭을 한 줄로.
  *  still = 미리 보기(시안 u7_1): 시점 단추 · 범례 없음(기본 = 있음) */
+/** 로봇 눈높이(시안 u7_4 · 데모 현장 site3d 와 같은 규칙, 이 판은 z 가 위): 지금 보는 곳(대상) 앞 6 m · 바닥 + 0.45 m(Go2 앞 카메라 높이 쯤)에서 대상(바닥 + 0.4 m) 쪽으로 */
+export function eyeCam(at: P3, cam: P3, floor: number): { pos: P3; at: P3 } {
+  let dx = cam[0] - at[0], dy = cam[1] - at[1]; const n = Math.hypot(dx, dy);
+  if (n < 1e-6) { dx = 0; dy = -1; } else { dx /= n; dy /= n; }   // 바로 위에서 보던 중이면 남쪽에서
+  return { pos: [at[0] + dx * 6, at[1] + dy * 6, floor + 0.45], at: [at[0], at[1], floor + 0.4] };
+}
+
 export function Map3D({ v, robots, missing, still }: { v: MapVersion; robots: Robot[]; missing: (why: string) => void; still?: boolean }) {
   const host = useRef<HTMLDivElement>(null), rig = useRef<Rig | null>(null);
   const [at, setAt] = useState<'wait' | 'ok' | 'bad' | 'nogl'>('wait'), [n, setN] = useState(0), [why, setWhy] = useState('');
@@ -124,19 +131,25 @@ export function Map3D({ v, robots, missing, still }: { v: MapVersion; robots: Ro
         orbit.maxPolarAngle = Math.PI / 2 - 0.05; orbit.minDistance = 2; orbit.maxDistance = Math.max(size.x, size.y) * 3;   // 바닥 아래로 못 감
         orbit.listenToKeyEvents(el);   // 칸에 초점이 있으면 화살표로 옮기기
         const draw = () => { scene.background = color('--bg', '#0B0E11'); gl.render(scene, cam); };
+        let fov0 = 0;   // 눈높이 전 화각(위에서 · 비스듬히로 돌아가면 되돌림)
         const view = (top: boolean) => {
+          if (fov0) { cam.fov = fov0; fov0 = 0; cam.updateProjectionMatrix(); }
           const d = Math.max(size.x, size.y, 6);
           if (top) cam.position.set(c.x, c.y - 0.01, z + d * 1.1);
           else if (fc) { cam.fov = CLAY_CAM.fov; cam.updateProjectionMatrix(); const p = clayCam(fc.c, claySpan(fc.size)); cam.position.set(p.x, p.y, z + p.z); }   // 시안 u7_1 시점
           else cam.position.set(c.x - d * 0.2, c.y - d * 0.8, z + d * 0.7);
           const t = fc && !top ? fc.c : c; orbit.target.set(t.x, t.y, z); orbit.update(); draw();
         };
+        const eye = () => {
+          const e = eyeCam([orbit.target.x, orbit.target.y, orbit.target.z], [cam.position.x, cam.position.y, cam.position.z], z);
+          if (!fov0) fov0 = cam.fov; cam.position.set(...e.pos); orbit.target.set(...e.at); cam.fov = 60; cam.updateProjectionMatrix(); orbit.update(); draw();
+        };
         orbit.addEventListener('change', draw);
         const fit = () => { const w = el.clientWidth, h = el.clientHeight; if (!w || !h) return; gl.setSize(w, h); cam.aspect = w / h; cam.updateProjectionMatrix(); draw(); };
         const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit);
         ro?.observe(el);
         const gl0 = gl;
-        rig0 = { draw, marks, z, view, look: fc ? (l) => clayLight(gl0, hemi, sun, g.scene, l) : undefined, dispose: () => {
+        rig0 = { draw, marks, z, view, eye, look: fc ? (l) => clayLight(gl0, hemi, sun, g.scene, l) : undefined, dispose: () => {
           ro?.disconnect(); orbit.stopListenToKeyEvents(); orbit.dispose();
           scene.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.geometry.dispose(); (Array.isArray(m.material) ? m.material : [m.material]).forEach((x) => { Object.values(x).forEach((t) => (t as THREE.Texture)?.isTexture && (t as THREE.Texture).dispose()); x.dispose(); }); } });
           drop();
@@ -185,7 +198,8 @@ export function Map3D({ v, robots, missing, still }: { v: MapVersion; robots: Ro
     <div ref={host} className="vx-3d" tabIndex={0} role="application" aria-label="3D 실내 · 끌어 돌리기, 오른쪽 끌기 이동, 휠 확대, 칸을 누른 뒤 화살표로 옮기기">
       {at === 'ok' && !still && <div className="vx-tools" role="group" aria-label="3D 시점">
         <button type="button" className="btn" onClick={() => rig.current?.view(true)}>위에서 보기</button>
-        <button type="button" className="btn" onClick={() => rig.current?.view(false)}>비스듬히</button></div>}
+        <button type="button" className="btn" onClick={() => rig.current?.view(false)}>비스듬히</button>
+        <button type="button" className="btn" data-eye onClick={() => rig.current?.eye()}>로봇 눈높이</button></div>}
     </div>
     <div className="vx-over">
       {at === 'wait' && <p className="lv-note" role="status" data-map3d-wait>3D 모형을 불러오는 중…</p>}
