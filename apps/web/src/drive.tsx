@@ -421,7 +421,7 @@ function Screen(c: Ctx) {
     <div className="col u1-col">
       <button type="button" className="g dk u1-mode" aria-expanded={sheet === 'policy'} onClick={() => pick(sheet === 'policy' ? null : 'policy')}>
         <b>{gaitNow}</b><span>{GAIT_NOTE[l.state?.gait?.gait ?? ''] ?? '걷기 모드'}</span></button>
-      {views}
+      {!mrun && views}   {/* 임무 화면(시안 u1_1)은 보기 줄 대신 왼쪽 지도 시점(u1-vcol) */}
       {mine ? <button type="button" className="g dk btn" style={{ height: '44px', borderRadius: '14px' }} disabled={!!l.releasing} onClick={() => endDrive(r.id, c.go)}>
           <Ic s={18}><path d="M18 6 6 18" /><path d="m6 6 12 12" /></Ic>조종 끝내기</button>
         : <button type="button" className="g dk btn u1-go" style={{ height: '44px', borderRadius: '14px' }} disabled={!!why} aria-describedby={why ? whyId : undefined} onClick={() => start()}>

@@ -2616,6 +2616,12 @@ describe('폰 u1 임무 화면(보이기만)', () => {
     expect($('.u1d .dv-run')).not.toBeNull();
   });
 
+  it('임무 화면 오른쪽 줄은 시안 u1_1 대로 걷기 모드 · 조종 · 일시정지(보기 줄 없음 · 왼쪽 지도 시점이 대신) · 말하기와 겹치지 않음', async () => {
+    await open(RUN);
+    expect($('.u1d .u1-col .u1-views')).toBeNull();
+    expect($('.u1d .u1-vcol')).not.toBeNull();
+    expect($('[data-u1-talk]')).not.toBeNull();
+  });
   it('시안 u1_1 「일시정지」 = 이미 있는 「일시정지하고 조종」 창(조종권 받기 · 서버가 임무를 멈춤). 창 전에는 보냄 0', async () => {
     await open(RUN);
     const pause = $<HTMLButtonElement>('[data-u1-pause]');
@@ -3671,6 +3677,7 @@ describe('시안 u1_2 오른쪽 위: 알림 종 · Wi-Fi · 구름 · 설정 줄
     const bell = $('.fh-head[data-u1] .u1-bell');
     expect(bell.querySelector('[data-bell] summary')!.getAttribute('aria-label')).toBe('알림 안 읽음 2건');
     expect(bell.querySelector('.badge')!.textContent).toBe('2');
+    expect(u1AppCss).toMatch(/\.fh-head\[data-u1\] \.u1-bell \.ic\{[^}]*fill:none;stroke:currentColor/);   // 머리줄은 .proto 밖이라 종 선을 따로(사진 01:15 종 안 보임)
     expect(u1AppCss).toMatch(/\.fh-head\[data-u1\] \.u1-bell\{[^}]*right:calc\(118px \+ env\(safe-area-inset-right,0px\)\)/);
     const top = $('.u1-top');
     expect(top.querySelector('[data-u1-robot-link]')!.getAttribute('title')).toBe('로봇 연결');

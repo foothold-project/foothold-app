@@ -158,3 +158,4 @@
 .fh-head[data-u1] .u1-top .u1-link.bad{color:#e5484d}
 .fh-head[data-u1] .u1-top .u1-link .fh-dot-t{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 .fh.phone.light .fh-head[data-u1] .u1-bell{color:#16191f;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.48));border-color:rgba(255,255,255,.85);box-shadow:0 8px 24px rgba(20,30,50,.14),inset 0 1px 0 rgba(255,255,255,.95)}
+.fh-head[data-u1] .u1-bell .ic{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
