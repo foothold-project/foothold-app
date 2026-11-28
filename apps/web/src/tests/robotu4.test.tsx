@@ -11,6 +11,7 @@ import { SIDE_BLOCK, canDrive } from '../serverdrive';
 import { railOrder } from '../screens/u4/robotu4';
 import { api } from '../api';
 import u4css from '../screens/u4/u4.css?raw';
+import { SITE_TOP } from '../proto/site';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -379,7 +380,7 @@ describe('데모 = 실기 꼴 · 서버 값(11-28)', () => {
       await flush(); await flush();
       const im = $('[data-u4-mapimg]')!;
       if (demo) {
-        expect(im.getAttribute('data-u4-mapimg')).toBe('factory'); expect(im.getAttribute('src')).toBe('/proto-assets/shared/map_large_factory.png');
+        expect(im.getAttribute('data-u4-mapimg')).toBe('factory'); expect(im.getAttribute('src')).toBe(SITE_TOP.dark);   // 공장 질감판 위 그림(proto/site.ts 한 곳)
         expect($('#me')!.getAttribute('transform')).toMatch(/^translate\(375\.0,720\.0\)/);
       } else {
         expect(im.getAttribute('data-u4-mapimg')).toBe('server'); expect(im.getAttribute('src')).toBe('/api/v1/map-versions/v1/image');
