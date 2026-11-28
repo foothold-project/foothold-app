@@ -38,3 +38,14 @@ span[data-photo]{display:block;margin-top:4px}
 .hs-photo[data-photo="big"] img{width:640px}
 ul.fh-list:has(>.hs-item){gap:10px}
 .hs-said>.fh-wide{flex:1 1 0}
+/* 폰 기록 타일(U3-04 · u3_3_list): 등급 색으로 옅게 물든 칸 + 1 px 테. 정보는 물들이지 않음 */
+.hs-tiles{display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none}
+.hs-tile{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:start;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel2);color:var(--text)}
+.hs-tile[data-tone="bad"]{border-color:color-mix(in srgb,var(--bad) 45%,transparent);background:var(--bad-bg)}
+.hs-tile[data-tone="warn"]{border-color:color-mix(in srgb,var(--warn) 45%,transparent);background:var(--warn-bg)}
+.hs-tile-ic{display:grid;place-items:center;width:36px;height:36px;border-radius:9px;background:color-mix(in srgb,currentColor 10%,transparent);color:var(--muted)}
+.hs-tile[data-tone="bad"] .hs-tile-ic{color:var(--bad)}.hs-tile[data-tone="warn"] .hs-tile-ic{color:var(--warn)}
+.hs-tile-body{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0;overflow-wrap:anywhere}
+.hs-tile-title{font-size:15px;line-height:1.35}
+.hs-tile-sub{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 4px;font-size:12px}
+.hs-tile-time{font-size:13px;color:var(--muted);white-space:nowrap;padding-top:2px}

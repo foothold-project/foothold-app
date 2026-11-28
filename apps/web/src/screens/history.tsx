@@ -48,8 +48,9 @@ const WRAP = { minWidth: 0, overflowWrap: 'anywhere' } as const;
  *  INFO 는 «정상»의 증거가 아니다: 서버는 심각도 없이 온 audit 을 INFO 로 저장한다(STOP_CONFIRM_FAILED · PHONE_LEASE_TIMEOUT 등). 실패류 코드면 «주의» */
 const SEV: Record<string, [Tone | 'info', string, string]> = { WARN: ['warn', '▲', '주의'], ERROR: ['bad', '■', '위험'], INFO: ['info', 'ⓘ', '정보'] };
 const FAILED = /_(FAILED|REJECTED|DENIED|TIMEOUT)$/;
+const sevOf = (e: Ev) => (e.severity === 'INFO' && FAILED.test(e.code ?? '') ? SEV.WARN : SEV[e.severity] ?? ['off', '?', '알 수 없음']);
 const Sev = ({ e }: { e: Ev }) => {
-  const x = e.severity === 'INFO' && FAILED.test(e.code ?? '') ? SEV.WARN : SEV[e.severity] ?? ['off', '?', '알 수 없음'];
+  const x = sevOf(e);
   return <span className="hs-sev" data-tone={x[0]}><span aria-hidden="true">{x[1]}</span><span>{x[2]}</span></span>;
 };
 /** 분류: 작은 회색 글(색 없음 — 빨강은 오류·정지만 뜻하게) */
@@ -79,6 +80,31 @@ const Table = ({ items, who, label, run }: { items: Ev[]; who: (e: Ev) => string
     <tbody>{items.map((e) => { const w = who(e);
       return <tr key={e.id}><td className="mono">{when(stamp(e))}</td><td><Kind e={e} /></td><td><Sev e={e} /></td><td><Said e={e} /><Photo e={e} /><Clip e={e} />{run && e.run_id && <button type="button" className="btn rr-open" onClick={(x) => run(e.run_id!, x.currentTarget)}>실행 기록 보기</button>}</td><td className="lbl" data-none={!w || undefined}>{w || '—'}</td></tr>; })}</tbody>
   </table></div>;
+/** 분류 아이콘(lucide ISC 선 path 를 옮김, 패키지 없음): 임무 route · 이탈 triangle-alert · 연결 wifi · 조종권 key-round · 결재 file-check · 안전 shield · 계정 user · 기타 info */
+const TI = (d: JSX.Element) => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{d}</svg>;
+const TILE_ICON: Record<string, JSX.Element> = {
+  RUN: TI(<><circle cx="6" cy="19" r="3" /><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15" /><circle cx="18" cy="5" r="3" /></>),
+  ROUTE: TI(<><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" /><path d="M12 9v4M12 17h.01" /></>),
+  LINK: TI(<><path d="M12 20h.01M2 8.82a15 15 0 0 1 20 0M5 12.859a10 10 0 0 1 14 0M8.5 16.429a5 5 0 0 1 7 0" /></>),
+  LEASE: TI(<><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z" /><circle cx="16.5" cy="7.5" r=".5" fill="currentColor" /></>),
+  APPROVAL: TI(<><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v4a2 2 0 0 0 2 2h4M9 15l2 2 4-4" /></>),
+  SAFETY: TI(<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />),
+  ACCOUNT: TI(<><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></>),
+};
+const OTHER_ICON = TI(<><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></>);
+/** 폰 기록 = 사건 타일(U3-04 · u3_3_list): 등급 색으로 옅게 물든 칸 + 1 px 테 · 분류 아이콘 · 문장 · 아래 줄(등급 · 분류 · 로봇·사람) · 오른쪽 시각.
+ *  사진 · 클립 · 「실행 기록 보기」 는 표와 같다 */
+const Tiles = ({ items, who, run }: { items: Ev[]; who: (e: Ev) => string; run: (id: string, from: HTMLElement) => void }) =>
+  <ul className="hs-tiles" aria-label="사건" hidden={!items.length}>{items.map((e) => { const w = who(e);
+    return <li key={e.id} className="hs-tile" data-tile data-tone={sevOf(e)[0]}>
+      <span className="hs-tile-ic" data-tile-icon={e.category}>{TILE_ICON[e.category] ?? OTHER_ICON}</span>
+      <div className="hs-tile-body">
+        <b className="hs-tile-title" data-tile-title><Said e={e} /></b>
+        <span className="lbl hs-tile-sub" data-tile-sub><Sev e={e} /> · <Kind e={e} />{w && ` · ${w}`}</span>
+        <Photo e={e} /><Clip e={e} />{e.run_id && <button type="button" className="btn rr-open" onClick={(x) => run(e.run_id!, x.currentTarget)}>실행 기록 보기</button>}
+      </div>
+      <span className="mono hs-tile-time" data-tile-time>{when(stamp(e))}</span>
+    </li>; })}</ul>;
 /** 사건의 로봇·사람 이름 — 화면이 아는 것만(로봇 목록·나·담당자). 모르면 빈 글 */
 const whoOf = (c: Pick<Ctx, 'user' | 'robots'>) => (e: Ev) => {
   const r = c.robots.find((x) => x.id === e.robot_id)?.name;
@@ -237,7 +263,7 @@ export function History(c: HistoryCtx) {
       {out && <p className={`fh-msg${out.ok ? ' ok' : ''}`} role={out.ok ? 'status' : 'alert'}>{out.text}</p>}
     </>}
     {runOf && <RunReport key={runOf.id} id={runOf.id} cancel={c.cancel} close={() => { runOf.from.focus(); setRunOf(null); }} />}
-    <Table items={ev.items} who={who} label="사건" run={(id, from) => setRunOf({ id, from })} />
+    {c.phone ? <Tiles items={ev.items} who={who} run={(id, from) => setRunOf({ id, from })} /> : <Table items={ev.items} who={who} label="사건" run={(id, from) => setRunOf({ id, from })} />}
     {ev.err && <p className="fh-msg" role="alert">기록을 받지 못했습니다. {why(ev.err)}</p>}
     {ev.busy && <p className="lv-note" role="status">기록을 불러오는 중…</p>}
     {!ev.busy && !ev.err && !ev.items.length && (c.phone && c.robot || filtered ? <p className="lv-note">{c.phone && c.robot ? '이 로봇의 기록이 아직 없습니다.' : '조건에 맞는 기록이 없습니다.'}</p>

@@ -603,7 +603,7 @@ describe('폰 기록', () => {
     serve(signedIn(PARK, { 'GET /events': list([ev('1', { robot_id: 'r-b', message: 'Go2-B 사건' })]) }));
     await open('#/history', true);
     expect(lastQuery()).toEqual({ robot_id: 'r-b' });
-    expect(rows()).toEqual([expect.stringContaining('Go2-B 사건')]);
+    expect([...card('사건').querySelectorAll('[data-tile]')].map((l) => l.textContent)).toEqual([expect.stringContaining('Go2-B 사건')]);   // 폰은 타일(U3-04)
     expect($('[aria-label="분류"]')).toBeNull();
     expect(btn('내보내기')).toBeUndefined();
     expect($('[data-bell]')).toBeNull();   // 폰 머리줄: 로봇·연결 점·STOP 만(03 §3.2)
@@ -824,10 +824,10 @@ describe('사진 사건(VQ-F1)', () => {
     expect(c.querySelector('[data-photo]')).toBeNull();   // 다른 사건엔 사진 칸 없음
     stopOk();
   });
-  it('photo_id 가 없는 PHOTO_STORED 는 그림을 요청하지 않고 «사진을 불러오지 못함», 폰 기록 표도 같은 썸네일', async () => {
+  it('photo_id 가 없는 PHOTO_STORED 는 그림을 요청하지 않고 «사진을 불러오지 못함», 폰 기록 타일도 같은 썸네일', async () => {
     serve(signedIn(PARK, { 'GET /events': list([{ ...stored, robot_id: 'r-b', data: {} }, { ...stored, id: 'p3', robot_id: 'r-b' }]) }));
     await open('#/history', true);
-    const [a, b] = [...card('사건').querySelectorAll('tbody tr')];
+    const [a, b] = [...card('사건').querySelectorAll('[data-tile]')];
     expect(a.querySelector('img')).toBeNull();
     expect(a.textContent).toContain('사진을 불러오지 못함');
     expect(b.querySelector('img')!.getAttribute('src')).toBe(`/api/v1/photos/${PID}/thumbnail`);
