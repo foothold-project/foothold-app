@@ -16,7 +16,7 @@ import { useTheme } from './theme';
 import { simTune, useSim, useTuneSettings } from './phone';
 import { COMBO_BLOCK, command, isSettings, permitted, REAL_WAIT, SIDE_BLOCK, TABLE, unknownCombo, type Tok } from './serverdrive';
 import type { OrgSettings } from '../../contracts/ts';
-import { MissionCards, MissionMap, missionChip, missionOn, useMission } from './screens/u1mission';
+import { MissionCards, MissionMap, missionChip, missionOn, useMission, type MapSight } from './screens/u1mission';
 import { ACTS, RESTART_ASK, RESTART_TEXT, actOff, actWhy, shape, stickTok, useRestartAsk } from './robotact';
 import { actionResultText } from './screens/actiontrial';
 import { api } from './api';
@@ -215,6 +215,8 @@ function Screen(c: Ctx) {
   // got = 이 화면이 조직 설정을 받음. 받기 전(앞 화면이 남긴 값 포함)·못 받으면 실기 입력은 0 — 서버가 상한 밖이라 거절·STOP 하지 않게
   const [got, setGot] = useState(false), gotRef = useRef(got); gotRef.current = got;
   const [view, setView] = useState<'rgb' | 'depth' | 'map'>('rgb');
+  const [mview, setMview] = useState<MapSight>('follow'), [d3, setD3] = useState(false);   // 임무 바탕 지도 시점(시안 u1_1 왼쪽 고르개 · 보이기만)
+  useEffect(() => { if (!d3) return; const id = window.setTimeout(() => setD3(false), 3000); return () => clearTimeout(id); }, [d3]);
   const [ask, setAsk] = useState(false);   // 시나리오 일시정지 확인창(F-TO-03, 03 §2 U10)
   const [back, setBack] = useState(false), [side, setSide] = useState(false), [combo, setCombo] = useState(false);   // combo = 표에 없는 키 조합을 누르는 중   // side = 옆걸음 키를 누르는 중(막혔으면 까닭 한 줄)
   const [sheet, setSheet] = useState<SheetId | null>(null);   // 아래 줄 시트(조종권은 그대로, 입력은 0으로)
@@ -361,7 +363,13 @@ function Screen(c: Ctx) {
   // 임무 화면(시안 u1_1 · u1_15 · 보이기만): 끝나지 않은 실행이 있고 내 조종이 아닐 때 바탕 층 지도 · 왼쪽 아래 카드 · 칩 글. 칩 글만 바꾸고 lock(조종 판정)은 그대로
   const mrun = !mine && missionOn(l.state?.run) ? l.state!.run! : null, mis = useMission(r.id, mrun?.run_id ?? ''), chipNow = mrun ? missionChip(mrun) : lock;
   const u1 = <div className={`proto pv u1d${light ? ' light' : ''}`} data-u1d data-stop-held={stopHeld ? '' : undefined} data-mission={mrun ? '' : undefined}>
-    {mrun && <MissionMap m={mis} run={mrun} pose={l.state?.location ?? r.location} />}
+    {mrun && <MissionMap m={mis} run={mrun} pose={l.state?.location ?? r.location} view={mview} />}
+    {mrun && <div className="g u1-vcol" role="group" aria-label="지도 시점">
+      {([['follow', '로봇', <path key="p" d="M12 3l7 16-7-4-7 4z" />], ['top', '평면', <><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z" /><path d="M9 3v15M15 6v15" /></>]] as const).map(([v, t, ic]) =>
+        <button key={v} type="button" className="btn" aria-pressed={mview === v} onClick={() => setMview(v)}><svg className="ic" viewBox="0 0 24 24">{ic}</svg>{t}</button>)}
+      <button type="button" className="btn" aria-pressed={false} aria-disabled="true" title="3D 지도 준비 중" onClick={() => setD3(true)} data-view-3d-off><svg className="ic" viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" /><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5" /></svg>3D</button>
+      {d3 && <p className="u1-vnote" role="status">3D 지도 준비 중</p>}
+    </div>}
     {!light && <div className="vig" />}
     <div className="tl">
       <button type="button" className="g dk row u1-chip" aria-expanded={chip} aria-controls="u1-pane" onClick={() => setChip(!chip)} style={{ left: '12px', top: '12px', height: '44px', padding: '0 12px 0 7px', gap: '9px' }}>

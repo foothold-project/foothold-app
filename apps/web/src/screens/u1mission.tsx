@@ -74,7 +74,9 @@ export function MissionCard({ m, run, dots }: { m: Mission | null; run: RunSnaps
 }
 
 /** 바탕 2D 지도(시안 u1_1 평면): 시나리오 판 그림 + 경로(지난 길 따로) + 지점 점 + 지금 지점 번호표 + 로봇 점(같은 판일 때만) */
-export function MissionMap({ m, run, pose }: { m: Mission | null; run: RunSnapshot; pose?: Location | null }) {
+/** 왼쪽 시점 단추(시안 u1_1 · U1-08 따라 · 위 · 3D). follow = 로봇 둘레(판의 반 · 판 밖으로 안 나감) · top = 판 전체 */
+export type MapSight = 'follow' | 'top';
+export function MissionMap({ m, run, pose, view = 'top' }: { m: Mission | null; run: RunSnapshot; pose?: Location | null; view?: MapSight }) {
   const mv = m?.mv ?? null, [v, setV] = useState<MapVersion | null>(null);
   useEffect(() => {
     setV(null);
@@ -85,15 +87,19 @@ export function MissionMap({ m, run, pose }: { m: Mission | null; run: RunSnapsh
   }, [mv]);
   // 판 그림 1 px 이 화면에서 몇 px 인가(slice). 점 · 글 크기를 화면 px 로 맞춘다(작은 판이 크게 늘어나도 글이 커지지 않게). 못 재면 1
   const el = useRef<SVGSVGElement>(null), [k, setK] = useState(1);
+  const me = v && pose && pose.map_version_id === v.id && pose.x != null && pose.y != null ? px(v, pose.x, pose.y) : null;
+  const box = !v ? [0, 0, 1, 1] : view === 'follow' && me
+    ? (() => { const w = v.width / 2, h = v.height / 2, cl = (a: number, lo: number) => Math.min(Math.max(a, 0), lo); return [cl(me[0] - w / 2, v.width - w), cl(me[1] - h / 2, v.height - h), w, h]; })()
+    : [0, 0, v.width, v.height];
   useLayoutEffect(() => {
     const b = el.current?.getBoundingClientRect();
-    if (v && b && b.width && b.height) setK(Math.max(b.width / v.width, b.height / v.height));
-  }, [v]);
+    if (v && b && b.width && b.height) setK(Math.max(b.width / box[2], b.height / box[3]));
+  });
   if (!m || !v) return null;
   const on = m.wps.map((w, i) => [w, i] as const).filter(([w]) => w.map_version_id === v.id);
   const pts = (l: typeof on) => l.map(([w]) => px(v, w.x, w.y).join(',')).join(' ');
-  const now = on.find(([, i]) => i === run.step), me = pose && pose.map_version_id === v.id && pose.x != null && pose.y != null ? px(v, pose.x, pose.y) : null;
-  return <svg ref={el} className="u1-mmap" viewBox={`0 0 ${v.width} ${v.height}`} preserveAspectRatio="xMidYMid slice" aria-hidden="true" data-mission-map>
+  const now = on.find(([, i]) => i === run.step);
+  return <svg ref={el} className="u1-mmap" viewBox={box.map((n) => +n.toFixed(2)).join(' ')} preserveAspectRatio="xMidYMid slice" aria-hidden="true" data-mission-map>
     <MapImage id={v.id} width={v.width} height={v.height} />
     <polyline className="rt" points={pts(on)} />
     <polyline className="rt done" points={pts(on.filter(([, i]) => i <= run.step))} />
