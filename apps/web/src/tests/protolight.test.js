@@ -64,3 +64,21 @@ describe('시안 밝은 판 light.pv.css', () => {
     for (const [k, v] of Object.entries(LIGHT)) expect(md, k).toContain(`  ${k}: "${v}"`);
   });
 });
+
+describe('관제 u5 밝은 판(u5.css 의 .proto.light .u5 규칙)', () => {
+  const u5 = readFileSync(join(__dirname, '..', 'proto', 'u5.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const light = [...u5.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => m[1].trim().startsWith('.proto.light'));
+  it('밝은 규칙의 #색은 밝음 1 표 값(온도 주의 채움 #D9A21F 포함), 어둠 색(#ff4d4f · #f2b705 · #00c389 · 흰 78 %)은 없음', () => {
+    expect(light.length).toBeGreaterThan(20);
+    const ok = new Set([...Object.values(LIGHT), '#D9A21F']);
+    for (const m of light) for (const h of m[2].match(/#[0-9A-Fa-f]{6}\b/g) ?? []) expect(ok.has(h.toUpperCase()), `${m[1]} ${h}`).toBe(true);
+    const body = light.map((m) => m[2]).join(';').toLowerCase();
+    for (const dark of ['#ff4d4f', '#f2b705', '#00c389', '232,235,240']) expect(body, dark).not.toContain(dark);
+  });
+  it('글자 칸: 수 칸 · 타일 줄 · 모드 = 흐린 글자, 수 = 글자, 위험 수치 = 경고 글자', () => {
+    const d = (sel) => Object.fromEntries((light.find((m) => m[1].trim() === sel)?.[2] ?? '').split(';').filter((x) => x.includes(':')).map((x) => { const i = x.indexOf(':'); return [x.slice(0, i).trim(), x.slice(i + 1).trim()]; }));
+    expect(d('.proto.light .u5 .cnt,.proto.light .u5 .tgl,.proto.light .u5 .md,.proto.light .u5 .ln').color).toBe(LIGHT['on-surface-muted']);
+    expect(d('.proto.light .u5 .cnt b').color).toBe(LIGHT['on-surface']);
+    expect(d('.proto.light .u5')['--u5-red']).toBe(LIGHT['danger-text']);
+  });
+});
