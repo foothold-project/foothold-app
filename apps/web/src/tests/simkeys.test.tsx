@@ -111,6 +111,11 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
     c = await lastCmd(); expect(c.vy).toBeGreaterThan(0); expect(c.wz).toBe(0);
     await key('keyup', 'ArrowLeft'); await key('keydown', 'ArrowRight');
     c = await lastCmd(); expect(c.vy).toBeLessThan(0); expect(c.wz).toBe(0);
+    await key('keyup', 'ArrowRight'); await key('keydown', 'PadRotL');   // 조이스틱 Pad 키도 같은 표
+    c = await lastCmd(); expect(c.vy).toBe(0); expect(c.wz).toBeGreaterThan(0);
+    await key('keyup', 'PadRotL'); await key('keydown', 'PadLeft');
+    c = await lastCmd(); expect(c.vy).toBeGreaterThan(0); expect(c.wz).toBe(0);
+    await key('keyup', 'PadLeft'); await key('keydown', 'ArrowRight');
     await key('keydown', 'ArrowLeft');   // ← 와 → 를 함께 = 0
     expect(await lastCmd()).toMatchObject({ vx: 0, vy: 0 });
     await key('keyup', 'ArrowLeft'); await key('keyup', 'ArrowRight');

@@ -109,7 +109,6 @@ function Login({ note, failed, enter }: { note?: string; failed?: boolean; enter
       <div className="lg-fields">{changed && !msg && <p className="lg-ok" role="status" data-pw-changed><svg className="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="m9 12 2 2 4-4" /></svg>{PW_DONE}</p>}
         <LoginFields msg={msg} bad={bad} tick={tick} busy={busy} note={tick === 0 && !failed} /></div>
       <LoginFoot done={() => { setMsg(undefined); setBad(null); setChanged(true); }} />
-      <span className="lg-note">5분 안에 5번 틀리면 잠시 로그인할 수 없습니다.</span>
     </form>
   </LgStage>;
 }

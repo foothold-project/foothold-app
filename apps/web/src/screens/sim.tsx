@@ -16,6 +16,7 @@ import { Chip, inApp } from '../screens';
 import { SimPlaces } from './maps';
 import type { SimRobot } from '../../../contracts/ts';
 import type { Robot, Tone, User } from '../fake';
+import { keyCode } from '../padkeys';
 
 export function SimTab({ user, robots = [], refresh }: { user: User; robots?: Robot[]; refresh: () => void }) {
   const s = useSim(), ids = s.mine.map((r) => r.robot_id).join();
@@ -78,7 +79,7 @@ function SimView({ admin }: { admin: boolean }) {
       if (!canDrive()) held.current.clear();
       const n = sync(), old = [...held.current.values()].some((x) => x !== n);
       const a: [number, number, number] = [0, 0, 0], k = sim.get().link?.welcome;
-      if (!old) held.current.forEach((_, c) => { const [i, v] = KEYS[c]; a[i] = Math.max(-1, Math.min(1, a[i] + v)); });
+      if (!old) held.current.forEach((_, c) => { const [i, v] = KEYS[keyCode(c)]; a[i] = Math.max(-1, Math.min(1, a[i] + v)); });
       if (a[0] > 0 && k) a[0] = forward(k);
       sim.axes(a);
       const v = k ? velocity(a, k) : null, vx = v?.vx ?? 0, note = blockNote(a, allowed(k ?? null), v);
@@ -86,7 +87,7 @@ function SimView({ admin }: { admin: boolean }) {
     };
     const down = (e: KeyboardEvent) => {
       if (held.current.size && (metaCut(e) || e.key === 'Control' || e.key === 'Alt')) return zero();   // 단축키 시작 — macOS 는 Cmd 뒤 keyup 이 안 올 수 있음(RV-429 ③)
-      if (!(e.code in KEYS) || e.repeat || e.ctrlKey || e.metaKey || e.altKey || field(e.target) || !canDrive()) return;
+      if (!(keyCode(e.code) in KEYS) || e.repeat || e.ctrlKey || e.metaKey || e.altKey || field(e.target) || !canDrive()) return;
       e.preventDefault(); held.current.set(e.code, sync()); apply();
     };
     const up = (e: KeyboardEvent) => { if (metaCut(e) && held.current.size) zero(); else if (held.current.delete(e.code)) apply(); };

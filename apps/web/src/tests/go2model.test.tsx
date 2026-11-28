@@ -266,7 +266,7 @@ describe('RV-403 막는 결함', () => {
       expect(noOverlap(inFig)).toBe(true);
       const more = box.querySelectorAll('[data-go2-more] [data-go2-joint]');
       expect(inFig.length - 2 + more.length).toBe(12);   // 화살표 글자 2개(움직임·회전) 빼고
-      if (more.length) expect($('[data-go2-more]')!.textContent).toMatch(/(앞|뒤) (오른|왼) (엉덩이|허벅지|종아리)/);
+      if (more.length) expect($('[data-go2-more]')!.textContent).toMatch(/(앞|뒤) (오른|왼) (고관절|허벅지|종아리)/);
     } finally { delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth; delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight; }
   });
   it('RB-GO2-ORBIT 끌면 시점이 바뀌고(관절 자리·선 그림이 따라 움직임) «처음 보기»·두 번 누름이면 돌아온다 · 휠 확대 · 위아래는 한계', () => {

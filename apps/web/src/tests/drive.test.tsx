@@ -217,6 +217,21 @@ describe('조종 화면', () => {
     expect(text()).not.toContain('후진은 아직 지원하지 않습니다');
   });
 
+  it('조이스틱(Pad 키)도 같은 길: 잠금 해제 전 0 · 해제 뒤 떼고 밀면 전진 · 뒤는 상한 안에서 뒤로', () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    click(btn('조종'));
+    key('keydown', 'PadUp'); tick(200);
+    expect(lastAxes()).toEqual([0, 0, 0]);
+    unlock(); tick(200);
+    expect(lastAxes()).toEqual([0, 0, 0]);
+    key('keyup', 'PadUp'); tick(100);
+    key('keydown', 'PadUp'); tick(100);
+    expect(lastAxes()).toEqual([1.5, 0, 0]);
+    key('keyup', 'PadUp'); key('keydown', 'PadDown'); tick(100);
+    expect(lastAxes()).toEqual([-1.5, 0, 0]);
+  });
+
   it('lease 가 바뀌면 이전 입력은 버리고 새 중립부터(누른 채여도 0)', () => {
     mount(true, 'u-park', '#/drive/r7');
     serve(PARK, 'r7');
@@ -2012,7 +2027,7 @@ describe('총괄 · 실기도 조종·STOP(11/28), 시뮬은 그대로', () => {
 
   // #547 검토 5: 실기와 남이 띄운 시뮬이 함께 있으면 실기만 후보(남의 시뮬은 빠짐) · PC · 폰 같음
   for (const phone of [false, true]) it(`${phone ? '폰' : 'PC'} 총괄 + 실기 둘 + 남이 띄운 시뮬: STOP 고르기는 실기만, 남의 시뮬로 정지 안 보냄`, () => {
-    const OTHER: Robot = { ...SIM, id: 's9', name: '남의 시뮬', owner: 'u-lee' };
+    const OTHER: Robot = { ...SIM, id: 's9', name: '남의 시뮬', owner: 'u-lee', demo: false };   // 사용자 시뮬(데모 아님 · 22:04)
     mount(phone, ADMIN, phone ? '#/drive' : '#/mission', [ROBOTS[0], ROBOTS[1], OTHER]);
     serve(KIM, 'r3', 'r7', 's9');
     click($('[data-stop]'));
@@ -2088,7 +2103,7 @@ describe('총괄 · 실기도 조종·STOP(11/28), 시뮬은 그대로', () => {
   it('폰 총괄 + IDLE 시뮬 슬롯만 → STOP·Space 없음, 내가 띄운 시뮬이면 STOP, 운영자는 늘 STOP', () => {
     const IDLE = { ...SIM, owner: '' };
     mount(true, ADMIN, '#/drive', MIX);
-    for (const robots of [[IDLE], [IDLE, { ...IDLE, id: 's2', name: '시뮬 로봇 2', owner: 'u-lee' }]]) {
+    for (const robots of [[IDLE], [IDLE, { ...IDLE, id: 's2', name: '시뮬 로봇 2', owner: 'u-lee', demo: false }]]) {
       again(true, '#/drive', robots);
       expect(box.querySelector('[data-stop]')).toBeNull();
       space();

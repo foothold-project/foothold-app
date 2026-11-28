@@ -75,7 +75,7 @@ export const EN: Record<string, string> = {
   '아직 막혀 있습니다 · 누르면 까닭 한 줄': 'Blocked for now · pressing shows why', '방향키와 같음': 'Same as arrow keys', 'W 앞 · A 왼쪽 · D 오른쪽 · S 뒤 (막힘)': 'W forward · A left · D right · S back (blocked)',
   '어느 화면에서나 · 이동 입력보다 먼저': 'On any screen · before any move input', '멈춰 있을 때만 · 한 번 확인': 'Only while stopped · confirm once', '입력이 겹치면': 'When inputs overlap',
   '정지가 이동보다 우선합니다. 리모컨이 앱보다 우선합니다. 한 로봇은 한 번에 입력 하나만 받습니다.': 'Stop beats movement. The remote beats the app. A robot takes one input at a time.',
-  '조이스틱': 'Joystick', '앱에 아직 없음': 'Not in the app yet', '왼쪽 스틱 이동 · 오른쪽 스틱 돌기': 'Left stick moves · right stick turns', '조이스틱 입력을 받는 기능이 앱에 아직 없습니다.': 'The app cannot read a joystick yet.',
+  '조이스틱': 'Joystick', '연결됨 · 1 순위': 'Connected · first', '조이스틱을 꽂고 단추를 한 번 누르면 연결됩니다. 조종 화면에서 키보드와 같은 규칙으로 움직입니다.': 'Plug in a joystick and press any button to connect. It drives with the same rules as the keyboard.', '앱에 아직 없음': 'Not in the app yet', '왼쪽 스틱 이동 · 오른쪽 스틱 돌기': 'Left stick moves · right stick turns', '조이스틱 입력을 받는 기능이 앱에 아직 없습니다.': 'The app cannot read a joystick yet.',
   '음성': 'Voice', '누르는 동안 듣기': 'Listens while held', '음성 명령 기능이 앱에 아직 없습니다.': 'The app has no voice commands yet.', '모바일 (폰 터치)': 'Mobile (phone touch)',
   '왼쪽 스틱 이동 · 동작 단추': 'Left stick moves · action buttons', '정지 버튼은 늘 오른쪽 아래에 있습니다.': 'The stop button is always at the bottom right.',
 
@@ -95,7 +95,7 @@ export const EN: Record<string, string> = {
   '경보 ·': 'Alarm ·', '관절 위험': 'Joint danger', '로봇은 스스로 멈추지 않습니다.': 'The robot does not stop by itself.', '로봇 탭에서 보기': 'View in Robots', '최근 경고': 'Recent warnings',
   '기록 탭에서 모두 보기': 'See all in History', '보기': 'View', '범위': 'Scope', '로봇 타일': 'Robot tiles', '작은 지도 · 누르면 지도 보기': 'Mini map · click for map',
   '실시간 3D · 끌어서 돌리기 · 휠 확대': 'Live 3D · drag to rotate · wheel to zoom', '동선 겹쳐 보기': 'Route overlap', '기존 동선': 'Current routes', '대': 'robots', '새 동선': 'New route', '겹치는 곳': 'Overlaps', '현장 3D': 'Site 3D',
-  '로봇 추가': 'Add robot', '데모 · 정지 잠금': 'Demo · stop latched', '시뮬 · 정지 잠금': 'Sim · stop latched', '실제 · 연결 끊김': 'Real · disconnected', '바꿀 수 있는 모드 없음': 'No modes to switch',
+  '로봇 추가': 'Add robot', '데모 · 정지 잠금': 'Demo · stop latched', '시뮬 · 정지 잠금': 'Sim · stop latched', '실제 · 연결 끊김': 'Real · disconnected', '바꿀 수 있는 모드 없음': 'No modes to switch', '조종을 시작해야 걷기 모드를 바꿀 수 있습니다.': 'Start driving to change the walking mode.',
   '조종자': 'Driver', '조종': 'Drive', '로봇 설정': 'Robot settings', '끌어서 돌려 보기': 'Drag to rotate', '서 있음': 'Standing', '위치 추정 켜짐': 'Localization on',
   '관절값을 받지 않아 서 있는 모양 그대로': 'No joint values · shown standing', '카메라': 'Camera', '라이다': 'LiDAR', '깊이': 'Depth', '시뮬 시점': 'Sim view', '앞 카메라': 'Front camera', '임무 없음': 'No mission',
   // 조종 단추 글 「조종」 · 「다시 시작」 (폰 조종 · 직결 시뮬 · 실기 · PC 시뮬 탭) · 다시 시작 확인 창(u4_10) · 이어 가기 안내
@@ -122,15 +122,19 @@ export const EN: Record<string, string> = {
   'AME-2 는 아직 일정에 넣을 수 없습니다': 'AME-2 cannot be scheduled yet', '예상': 'Estimate', '다음 일정까지 여유': 'Slack before next slot', '로봇 줄 앞 쪽': 'Robot rows previous', '로봇 줄 다음 쪽': 'Robot rows next',
   '조종권': 'Control', '묶음별 건수는 서버가 주지 않습니다.': 'The server does not give counts per group.', '등급': 'Level', '정보': 'Info', '실제 · 모의 실행': 'Real · simulated',
   '서버에 실제 · 모의 실행 거르기가 없어 모두 보입니다.': 'The server has no real/simulated filter, so all are shown.', '모든 로봇': 'All robots', '클립 있는 것만': 'With clips only', '서버에 클립 거르기가 없습니다.': 'The server has no clip filter.',
-  '클립 보관 기간 ·': 'Clip retention ·', '서버가 보관 일수를 주지 않아 비워 둡니다.': 'The server gives no retention days, so it is left blank.', '서버에 찾기 없음': 'No search on server', '오늘': 'Today', '7 일': '7 days', '30 일': '30 days',
+  '서버에 값 없음. 클립을 며칠 보관할지 서버가 값을 주면 여기서 바꿉니다.': 'No value from server. Once the server gives a retention period, change it here.', '클립 보관 기간': 'Clip retention period', '클립 보관 기간 ·': 'Clip retention ·', '서버가 보관 일수를 주지 않아 비워 둡니다.': 'The server gives no retention days, so it is left blank.', '서버에 찾기 없음': 'No search on server', '오늘': 'Today', '7 일': '7 days', '30 일': '30 days',
   '지금 장면 저장': 'Save this moment', '내보내기': 'Export', '필터 없음': 'No filter', '클립': 'Clips', '사건': 'Events', '시각': 'Time', '클립 길이': 'Clip length', '정보 단계': 'Info level', '기록만': 'Record only',
-  '전체': 'All', '모드 전환': 'Mode switches', '서버에 없음': 'Not on server', '연결 · 시스템': 'Link · system', '사용자 작업': 'User actions',
+  '이어진 상태': 'Ongoing',
+  '실기 서버 경유: 앞뒤 · 옆 · 회전 모두 누르고 있으면 2 초에 걸쳐 최고 속도까지, 떼면 0.3 초 안에 멈춥니다.': 'Real robot via server: hold forward/back, sideways or turn and it speeds up to top speed over 2 s; release and it stops within 0.3 s.',
+  '임무 중 서버 연결이 끊기고 이 시간이 지나면 로봇을 정지 잠금하고 임무를 멈춥니다. 3 초보다 짧게 둬도 3 초 뒤에 판단합니다.': 'If the server link drops during a mission and this time passes, the robot is stop-latched and the mission stops. Values under 3 s are still judged after 3 s.', '전체': 'All', '모드 전환': 'Mode switches', '서버에 없음': 'Not on server', '연결 · 시스템': 'Link · system', '사용자 작업': 'User actions',
   '기록 거르기': 'History filters', '묶음': 'Group', '서버에 모드 전환 기록이 없습니다': 'The server has no mode-switch records', '찾기': 'Search', '사건 · 로봇 · 메모 찾기': 'Search events · robots · notes', '기간': 'Period',
 };
 
 const LV: Record<string, string> = { 위험: 'Danger', 경고: 'Warning', 주의: 'Caution' };
 const SIDE: Record<string, string> = { '왼쪽 앞다리': 'Front-left', '오른쪽 앞다리': 'Front-right', '왼쪽 뒷다리': 'Rear-left', '오른쪽 뒷다리': 'Rear-right', '앞 왼': 'Front-left', '앞 오른': 'Front-right', '뒤 왼': 'Rear-left', '뒤 오른': 'Rear-right' };
-const PART: Record<string, string> = { 엉덩이: 'hip', 허벅지: 'thigh', 무릎: 'knee', 종아리: 'calf' };
+/** 정지 잠금 까닭(서버 latch_reason 화면 글 · proto/u5 LATCH_WHY) */
+const LOCK_WHY: Record<string, string> = { '기동 잠금': 'boot latch', '사람 정지': 'stopped by a person', 넘어짐: 'fall', '연결 끊김': 'link lost', '장치 고장': 'device fault', '권한 확인 늦음': 'permission check late', '조종권 끝남': 'control ended', 기타: 'other', '까닭 미상': 'reason unknown' };
+const PART: Record<string, string> = { 고관절: 'hip', 허벅지: 'thigh', 무릎: 'knee', 종아리: 'calf' };
 /** 관절 이름(proto/u5 jointName «오른쪽 앞다리 무릎» · go2model jointName «앞 오른 종아리») → «Front-right knee». 모르면 그대로 */
 const joint = (s: string) => { const g = /^(.+) (\S+)$/.exec(s); return g && SIDE[g[1]] && PART[g[2]] ? `${SIDE[g[1]]} ${PART[g[2]]}` : s; };
 
@@ -140,6 +144,7 @@ export const EN_RULES: [RegExp, (m: RegExpExecArray) => string][] = [
   [/^로봇 (\d+) 대 연결$/, (m) => `${m[1]} robots connected`],
   [/^내 로봇 (\d+) 대 연결$/, (m) => `${m[1]} of my robots connected`],
   [/^([^가-힣]+) 정지$/, (m) => `Stop ${m[1]}`],
+  [/^([^가-힣]+) [은는] 현장 폰에서만 멈출 수 있습니다$/, (m) => `${m[1]} can only be stopped from the field phone`],
   [/^([^가-힣]+) 외 (\d+) 대 조종 중$/, (m) => `Driving ${m[1]} +${m[2]}`],
   [/^([^가-힣]+) 조종 중$/, (m) => `Driving ${m[1]}`],
   [/^결재 (\d*)$/, (m) => `Approvals ${m[1]}`.trim()],
@@ -161,10 +166,11 @@ export const EN_RULES: [RegExp, (m: RegExpExecArray) => string][] = [
   [/^약 (\d+) 분$/, (m) => `about ${m[1]} min`],
   [/^([^가-힣]+) 타일$/, (m) => `${m[1]} tile`],
   [/^([^가-힣]+) · 정지 잠금$/, (m) => `${m[1]} · stop latched`],
-  [/^받은 시각 (\d\d:\d\d)$/, (m) => `Received ${m[1]}`],
+  [/^받은 시각 (\d\d:\d\d)$/, (m) => `Received ${m[1]}`], [/^잠금 시작 (\d\d:\d\d)$/, (m) => `Latched ${m[1]}`],
   [/^알림 안 읽음 (\d+)건$/, (m) => `${m[1]} unread alerts`],
   [/^사건 (\d+) 건 이상$/, (m) => `${m[1]}+ events`],
   [/^오늘 · (\d+)월 (\d+)일$/, (m) => `Today · ${m[1]}/${m[2]}`],
+  [new RegExp(`^(?:(위험|경고|주의) · )?정지 잠금 · (${Object.keys(LOCK_WHY).join('|')})$`), (m) => `${m[1] ? `${LV[m[1]]} · ` : ''}Stop latched · ${LOCK_WHY[m[2]]}`],
   [/^(위험|경고|주의) · (.+) (\d+) °C$/, (m) => `${LV[m[1]]} · ${joint(m[2])} ${m[3]} °C`],
   [/^(.+) (\d+) °C · (위험|경고|주의)$/, (m) => `${joint(m[1])} ${m[2]} °C · ${LV[m[3]]}`],
   [/^(.+?)이? (\d+) °C 입니다\.$/, (m) => `${joint(m[1])} is ${m[2]} °C.`],

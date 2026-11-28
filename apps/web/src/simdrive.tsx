@@ -16,6 +16,7 @@ import { simName, type Tone } from './fake';
 import { SimMap, useFloorMap } from './simmap';
 import { SimPick } from './simstart';
 import { TakeoverAsk } from './screens/takeover';
+import { keyCode } from './padkeys';
 
 /** 키 → [축(0 전후·1 회전·2 옆), 방향]. 모든 조종 화면 한 배치(d5 · 11-28): W/↑ 전진, S/↓ 후진, ← / → 옆걸음, A / D 제자리 회전, Space 정지(App). Q · E 는 없음(11-28 17:25).
  *  실기 서버 경유(serverdrive.tsx·drive.tsx)와 같다. 옆걸음은 limits 가 vy 를 허락할 때만 나가고(phone.ts velocity), 아니면 0 + blockNote.
@@ -327,13 +328,13 @@ export function SimDrive({ shrink = () => sim.reset() }: { shrink?: (cam: Cam) =
     const apply = () => {
       if (!keyRef.current.live || !canDrive()) held.current.clear();
       const a: [number, number, number] = [0, 0, 0], k = sim.get().link?.welcome;
-      held.current.forEach((_, c) => { const [i, v] = KEYS[c]; a[i] = Math.max(-1, Math.min(1, a[i] + v)); });
+      held.current.forEach((_, c) => { const [i, v] = KEYS[keyCode(c)]; a[i] = Math.max(-1, Math.min(1, a[i] + v)); });
       if (a[0] > 0 && k) a[0] = forward(k);
       input.current[1] = a[1]; input.current[2] = a[2]; keyRef.current.put(0, a[0]);
     };
     const down = (e: KeyboardEvent) => {
       if (held.current.size && (metaCut(e) || e.key === 'Control' || e.key === 'Alt')) return zero();   // 단축키 시작 — macOS 는 Cmd 뒤 keyup 이 안 올 수 있음(RV-429 ③)
-      if (!(e.code in KEYS) || e.repeat || e.ctrlKey || e.metaKey || e.altKey || field(e.target) || !keyRef.current.live || !canDrive()) return;
+      if (!(keyCode(e.code) in KEYS) || e.repeat || e.ctrlKey || e.metaKey || e.altKey || field(e.target) || !keyRef.current.live || !canDrive()) return;
       e.preventDefault(); held.current.set(e.code, keyRef.current.sync()); apply();
     };
     const up = (e: KeyboardEvent) => { if (metaCut(e) && held.current.size) zero(); else if (held.current.delete(e.code)) apply(); };

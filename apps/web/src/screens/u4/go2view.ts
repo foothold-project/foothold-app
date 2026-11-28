@@ -2,6 +2,8 @@
 // 바뀐 것: 걷기 관절은 시안의 기록 고리 대신 로봇이 보낸 실제 관절값(api.q, go2model JOINTS 순서 12개)을 쓴다. 값이 없으면 서 있는 모양 그대로(지어내지 않음).
 // 바닥 점 흐름은 api.drive = {v, turn, side} (로봇에 나간 명령 값). 모형 파일은 저장소 밖 자산 폴더(/proto-assets/, FH_ASSET_DIR)에서 읽는다.
 import * as THREE from 'three';
+import { applyWalk, loadWalk, type Walk } from '../../proto/site';
+import { REAR_DIST, SHADOW, feetUp } from '../../proto/tileview';
 
 export const GO2_GLB = '/proto-assets/shared/go2_isaac.glb';
 const SIM = 0x4c9bff;
@@ -15,6 +17,8 @@ export const STAND = ORDER.map((n) => (n.endsWith('hip') ? (n[1] === 'R' ? -0.1 
 export const DOWN = ORDER.map((n, i) => (n.endsWith('thigh') ? 1.36 : n.endsWith('calf') ? -2.72 : STAND[i]));
 /** 그릴 관절: 받은 관절값이 이긴다 · 없으면 posture LYING 이면 엎드림 · 그 밖은 서기(지어내지 않음) */
 export const poseQ = (q: number[] | null, down: boolean) => (q && q.length === 12 ? q : down ? DOWN : STAND);
+/** 다리 꼴: 받은 관절값(q) · 엎드림(down) · 관절값 없이 걷는 속도(walk = 관제 타일과 같은 시안 걷기 기록 applyWalk) · 서기(stand) */
+export const legMode = (q: number[] | null, down: boolean, walk: boolean) => (q && q.length === 12 ? 'q' : down ? 'down' : walk ? 'walk' : 'stand');
 type Joints = Record<string, { o: THREE.Object3D; r0: THREE.Euler }>;
 /** 받은 관절값(12개)으로 다리를 돌린 뒤 몸 · 발 가장 낮은 점을 바닥 y=0 에 붙인다(서기 · 엎드림 · 앉기 · 넘어짐 · 시뮬 · 데모 · 실기 같은 규칙).
  *  관절만 돌리고 몸 높이를 서 있을 때 그대로 두면 엎드릴 때 공중에 떠 앉는다(팀장 11-28 18:47) */
@@ -22,6 +26,17 @@ export function applyQ(root: THREE.Object3D, joints: Joints, q: number[]) {
   ORDER.forEach((n, i) => { const j = joints[n]; if (!j) return; j.o.rotation.copy(j.r0); j.o.rotation[n.endsWith('hip') ? 'z' : 'x'] += q[i] - STAND[i]; });
   ground(root);
 }
+/** 걷기 기록 t 초 자리로 다리를 놓고 종아리 넷의 가장 낮은 점을 y=0 에(관제 타일 tileview feetUp 과 같은 맞춤 · 엎드림 → 걷기로 바뀌어도 발이 묻히거나 뜨지 않게, 검토 L2) */
+export function walkPose(root: THREE.Object3D, joints: Joints, gait: Walk, t: number) {
+  const b = { root, joints, top: 0 }; applyWalk(b, gait, t); root.position.y = feetUp(b); root.updateMatrixWorld(true);
+}
+/** 무대 카메라: 임무 중 현장 꼴 = 로봇 뒤(yaw π) · 관제 타일 「뒤」 와 같은 거리(tileview REAR_DIST), 아니면 처음 자리(정면).
+ *  그림자: 현장 꼴이면 무대 그림자는 끄고(덧그리는 장면이라 현장 물체 위에 늘 보임) 현장 장면 쪽 로봇 자리에 관제 타일과 같은 그림자(tileview SHADOW)를 둔다 */
+export const stageLook = (world: boolean, front: { yaw: number; dist: number }) =>
+  (world ? { yaw: Math.PI, dist: REAR_DIST, stageShadow: false } : { yaw: front.yaw, dist: front.dist, stageShadow: true });
+/** 현장 꼴 그림자 원(지도 좌표 · z 위): 반지름 · 길이 배 · 진하기 = 관제 타일. 긴 쪽 = 로봇 앞(지도 yaw) */
+export const mapShadow = (pose: { x: number; y: number; yaw: number }, z: number) =>
+  ({ r: SHADOW.r, x: pose.x, y: pose.y, z: z + 0.001, rotZ: pose.yaw, sx: SHADOW.sy, sy: 1, opacity: SHADOW.opacity });
 /** 모형의 가장 낮은 점(꼭짓점 기준)을 y=0 에 */
 export function ground(root: THREE.Object3D) {
   root.position.y = 0; root.updateMatrixWorld(true);
@@ -38,12 +53,14 @@ function cyberMat() {
 }
 
 export type Go2Opt = { pin?: boolean; orbit?: boolean; glow?: boolean; cyber?: boolean; hot?: Record<string, string>; pose?: 'down'; yaw?: number; dist?: number; floor?: number; src?: string };
-export type Go2Api = { q: number[] | null; /** 서버 posture LYING (q 없을 때만 씀) */ down: boolean; drive: { v: number; turn: number; side: number } | null; setHot: (m: Record<string, string>) => void; dispose: () => void; fallback?: boolean };
+export type Go2Api = { q: number[] | null; /** 서버 posture LYING (q 없을 때만 씀) */ down: boolean; /** 관절값 없이 서버 speed ≥ WALK_MIN_SPEED (q · down 이 이김) */ walk: boolean;
+  /** 임무 중 무대(팀장 21:16 · 관제 타일 tileView 와 같은 규칙): 받아 둔 현장 장면(simcam site · 지도 좌표 z 위)과 로봇의 서버 자리. 있으면 뒤에서 따라 보고 현장을 뒤에 그림, null 이면 정면 + 점 바닥 */
+  world: { scene: THREE.Scene; z: number; pose: { x: number; y: number; yaw: number } } | null; drive: { v: number; turn: number; side: number } | null; setHot: (m: Record<string, string>) => void; dispose: () => void; fallback?: boolean };
 
 export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
   const w = canvas.clientWidth || 760, h = canvas.clientHeight || 900;
   let r: THREE.WebGLRenderer;
-  const api: Go2Api = { q: null, down: false, drive: null, setHot, dispose: () => {} };
+  const api: Go2Api = { q: null, down: false, walk: false, world: null, drive: null, setHot, dispose: () => {} };
   try { r = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true }); }
   catch { api.fallback = true; return api; }   // WebGL 이 없는 PC: 캔버스만 빈 채로 (시안의 정면 그림은 자산이라 넣지 않음)
   r.setPixelRatio(Math.min(2, devicePixelRatio)); r.setSize(w, h, false);
@@ -52,6 +69,9 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
   const cam = new THREE.PerspectiveCamera(30, w / h, 0.05, 50);
   const yaw = opt.yaw ?? 0.0, dist = opt.dist ?? 1.3;
   cam.position.set(Math.sin(yaw) * dist, 0.55, Math.cos(yaw) * dist); cam.lookAt(0, 0.17, 0);
+  // 현장 칸: 무대 좌표(로봇 자리 원점 · 앞 +z · 위 +y · 왼 +x)를 지도 좌표(x 동 · y 북 · z 위)로 옮긴 같은 카메라로 현장을 먼저 그린다
+  const wcam = new THREE.PerspectiveCamera(30, w / h, 0.05, 400), toMap = new THREE.Matrix4(), wm = new THREE.Matrix4();
+  let inWorld = false;
 
   scene.add(new THREE.HemisphereLight(0xdfe8f0, 0x0c0f14, 0.9));
   const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(1.2, 2, 1.6); scene.add(key);
@@ -86,9 +106,11 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
   }
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.22, 48), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 }));
   shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.001; shadow.scale.set(1, 1.5, 1); scene.add(shadow);
+  const mshadow = new THREE.Mesh(new THREE.CircleGeometry(SHADOW.r, 48), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: SHADOW.opacity, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }));
 
   const joints: Joints = {};
-  let root: THREE.Object3D | null = null, posed = false, live = true;
+  let root: THREE.Object3D | null = null, posed = false, live = true, gait: Walk | null = null;
+  loadWalk().then((w: Walk | null) => { if (live) gait = w; });
   import('three/examples/jsm/loaders/GLTFLoader.js').then(({ GLTFLoader }) => new GLTFLoader().load(opt.src || GO2_GLB, (g) => {
     if (!live) return;
     root = g.scene; scene.add(root);
@@ -145,13 +167,33 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
   function frame() {
     tone();
     const dt = Math.min(0.05, clock.getDelta()); t += dt;
+    const wd = api.world;
+    if (!!wd !== inWorld) {   // 임무 중 = 로봇 뒤에서 · 아니면 정면(처음 자리)
+      inWorld = !!wd; const v = stageLook(inWorld, { yaw, dist });
+      cam.position.set(Math.sin(v.yaw) * v.dist, 0.55, Math.cos(v.yaw) * v.dist); cam.lookAt(0, 0.17, 0); shadow.visible = v.stageShadow && !opt.cyber; ctl?.update(); lit = null;   // 나오면 판 색(점 바닥 · 빛 웅덩이)을 다시 맞춤
+    }
+    grid.visible = !wd; if (wd) pools.forEach((o) => { o.visible = false; });
     const d = api.drive;
     if (d) { off -= d.v * dt * 0.75; gm.uniforms.off.value = off; grid.rotation.y -= d.turn * dt * 0.9; grid.position.x = ((grid.position.x - (d.side || 0) * dt * 0.75) + 2) % 4 - 2; }
     const q = api.q;
     // 관절값이 바뀐 때만 다시 놓는다(바닥 맞춤은 꼭짓점을 훑으므로 같은 배열이면 건너뜀)
-    const want = poseQ(q, api.down);
-    if (want !== lastQ && root && !posed) { applyQ(root, joints, want); lastQ = want; }
-    ctl?.update(); r.render(scene, cam); raf = requestAnimationFrame(frame);
+    if (root && !posed && gait && legMode(q, api.down, api.walk) === 'walk') { walkPose(root, joints, gait, t); lastQ = null; }
+    else {
+      const want = poseQ(q, api.down);
+      if (want !== lastQ && root && !posed) { applyQ(root, joints, want); lastQ = want; }
+    }
+    ctl?.update();
+    if (wd) {
+      const c = Math.cos(wd.pose.yaw), s = Math.sin(wd.pose.yaw);
+      toMap.makeBasis(new THREE.Vector3(-s, c, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(c, s, 0)).setPosition(wd.pose.x, wd.pose.y, wd.z);
+      cam.updateMatrixWorld(); wm.multiplyMatrices(toMap, cam.matrixWorld); wm.decompose(wcam.position, wcam.quaternion, wcam.scale);
+      wcam.aspect = cam.aspect; wcam.updateProjectionMatrix();
+      const ms = mapShadow(wd.pose, wd.z); mshadow.position.set(ms.x, ms.y, ms.z); mshadow.rotation.set(0, 0, ms.rotZ); mshadow.scale.set(ms.sx, ms.sy, 1);
+      if (!opt.cyber) wd.scene.add(mshadow);   // 현장 장면은 시점 칸과 같이 쓰는 것이라 그리는 동안만 넣고 뺀다
+      const tm = r.toneMapping; r.toneMapping = THREE.NoToneMapping; r.render(wd.scene, wcam); r.toneMapping = tm; wd.scene.remove(mshadow);   // 현장 색은 시점 칸(simcam)과 같게
+      r.autoClear = false; r.clearDepth(); r.render(scene, cam); r.autoClear = true;
+    } else r.render(scene, cam);
+    raf = requestAnimationFrame(frame);
   }
   frame();
   const fit = () => { const W = canvas.clientWidth, H = canvas.clientHeight; if (!W || !H) return; r.setSize(W, H, false); cam.aspect = W / H; cam.updateProjectionMatrix(); };

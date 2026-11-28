@@ -1,7 +1,8 @@
 // 관제 타일 3D 따라가기: 서버 위치 · yaw 를 칸마다 부드럽게 따라감(보간) · 먼 순간 이동은 바로 · 바닥 점은 실제로 간 거리만큼 흐름
 // 타일 자리는 작은 지도와 같은 규칙: 데모 현장 승인 판(map_version_id)의 위치만 현장 3D 에 놓고, 아니면 null(점 바닥 + 까닭)
 import { describe, expect, it } from 'vitest';
-import { follow } from '../proto/tileview';
+import * as THREE from 'three';
+import { FRONT_DIST, REAR_DIST, follow, layers, simLook } from '../proto/tileview';
 import { tilePose } from '../proto/u5';
 
 const P = (x: number, z: number, rot: number) => ({ x, z, rot });
@@ -41,5 +42,21 @@ describe('tilePose', () => {
     expect(tilePose(at('v-other') as never, new Set(['v-demo']))).toBeNull();
     expect(tilePose(at(null) as never, new Set(['v-demo']))).toBeNull();
     expect(tilePose(null, new Set(['v-demo']))).toBeNull();
+  });
+});
+// 팀장 20:4x: 시뮬은 관제에서 전처럼 파랗게. 질감판(ddd053ba) 뒤로 밝은 땅 위 더하기 섞기가 하얗게 날아갔다 · 땅은 지우지 않음(팀장 20:49)
+describe('시뮬 칸 모습(시안 u5_1 K-08)', () => {
+  it('어둠 = 더하기 섞기 파랑(시안 그대로) · 밝음 = 보통 섞기 예행 #2F6FE0(흰 바탕에서 보이게)', () => {
+    expect(simLook(false)).toEqual({ blend: THREE.AdditiveBlending, col: 0x4c9bff });
+    expect(simLook(true)).toEqual({ blend: THREE.NormalBlending, col: 0x2f6fe0 });
+  });
+});
+
+describe('layers', () => {
+  it('임무 중 현장(자리 + glb) = 현장만 · 점 바닥 끔, 그 밖 = 점 바닥만', () => {
+    expect(layers(true, true)).toEqual({ world: true, dots: false });
+    expect(layers(false, true)).toEqual({ world: false, dots: true });
+    expect(layers(true, false)).toEqual({ world: false, dots: true });   // glb 를 아직 못 받음
+    expect([REAR_DIST, FRONT_DIST]).toEqual([2.1, 1.25]);
   });
 });

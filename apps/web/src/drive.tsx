@@ -26,6 +26,7 @@ import './proto/light.pv.css';
 import './screens/u1d.css';
 import './screens/u1.app.css';
 import { askShown } from './proto/u11';
+import { keyCode } from './padkeys';
 
 /** 남은 시간을 그리려고 on 인 동안 0.2 s 마다 다시 그림. 시각은 단조 시계 */
 function useNow(on: boolean) {
@@ -157,10 +158,10 @@ const SHEET: Record<SheetId, (c: Ctx) => JSX.Element> = {
 
 /** 물리 키(e.code) → 방향. 누른 키는 e.code 마다 누른 순간의 입력 세대로 적는다(rt inputGen) */
 export const KEY: Record<string, string> = { KeyW: 'f', ArrowUp: 'f', KeyS: 'b', ArrowDown: 'b', KeyA: 'l', KeyD: 'r', ArrowLeft: 'sl', ArrowRight: 'sr' };
-const held = (keys: Map<string, number>, d: string) => [...keys.keys()].some((c) => KEY[c] === d);
+const held = (keys: Map<string, number>, d: string) => [...keys.keys()].some((c) => KEY[keyCode(c)] === d);
 /** 누른 키 → 서버 명령표 낱말. 표에 없는 조합이면 0 + COMBO_BLOCK · 상한 밖이면 0 + 까닭(손잡이와 같은 규칙) */
 const TOK = { f: 'up', b: 'down', l: 'rotl', r: 'rotr', sl: 'left', sr: 'right' } as const;
-const keyToks = (keys: Map<string, number>) => [...new Set([...keys.keys()].map((c) => TOK[KEY[c] as keyof typeof TOK]).filter(Boolean))];
+const keyToks = (keys: Map<string, number>) => [...new Set([...keys.keys()].map((c) => TOK[KEY[keyCode(c)] as keyof typeof TOK]).filter(Boolean))];
 
 /** F-TO-02~05: 조종 화면 */
 function Screen(c: Ctx) {
@@ -230,7 +231,7 @@ function Screen(c: Ctx) {
     const down = (e: KeyboardEvent) => {
       if (metaCut(e)) { if (keys.size) blur(); return; }   // Cmd 동안은 keyup 이 안 올 수 있다 — 적은 키를 지우고 세대 +1(RV-429 ③)
       const gk = gaitKey(e); if (gk) { if (!field(e.target) && !e.repeat) { e.preventDefault(); gaitRef.current(gk); } return; }   // Shift+1~4 걷기 모드 · 입력칸 초점이면 무시
-      const k = KEY[e.code]; if (!k) return;
+      const k = KEY[keyCode(e.code)]; if (!k) return;
       if (field(e.target)) { if (!keys.has(e.code)) { keys.set(e.code, -1); sendRef.current(); } return; }   // 글 입력칸: 글자는 그대로, 조종은 아님. 뗄 때까지 앞 세대(0)
       if (!e.ctrlKey && !e.altKey) e.preventDefault();   // Ctrl·Alt 조합도 같은 누름으로 적는다(브라우저 단축키는 막지 않음)
       if (!e.repeat) keys.set(e.code, nowRef.current());
@@ -241,7 +242,7 @@ function Screen(c: Ctx) {
     };
     const up = (e: KeyboardEvent) => {
       if (metaCut(e)) { if (keys.size) blur(); return; }
-      const k = KEY[e.code]; if (k && keys.delete(e.code)) { if (k === 'b') setBack(held(keys, 'b')); setSide(held(keys, 'sl') || held(keys, 'sr')); setCombo(unknownCombo(keyToks(keys))); sendRef.current(); }   // 뗀 그 자리에서 한 번 보냄(RV-426 ⑨)
+      const k = KEY[keyCode(e.code)]; if (k && keys.delete(e.code)) { if (k === 'b') setBack(held(keys, 'b')); setSide(held(keys, 'sl') || held(keys, 'sr')); setCombo(unknownCombo(keyToks(keys))); sendRef.current(); }   // 뗀 그 자리에서 한 번 보냄(RV-426 ⑨)
     };
     // 창 밖에서 뗀 키는 keyup 이 안 온다 — 적은 키를 모두 지우고 세대 +1, 바로 0(앞 세대는 이미 무시되므로 지워도 안전, RV-426 ⑦⑨)
     const blur = () => { keys.clear(); setBack(false); setSide(false); setCombo(false); gen.bump(); sendRef.current(); };
