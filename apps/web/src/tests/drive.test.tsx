@@ -231,6 +231,30 @@ describe('폰 정지됨 Damping 두 번 누르기 (시안 u1_3 · PC 로봇 탭 
     click(damp());
     expect(w.of('action')).toMatchObject([{ robot: 'r7', action: 'Damp', params: {}, confirmed: true }]);
   });
+  it('한 번 누른 뒤 단추가 사라졌다 3 초 안에 다시 나타나면 처음부터(한 번 = 안내만)', () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    click(btn('조종'));
+    click(damp());
+    act(() => push('r7', { posture: { state: 'LYING' } as never }));
+    act(() => push('r7', { posture: { state: 'STANDING' } as never }));
+    tick(500);
+    click(damp());
+    expect(w.of('action')).toHaveLength(0);
+    expect($('[data-act-msg]').textContent).toBe('한 번 더 누르면 엎드려 힘을 뺍니다');
+  });
+  it('Damp 를 보내기 바로 전에 입력 0 을 한 번 보냄(neutral · PC d.zero 와 같음)', () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    click(btn('조종'));
+    click(damp());
+    const n = w.sent.length;
+    click(damp());
+    const after = w.sent.slice(n).map((m) => m.t);
+    expect(after.indexOf('cmd')).toBeGreaterThanOrEqual(0);
+    expect(after.indexOf('cmd')).toBeLessThan(after.indexOf('action'));
+    expect(w.sent.slice(n).find((m) => m.t === 'cmd')).toMatchObject({ axes: [0, 0, 0] });
+  });
   it('엎드림(LYING)이거나 잠금이 풀리면 Damping 단추 없음', () => {
     mount(true, 'u-park', '#/drive/r7');
     serve(PARK, 'r7');

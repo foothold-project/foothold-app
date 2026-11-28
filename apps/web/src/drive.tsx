@@ -301,12 +301,13 @@ function Screen(c: Ctx) {
   const nowRef = useRef(now0); nowRef.current = now0;
   // 걷기 모드(u03): 누른 키 · 스틱 손가락이 있거나 로봇이 0 아닌 명령을 적용 중이면 «움직이는 중» · 보내지 않고 까닭
   // 걷기 모드 확인 창(시안 u1_14 · PC 로봇 탭 u4_7 modeBind 와 같은 규칙): 연 때의 stop_gen · 조종권에 묶음 — 바뀌면 닫고, 바꾸기는 그때 다시 보고 같을 때만 press
-  const [modeAsk, setModeAsk] = useState<GaitName | null>(null);
+  const [modeAsk, setModeAsk] = useState<GaitName | null>(null), askMode = (g: GaitName) => { pick(null); setModeAsk(g); modeBind.open(); };
   const modeBind = useRestartAsk(() => { const x = rt.get(r.id); return { mine: !!x.lease, latched: null, gen: x.state?.stop_gen, lease: x.lease }; });
   useEffect(() => { if (modeAsk && !modeBind.live) setModeAsk(null); }, [modeAsk, modeBind.live]);
   const gait = useGait(r.id, () => input.current.keys.size > 0 || input.current.sg.some((x) => x != null) || !!rt.get(r.id).state?.applied?.some((v) => v !== 0),
-    (g) => { pick(null); setModeAsk(g); modeBind.open(); });   // 시트 단추 = 확인 창. Shift+1~4 는 PC 처럼 바로
-  const gaitRef = useRef(gait.press); gaitRef.current = gait.press;
+    (g) => askMode(g));   // 시트 단추 = 확인 창
+  // Shift+1~4 도 그 모드를 고른 확인 창부터(PC 로봇 탭 99a0c9c2 와 같은 규칙). 조종권 없음 · 못 쓰는 모드면 원래 길(press)이 까닭을 알림
+  const gaitRef = useRef(gait.press); gaitRef.current = (g: GaitName) => (rt.get(r.id).lease && gait.avail?.length !== 0 && (!gait.avail || gait.avail.includes(g)) ? askMode(g) : gait.press(g));
 
   // 키보드(F-TO-05). 요청 창이 떠 있어도 방향키는 조종
   useEffect(() => {
@@ -384,6 +385,7 @@ function Screen(c: Ctx) {
   // Damping(시안 u1_3 · PC 로봇 탭 robotu4 damp 와 같은 규칙 · 같은 길): 내 조종 · 정지 잠금 · 서 있을 때. 한 번 = 안내, 3 초 안에 한 번 더 = Damp(확인됨).
   // 처음 값은 -Infinity: 0 이면 페이지를 연 뒤 3 초 안의 첫 누름이 바로 Damp 가 된다(performance.now 는 페이지 시작부터 셈)
   const [arm, setArm] = useState(-Infinity), dampOn = mine && online && l.state?.latched === true && l.state?.posture?.state !== 'LYING';
+  useEffect(() => { if (!dampOn) setArm(-Infinity); }, [dampOn]);   // 단추가 사라지면 한 번 누른 기록도 버림(다시 나타나 한 번에 Damp 가 나가지 않게 · 검토 낮음)
   const damp = () => {
     if (rt.now() - arm > 3000) { setArm(rt.now()); return say('한 번 더 누르면 엎드려 힘을 뺍니다'); }
     setArm(-Infinity); neutral(); rt.action(r.id, 'Damp', {}, true, (why, id) => { if (why) say(`거부 · ${why}`); else setPending(id ?? null); });
