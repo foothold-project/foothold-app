@@ -2491,6 +2491,25 @@ describe('총괄 강제 가져오기', () => {
     key('keyup', 'KeyW');
   });
 
+  it('잠기지 않은 채 넘어옴(서버 430cdd23 뒤 · 0 으로 서기만): 앱이 스스로 unlock 보내지 않음 · 손잡이 중립을 한 번 지나기 전 cmd 0 · 중립 뒤에만 조종', () => {
+    mount(true, ADMIN, '#/drive/r7'); serve(KIM, 'r7'); held();
+    act(() => push('r7', { latched: false, stop_gen: 1 }));   // 앞사람이 움직이던 로봇 · 잠기지 않음
+    click(btn('조종'));
+    key('keydown', 'KeyW'); tick(100);                        // 확인 창 뜬 동안 앞으로 누른 채
+    click(btn('가져오기'));
+    act(() => push('r7', { latched: false, stop_gen: 1 }));   // 넘어온 뒤에도 잠기지 않음
+    tick(400);
+    expect(w.of('unlock')).toHaveLength(0);
+    expect(cmds().length).toBeGreaterThan(0);
+    expect(cmds().every((m) => (m.axes as number[]).every((v) => v === 0))).toBe(true);   // 누른 채 넘어온 입력은 0
+    expect($('.u1-chip .u1-st')!.textContent).toBe('중립 확인 중');
+    key('keyup', 'KeyW'); tick(200);                          // 중립을 한 번 지남
+    key('keydown', 'KeyW'); tick(200);
+    expect(lastAxes()).toEqual([1.5, 0, 0]);
+    key('keyup', 'KeyW'); tick(100);
+    expect(w.of('unlock')).toHaveLength(0);
+  });
+
   it('남의 넘김이 진행 중(남이 쥐었다가 holder 없음)일 때도 총괄은 같은 확인 창 · 쥔 사람을 본 적 없는 빈 로봇은 지금처럼 바로 take', () => {
     mount(true, ADMIN, '#/drive/r7'); serve(KIM, 'r7'); held();
     recv(lease('r7', null));                                   // 남의 넘김: 앞사람 lease null(STOP · 확인 대기)
