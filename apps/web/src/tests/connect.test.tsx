@@ -373,7 +373,7 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
     expect(calls.find((c) => c.path.startsWith('/robots'))!.path).toContain('scope=mine');
     expect($('[data-empty="robots"]')!.textContent).toContain('담당 로봇이 없습니다');   // PC: 연결 코드 등록·총괄에게 담당 요청·시뮬 안내(ROBOT-TAB 11-02)
     expect($('[data-empty="robots"]')!.textContent).toContain('총괄에게 담당 지정을 요청');
-    expect($('[data-empty="robots"]')!.textContent).toContain('«시뮬» 탭');   // 다음 할 일 단추는 하나(U11-04): «+ 새 로봇 추가»
+    expect($('[data-empty="robots"]')!.textContent).toContain('«시뮬 탭 열기»');   // 칠한 다음 할 일은 하나(U11-04): «+ 새 로봇 추가» · 시뮬은 칠하지 않은 «시뮬 탭 열기»(08:27)
     expect($('[data-empty="robots"] [data-pair-start]')).not.toBeNull();
     expect($('[data-pair-start]')).not.toBeNull();
     expect($('[data-stop]')).not.toBeNull();

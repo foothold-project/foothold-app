@@ -478,6 +478,7 @@ describe('시나리오 휴지통(05 §5.1, 11-02)', () => {
     // 휴지통 것은 옛 주소·알림 링크(#/mission/<id>)로 열면 읽기 전용 + «복원»
     act(() => root?.unmount()); box.remove(); clearPlans();
     await open('#/mission/s2');
+    await click($('[data-edit-mission]'));   // 옛 주소 = 임무 탭에서 그 임무를 고름(W2) → «열기»
     expect($('[data-readonly]')!.textContent).toContain('휴지통에 있는 시나리오입니다.');
     await click(btn('복원'));
     expect(last(writes())).toBe('POST /trash/scenario/s2/restore');
@@ -1655,14 +1656,16 @@ describe('시뮬 시나리오', () => {
     expect(writes()).toEqual(['PUT /scenarios/s1']);   // 시뮬 탭에서 실기 지도 시나리오 편집 = 같은 저장 요청
     expect(last(sent('PUT', '/scenarios/s1'))!.body).toMatchObject({ name: '1층 순찰 고침' });
   });
-  it('RB-SCEN-SIMTAB 옛 주소 #/mission/<id> = 시뮬 탭 그 시나리오(편집), #/mission 만이면 지도 탭(시나리오 창 없음 — RB-MAP-NO-SCEN)', async () => {
+  it('옛 주소 #/mission/<id> = 임무 탭에서 그 시나리오를 고름(«편집»으로 엶), #/mission 만이면 임무 탭(W2)', async () => {
     seed(); serve(KIM);
     await open('#/mission/s1'); await settle();
-    expect(location.hash).toBe('#/sim');
+    expect(location.hash).toBe('#/missions');
+    await click($('[data-edit-mission]')); await settle();
     expect(name().value).toBe('1층 순찰');
     act(() => root?.unmount()); root = null; clearPlans();
     seed(); serve(KIM);
     await open('#/mission');
+    expect($('main')!.getAttribute('aria-label')).toBe('임무');
     expect($('[data-plan]')).toBeNull(); expect($('[data-name]')).toBeNull();
   });
   it('RB-SCEN-SIMTAB 시뮬 탭 표시 셋: 실기만(시뮬 지형 없는 실기 지도) = «시뮬에서 실행» 막고 이유 한 줄 · 실기·시뮬(3D 지도로 만든 그 판) = 지형으로 실행 · 시뮬만(시뮬 장소)', async () => {

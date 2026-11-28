@@ -196,7 +196,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
   const g = wallGrid(all.length), picked = all.find((f) => f.x.id === sel), crit = all.find((f) => f.level === 'crit');
   const seg = (on: boolean, v: string, icon: ReactNode, go: () => void) => <span className={on ? 'on' : ''} data-v={v} role="button" tabIndex={0} aria-pressed={on} onClick={go} onKeyDown={(e) => { if (e.key === 'Enter') go(); }}>{I(16, icon)}{v}</span>;
   const cnt = (k: string, icon: ReactNode, v: number | null, red = false) => <span className="cnt" style={red ? { color: '#ff4d4f' } : undefined} data-sum={k}>{I(16, icon, red ? '#ff4d4f' : undefined)}{`${k} `}<b style={red ? { color: '#ff4d4f' } : undefined}>{v ?? '—'}</b></span>;
-  return <div className="u5" data-view={view}>
+  return <main className="u5" data-view={view} aria-label="관제">
     <div className="tb"><div className="seg2" role="group" aria-label="보기">{seg(view === 'tiles', '타일 보기', IC.tiles, () => setView('tiles'))}{seg(view === 'map', '지도 보기', IC.map, () => setView('map'))}</div>
       <span className="pinf"><i></i>첫 화면으로</span><span className="sep"></span>
       {cnt('임무 중', IC.flag, n((f) => f.x.online && !!f.mission && f.x.status === 'RUNNING'))}
@@ -221,7 +221,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
         <Recent list={all.filter((f) => (f.alert || f.lostNow) && f.x.id !== crit?.x.id)} pick={(id) => controlPick.set(id)} open={open} /></>
         : <MapSide all={all} sel={sel} pick={(id) => controlPick.set(id)} open={open} />}
     </div>
-  </div>;
+  </main>;
 }
 /** 대수가 많을 때만 타일을 줄인다(8 대 이하는 시안 그대로 zoom 1 · 감싸지 않음) */
 const ZoomBox = ({ zoom, children }: { zoom: number; children: ReactNode }) => (zoom >= 1 ? children : <div style={{ zoom, display: 'grid', minWidth: 0, minHeight: 0 }}>{children}</div>);
