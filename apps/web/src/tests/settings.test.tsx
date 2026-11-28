@@ -62,6 +62,8 @@ const setVal = (el: HTMLInputElement | HTMLSelectElement, v: string) => act(() =
 const submit = async (form: Element) => { act(() => { (form as HTMLFormElement).requestSubmit(); }); await flush(); };
 const click = async (b: HTMLButtonElement | undefined) => { expect(b).toBeDefined(); act(() => b!.click()); await flush(); };
 /** 계정 목록에서 이름으로 골라 상세 열기 */
+/** 비밀번호 바꾸기는 내 계정 칸의 단추로 여는 창(시안 u9_2) — 닫혀 있으면 연다 */
+const openPw = async () => { if (!$('form[aria-label="비밀번호 바꾸기"]')) await click(btn('비밀번호 바꾸기', card('내 정보'))); };
 const pick = (name: string) => click([...card('계정').querySelectorAll('li button')].find((b) => b.textContent!.includes(name)) as HTMLButtonElement);
 
 describe('총괄 — 계정 관리', () => {
@@ -69,15 +71,16 @@ describe('총괄 — 계정 관리', () => {
     serve(signedIn(KIM));
     await open();
     const rows = [...card('계정').querySelectorAll('li')].map((li) => li.textContent);
-    expect(rows).toEqual(['김총괄 kim총괄 · 나로봇 0대', '이운영 lee운영 관리자로봇 0대', '박운영 park운영 관리자로봇 2대', '최운영 choi운영 관리자■잠김로봇 0대']);
-    expect($('h2', card('계정'))!.textContent).toBe('계정 (4)');
+    // 시안 u9_3 줄: 머리글자 · 이름(· 나) · 역할 표 · 아이디 · 담당 로봇 수 · 잠김
+    expect(rows).toEqual(['김김총괄 · 나총괄kim로봇 0대', '이이운영운영 관리자lee로봇 0대', '박박운영운영 관리자park로봇 2대', '최최운영운영 관리자choi로봇 0대■잠김']);
+    expect($('h2', card('계정'))!.textContent).toBe('사용자 (4)');
   });
 
   it('만들기: 임시 비밀번호를 서버에 보내고 한 번만 보임(닫으면 사라짐)', async () => {
     const NEW: User = { ...LEE, id: 'o9', username: 'jung', display_name: '정운영' };
     serve(signedIn(KIM, { 'POST /users': { status: 201, body: NEW } }));
     await open();
-    await click(btn('새 계정'));
+    await click(btn('사용자 추가'));
     const f = card('새 계정');
     setVal($('input[name="username"]', f)!, ' jung ');
     setVal($('input[name="display_name"]', f)!, '정운영');
@@ -88,7 +91,7 @@ describe('총괄 — 계정 관리', () => {
     expect(body.temp_password).toMatch(/^[A-HJ-NP-Za-km-np-z2-9]{12}$/);
     expect($<HTMLInputElement>('input[aria-label="임시 비밀번호"]')!.value).toBe(body.temp_password);
     expect(card('계정').textContent).toContain('정운영(jung) 계정을 만들었습니다');
-    expect($('h2', card('계정'))!.textContent).toBe('계정 (5)');
+    expect($('h2', card('계정'))!.textContent).toBe('사용자 (5)');
     expect(card('계정 상세').textContent).toContain('정운영');   // 만든 계정을 바로 고름
     await click(btn('닫기', card('임시 비밀번호')));
     expect(box.innerHTML).not.toContain(body.temp_password);
@@ -97,7 +100,7 @@ describe('총괄 — 계정 관리', () => {
   it('만들기: 빈 칸은 보내지 않음, 아이디 중복 409 는 쉬운 문구', async () => {
     serve(signedIn(KIM, { 'POST /users': err(409, 'VERSION_CONFLICT', '같은 값이 있거나 상태가 바뀌었습니다.') }));
     await open();
-    await click(btn('새 계정'));
+    await click(btn('사용자 추가'));
     await submit(card('새 계정'));
     expect(card('새 계정').textContent).toContain('아이디와 이름을 입력하세요.');
     expect(sent('POST', '/users')).toHaveLength(0);
@@ -121,7 +124,7 @@ describe('총괄 — 계정 관리', () => {
     setVal($('select[name="role"]', d)!, 'ORG_ADMIN');
     await submit($('form', d)!);
     expect(sent('PATCH', '/users/o1').map((c) => c.body)).toEqual([{ display_name: '이총괄', role: 'ORG_ADMIN' }]);
-    expect(card('계정').textContent).toContain('이총괄 lee총괄');
+    expect(card('계정').textContent).toContain('이이총괄총괄lee');
     expect(d.textContent).toContain('저장했습니다.');
   });
 
@@ -139,7 +142,7 @@ describe('총괄 — 계정 관리', () => {
     await click(btn('잠그기', card('확인')));
     expect(sent('PATCH', '/users/o1').map((c) => c.body)).toEqual([{ locked: true }]);
     expect(card('계정 상세').textContent).toContain('잠갔습니다.');
-    expect(card('계정').textContent).toContain('이운영 lee운영 관리자■잠김');
+    expect(card('계정').textContent).toContain('이이운영운영 관리자lee로봇 0대■잠김');
     expect(card('로그인 기기').textContent).toContain('로그인한 기기가 없습니다.');
     await click(btn('잠금 풀기'));
     expect(sent('PATCH', '/users/o1').map((c) => c.body)).toEqual([{ locked: true }, { locked: false }]);
@@ -263,7 +266,7 @@ describe('총괄 — 계정 관리', () => {
     setVal($('input[name="display_name"]', card('계정 상세'))!, '이둘');
     await submit($('form', card('계정 상세'))!);
     expect($('[role="alert"]', card('계정 상세'))!.textContent).toContain('서버에 연결하지 못했습니다');
-    expect(card('계정').textContent).toContain('이운영 lee');
+    expect(card('계정').textContent).toContain('이이운영운영 관리자lee');
   });
 });
 
@@ -612,6 +615,7 @@ describe('내 정보(모두)', () => {
   });
 
   const pw = async (cur: string, next: string, again = next) => {
+    await openPw();
     const f = card('비밀번호 바꾸기');
     setVal($('input[name="current"]', f)!, cur); setVal($('input[name="next"]', f)!, next); setVal($('input[name="again"]', f)!, again);
     await submit(f);
@@ -634,7 +638,7 @@ describe('내 정보(모두)', () => {
 
   it('비밀번호 칸 근처에 띄어쓰기 안내(띄어쓰기=STOP — 전역 키는 그대로)', async () => {
     serve(signedIn(LEE));
-    await open();
+    await open(); await openPw();
     expect(card('비밀번호 바꾸기').textContent).toContain('띄어쓰기는 입력되지 않습니다(띄어쓰기=STOP).');
   });
 
@@ -657,6 +661,7 @@ describe('내 정보(모두)', () => {
 
 describe('B1 앞 세션 요청의 늦은 답 — 로그아웃 → 다른 계정 로그인 뒤에 와도 버림', () => {
   const pwForm = async () => {
+    await openPw();
     const f = card('비밀번호 바꾸기');
     for (const [n, v] of [['current', 'old'], ['next', 'new-pass'], ['again', 'new-pass']]) setVal($(`input[name="${n}"]`, f)!, v);
     await submit(f);
@@ -758,11 +763,11 @@ describe('U9-03 밝기 · U9-04 서버 값 없는 칸', () => {
     serve(signedIn(KIM));
     await open();
     const WHY: [string, string[]][] = [
-      ['현장 연결', ['현장 네트워크 목록', '현장 확인 자동 통과']],
+      ['현장 연결', ['저장된 현장 네트워크', '처음 연결할 때 현장 담당자 승인', '끊긴 까닭과 해결 단추']],
       ['현장 혼잡 시간', ['혼잡 시간', '중복 점검 기준']],
-      ['알림', ['관절 온도 기준']],
+      ['알림', ['관절 온도 기준', '급상승', '한 관절만 뜨거움', 'PC 위쪽 알림 종', '담당자 폰', '소리']],
       ['기록과 클립', ['클립 보관 기간']],
-      ['표시', ['언어']],
+      ['표시', ['언어', '데모 로봇에 «데모» 표시']],
       ['데모 로봇 표시', ['데모 로봇에 «데모» 표시']],
       ['시스템', ['서버 · 앱 정보']],
     ];

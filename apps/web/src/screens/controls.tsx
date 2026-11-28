@@ -18,7 +18,7 @@ export function ControlsGuide() {
   return <>
     <section className="lv-card" aria-label="키보드">
       <h2>키보드</h2>
-      {KEY_GUIDE.map(([k, what]) => <Row key={k} k={k} what={what} />)}
+      {KEY_GUIDE.map(([k, what]) => <div key={k} className="st-row st-keyrow"><span className="st-keys">{k.split(' · ').map((x) => <kbd key={x}>{x}</kbd>)}</span><span>{what}</span></div>)}
       <p className="st-note">시뮬 조종 기준입니다. 실기 조종 화면은 조종 방식에 따라 키가 다릅니다.</p>
     </section>
     <section className="lv-card" aria-label="모바일 (폰 터치)">

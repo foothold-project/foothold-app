@@ -12,7 +12,7 @@ import { Settings, simOut } from '../screens/settings';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const LEE = { id: 'o1', username: 'lee', display_name: '이운영', role: 'OPERATOR', locked: false, robot_ids: [], created_at: '2026-10-19T00:00:00Z' } as unknown as User;
+const LEE: User = { id: 'o1', name: '이운영', role: 'OPERATOR' };   // 앱 User(이름 · 역할)
 let root: Root | null = null, box: HTMLDivElement | null = null;
 afterEach(() => { act(() => root?.unmount()); box?.remove(); root = null; box = null; vi.unstubAllGlobals(); });
 

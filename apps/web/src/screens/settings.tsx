@@ -33,6 +33,39 @@ const GROUPS = [
   ['기기', [['sys', '시스템']]],
 ] as const satisfies readonly (readonly [string, readonly (readonly [string, string, boolean?, boolean?])[]])[];
 type Tab = (typeof GROUPS)[number][1][number][0];
+/** 서버에 값이 없는 칸(u9 시안 자리) */
+const NO_SERVER = '서버에 값 없음';
+/** 왼쪽 목록 아이콘(lucide ISC 선 path 를 옮김, 패키지 없음) */
+const Ic = ({ d }: { d: string[] }) => <svg className="st-ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">{d.map((x) => <path key={x} d={x} />)}</svg>;
+const TAB_ICON: Record<Tab, string[]> = {
+  acct: ['M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z', 'M16.5 7.5h.01'],
+  users: ['M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2', 'M9 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8', 'M22 21v-2a4 4 0 0 0-3-3.87', 'M16 3.13a4 4 0 0 1 0 7.75'],
+  net: ['M12 20h.01', 'M2 8.82a15 15 0 0 1 20 0', 'M5 12.859a10 10 0 0 1 14 0', 'M8.5 16.429a5 5 0 0 1 7 0'],
+  crowd: ['M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20', 'M12 6v6l4 2'],
+  robot: ['M12 8V4H8', 'M6 8h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2', 'M2 14h2', 'M20 14h2', 'M15 13v2', 'M9 13v2'],
+  safety: ['M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z'],
+  alert: ['M10.268 21a2 2 0 0 0 3.464 0', 'M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326'],
+  clip: ['M3 3h18v18H3z', 'M7 3v18', 'M3 7.5h4', 'M3 12h18', 'M3 16.5h4', 'M17 3v18', 'M17 7.5h4', 'M17 16.5h4'],
+  ctl: ['M21 4h-7', 'M10 4H3', 'M21 12h-9', 'M8 12H3', 'M21 20h-5', 'M12 20H3', 'M14 2v4', 'M8 10v4', 'M16 18v4'],
+  view: ['M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2', 'M8 21h8', 'M12 17v4'],
+  demo: ['M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0', 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6'],
+  sys: ['M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z', 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6'],
+};
+/** 화면 머리 설명 한 줄(u9 .hd p). 시안 문장 중 앱이 지키지 않는 약속은 뺐다 */
+const TAB_SUB: Record<Tab, string> = {
+  acct: '내 계정과 비밀번호. 로그인한 기기 목록은 총괄만 볼 수 있습니다.',
+  users: '계정은 총괄과 운영 관리자 두 가지입니다. 권한은 총괄이 가장 넓습니다.',
+  net: '현장 네트워크와 서버. 연결 상태는 모든 탭 위쪽 줄에도 늘 보입니다.',
+  crowd: '사람이 많은 시간과 같은 곳을 다시 점검하는 기준.',
+  robot: '조종권 · 연결 기준과 시뮬 로봇.',
+  safety: '속도 제한과 로봇 · 서버에 묶인 안전값.',
+  alert: '언제 알릴지 정합니다. 단계마다 숫자와 글을 함께 보여 줍니다.',
+  clip: '사건 클립을 서버에 얼마나 둘지 정합니다.',
+  ctl: '키보드 · 조이스틱 · 음성 · 폰 터치. 아래에서 시뮬 조종 값을 바꿉니다.',
+  view: '화면 밝기 · 언어 · 데모 표시.',
+  demo: '데모 로봇에 「데모」 를 붙일지 정합니다.',
+  sys: '서버와 앱 정보.',
+};
 /** 서버 값이 아직 없는 항목: 이름 + 까닭 한 줄. 켜고 끄는 척하는 칸은 두지 않는다 */
 const Later = ({ items, label }: { label: string; items: [string, string][] }) => <section className="lv-card" aria-label={label}>
   {(items.length > 1 || items[0][0] !== label) && <h2>{label}</h2>}
@@ -63,7 +96,11 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) 
     if (!to) return;
     e.preventDefault(); setTab(to); document.getElementById(`st-t-${to}`)?.focus();
   };
-  const panel = (id: Tab, kids: ReactNode) => <div className="st-grid" role="tabpanel" id={`st-p-${id}`} aria-labelledby={`st-t-${id}`} hidden={tab !== id}>{kids}</div>;
+  const tabName = (id: Tab) => TABS.find(([t]) => t === id)?.[1] ?? '';
+  const only = (id: Tab) => GROUPS.some(([, ts]) => ts.some((t) => t[0] === id && (t as readonly unknown[])[3]));
+  // 화면 머리(u9 .hd): 제목 = 항목 이름 · 총괄만 표 · 설명 한 줄. layout = 시안 칸 배치(settings.css)
+  const panel = (id: Tab, kids: ReactNode) => <div className="st-grid" role="tabpanel" id={`st-p-${id}`} aria-labelledby={`st-t-${id}`} hidden={tab !== id} data-layout={id}>
+    <div className="st-head" data-st-head><h2>{tabName(id)}</h2>{only(id) && <span className="st-only">총괄만</span>}<p>{TAB_SUB[id]}</p></div>{kids}</div>;
   const card = (p: Omit<CardProps, 'org' | 'admin' | 'cancel'>) => <OrgCard org={org} admin={admin} cancel={c.cancel} {...p} />;
   // 고른 모델의 카드는 처음 고를 때 그려 두고 hidden 으로만 숨긴다 — 모델을 오가도 쓰던 칸이 사라지지 않게(탭과 같은 방식). '' = 공통
   const [model, setModel] = useState(''), [opened, setOpened] = useState<string[]>([]);
@@ -77,17 +114,22 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) 
   return <div className="st">
     <div className="st-tabs st-side" role="tablist" aria-label="설정 묶음" aria-orientation="vertical" ref={list} onKeyDown={key}>
       {GROUPS.map(([g, ts]) => <Fragment key={g}><span className="st-group" aria-hidden="true" data-st-group>{g}</span>
-        {ts.filter((t) => admin || !t[2]).map(([id, name, , only]) => <button key={id} type="button" role="tab" id={`st-t-${id}`} aria-controls={`st-p-${id}`} aria-selected={tab === id} tabIndex={tab === id ? 0 : -1} onClick={() => setTab(id)} data-only={only || undefined} title={only ? '총괄만' : undefined}>{name}</button>)}
+        {ts.filter((t) => admin || !t[2]).map(([id, name, , only]) => <button key={id} type="button" role="tab" id={`st-t-${id}`} aria-controls={`st-p-${id}`} aria-selected={tab === id} tabIndex={tab === id ? 0 : -1} onClick={() => setTab(id)} data-only={only || undefined} title={only ? '총괄만' : undefined}><Ic d={TAB_ICON[id]} />{name}</button>)}
       </Fragment>)}
     </div>
     <div className="st-body">
-    <div className="st-legend" aria-label="표시 뜻"><span className="st-tag adm">총괄만 고침</span><span className="st-tag cap">시뮬 모드·연결 상한 안에서만</span><span className="st-tag lock">바꾸려면 별도 승인(보기만)</span></div>
     {org.err && <p className="fh-msg" role="alert">{org.err}</p>}
-    {panel('acct', <MyInfo user={c.user} setMe={c.setMe} cancel={c.cancel} />)}
-    {admin && panel('users', <Accounts me={c.user} cancel={c.cancel} />)}
-    {panel('net', <Later label="현장 연결" items={[
-      ['현장 네트워크 목록', '현장 네트워크를 저장하는 서버 값이 아직 없어 목록을 보일 수 없습니다. 연결 상태는 위쪽 줄에서 봅니다.'],
-      ['현장 확인 자동 통과', '로봇을 처음 연결할 때 현장 승인을 켜고 끄는 설정은 서버 권한 결정을 기다립니다.']]} />)}
+    {panel('acct', <>
+      <MyInfo user={c.user} setMe={c.setMe} cancel={c.cancel} />
+      {admin && <section className="lv-card st-devs" aria-label="내 로그인 기기"><Devices u={{ id: c.user.id, display_name: c.user.name } as ApiUser} cancel={c.cancel} only /></section>}
+      <Activity label="최근 활동" q={{ user_id: c.user.id, category: 'ACCOUNT', limit: '6' }} empty="최근 활동이 없습니다." cancel={c.cancel} />
+    </>)}
+    {admin && panel('users', <>
+      <Accounts me={c.user} cancel={c.cancel} />
+      <Perms />
+      <Activity label="바꾼 기록" q={{ category: 'ACCOUNT', limit: '5' }} empty="계정 기록이 없습니다." cancel={c.cancel} wide />
+    </>)}
+    {panel('net', <Network />)}
     {panel('crowd', <Later label="현장 혼잡 시간" items={[
       ['혼잡 시간', '사람이 많은 시간을 저장하는 서버 값이 아직 없습니다.'],
       ['중복 점검 기준', '같은 곳을 다시 점검하는 기준(시안 기본 4 시간)을 저장하는 서버 값이 아직 없습니다.']]} />)}
@@ -111,12 +153,16 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) 
       </section>
     </>)}
     {panel('alert', <>
-      {card({ id: 'org', label: '조직 기준값', note: '실기·시뮬 모두에 쓰는 값. 저장하면 다음 실행부터 적용.', fields: COMMON })}
-      <Later label="관절 온도" items={[['관절 온도 기준', '관절 온도 단계(주의 · 경고 · 위험) 기준은 서버 값이 아직 없습니다.']]} />
+      <JointTemp />
+      {card({ id: 'org', label: '조직 기준값', note: '배터리 · 경로 이탈 기준. 실기 · 시뮬 모두에 쓰고, 저장하면 다음 실행부터 적용합니다.', fields: COMMON })}
+      <Pending label="이상 감지" items={[['급상승', '짧은 시간에 오르는 온도를 알리는 기준 값이 서버에 아직 없습니다.'], ['한 관절만 뜨거움', '같은 다리 다른 관절과 견주는 기준 값이 서버에 아직 없습니다.']]} />
+      <Pending label="받는 곳" items={[['PC 위쪽 알림 종', '지금은 모든 알림이 여기에 옵니다. 끄는 값은 서버에 없습니다.'], ['담당자 폰', '폰으로 알림을 보내는 기능이 서버에 아직 없습니다.'], ['소리', '알림 소리를 켜고 끄는 값이 서버에 아직 없습니다.']]} />
     </>)}
     {panel('clip', <Later label="기록과 클립" items={[['클립 보관 기간', '사건 클립은 서버 클립 기능이 생긴 뒤 보관 기간을 여기서 바꿉니다.']]} />)}
     {panel('ctl', <>
       <ControlsGuide />
+      <Pending label="조이스틱" items={[['조이스틱 조종', '조이스틱 입력을 받는 기능이 앱에 아직 없습니다.']]} />
+      <Pending label="음성" items={[['누르는 동안 듣기', '음성 명령 기능이 앱에 아직 없습니다.']]} />
       <div className="st-modelbar">
         <div className="st-tabs" role="group" aria-label="값을 고칠 모델">
           {[['', '공통'] as const, ...SIM_MODELS].map(([id, name]) => <button key={id} type="button" aria-pressed={model === id} onClick={() => pickModel(id)}>{name}</button>)}
@@ -128,10 +174,12 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) 
     </>)}
     {panel('view', <>
       <ThemeCard />
-      <Later label="언어" items={[['언어', '화면 글을 바꾸는 기능은 아직 없습니다. 지금은 한국어만 씁니다.']]} />
+      <Language />
+      <DemoMark />
     </>)}
     {panel('demo', <Later label="데모 로봇 표시 (총괄만)" items={[['데모 로봇에 «데모» 표시', '켜고 끄는 값은 서버 권한 결정을 기다립니다. 정해지면 총괄만 바꿀 수 있습니다.']]} />)}
     {panel('sys', <Later label="시스템" items={[['서버 · 앱 정보', '서버 주소 · 버전 · 점검 결과를 주는 서버 값이 아직 없습니다.']]} />)}
+    <div className="st-legend" aria-label="표시 뜻"><span className="st-tag adm">총괄만 고침</span><span className="st-tag cap">시뮬 모드·연결 상한 안에서만</span><span className="st-tag lock">바꾸려면 별도 승인(보기만)</span></div>
     </div>
   </div>;
 }
@@ -139,12 +187,83 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) 
 /** 화면 밝기(U9-03): 머리 메뉴 밝기 단추와 같은 값(theme.tsx). 어느 쪽에서 바꿔도 둘 다 바뀐다 */
 function ThemeCard() {
   const [p] = useTheme();
-  return <section className="lv-card" aria-label="화면 밝기">
+  // 시안 u9_6: 세 칸(그림 + 이름 + 고름). 그림은 밝음 · 어두움 · 반반 모양만(글 없음). 이름 · 값은 머리 메뉴 밝기와 같은 THEMES
+  return <section className="lv-card st-themes" aria-label="화면 밝기">
     <h2>화면 밝기</h2>
     <div className="st-theme" role="radiogroup" aria-label="화면 밝기 고르기">
-      {THEMES.map(([v, name]) => <label key={v} className="st-sw"><span>{name}</span><input type="radio" name="st-theme" value={v} checked={p === v} onChange={() => setThemePref(v)} /></label>)}
+      {THEMES.map(([v, name]) => <label key={v} className="st-opt" data-on={p === v || undefined}>
+        <span className="st-prev" data-st-prev={v} aria-hidden="true"><i /><i /><i /></span>
+        <input type="radio" name="st-theme" value={v} checked={p === v} onChange={() => setThemePref(v)} /><span>{name}</span></label>)}
     </div>
-    <p className="st-note">이 기기에만 기억합니다. 왼쪽 메뉴(폰은 «⋯ 더 보기»)의 밝기와 같은 값입니다.</p>
+    <p className="st-note">이 기기에만 기억하고 모든 화면에 바로 적용합니다. 머리줄 «나» 메뉴(폰은 «⋯ 더 보기»)의 밝기와 같은 값입니다.</p>
+  </section>;
+}
+
+/** 언어(u9_6): 지금은 한국어만. English 는 자리만(못 고름 + 까닭) */
+function Language() {
+  return <section className="lv-card" aria-label="언어">
+    <h2>언어</h2>
+    <div className="st-opt st-lang" data-on data-st-lang="ko"><span className="st-dot" aria-hidden="true" /><b>한국어</b><small>지금</small></div>
+    <div className="st-later" data-later><b>언어</b><span className="st-note" data-why>English 등 화면 글을 바꾸는 기능이 아직 없어 한국어만 씁니다.</span></div>
+  </section>;
+}
+
+/** 데모 로봇 표시(u9_6 · 총괄만): 켜고 끄는 서버 값이 없어 스위치는 못 누름 */
+function DemoMark() {
+  return <section className="lv-card" aria-label="데모 로봇 표시">
+    <h2>데모 로봇 표시 <span className="st-only">총괄만</span></h2>
+    <div className="st-later" data-later><b>데모 로봇에 «데모» 표시</b><span className="st-note" data-why>켜고 끄는 값은 서버 권한 결정을 기다립니다. 정해지면 총괄만 바꿀 수 있습니다.</span></div>
+  </section>;
+}
+
+/** 서버 값이 아직 없는 칸(u9 시안 자리) = Later 와 같은 줄(이름 + 까닭). 켜고 끄는 척하는 스위치 · 단추는 두지 않는다(U9-04) */
+const Pending = ({ label, items }: { label: string; items: [string, string][] }) => <Later label={label} items={items} />;
+
+/** 관절 온도 단계(u9_5): 단계 이름만, 경계 온도는 서버 값이 없어 숫자를 쓰지 않는다 */
+function JointTemp() {
+  return <section className="lv-card st-wide" aria-label="관절 온도">
+    <h2>관절 온도</h2>
+    <div className="st-bands">{['보통', '주의', '경고', '위험'].map((x, i) => <span key={x} className="st-band" data-tone={i} data-st-band>{x}</span>)}</div>
+    <div className="st-later" data-later><b>관절 온도 기준</b><span className="st-note" data-why>단계 경계 온도는 {NO_SERVER}. 관절 온도 단계(주의 · 경고 · 위험) 기준이 서버에 아직 없어 숫자를 쓰지 않습니다.</span></div>
+  </section>;
+}
+
+/** 현장 연결(u9_4): 네트워크 목록 · 현장 확인 · 끊겼을 때는 서버 값이 없어 자리만. 서버 주소는 지금 이 화면을 연 주소 */
+function Network() {
+  return <>
+    <Later label="현장 네트워크 목록" items={[['저장된 현장 네트워크', '현장 네트워크를 저장하는 서버 값이 아직 없어 목록과 추가 단추를 보일 수 없습니다. 연결 상태는 위쪽 줄에서 봅니다.']]} />
+    <section className="lv-card" aria-label="서버">
+      <h2>서버</h2>
+      <div className="st-rw"><span className="st-av"><Ic d={TAB_ICON.sys} /></span><div><b className="mono">{location.host || NO_SERVER}</b><small>점검 <span data-st-check>{NO_SERVER}</span></small></div></div>
+      <p className="st-note">주소는 지금 이 화면을 연 주소입니다. 서버 이름 · 점검 결과를 주는 서버 값은 아직 없습니다.</p>
+    </section>
+    <Later label="현장 확인" items={[['처음 연결할 때 현장 담당자 승인', '로봇을 처음 연결할 때 현장 담당자 승인을 켜고 끄는 설정은 서버 권한 결정을 기다립니다.']]} />
+    <Later label="끊겼을 때" items={[['끊긴 까닭과 해결 단추', '연결 점검 결과를 주는 서버 값이 없어 끊긴 까닭과 해결 단추를 아직 보이지 못합니다.']]} />
+  </>;
+}
+
+const at = (iso: string) => { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()} ${d.toTimeString().slice(0, 5)}`; };
+/** 계정 사건 목록(u9_1 최근 활동 · u9_3 바꾼 기록): /events 를 받은 그대로(시각 · 서버 문장) */
+function Activity({ label, q, empty, wide, cancel }: { label: string; q: Record<string, string>; empty: string; wide?: boolean } & Cancel) {
+  const [items, setItems] = useState<{ id: string; at: string; message: string }[] | null>(null), [err, setErr] = useState('');
+  useEffect(() => { api.events(new URLSearchParams(q), cancel).then((l) => setItems(l.items), (e: ApiFail) => setErr(e.message)); }, []);
+  return <section className={`lv-card${wide ? ' st-wide' : ''}`} aria-label={label}>
+    <h2>{label}</h2>
+    {err && <p className="fh-msg" role="alert">{err}</p>}
+    {items && !items.length && <p className="lv-note">{empty}</p>}
+    {items && !!items.length && <ul className="st-acts">{items.map((e) => <li key={e.id} data-st-act><span className="mono">{at(e.at)}</span><b>{e.message}</b></li>)}</ul>}
+  </section>;
+}
+
+/** 권한 표(u9_3): 앱 · 서버가 실제로 가르는 일만 적는다. 시안의 나머지 줄(로봇 연결 · 임무 · 지도)은 역할별 결정 문서를 확인한 뒤 */
+const PERMS: [string, boolean][] = [['정지 (어느 화면에서나)', true], ['사용자와 권한', false], ['로그인 기기 보기 · 끊기', false], ['조직 기준값 고치기', false]];
+function Perms() {
+  const mark = (yes: boolean) => <td data-can={yes ? 'yes' : 'no'} aria-label={yes ? '할 수 있음' : '할 수 없음'}>{yes ? '✓' : '·'}</td>;
+  return <section className="lv-card" aria-label="권한">
+    <h2>권한</h2>
+    <table className="st-table st-perm"><thead><tr><th scope="col">할 수 있는 일</th><th scope="col">총괄</th><th scope="col">운영 관리자</th></tr></thead>
+      <tbody>{PERMS.map(([what, op]) => <tr key={what}><th scope="row">{what}</th>{mark(true)}{mark(op)}</tr>)}</tbody></table>
+    <p className="st-note">총괄은 운영 관리자가 하는 일을 모두 합니다. 이 표는 앱이 지금 가르는 일만 적었습니다.</p>
   </section>;
 }
 
@@ -296,6 +415,9 @@ export const PW_DONE = '비밀번호를 바꿨습니다. 모든 기기에서 로
 
 function MyInfo({ user, setMe, cancel }: { user: User; setMe: (u: ApiUser) => void } & Cancel) {
   const [name, setName] = useState(user.name), [msg, setMsg] = useState<Msg>(null), [busy, setBusy] = useState(false);
+  const [pwOpen, setPwOpen] = useState(false), [pwMsg, setPwMsg] = useState<Msg>(null), [username, setUsername] = useState<string | null>(null), opener = useRef<HTMLButtonElement>(null);
+  // 아이디는 /me 에만 있다(앱 User 에는 이름 · 역할만). 받지 못하면 서버에 값 없음
+  useEffect(() => { api.me(cancel).then((u) => setUsername(u.username), () => setUsername('')); }, []);
   const rename = async (e: FormEvent) => {
     e.preventDefault();
     const v = name.trim();
@@ -312,28 +434,54 @@ function MyInfo({ user, setMe, cancel }: { user: User; setMe: (u: ApiUser) => vo
     e.preventDefault();
     if (busy) return;
     const f = new FormData(e.currentTarget), cur = String(f.get('current')), next = String(f.get('next'));
-    if (!cur || !next) return setMsg({ text: '현재 비밀번호와 새 비밀번호를 입력하세요.' });
-    if (next !== String(f.get('again'))) return setMsg({ text: '새 비밀번호 두 칸이 서로 다릅니다.' });
-    setBusy(true); setMsg(null);
+    if (!cur || !next) return setPwMsg({ text: '현재 비밀번호와 새 비밀번호를 입력하세요.' });
+    if (next !== String(f.get('again'))) return setPwMsg({ text: '새 비밀번호 두 칸이 서로 다릅니다.' });
+    setBusy(true); setPwMsg(null);
     try { await api.password({ current_password: cur, new_password: next }, cancel); expireAuth(PW_DONE); }
-    catch (err) { setMsg({ text: (err as ApiFail).message }); setBusy(false); }
+    catch (err) { setPwMsg({ text: (err as ApiFail).message }); setBusy(false); }
   };
-  return <section className="lv-card" aria-label="내 정보">
-    <h2>내 정보</h2>
-    <form className="fh-form" onSubmit={rename} noValidate>
-      <label className="fh-field"><span>내 이름</span><input className="inp" name="display_name" maxLength={128} value={name} onChange={(e) => setName(e.target.value)} /></label>
-      <div className="fh-row"><button type="submit" className="btn pri" disabled={busy}>이름 저장</button></div>
+  const close = () => { setPwOpen(false); setPwMsg(null); opener.current?.focus(); };
+  // 시안 u9_1 내 계정: 머리글자 · 이름 · 역할 표 · 아이디, 아래 줄 = 비밀번호 · 이름 표시 · 로그아웃
+  return <section className="lv-card st-me" aria-label="내 정보">
+    <h2>내 계정</h2>
+    <div className="st-who"><span className="st-av big" data-st-av>{user.name.slice(0, 1)}</span>
+      <div><b>{user.name}</b> <span className={`st-rp${user.role === 'ORG_ADMIN' ? ' lead' : ''}`} data-st-role>{ROLE_NAME[user.role]}</span>
+        <small>아이디 {username === null ? '' : username || NO_SERVER}</small></div></div>
+    <form className="st-rw" onSubmit={rename} noValidate>
+      <span className="st-ic2"><Ic d={['M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20', 'M2 12h20', 'M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20']} /></span>
+      <label className="st-grow"><b>이름 표시</b><small>다른 사람 화면에 보이는 이름</small>
+        <input className="inp" name="display_name" maxLength={128} value={name} onChange={(e) => setName(e.target.value)} /></label>
+      <span className="st-r"><button type="submit" className="btn" disabled={busy}>이름 저장</button></span>
     </form>
-    <form className="fh-form" onSubmit={change} noValidate aria-label="비밀번호 바꾸기">
-      <h2>비밀번호 바꾸기</h2>
-      <label className="fh-field"><span>현재 비밀번호</span><input className="inp" name="current" type="password" autoComplete="current-password" maxLength={1024} /></label>
-      <label className="fh-field"><span>새 비밀번호</span><input className="inp" name="next" type="password" autoComplete="new-password" maxLength={1024} /></label>
-      <label className="fh-field"><span>새 비밀번호 다시</span><input className="inp" name="again" type="password" autoComplete="new-password" maxLength={1024} /></label>
-      <span className="lbl">띄어쓰기는 입력되지 않습니다(띄어쓰기=STOP).</span>
-      <div className="fh-row"><button type="submit" className="btn pri" disabled={busy}>비밀번호 바꾸기</button><span className="lbl">바꾸면 모든 기기에서 로그아웃됩니다.</span></div>
-    </form>
+    <div className="st-rw">
+      <span className="st-ic2"><Ic d={['M5 11h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2', 'M7 11V7a5 5 0 0 1 10 0v4']} /></span>
+      <div className="st-grow"><b>비밀번호</b><small>바꾼 때 <span data-st-pw-when>{NO_SERVER}</span></small></div>
+      <span className="st-r"><button ref={opener} type="button" className="btn" onClick={() => setPwOpen(true)}>비밀번호 바꾸기</button></span>
+    </div>
+    <div className="st-rw">
+      <span className="st-ic2"><Ic d={['m16 17 5-5-5-5', 'M21 12H9', 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4']} /></span>
+      <div className="st-grow"><b>로그아웃</b><small data-st-logout>머리줄 «나» 메뉴에서 로그아웃합니다. 이 기기에서만 로그아웃됩니다.</small></div>
+    </div>
     <Note msg={msg} />
+    {pwOpen && <PwDialog busy={busy} msg={pwMsg} change={change} close={close} />}
   </section>;
+}
+
+/** 비밀번호 바꾸기 창(시안 u9_2). 창 안에 오류 한 줄 · Esc · 취소 · 닫기로 닫음. 성공하면 서버가 모든 세션을 끝내 로그인 화면으로 간다 */
+function PwDialog({ busy, msg, change, close }: { busy: boolean; msg: Msg; change: (e: FormEvent<HTMLFormElement>) => void; close: () => void }) {
+  return <div className="st-scrim" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } }}>
+    <div className="st-modal" role="dialog" aria-modal="true" aria-labelledby="st-pw-ttl">
+      <div className="st-mhead"><h3 id="st-pw-ttl">비밀번호 바꾸기</h3><button type="button" className="st-x" aria-label="닫기" onClick={close}><Ic d={['M18 6 6 18', 'm6 6 12 12']} /></button></div>
+      <form className="fh-form" onSubmit={change} noValidate aria-label="비밀번호 바꾸기">
+        <label className="fh-field"><span>현재 비밀번호</span><input className="inp" name="current" type="password" autoComplete="current-password" maxLength={1024} autoFocus /></label>
+        <label className="fh-field"><span>새 비밀번호</span><input className="inp" name="next" type="password" autoComplete="new-password" maxLength={1024} /></label>
+        <label className="fh-field"><span>새 비밀번호 다시</span><input className="inp" name="again" type="password" autoComplete="new-password" maxLength={1024} /></label>
+        <p className="st-note">띄어쓰기는 입력되지 않습니다(띄어쓰기=STOP).<br />바꾸면 모든 기기에서 로그아웃됩니다. 새 비밀번호로 다시 로그인하세요.</p>
+        <Note msg={msg} />
+        <div className="st-mbtns"><button type="button" className="btn" onClick={close}>취소</button><button type="submit" className="btn pri" disabled={busy}>바꾸기</button></div>
+      </form>
+    </div>
+  </div>;
 }
 
 // ── 계정 관리(총괄, 05 §2 /users · /users/{id}/sessions) ──
@@ -360,15 +508,20 @@ function Accounts({ me, cancel }: { me: User } & Cancel) {
   const put = (u: ApiUser) => setList((l) => l && l.map((x) => (x.id === u.id ? u : x)));
   return <>
     <section className="lv-card" aria-label="계정">
-      <div className="fh-row"><h2 className="fh-grow">계정{rows ? ` (${rows.length})` : ''}</h2>
-        {!adding && <button type="button" className="btn pri" onClick={() => { setAdding(true); setMade(null); setMsg(null); }}>새 계정</button>}</div>
+      <div className="fh-row"><h2 className="fh-grow">사용자{rows ? ` (${rows.length})` : ''}</h2>
+        {!adding && <button type="button" className="btn pri" onClick={() => { setAdding(true); setMade(null); setMsg(null); }}>사용자 추가</button>}</div>
       {adding && <NewAccount cancel={cancel} close={() => setAdding(false)} done={(u, pw) => { setList((l) => [...(l ?? []), u]); setAdding(false); setMade({ name: u.display_name, username: u.username, pw }); setSel(u.id); }} />}
       {made && <TempPassword {...made} close={() => setMade(null)} />}
-      {rows && <ul className="fh-list">{rows.map((u) => <li key={u.id}>
-        <button type="button" aria-pressed={u.id === sel} style={{ flexWrap: 'wrap' }} onClick={() => { setSel(u.id); setMsg(null); }}>
-          <span style={WRAP}><b>{u.display_name}</b> <span className="mono">{u.username}</span></span><span className="fh-grow">{ROLE_NAME[u.role]}{u.id === me.id ? ' · 나' : ''}</span>
-          {u.locked && <Chip tone="bad" text="잠김" />}<span className="lbl">로봇 {u.robot_ids.length}대</span>
+      {rows && <ul className="fh-list st-users">{rows.map((u) => <li key={u.id}>
+        <button type="button" aria-pressed={u.id === sel} onClick={() => { setSel(u.id); setMsg(null); }}>
+          <span className="st-av" data-st-av>{u.display_name.slice(0, 1)}</span>
+          <span className="st-un" style={WRAP}><b>{u.display_name}</b>{u.id === me.id ? ' · 나' : ''}</span>
+          <span className={`st-rp${u.role === 'ORG_ADMIN' ? ' lead' : ''}`} data-st-role>{ROLE_NAME[u.role]}</span>
+          <span className="mono st-mu" style={WRAP}>{u.username}</span>
+          <span className="lbl">로봇 {u.robot_ids.length}대</span>
+          {u.locked && <Chip tone="bad" text="잠김" />}
         </button></li>)}</ul>}
+      <p className="st-note" data-missing="last-seen">마지막 접속 시각과 기존 계정의 임시 비밀번호 다시 만들기는 서버에 값 · 기능이 없어 비워 둡니다.</p>
       <Note msg={msg} />
     </section>
     {cur && <Account key={cur.id} u={cur} self={cur.id === me.id} put={put} cancel={cancel}
@@ -462,7 +615,7 @@ function Account({ u, self, put, gone, cancel }: { u: ApiUser; self: boolean; pu
 
 const when = (at: string) => new Date(at).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' });
 /** 로그인 기기(세션) — 지금 쓰는 것만. 끝난 것은 기록 탭에 남는다 */
-function Devices({ u, cancel }: { u: ApiUser } & Cancel) {
+function Devices({ u, only, cancel }: { u: ApiUser; only?: boolean } & Cancel) {
   const [list, setList] = useState<Session[] | null>(null), [msg, setMsg] = useState<Msg>(null), [busy, setBusy] = useState(''), [ask, setAsk] = useState<Session | null>(null);
   const load = () => api.sessions(u.id, cancel).then((l) => setList(l.filter((s) => !s.revoked_at && new Date(s.expires_at) > new Date())), (e: ApiFail) => setMsg({ text: e.message }));
   useEffect(() => { load(); }, []);
@@ -471,8 +624,8 @@ function Devices({ u, cancel }: { u: ApiUser } & Cancel) {
     setBusy(s.id); setAsk(null);
     api.endSession(u.id, s.id, cancel).then(() => { setMsg({ text: `${s.device_label} 로그인을 끝냈습니다.`, ok: true }); return load(); }, (e: ApiFail) => setMsg({ text: e.message })).finally(() => setBusy(''));
   };
-  return <div className="fh-form" aria-label="로그인 기기">
-    <h2>로그인 기기{list ? ` (${list.length})` : ''}</h2>
+  return <div className="fh-form" aria-label={only ? undefined : '로그인 기기'}>
+    <h2>로그인 기기{list ? ` (${list.length})` : ''}{only && <> <span className="st-only">총괄만</span></>}</h2>
     {list && !list.length && <p className="lv-note">로그인한 기기가 없습니다.</p>}
     {list && !!list.length && <ul className="fh-form" style={{ listStyle: 'none', margin: 0, padding: 0 }}>{list.map((s) => <li key={s.id} className="fh-row">
       <b style={WRAP}>{s.device_label}</b><span className="lbl">{s.client === 'web' ? '웹' : '앱'}</span><span className="fh-grow lbl">마지막 사용 {when(s.last_seen_at)}</span>
