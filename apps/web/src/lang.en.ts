@@ -132,6 +132,7 @@ export const EN_RULES: [RegExp, (m: RegExpExecArray) => string][] = [
   [/^로봇 (\d+) 대 연결$/, (m) => `${m[1]} robots connected`],
   [/^내 로봇 (\d+) 대 연결$/, (m) => `${m[1]} of my robots connected`],
   [/^([^가-힣]+) 정지$/, (m) => `Stop ${m[1]}`],
+  [/^([^가-힣]+) 은 현장 폰에서만 멈출 수 있습니다$/, (m) => `${m[1]} can only be stopped from the field phone`],
   [/^([^가-힣]+) 외 (\d+) 대 조종 중$/, (m) => `Driving ${m[1]} +${m[2]}`],
   [/^([^가-힣]+) 조종 중$/, (m) => `Driving ${m[1]}`],
   [/^결재 (\d*)$/, (m) => `Approvals ${m[1]}`.trim()],
