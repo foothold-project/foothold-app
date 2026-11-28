@@ -2,6 +2,8 @@
    가림막 · 겹은 손가락을 막지 않음(요청 중에도 조종 · STOP 그대로 · 단추만 받음), 좁은 폰에서 칸 폭, div 단추를 button 으로 바꾼 데서 생기는 기본 모양 지우기 */
 .proto.pv.u135{position:absolute;inset:0;width:auto;height:auto;background:transparent;z-index:3;pointer-events:none}
 .u135 .veil{pointer-events:none}
+/* 앱이 함께 읽는 proto/u11.css 의 .proto .veil(머리줄 64 아래 · 흐림 10)이 번지지 않게 시안 u13_5 값 */
+.proto.u135 .veil{inset:0;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
 .u135>.g{pointer-events:auto;max-width:calc(100% - 24px)}
 .u135 button{font:inherit;color:inherit;letter-spacing:inherit;border:0;cursor:pointer}
 .u135 button:focus-visible{outline:2px solid #18a07e;outline-offset:2px}
