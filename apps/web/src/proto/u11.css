@@ -34,3 +34,16 @@
 .proto.light .line1.ok .ic{color:#0E7F63}
 .proto.light .empty h2{color:#1F2421}
 .proto.light .empty p{color:#5E6662}
+/* 빈 화면 그림(u11_6 ~ u11_8): 어두운 판의 흰 선 · 흰 채움은 밝은 바탕에서 안 보여 흐린 글자 #5E6662 계열로, 민트는 밝음 강조 #18A07E 로 */
+.proto.light .empty .art [stroke="rgba(255,255,255,.07)"]{stroke:rgba(94,102,98,.16)}
+.proto.light .empty .art [stroke="rgba(255,255,255,.16)"]{stroke:rgba(94,102,98,.30)}
+.proto.light .empty .art [stroke="rgba(255,255,255,.25)"]{stroke:rgba(94,102,98,.45)}
+.proto.light .empty .art [stroke="rgba(255,255,255,.30)"]{stroke:rgba(94,102,98,.55)}
+.proto.light .empty .art [fill="rgba(255,255,255,.03)"]{fill:rgba(94,102,98,.05)}
+.proto.light .empty .art [fill="rgba(255,255,255,.04)"]{fill:rgba(94,102,98,.06)}
+.proto.light .empty .art [stroke="#00c389"]{stroke:#18A07E}
+.proto.light .empty .art [fill="#00c389"]{fill:#18A07E}
+.proto.light .empty .art [stroke="rgba(0,195,137,.35)"]{stroke:rgba(24,160,126,.35)}
+.proto.light .empty .art [stroke="rgba(0,195,137,.6)"]{stroke:rgba(24,160,126,.6)}
+.proto.light .empty .art [fill="rgba(0,195,137,.08)"]{fill:rgba(24,160,126,.08)}
+.proto.light .empty .art [fill="rgba(0,195,137,.10)"]{fill:rgba(24,160,126,.10)}
