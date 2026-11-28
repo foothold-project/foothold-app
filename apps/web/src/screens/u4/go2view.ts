@@ -3,7 +3,7 @@
 // 바닥 점 흐름은 api.drive = {v, turn, side} (로봇에 나간 명령 값). 모형 파일은 저장소 밖 자산 폴더(/proto-assets/, FH_ASSET_DIR)에서 읽는다.
 import * as THREE from 'three';
 import { applyWalk, loadWalk, type Walk } from '../../proto/site';
-import { REAR_DIST, feetUp } from '../../proto/tileview';
+import { REAR_DIST, SHADOW, feetUp } from '../../proto/tileview';
 
 export const GO2_GLB = '/proto-assets/shared/go2_isaac.glb';
 const SIM = 0x4c9bff;
@@ -30,10 +30,13 @@ export function applyQ(root: THREE.Object3D, joints: Joints, q: number[]) {
 export function walkPose(root: THREE.Object3D, joints: Joints, gait: Walk, t: number) {
   const b = { root, joints, top: 0 }; applyWalk(b, gait, t); root.position.y = feetUp(b); root.updateMatrixWorld(true);
 }
-/** 무대 카메라 · 그림자: 임무 중 현장 꼴 = 로봇 뒤(yaw π) · 관제 타일 「뒤」 와 같은 거리(tileview REAR_DIST) · 그림자 원은 몸 크기(0.22 × 1.0),
- *  아니면 처음 자리(정면) · 시안 그림자(0.22 × 1.5). 현장 바닥 위 큰 회색 원이 보이던 것(팀장 사진 21:4x) */
+/** 무대 카메라: 임무 중 현장 꼴 = 로봇 뒤(yaw π) · 관제 타일 「뒤」 와 같은 거리(tileview REAR_DIST), 아니면 처음 자리(정면).
+ *  그림자: 현장 꼴이면 무대 그림자는 끄고(덧그리는 장면이라 현장 물체 위에 늘 보임) 현장 장면 쪽 로봇 자리에 관제 타일과 같은 그림자(tileview SHADOW)를 둔다 */
 export const stageLook = (world: boolean, front: { yaw: number; dist: number }) =>
-  (world ? { yaw: Math.PI, dist: REAR_DIST, shadow: 1 } : { yaw: front.yaw, dist: front.dist, shadow: 1.5 });
+  (world ? { yaw: Math.PI, dist: REAR_DIST, stageShadow: false } : { yaw: front.yaw, dist: front.dist, stageShadow: true });
+/** 현장 꼴 그림자 원(지도 좌표 · z 위): 반지름 · 길이 배 · 진하기 = 관제 타일. 긴 쪽 = 로봇 앞(지도 yaw) */
+export const mapShadow = (pose: { x: number; y: number; yaw: number }, z: number) =>
+  ({ r: SHADOW.r, x: pose.x, y: pose.y, z: z + 0.001, rotZ: pose.yaw, sx: SHADOW.sy, sy: 1, opacity: SHADOW.opacity });
 /** 모형의 가장 낮은 점(꼭짓점 기준)을 y=0 에 */
 export function ground(root: THREE.Object3D) {
   root.position.y = 0; root.updateMatrixWorld(true);
@@ -103,6 +106,7 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
   }
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.22, 48), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 }));
   shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.001; shadow.scale.set(1, 1.5, 1); scene.add(shadow);
+  const mshadow = new THREE.Mesh(new THREE.CircleGeometry(SHADOW.r, 48), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: SHADOW.opacity, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }));
 
   const joints: Joints = {};
   let root: THREE.Object3D | null = null, posed = false, live = true, gait: Walk | null = null;
@@ -166,7 +170,7 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
     const wd = api.world;
     if (!!wd !== inWorld) {   // 임무 중 = 로봇 뒤에서 · 아니면 정면(처음 자리)
       inWorld = !!wd; const v = stageLook(inWorld, { yaw, dist });
-      cam.position.set(Math.sin(v.yaw) * v.dist, 0.55, Math.cos(v.yaw) * v.dist); cam.lookAt(0, 0.17, 0); shadow.scale.set(1, v.shadow, 1); ctl?.update(); lit = null;   // 나오면 판 색(점 바닥 · 빛 웅덩이)을 다시 맞춤
+      cam.position.set(Math.sin(v.yaw) * v.dist, 0.55, Math.cos(v.yaw) * v.dist); cam.lookAt(0, 0.17, 0); shadow.visible = v.stageShadow && !opt.cyber; ctl?.update(); lit = null;   // 나오면 판 색(점 바닥 · 빛 웅덩이)을 다시 맞춤
     }
     grid.visible = !wd; if (wd) pools.forEach((o) => { o.visible = false; });
     const d = api.drive;
@@ -184,7 +188,9 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
       toMap.makeBasis(new THREE.Vector3(-s, c, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(c, s, 0)).setPosition(wd.pose.x, wd.pose.y, wd.z);
       cam.updateMatrixWorld(); wm.multiplyMatrices(toMap, cam.matrixWorld); wm.decompose(wcam.position, wcam.quaternion, wcam.scale);
       wcam.aspect = cam.aspect; wcam.updateProjectionMatrix();
-      const tm = r.toneMapping; r.toneMapping = THREE.NoToneMapping; r.render(wd.scene, wcam); r.toneMapping = tm;   // 현장 색은 시점 칸(simcam)과 같게
+      const ms = mapShadow(wd.pose, wd.z); mshadow.position.set(ms.x, ms.y, ms.z); mshadow.rotation.set(0, 0, ms.rotZ); mshadow.scale.set(ms.sx, ms.sy, 1);
+      if (!opt.cyber) wd.scene.add(mshadow);   // 현장 장면은 시점 칸과 같이 쓰는 것이라 그리는 동안만 넣고 뺀다
+      const tm = r.toneMapping; r.toneMapping = THREE.NoToneMapping; r.render(wd.scene, wcam); r.toneMapping = tm; wd.scene.remove(mshadow);   // 현장 색은 시점 칸(simcam)과 같게
       r.autoClear = false; r.clearDepth(); r.render(scene, cam); r.autoClear = true;
     } else r.render(scene, cam);
     raf = requestAnimationFrame(frame);
