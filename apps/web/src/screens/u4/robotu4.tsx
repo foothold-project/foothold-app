@@ -155,11 +155,11 @@ type View = 'map' | 'rgb' | 'lidar' | 'depth';
 const VIEWS: [View, string][] = [['map', '지도'], ['rgb', '카메라'], ['lidar', '라이다'], ['depth', '깊이']];
 
 /** 이 화면이 쓰는 조종 조각. 조종할 수 있는 로봇(canDrive · keepDrive)만 useServerDrive 를 붙인다(키 · 조종권은 한 화면에 하나 · 옛 세 칸 화면과 같은 규칙) */
-type D = Pick<ReturnType<typeof useServerDrive>, 'l' | 's' | 'mine' | 'off' | 'why' | 'ready' | 'zero' | 'stick' | 'stopPress'>;
+type D = Pick<ReturnType<typeof useServerDrive>, 'l' | 's' | 'mine' | 'off' | 'why' | 'ready' | 'zero' | 'stick' | 'stopPress' | 'unlockAsk' | 'unlockState' | 'refused' | 'notes' | 'stopLine'>;
 function Driven({ c, r }: { c: Ctx; r: Robot }) { return <Body c={c} r={r} d={useServerDrive(c, r, undefined, U4_KEYS)} can />; }
 function Viewed({ c, r }: { c: Ctx; r: Robot }) {
   const l = useLive(r.id), stopPress = useStopPress(() => rt.stop(r.id));
-  return <Body c={c} r={r} d={{ l, s: l.state, mine: false, off: true, why: '', ready: false, zero: () => {}, stick: () => {}, stopPress }} can={false} />;
+  return <Body c={c} r={r} d={{ l, s: l.state, mine: false, off: true, why: '', ready: false, zero: () => {}, stick: () => {}, stopPress, unlockAsk: () => {}, unlockState: null, refused: '', notes: <></>, stopLine: null }} can={false} />;
 }
 function Robot1({ c, r }: { c: Ctx; r: Robot }) {
   return canDrive(c, r) || keepDrive(c, r) ? <Driven c={c} r={r} /> : <Viewed c={c} r={r} />;
@@ -191,6 +191,17 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   const drive = a && online ? { v: a[0] ?? 0, side: a[1] ?? 0, turn: a[2] ?? 0 } : null;
   const hot: Record<string, string> = temps && temps.hot >= 0 && hotJ != null && hotJ >= 60 ? { [JOINTS[temps.hot].replace(/_joint$/, '')]: 'hot' } : {};
   const ready = d.ready;
+  // 시안 u4_9 정지됨 · u4_10 다시 시작 확인: 내 조종 중 로봇이 정지 잠김이면 정지 칸 자리에 「다시 시작」(잠금 해제) · Damping, 조종 줄 · 손잡이는 흐리게
+  const latched = mine && online && s?.latched === true, lying = s?.posture?.state === 'LYING';
+  const [arm, setArm] = useState(0);
+  const damp = () => {
+    if (rt.now() - arm > 3000) { setArm(rt.now()); return say('한 번 더 누르면 엎드려 힘을 뺍니다'); }
+    setArm(0); d.zero(); rt.action(r.id, 'Damp', {}, true, (why, id) => { if (why) say(`거부 · ${why}`); else setPending(id ?? null); });
+  };
+  const stopTag = !latched ? null : d.unlockState === 'unconfirmed' ? `미확인 · 로봇이 정지 확인을 못 해 잠금이 그대로입니다. ${d.refused || '현장에서 로봇이 완전히 멈췄는지 확인한 뒤 다시 누르세요.'}`
+    : d.unlockState === 'wait' ? `해제 대기 · 로봇이 정지를 확인하면 풀립니다.${d.refused ? ` ${d.refused}` : ''}`
+    : lying ? '정지됨 · 엎드린 뒤 다리 힘을 뺐습니다' : '정지됨 · 한 번 더 누르면 엎드려 힘을 뺍니다';
+  const hotTag = hotJ != null && hotJ >= 60 ? `${jointName(JOINTS[temps!.hot])} ${Math.round(hotJ)} °C · 경고` : null;
   const act = (name: ScreenAction['action']) => {
     if (!can) return say(noDrive(c, r));
     if (!mine) return say('조종 시작 후 사용할 수 있습니다.');
@@ -207,7 +218,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
       <span className="g dk st" data-cell="link"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M12 20h.01" /><path d="M2 8.82a15 15 0 0 1 20 0" /><path d="M5 12.859a10 10 0 0 1 14 0" /><path d="M8.5 16.429a5 5 0 0 1 7 0" /></svg>{online ? '연결' : r.online ? '연결 중' : '끊김'}<small>{ms}</small></span>
       <span data-go="u4_7_mode" className="g dk st" data-cell="mode"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="m8 3 4 8 5-5 5 15H2L8 3z" /></svg>{mode}<small>Shift + 1 ~ 4</small></span>
       <span className="g dk st" data-cell="battery"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M10 14v-4" /><path d="M22 14v-4" /><path d="M6 14v-4" /><rect x="2" y="6" width="16" height="12" rx="2" /></svg>{soc == null ? NA : `${Math.round(soc)} %`}<small>{NA}</small></span>
-      <span className="g dk st" data-cell="temp"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z" /></svg>{hotJ == null ? NA : `${Math.round(hotJ)} °C`}<small>{hotJ != null && hotJ >= 60 ? jointName(JOINTS[temps!.hot]) : '최고 관절 온도'}</small></span>
+      <span className={`g dk st${hotTag ? ' bad warncell' : ''}`} data-cell="temp"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z" /></svg>{hotJ == null ? NA : `${Math.round(hotJ)} °C`}<small>{hotJ != null && hotJ >= 60 ? jointName(JOINTS[temps!.hot]) : '최고 관절 온도'}</small></span>
       <span className="g dk st" data-cell="holder"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>{who}<small>조종자</small></span>
       <div className="seg2" style={{ marginLeft: 'auto' }} role="tablist">
         {([['drive', '조종', ''], ['check', '점검', 'u4_4_check'], ['settings', '로봇 설정', 'u4_5_settings']] as const).map(([k, t, go]) =>
@@ -215,6 +226,9 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
       </div></div>
     <div className="stage3d"><Stage r={r} q={pose?.q ?? null} drive={drive} hot={hot} />
       <span className="g dk tag hint"><svg className="ic" viewBox="0 0 24 24" style={{ width: '14px', height: '14px' }}><path d="M16.466 7.5C15.643 4.237 13.952 2 12 2 9.239 2 7 6.477 7 12s2.239 10 5 10c.342 0 .677-.069 1-.2" /><path d="m15.194 13.707 3.814 1.86-1.86 3.814" /><path d="M19 15.57c-1.804.885-4.274 1.43-7 1.43-5.523 0-10-2.239-10-5s4.477-5 10-5c4.838 0 8.873 1.718 9.8 4" /></svg>끌어서 돌려 보기</span>
+      {stopTag && <div className="g dk tag" style={{ left: '24px', top: '24px', color: lying && !d.unlockState ? '#f2b705' : '#ff4d4f', fontSize: '14px', fontWeight: '800' }} role="status" data-u4-stopped>{stopTag}</div>}
+      {hotTag && <span className="g dk tag warntag" style={{ left: '150px', top: '300px', color: '#ff4d4f' }} data-u4-hot>{hotTag}</span>}
+      <div className="g bub" style={{ left: '58%', top: '70px' }} data-u4-notes>{d.notes}</div>
       <div className="foot"><span className="g dk tag" style={{ position: 'static', color: '#00c389', minWidth: '178px', justifyContent: 'center' }} data-u4-walk>{walk}</span>
         <span className="g dk tag" style={{ position: 'static', color: '#ffffff' }} data-u4-loc>{located ? '위치 추정 켜짐' : `위치 추정 ${NA}`}</span>
         <span className="mu2" style={{ marginLeft: 'auto', fontSize: '12.5px' }}>실제 관절값으로 제자리에서 움직임 · 바닥 점이 뒤로 흐르면 앞으로 걷는 중</span></div></div>
@@ -224,10 +238,15 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
       <div className="small" data-swap="1" data-cam-inset role="button" tabIndex={0} onClick={() => setView(view === 'map' ? 'rgb' : 'map')}>{small}<span className="cl">{view === 'map' ? '앞 카메라' : '지도'}</span></div>
       <div className="g dk job" data-u4-job><b>{r.mission ?? NA}</b><span>{NA}</span><i><em style={{ width: '0%' }} /></i></div>
       <MapName c={c} r={r} />
-      <div data-go="u4_9_stopped" className="vstop stop" role="button" tabIndex={0} aria-label="비상 정지 — 이 로봇" data-sd-stop="u4" {...d.stopPress}>
-        <svg className="ic" viewBox="0 0 24 24" style={{ width: '26px', height: '26px' }}><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z" /><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" /></svg>정지<small>Space</small></div>
+      {latched ? <div className="vslot" data-u4-restart>
+        {lying ? <div className="vgo big" role="button" tabIndex={0} onClick={d.unlockAsk} data-u4-unlock><svg className="ic" viewBox="0 0 24 24" style={{ width: '24px', height: '24px' }}><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></svg>다시 시작<small>일어섭니다</small></div>
+          : <><div className="vgo" role="button" tabIndex={0} onClick={d.unlockAsk} data-u4-unlock><svg className="ic" viewBox="0 0 24 24" style={{ width: '20px', height: '20px' }}><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></svg>다시 시작</div>
+            <div data-go="u4_10_restart" className="stop damp" role="button" tabIndex={0} onClick={damp} data-u4-damp><svg className="ic" viewBox="0 0 24 24" style={{ width: '22px', height: '22px' }}><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z" /><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" /></svg>Damping<small>엎드려 힘 빼기</small></div></>}
+      </div>
+        : <div data-go="u4_9_stopped" className="vstop stop" role="button" tabIndex={0} aria-label="비상 정지 — 이 로봇" data-sd-stop="u4" {...d.stopPress}>
+        <svg className="ic" viewBox="0 0 24 24" style={{ width: '26px', height: '26px' }}><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z" /><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" /></svg>정지<small>Space</small></div>}
     </div>
-      <div className="ctl">
+      <div className={`ctl${latched ? ' dim' : ''}`}>
         <div className={`g dk btn${mine ? ' drv' : ''}`} role="button" tabIndex={0} data-u4-drive={mine ? 'mine' : 'take'}
           onClick={() => { if (!can) say(noDrive(c, r)); else if (mine) { d.zero(); rt.release(r.id); } else if (!d.off) { if (l.holder?.type === 'USER') rt.request(r.id); else rt.take(r.id); } else say('로봇 연결이 끊겼습니다 · 다시 연결되면 누르세요'); }}>
           <svg className="ic" viewBox="0 0 24 24" style={{ width: '18px', height: '18px' }}><line x1="6" x2="10" y1="11" y2="11" /><line x1="8" x2="8" y1="9" y2="13" /><line x1="15" x2="15.01" y1="12" y2="12" /><line x1="18" x2="18.01" y1="10" y2="10" /><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z" /></svg>{mine ? '조종 중' : '조종 시작'}</div>
@@ -235,7 +254,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
           <svg className="ic" viewBox="0 0 24 24" style={{ width: '18px', height: '18px' }}><path d="M12 19v3" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><rect x="9" y="2" width="6" height="13" rx="3" /></svg>말하기</div>
         <div className="g dk keys" data-u4-keys><span><kbd>↑</kbd>앞으로</span><span><kbd>←</kbd><kbd>→</kbd>돌기</span><span className="mu2"><kbd>↓</kbd>뒤로는 막힘</span><span><kbd>Space</kbd>정지</span><span><kbd>Shift</kbd><kbd>1</kbd>~<kbd>4</kbd>모드</span></div>
       </div>
-      <div className="deck joybig" data-u4-deck data-ready={ready || undefined}>
+      <div className={`deck joybig${latched ? ' dim' : ''}`} data-u4-deck data-ready={ready || undefined}>
         <Stick side="L" put={d.stick} blocked={say} /><Stick side="R" put={d.stick} blocked={say} />
         <div className="act">{ACTS.map(([name, t, em, ic]) => {
           const off = offAct(name);

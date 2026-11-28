@@ -374,7 +374,8 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   const trial = <ActionTrial robot={r} allowed={!!r.serverDrive && !r.sim} beforeSend={zero} />;
   const releasing = l.releasing?.why && <div className="fh-row" role="status"><span className="fh-why">조종권 반납을 확인하지 못했습니다. {l.releasing.why}</span>
     <button type="button" className="btn" onClick={() => rt.release(r.id)}>다시 시도</button></div>;
-  return { l, s, mine, off, link, posture, shifting, stalled, refused, age, lock, zero, stop, stopNote, unlock, pad, status, latency, notes, hint, end, begin, poseRow, trial, releasing, stick, stopPress, why, on, ready, askPose, poseNow, poseMsg: poseMsg || lost };
+  return { l, s, mine, off, link, posture, shifting, stalled, refused, age, lock, zero, stop, stopNote, unlock, pad, status, latency, notes, hint, end, begin, poseRow, trial, releasing, stick, stopPress, why, on, ready, askPose, poseNow, poseMsg: poseMsg || lost,
+    unlockAsk: () => { setAsked(rt.now()); rt.unlock(r.id); }, unlockState: asked == null ? null : late ? 'unconfirmed' as const : 'wait' as const, stopLine: sl };
 }
 
 /** 화면 이동 단추 — 사라질 때(unmount) gone 으로 알린다. 잠긴 동안에도 누름을 받아야 해서 disabled 대신 aria-disabled(누른 세대만 적고 명령은 0) */

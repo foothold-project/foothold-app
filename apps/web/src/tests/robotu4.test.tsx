@@ -115,10 +115,32 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
     drive();
     expect($('.views .vstop')).not.toBeNull();
     click($('.views .vstop')!);
-    expect(w.of('stop').some((m) => m.robot === 'r7')).toBe(true);
-    expect($('.views .vstop')).not.toBeNull();
+    expect(w.of('stop').filter((m) => m.robot === 'r7').length).toBe(1);
+    // 시안 u4_9 정지됨: 정지 칸 자리에 「다시 시작」 · 「Damping」, 조종 줄 · 손잡이 흐림, 위에 「정지됨」. Space 정지는 그대로 나간다
+    expect($('.views .vstop')).toBeNull();
+    expect(text($('[data-u4-restart]'))).toBe('다시 시작Damping엎드려 힘 빼기');
+    expect(text($('[data-u4-stopped]'))).toBe('정지됨 · 한 번 더 누르면 엎드려 힘을 뺍니다');
+    expect($('.ctl')!.className).toBe('ctl dim'); expect($('.deck')!.className).toBe('deck joybig dim');
+    key('keydown', 'Space'); key('keyup', 'Space');
+    expect(w.of('stop').filter((m) => m.robot === 'r7').length).toBe(2);
+    // 다시 시작 = 잠금 해제 요청 → 해제 대기 → 풀리면 정지 칸이 다시
+    click($('[data-u4-unlock]')!);
+    expect(w.of('unlock').map((m) => m.robot)).toEqual(['r7']);
+    expect(text($('[data-u4-stopped]'))).toBe('해제 대기 · 로봇이 정지를 확인하면 풀립니다.');
+    tick(3000);
+    expect(text($('[data-u4-stopped]'))).toMatch(/^미확인 · 로봇이 정지 확인을 못 해 잠금이 그대로입니다/);
+    act(() => { push('r7', { latched: false }); });
+    expect($('.views .vstop')).not.toBeNull(); expect($('[data-u4-stopped]')).toBeNull();
     act(() => { push('r7', { connection: 'OFFLINE' }); });
     expect($('.views .vstop')).not.toBeNull();
+  });
+
+  it('조종권을 쥔 동안은 입력이 없어도 명령(0)을 끊김 없이 보낸다 · 서버 15 초 heartbeat 안쪽', () => {
+    mount('u-park'); serve('r7'); drive();
+    const n0 = w.of('cmd').length;
+    tick(15000);
+    expect(w.of('cmd').length - n0).toBeGreaterThanOrEqual(15000 / 50 - 2);
+    expect(lastAxes()).toBe('0,0,0');
   });
 
   it('키는 시안 글대로: ↑ · W 앞으로 · ← → · A D 돌기 · ↓ · S 는 보내지 않고 까닭', () => {

@@ -88,3 +88,4 @@
 .u4 [data-go]{cursor:pointer}
 /* 앱에 놓기(시안 body 자리): 화면 왼쪽 위 0,0 에 1920x1080 그대로 · 앱 머리줄(z 10) 아래 */
 .proto.u4{position:fixed;left:0;top:0;z-index:5}
+.u4 .bub:empty{display:none}
