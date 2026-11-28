@@ -161,3 +161,5 @@
 .proto.light .u5 .mk3.r .lb{border-color:#E04A2F}
 .proto.light .u5 .mk3.o .lb{border-color:#D9A21F}
 .proto.light .u5 .mk3.sim .lb{border-color:#2F6FE0}
+.u5 .alist{flex:1;min-height:0;display:flex;flex-flow:column wrap;overflow:hidden;column-gap:40px}
+.u5 .alist .al{width:100%}

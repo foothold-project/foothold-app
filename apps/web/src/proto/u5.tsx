@@ -10,6 +10,7 @@ import { stopLine } from '../serverdrive';
 import { ownerName, robotStatus, type Robot } from '../fake';
 import { GAITS } from '../gait';
 import { JOINTS } from '../go2model';
+import { fleetKind, fleetOrder } from '../fleetorder';
 import { rt, useRt } from '../rt';
 import type { Ctx } from '../screens';
 import { actOf, controlPick, flagNote, isLost, lastly, needs, useControlPick } from '../screens/control';
@@ -132,9 +133,10 @@ export function facts(x: Robot, me: string, places: Map<string, string>, av?: Av
     who,
   };
 }
-const RANK = { crit: 0, bad: 1, warn: 2 } as const;
 /** 경고 타일 맨 앞(위험 → 경고 → 주의), 그 밖은 받은 순서 그대로(기존 관제 order 와 같음) */
-export const order = (l: TileFacts[]) => l.map((f, i) => [f, i] as const).sort((a, b) => (a[0].level ? RANK[a[0].level] : 9) - (b[0].level ? RANK[b[0].level] : 9) || a[1] - b[1]).map(([f]) => f);
+/** 타일 · 지도 보기 줄 순서 = 공용 규칙(fleetorder): 긴급(시안이 칸을 칠하는 위험 → 경고 → 주의) → 실기 → 데모 → 사용자 시뮬 → 받은 순서.
+ *  끊김은 시안 u5_1 K-07 처럼 칸을 칠하지 않고 덮개만이라 긴급으로 올리지 않음 */
+export const order = (l: TileFacts[]) => fleetOrder(l, (f) => f.level, (f) => fleetKind(f.x.sim, f.demo));
 /** 타일 칸 배치. 8 대까지는 시안 그대로(2×2 · 4×2). 9 대부터는 시안 한 칸(357.5 × 440)을 줄여 가장 크게 들어가는 열 · 줄을 고르고,
  *  남는 칸이 생기면 줄마다 대수를 고르게 나눠(예: 9 대 = 5 + 4) 빈 칸 없이 한 줄을 꽉 채운다(span = 각 타일이 차지하는 칸 수, 열 = 줄별 대수의 최소공배수) */
 export function wallGrid(n: number): { cols: number; rows: number; zoom: number; units?: number; span?: number[] } {
@@ -228,11 +230,12 @@ function Mini({ all, sel, boards, toMap }: { all: TileFacts[]; sel: string; boar
 /** 최근 경고 = 주의가 필요한 로봇(기존 관제 needs · 관절 온도 · 끊김)에서 경보 칸에 나온 로봇을 뺀 것. 시각 = 받은 시각(발생 시각 필드 없음) · 모르면 칸을 접음 */
 const TONE_COL: Record<string, string> = { ok: 'var(--u5-ok)', warn: 'var(--u5-amb)', bad: 'var(--u5-red)' };
 function Recent({ list, pick, open }: { list: TileFacts[]; pick: (id: string) => void; open: (id: string) => void }) {
-  return <div className="pane" style={{ padding: '16px 18px 6px', flex: '1', overflow: 'hidden' }} aria-label="최근 경고"><div className="row" style={{ justifyContent: 'space-between', marginBottom: '4px' }}><span className="ttl" style={{ fontSize: '17px' }}>최근 경고</span><a href="#/history" style={{ color: 'inherit', textDecoration: 'none' }}><span className="mu2" style={{ fontSize: '12.5px' }}>기록 탭에서 모두 보기</span></a></div>
-    {list.map((f) => { const red = f.level === 'bad' || f.level === 'crit', t = hm(f.x.seenAt), joint = !!f.hot && !!f.level && !!tempLevel(f.hot.t);   // 관절 제목은 단계가 온도에서 왔을 때만(정지 잠금 등 다른 경고에 관절 이름을 붙이지 않음)
+  return <div className="pane" style={{ padding: '16px 18px 6px', flex: '1', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }} aria-label="최근 경고"><div className="row" style={{ justifyContent: 'space-between', marginBottom: '4px' }}><span className="ttl" style={{ fontSize: '17px' }}>최근 경고</span><a href="#/history" style={{ color: 'inherit', textDecoration: 'none' }}><span className="mu2" style={{ fontSize: '12.5px' }}>기록 탭에서 모두 보기</span></a></div>
+    {/* 칸에 다 들어가지 않는 줄은 반쯤 잘려 보이지 않게 옆 칸으로 넘겨 숨김(시안: 온전한 줄만) · 모두는 기록 탭 */}
+    <div className="alist">{list.map((f) => { const red = f.level === 'bad' || f.level === 'crit', t = hm(f.x.seenAt), joint = !!f.hot && !!f.level && !!tempLevel(f.hot.t);   // 관절 제목은 단계가 온도에서 왔을 때만(정지 잠금 등 다른 경고에 관절 이름을 붙이지 않음)
       const head = joint ? `관절 ${LEVEL_TEXT[f.level!]}` : f.lostNow ? '연결 끊김' : f.why;
       const sub = joint ? f.why : f.lostNow ? `${f.place ? `${f.place.replace(' (마지막 위치)', '')} · ` : ''}다시 연결 중` : f.mission?.name ?? stText(f.x);
-      return <div className="al" key={f.x.id} data-alert={f.x.id} role="button" tabIndex={0} onClick={() => pick(f.x.id)} onDoubleClick={() => open(f.x.id)}><span style={{ color: red ? 'var(--u5-red)' : 'var(--u5-amb)' }}>{I(18, joint ? IC.temp : f.lostNow ? IC.wifi : IC.warn)}</span><div>{f.x.name} {head}<small>{sub}</small></div>{t && <time data-alert-at title={`받은 시각 ${t}`}>{t}</time>}</div>; })}
+      return <div className="al" key={f.x.id} data-alert={f.x.id} role="button" tabIndex={0} onClick={() => pick(f.x.id)} onDoubleClick={() => open(f.x.id)}><span style={{ color: red ? 'var(--u5-red)' : 'var(--u5-amb)' }}>{I(18, joint ? IC.temp : f.lostNow ? IC.wifi : IC.warn)}</span><div>{f.x.name} {head}<small>{sub}</small></div>{t && <time data-alert-at title={`받은 시각 ${t}`}>{t}</time>}</div>; })}</div>
   </div>;
 }
 const m1 = (v: number | null) => (v == null ? '' : v.toFixed(1));
