@@ -5,7 +5,7 @@
 import { Map3D, modelOf } from './map3d';
 import { DemoSite3D } from './u7/site3d';
 import { Empty } from '../empty';
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { MapBuilding, MapFeatures, MapFloor, MapSite, MapUpload, MapVersion, MapZone, Scenario, SiteTree } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
@@ -24,7 +24,7 @@ import { TerrainLink, VoxelUpload, VoxelView, voxelOf } from './voxelmap';
 import { makers } from './mapmake';
 import { ScanScreen } from './u7/scan';
 import { UploadScreen } from './u7/upload';
-import { PickU7 } from './u7/pick';
+import { CUBE, EDIT as PEN, HIST, LAYERS, PickU7, ic, light, tagOf } from './u7/pick';
 import { SlamSavedView } from './slammap';
 
 export type Place = { site: MapSite; building: MapBuilding; floor: MapFloor };
@@ -361,7 +361,7 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   </UploadScreen>;
   if (cur) return <>{sim ? <Floor key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} told={() => c.dash?.again()} top={top} name={label} user={c.user} robots={robots} open0={intent}
       places={places} sel={sel} setSel={setSel} toAdmin={() => setMadmin(true)} run={(x) => scenRun(x, places, vers)} />
-    : <FloorView key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} told={() => c.dash?.again()} top={back} toPick={() => choose('')} side={side} name={label} user={c.user} robots={robots} places={places} open0={intent}
+    : <FloorView key={cur.floor.id} pickFloor={choose} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} told={() => c.dash?.again()} top={back} toPick={() => choose('')} side={side} name={label} user={c.user} robots={robots} places={places} open0={intent}
       fix={() => { setForm(null); setAsk(null); setMsg(null); setMake('fix'); }} toScen={(id) => { keptPlan.floor = cur.floor.id; location.hash = id ? `#/mission/${encodeURIComponent(id)}` : '#/missions'; }} />}   {/* 겹침 «예» = 임무 탭에서 그 임무 · u7_3 «이 지도로 모의 실행» = 시안 u6_6 (임무 탭, 그 층) */}
     {pop}</>;
   const mk = (k: Make) => { setForm(null); setAsk(null); setMsg(null); setMake(k); };
@@ -525,7 +525,7 @@ function useNames(me: User, admin: boolean, cancel?: AbortSignal) {
 
 /** 고른 층: 판 목록(GET /floors/{id}/map-versions) → 승인 판(또는 고른 옛 판) 그림, 보기/편집 토글(승인 판이 있을 때), 아래 접힌 «저장 기록»(옛 판 보기·비교·한때 승인된 판 되돌리기), 새 지도 올리기.
  *  저장·되돌리기는 누구나 바로 새 승인 판 — 서버가 아직 PENDING 으로 받으면 고르지 않고 승인 판을 그대로 보인다. told = 그때 배지 다시 받기 */
-function FloorView({ p, sim, admin, names, cancel, again, told, top, toPick, side, name, scenN, head, hov, scenList, toScen, user, robots, places, open0, fix }: { p: Place; sim?: boolean; side?: ReactNode; user: User; robots: Robot[]; places: Place[]; open0: Intent; fix?: () => void; toPick?: () => void; toScen?: (scenario: string) => void; admin: boolean; names: (id: string) => string | undefined; cancel?: AbortSignal; again: () => void; told: () => void; top?: ReactNode; name: string;
+function FloorView({ pickFloor, p, sim, admin, names, cancel, again, told, top, toPick, side, name, scenN, head, hov, scenList, toScen, user, robots, places, open0, fix }: { pickFloor?: (id: string | null) => void; p: Place; sim?: boolean; side?: ReactNode; user: User; robots: Robot[]; places: Place[]; open0: Intent; fix?: () => void; toPick?: () => void; toScen?: (scenario: string) => void; admin: boolean; names: (id: string) => string | undefined; cancel?: AbortSignal; again: () => void; told: () => void; top?: ReactNode; name: string;
   /** 시뮬 탭만 — 오른쪽 창 = 시나리오(지도 탭은 지도 요소만) */ scenN?: string; head?: ReactNode; hov?: Scenario | null; scenList?: ReactNode }) {
   const approved = p.floor.approved_version_id;
   const [got, setGot] = useState<{ key: string; list: MapVersion[] } | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0), [sel, setSel] = useState('');
@@ -630,7 +630,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, toPick, sid
           {err && <div className="fh-row"><p className="fh-msg" role="alert">{err}</p><button type="button" className="btn" onClick={() => setN(n + 1)}>다시 시도</button></div>}
           {!list && !err && <p className="lv-note" role="status">지도를 불러오는 중…</p>}
         </div>
-        {v && !cmp && !on3d && !show3 && <Hint text={now && !sim && real ? '보기만. «편집»을 누르면 도구가 나옵니다' : '보기만'} more={`휠·두 손가락으로 확대, 끌어서 옮깁니다.${sim ? (real ? ' 구역·벽은 «지도» 탭에서 고칩니다.' : '') : real ? ' 구역·벽은 «편집»에서 고칩니다.' : ''}`} />}
+        {v && !cmp && !on3d && !show3 && !left && <Hint text={now && !sim && real ? '보기만. «편집»을 누르면 도구가 나옵니다' : '보기만'} more={`휠·두 손가락으로 확대, 끌어서 옮깁니다.${sim ? (real ? ' 구역·벽은 «지도» 탭에서 고칩니다.' : '') : real ? ' 구역·벽은 «편집»에서 고칩니다.' : ''}`} />}
       </div>
       {/* 오른쪽 창: 지도 탭 = 지도 요소 N, 시뮬 탭 = 시나리오 N(RB-SIM-NO-MAPEL 11-18 — 지도 요소는 지도 탭) */}
       {!cmp && <Pane open={pane} setOpen={setPane} bar={sim ? `시나리오 ${scenN}` : `요소 ${keys.length}`} label={sim ? '시나리오 창' : '요소 창'} pick={sim ? head : <SideTitle n={keys.length} />} name={name}>
@@ -673,25 +673,51 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, toPick, sid
     </details>;
   const LAY: [keyof Layers, string, string][] = [['zones', '구역 (접근 금지 · 감속)', 'var(--bad)'], ['waypoints', '지점', 'var(--accent)'], ['connectors', '연결점 (계단 · 엘리베이터)', 'var(--warn)'], ['edits', '벽 · 지운 선', 'var(--muted)']];
   const who = now && names(now.created_by);
-  const panel = left && <aside className="lv-card mp-fside" aria-label="지도 정보" data-map-side>
-    {side && <div className="mp-fseg">{side}</div>}
-    {v && (!show3 || demo3) && !on3d && !cmp && <div role="group" aria-label="보이기" className="mp-lay"><p className="lbl">보이기</p>
-      {LAY.filter(([k]) => !show3 || k === 'zones').map(([k, t, c]) => <label key={k} className="mp-tog" data-map-layer={k}><i style={{ background: c }} aria-hidden="true" /><span className="fh-grow">{show3 ? '금지 구역' : t}</span>
-        <input type="checkbox" role="switch" checked={lay[k]} onChange={() => setLay({ ...lay, [k]: !lay[k] })} /></label>)}
-      {/* 시안 u7_3 · u7_4 「지나온 경로」: 서버에 로봇이 지나온 길 기록(계약 · API)이 아직 없다 → 지어내지 않고 꺼 둔 채 까닭 한 줄 */}
-      <label className="mp-tog" data-map-layer="trail" aria-disabled="true"><i style={{ background: 'var(--accent)' }} aria-hidden="true" /><span className="fh-grow">지나온 경로</span>
-        <input type="checkbox" role="switch" checked={false} disabled aria-describedby="mp-trail-why" /></label>
-      <p className="lv-note" id="mp-trail-why" data-trail-why>{TRAIL_WHY}</p></div>}
-    {v && <div aria-label="이 지도" className="mp-kv"><p className="lbl">이 지도</p><dl>
-      <dt>저장</dt><dd>{md(v.created_at)} · v{v.number}</dd>
-      <dt>만든 방법</dt><dd>{howMade(v)}</dd>
-      <dt>넓이</dt><dd>{meters(v).area} · {meters(v).wh}</dd>
-      <dt>해상도</dt><dd>{v.resolution} m / 칸</dd>
-      <dt>3D 모형</dt><dd>{model ? '있음' : '없음'}</dd>
-      {who && <><dt>만든 사람</dt><dd>{who}</dd></>}</dl></div>}
-    <span className="fh-grow" />
-    {!!list?.length && now && <button type="button" className="btn" data-open-u79 onClick={() => { setCmp(false); setH9(true); }}>버전 기록 · 비교 · 되돌리기</button>}
-  </aside>;
+  // 시안 u7_3 (2D) · u7_4 (3D) 층 화면 DOM 그대로. 받은 값만 · 서버가 주지 않는 칸(점 · 보정 · 실사 표면 · 카메라)은 「확인 안 됨」
+  const NA = '확인 안 됨', kv: [string, ReactNode][] = v ? [['찍은 날', `${md(v.created_at)} · v${v.number}`], ['만든 방법', howMade(v)], ['넓이', `${meters(v).area} · ${meters(v).wh}`], ['해상도', `${v.resolution} m / 칸`],
+    ['점', NA], ['보정', NA], ['3D 모형', model ? '있음' : '없음'], ['카메라', NA], ...(who ? [['만든 사람', who] as [string, ReactNode]] : [])] : [];
+  const flz = byLevel(p.building.floors), lays = v && (!show3 || demo3) && !on3d && !cmp;
+  const panel = left && <div className="pane side" aria-label="지도 정보" data-map-side>
+    {flz.length >= 2 && pickFloor && <><div className="seg2" style={{ margin: '0 2px' }} role="group" aria-label="층" data-floors>{flz.map((f) =>
+      <button key={f.id} type="button" className={f.id === p.floor.id ? 'on' : ''} aria-pressed={f.id === p.floor.id} data-floor={f.id} onClick={() => pickFloor(f.id)}>{f.name}</button>)}</div>
+      {/* 시안 밖 · 새로 그림: 건물 층 겹쳐 보기(기능 있음) */}
+      <button type="button" className="u7-link" data-layers data-off-proto onClick={() => pickFloor(null)}>전체 층 겹쳐 보기</button></>}
+    {lays && <div role="group" aria-label="보이기"><div className="h3">보이기</div>
+      {LAY.filter(([k]) => !show3 || k === 'zones').map(([k, t, c]) => <label key={k} className="lay" data-map-layer={k}><i className="sw2" style={{ background: c }} aria-hidden="true" />{show3 ? '금지 구역' : t}
+        <input type="checkbox" role="switch" className="u7-hide" checked={lay[k]} onChange={() => setLay({ ...lay, [k]: !lay[k] })} /><span className={`sw${lay[k] ? ' on' : ''}`} aria-hidden="true" /></label>)}
+      {/* 「지나온 경로」: 서버에 로봇이 지나온 길 기록(계약 · API)이 아직 없다 → 꺼 둔 채 까닭 한 줄 */}
+      <label className="lay" data-map-layer="trail" aria-disabled="true" style={{ opacity: 0.55 }} title={TRAIL_WHY}><i className="sw2" style={{ background: '#00c389' }} aria-hidden="true" />지나온 경로
+        <input type="checkbox" role="switch" className="u7-hide" checked={false} disabled aria-describedby="mp-trail-why" /><span className="sw" aria-hidden="true" /></label>
+      <p className="mu2" id="mp-trail-why" style={{ fontSize: '11.5px', margin: '2px 8px 0' }} data-trail-why>{TRAIL_WHY}</p></div>}
+    {v && <div aria-label="이 지도"><div className="h3" style={{ marginTop: '22px' }}>이 지도</div><div className="kv">{kv.map(([k, x]) => <Fragment key={k}><span>{k}</span><b className={x === NA ? 'mu2' : undefined}>{x}</b></Fragment>)}</div></div>}
+    {v && <div style={{ position: 'absolute', left: '20px', right: '20px', bottom: '84px', fontSize: '12.5px', lineHeight: '1.55', color: 'var(--mu2)' }}>{md(v.created_at)} {howMade(v)}로 만든 지도입니다. {real && toScen ? '모의 실행도 이 지도 위에서 합니다.' : SIM_SAVE}</div>}
+    {!!list?.length && now && <button type="button" className="btns" style={{ position: 'absolute', left: '20px', right: '20px', bottom: '20px', height: '46px', fontSize: '13.5px' }} data-open-u79 onClick={() => { setCmp(false); setH9(true); }}>{ic(17, HIST)}버전 기록 · 비교 · 되돌리기</button>}
+  </div>;
+  const tg = now && tagOf(now);
+  const uhead = left && <div className="head">
+    <button type="button" className="g dk" style={{ position: 'relative', width: '44px', height: '44px', borderRadius: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} aria-label="모든 지도 보기" data-to-chooser onClick={() => toPick?.()}>{ic(20, <path d="m15 18-6-6 6-6" />)}</button>
+    <span className="ttl" style={{ fontSize: '26px' }}>{p.building.name} · {p.floor.name}</span>
+    {tg && now && <span className={tg[0]} style={{ height: '30px', fontSize: '13px' }}>{tg[1]} · v{now.number}</span>}
+    <span style={{ marginLeft: 'auto' }} />
+    {(model || (demo3 && v)) && !on3d && <div className="seg2" role="group" aria-label="2D·3D">
+      <button type="button" className={show3 ? '' : 'on'} aria-pressed={!show3} data-model-toggle="2D" onClick={() => setM3(false)}>2D 보기</button>
+      <button type="button" className={show3 ? 'on' : ''} aria-pressed={show3} data-model-toggle="3D" onClick={() => { setM3(true); setCmp(false); setDone(null); }}>3D 보기</button></div>}
+    {/* 시안 밖 · 새로 그림: 3D 지도 파일 · 로봇 저장 묶음 보기(기능 있음) */}
+    {(vox || sb) && <button type="button" className="btns" style={{ height: '46px', padding: '0 18px', fontSize: '14px' }} aria-pressed={on3d} data-voxel-toggle data-off-proto onClick={() => { setD3(!on3d); setCmp(false); setM3(false); }}>{ic(16, CUBE)}{on3d ? '지도 보기' : '3D 로 보기'}</button>}
+    {now && real && <div role="group" aria-label="보기·편집" style={{ display: 'contents' }}><button type="button" className="btns" style={{ height: '46px', padding: '0 18px', fontSize: '14px' }} onClick={start}>{ic(16, PEN)}편집</button></div>}
+    {toScen && !inApp() && <button type="button" className="btnp" style={{ height: '46px', padding: '0 20px', fontSize: '14.5px' }} data-to-sim onClick={() => toScen('')}>이 지도로 모의 실행</button>}
+    {/* 시안 밖 · 새로 그림: 더 보기(새 지도 올리기 · 지도 만들기 · 이름 바꾸기 · 휴지통) */}
+    <Menu label={<span aria-hidden="true">···</span>} title="더 보기" end className="more u7-more">
+      {real && <button type="button" className="btn" onClick={upBtn}>새 지도 올리기…</button>}
+      {canMake && <button type="button" className="btn" data-make-open onClick={mkBtn}>지도 만들기</button>}
+      {fix && real && <button type="button" className="btn" data-fix-open onClick={(e) => { shut(e); fix(); }}>이름 바꾸기·삭제…</button>}
+      <TrashLink />
+    </Menu></div>;
+  const lnote = left && (drop ? <div className="g dk u7-note" role="group" aria-label="확인" data-drop>다른 층에 저장하지 않은 지도 편집이 남아 있습니다. 이 지도를 편집하면 그 편집을 잃습니다(그 층을 열면 이어 씁니다).
+      <button type="button" className="u7-link" onClick={() => { kept.d = null; setDrop(false); begin(); }}>버리고 편집</button><button type="button" className="u7-link" onClick={() => setDrop(false)}>취소</button></div>
+    : !real ? <p className="g dk u7-note" data-demo-ro>{SIM_SAVE}</p> : null);
+  const vlabel = left && v && !cmp && <div className="g dk tl" style={{ left: '20px', top: '20px', height: '38px', padding: '0 14px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 700 }} data-view-label>
+    {show3 || on3d ? <>{ic(16, CUBE)}3D 보기 · 끌어서 회전 · 휠로 확대</> : <>{ic(16, LAYERS)}위에서 본 지도 · {meters(v).wh}</>}</div>;
   return <section className="mx" aria-label="지도 보기">
     <h2 className="mx-sr">{title}{editing ? ' · 편집 중' : ''}</h2>
     {/* 지도 만들기 = 시안 u7_6 · u7_7 · u7_8 (옛 창 없음) */}
@@ -701,7 +727,8 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, toPick, sid
       : left && h9 && hlist && hnow ? <History p={p} list={hlist} now={hnow} names={names} real={real} cancel={cancel} back={() => { setH9(false); setUndo(null); }} gone={reload} form={rollForm}
         restore={(x) => { const go = () => { setUndo({ v: x, now: hnow! }); setDone(null); setH9(true); }; if (leaving.ask) leaving.ask(go); else go(); }} />
       : editing ? main   /* 편집 = 시안 u7_5 화면(머리줄 · 저장은 Editor 안) */
-      : left ? <div className="mp-fl">{panel}<div className="mp-fr">{bar}{main}</div></div> : <>{bar}{main}{hist}</>}
+      : left ? <div className={`proto${light() ? ' light' : ''} u7`} data-u7={show3 || on3d ? 'u7_4_open3d' : 'u7_3_open2d'}>{panel}{uhead}{lnote}<div className="view">{main}{vlabel}</div><span ref={setSlot} style={{ display: 'contents' }} /></div>
+      : <>{bar}{main}{hist}</>}
   </section>;
 }
 
