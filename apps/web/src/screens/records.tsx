@@ -1,7 +1,7 @@
 // 기록 탭의 「지금 남기기」 · 클립 칸 · 재현 재생기(U8-03 · U8-08 · U8-09 · U8-11, 05 §8.1 계약 RecordMark · EventClip · JointLogReplay).
 // event.data.clip 은 «클립을 원했나» 참 · 거짓일 뿐이다. 영상 주소 · 상태는 records.clips 의 EventClip 으로만 받는다.
 // 영상 만들기 · 관절 기록 재생은 서버에 아직 없어 501 이 온다: 그 문장을 한 줄로 보이고, 받지 않은 영상 · 재현을 그리지 않는다.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Event as Ev, EventClip, JointLogReplay, RecordMarkResult } from '../../../contracts/ts';
 import { ApiFail, records } from '../api';
 import { myRobots } from '../fake';
@@ -24,7 +24,27 @@ export function MarkNow({ c, done }: { c: Pick<Ctx, 'user' | 'robots' | 'cancel'
   const mine = myRobots(c.user, c.robots);
   const [open, setOpen] = useState(false), [robot, setRobot] = useState(''), [grade, setGrade] = useState<Grade>('WARN'), [clip, setClip] = useState(true);
   const [note, setNote] = useState(''), [busy, setBusy] = useState(false), [err, setErr] = useState(''), [out, setOut] = useState<RecordMarkResult | null>(null);
-  const sending = useRef(false), opener = useRef<HTMLButtonElement>(null), first = useRef<HTMLSelectElement>(null), closer = useRef<HTMLButtonElement>(null);
+  const sending = useRef(false), opener = useRef<HTMLButtonElement>(null), first = useRef<HTMLSelectElement>(null), closer = useRef<HTMLButtonElement>(null), box = useRef<HTMLDivElement>(null);
+  // 창은 단추 오른쪽 끝에 맞춰 뜬다. 좁은 PC 틀(마우스 총괄 412 등)에서는 화면 · 본문 스크롤 칸(fh-main, 넘침을 자름) 밖으로 나가
+  // 잘렸다(11-28 left -89). 보이는 칸 = 화면 ∩ 가장 가까운 넘침 자르는 조상, 그 안쪽 8 px 에 들도록 폭을 줄이고 옮긴다
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!open || !el) return;
+    const fit = () => {
+      el.style.transform = ''; el.style.maxWidth = '';
+      let a = el.parentElement;
+      const clips = (x: HTMLElement) => { const o = getComputedStyle(x).overflowX; return !!o && o !== 'visible'; };
+      while (a && a !== document.body && !clips(a)) a = a.parentElement;
+      const vw = document.documentElement.clientWidth || innerWidth, m = 8, c = a && a !== document.body ? a.getBoundingClientRect() : null;
+      const lo = Math.max(0, c?.left ?? 0) + m, hi = Math.min(vw, c?.right ?? vw) - m;
+      let r = el.getBoundingClientRect();
+      if (r.width > hi - lo) { el.style.maxWidth = `${Math.max(0, hi - lo)}px`; r = el.getBoundingClientRect(); }
+      const dx = r.left < lo ? lo - r.left : r.right > hi ? Math.max(lo - r.left, hi - r.right) : 0;
+      if (dx) el.style.transform = `translateX(${dx}px)`;
+    };
+    fit(); addEventListener('resize', fit);
+    return () => removeEventListener('resize', fit);
+  }, [open]);
   // 초점(reviewer N3): 열면 창 첫 칸(로봇), 남긴 뒤면 「닫기」, 닫으면 「지금 남기기」 단추로
   useEffect(() => { if (open) (out ? closer : first).current?.focus(); }, [open, !!out]);   // eslint-disable-line react-hooks/exhaustive-deps
   const close = () => { setOpen(false); opener.current?.focus(); };
@@ -47,7 +67,7 @@ export function MarkNow({ c, done }: { c: Pick<Ctx, 'user' | 'robots' | 'cancel'
   };
   // 단추 아래에 뜨는 창(필터 줄을 밀지 않음). 열린 동안 단추는 눌림으로
   return <span className="rc-anchor"><button ref={opener} type="button" className="btn" aria-expanded={open} disabled={!mine.length} title={mine.length ? undefined : '남길 로봇이 없습니다'} onClick={() => (open ? close() : start())}>지금 남기기</button>
-  {open && <div className="lv-card rc-mark" role="dialog" aria-label="지금 남기기" onKeyDown={(e) => { if (e.key === 'Escape') close(); }}>
+  {open && <div ref={box} className="lv-card rc-mark" role="dialog" aria-label="지금 남기기" onKeyDown={(e) => { if (e.key === 'Escape') close(); }}>
     <b>지금 남기기</b>
     {out ? <>
       <p className="rc-out" role="status" data-mark-out>기록을 남겼습니다. {out.clip ? out.clip.status === 'READY' ? '클립이 준비됐습니다.' : reason(out.clip) : '영상 없이 기록만 남겼습니다.'}</p>
