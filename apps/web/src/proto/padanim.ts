@@ -8,23 +8,31 @@ import * as THREE from 'three';
 export const PAD_LIGHT = { charge: 0x18a07e, check: 0x5e6662 } as const;
 export const PAD = { charge: { col: 0x00c389, rings: [[0.34, 0.85], [0.40, 0.3]] as [number, number][], sz: 1.25 }, check: { col: 0xa9b8c6, W: 0.38, D: 0.5, out: 0.06, op: [0.75, 0.22] } };
 
-/** 오르는 층 n 개: 꼭대기 높이 0.25 m(5 층 × 0.05 m) · 꼭대기 크기 0.90 은 층 수와 상관없이 같고, 그 사이를 고르게 나눈다.
- *  진하기는 첫 층 0.5 에서 꼭대기 0.065 까지 같은 비로 흐려진다(5 층이면 0.5 · 0.3 · 0.18 · 0.11 · 0.065). */
+/** 오르는 층 n 개: 꼭대기 높이 top.dy · 꼭대기 크기 top.scale(0.90) 사이를 고르게 나눈다.
+ *  진하기는 첫 층 top.op[0] 에서 꼭대기 top.op[1] 까지 같은 비로 흐려진다. 안 A · B 는 꼭대기 0.25 m · 0.065(옛 값) */
 export const PAD_TOP = { dy: 0.25, scale: 0.9, op: [0.5, 0.065] } as const;
-export function padRise(n: number) {
+/** 확정 안 C(팀장 03:14 «촘촘한 줄(B) · 위로 갈수록 연해져 덜 보임 → 층을 더 올려 로봇 몸까지 덮게»):
+ *  꼭대기 0.40 m(Go2 서 있는 몸 위) · 11 층(층 간격 0.036 m = B 와 같은 촘촘함) · 꼭대기 진하기 0.18(전 0.065 · 위에서도 보이게) */
+export const PAD_TOP_C = { dy: 0.4, scale: 0.9, op: [0.5, 0.18] } as const;
+type PadTop = { dy: number; scale: number; op: readonly [number, number] };
+export function padRise(n: number, top: PadTop = PAD_TOP) {
   const k = Array.from({ length: n + 1 }, (_, i) => i), f = (i: number) => (n > 1 ? (i - 1) / (n - 1) : 0);
-  return { scale: k.map((i) => 1 - (1 - PAD_TOP.scale) * (i / n)), dy: PAD_TOP.dy / n, op: k.map((i) => (i === 0 ? 1 : PAD_TOP.op[0] * (PAD_TOP.op[1] / PAD_TOP.op[0]) ** f(i))) };
+  return { scale: k.map((i) => 1 - (1 - top.scale) * (i / n)), dy: top.dy / n, op: k.map((i) => (i === 0 ? 1 : top.op[0] * (top.op[1] / top.op[0]) ** f(i))) };
 }
-/** 안 A = 5 층(층 간격 0.05 m · 98 ~ 90 %) · 안 B = 7 층(같은 꼭대기 · 더 촘촘). 이 한 줄로 고른다 */
-export const PAD_PLANS = { A: 5, B: 7 } as const;
-export const PAD_PLAN: keyof typeof PAD_PLANS = 'A';
-/** 주소 ?pad=B(또는 #… ?pad=B)로 PAD_PLAN 을 덮어씀(두 안 견주기 · W1 ?preDot 과 같은 꼴). 다른 값 · 없음 = PAD_PLAN */
+/** 안 A = 5 층 · 안 B = 7 층(꼭대기 0.25 m) · 안 C = 11 층(꼭대기 0.40 m · 확정). 이 한 줄로 고른다 */
+export const PAD_PLANS = { A: 5, B: 7, C: 11 } as const;
+export const PAD_TOPS: Record<keyof typeof PAD_PLANS, PadTop> = { A: PAD_TOP, B: PAD_TOP, C: PAD_TOP_C };
+export const PAD_PLAN: keyof typeof PAD_PLANS = 'C';
+/** 주소 ?pad=A|B|C(또는 #… ?pad=B)로 PAD_PLAN 을 덮어씀(안 견주기). 다른 값 · 없음 = PAD_PLAN */
 export const padPlan = (): keyof typeof PAD_PLANS => {
-  try { const v = new URLSearchParams(location.search || location.hash.split('?')[1] || '').get('pad'); return v === 'A' || v === 'B' ? v : PAD_PLAN; } catch { return PAD_PLAN; }
+  try { const v = new URLSearchParams(location.search || location.hash.split('?')[1] || '').get('pad'); return v === 'A' || v === 'B' || v === 'C' ? v : PAD_PLAN; } catch { return PAD_PLAN; }
 };
 
 /** 오르는 층 값 한 곳: 크기(바닥 = 1) · 층 간격(m) · 한 박(s) · 층 진하기(바닥 진하기에 곱함) · 채도 낮춤(회색 쪽으로 섞는 몫) */
-export const PAD_RISE = { ...padRise(PAD_PLANS[padPlan()]), beat: 0.42, grey: 0x8d9590, desat: 0.35 } as const;
+/** 오르는 층 값 한 곳. 박: 안 A · B 0.42 s · 안 C 0.24 s(층이 11 개라 한 바퀴 2.9 s · 전 5 층 2.5 s 와 비슷하게).
+ *  층 색: 안 C 는 회색(#8d9590 · 팀장 «회색 · 라이팅 뺀 꼴»: 바닥 색을 빼고 회색 줄만) · A · B 는 바닥 색을 35 % 회색 쪽으로 */
+const PLAN_NOW = padPlan();
+export const PAD_RISE = { ...padRise(PAD_PLANS[PLAN_NOW], PAD_TOPS[PLAN_NOW]), beat: PLAN_NOW === 'C' ? 0.24 : 0.42, grey: 0x8d9590, desat: PLAN_NOW === 'C' ? 1 : 0.35 } as const;
 /** 한 바퀴 박 수 = 바닥 한 박 + 오르는 층마다 한 박 */
 export const PAD_BEATS = PAD_RISE.scale.length;
 

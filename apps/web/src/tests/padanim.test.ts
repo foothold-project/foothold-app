@@ -1,7 +1,7 @@
 // 충전 · 점검 바닥 표시 위로 오르는 층(팀장 11-29 01:37): 층 크기 · 박 단계 · 움직임 줄이기 · 관제 타일과 로봇 탭이 같은 함수
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { PAD_BEATS, PAD_PLAN, PAD_PLANS, PAD_RISE, PAD_TOP, padGroup, padPlan, padRise, padStep, padTick } from '../proto/padanim';
+import { PAD_BEATS, PAD_PLAN, PAD_PLANS, PAD_RISE, PAD_TOP, PAD_TOP_C, padGroup, padPlan, padRise, padStep, padTick } from '../proto/padanim';
 import tileSrc from '../proto/tileview.ts?raw';
 import go2Src from '../screens/u4/go2view.ts?raw';
 
@@ -9,12 +9,18 @@ const layers = (g: THREE.Object3D) => g.getObjectByName('rise')!.children;
 const shown = (g: THREE.Object3D) => layers(g).filter((l) => l.visible).length;
 
 describe('바닥 표시 오르는 층', () => {
-  it('기본은 안 A = 5 층 · 크기 1 · 0.98 · 0.96 · 0.94 · 0.92 · 0.90 · 층 간격 0.05 m (팀장 02:14)', () => {
-    expect(PAD_PLAN).toBe('A'); expect(PAD_PLANS).toEqual({ A: 5, B: 7 });
-    expect(PAD_RISE.scale.length).toBe(6);
-    [1, 0.98, 0.96, 0.94, 0.92, 0.9].forEach((v, i) => expect(PAD_RISE.scale[i]).toBeCloseTo(v, 9));
-    expect(PAD_RISE.dy).toBeCloseTo(0.05, 9);
-    for (const kind of ['charge', 'check'] as const) expect(layers(padGroup(kind)).length).toBe(5);
+  it('기본은 확정 안 C = 11 층 · 꼭대기 0.40 m(몸까지) · 크기 0.90 · 진하기 0.5 → 0.18 · 회색 줄 · 박 0.24 s (팀장 03:14)', () => {
+    expect(PAD_PLAN).toBe('C'); expect(PAD_PLANS).toEqual({ A: 5, B: 7, C: 11 });
+    expect(PAD_RISE.scale.length).toBe(12); expect(PAD_RISE.scale[11]).toBeCloseTo(0.9, 9);
+    expect(PAD_RISE.dy * 11).toBeCloseTo(PAD_TOP_C.dy, 9); expect(PAD_RISE.dy).toBeLessThanOrEqual(padRise(7).dy + 1e-3);   // B 만큼 촘촘
+    expect(PAD_RISE.op[1]).toBeCloseTo(0.5, 9); expect(PAD_RISE.op[11]).toBeCloseTo(0.18, 9);
+    expect(PAD_RISE.desat).toBe(1); expect(PAD_RISE.beat).toBe(0.24);
+    for (const kind of ['charge', 'check'] as const) {
+      const ls = layers(padGroup(kind)); expect(ls.length).toBe(11);
+      expect(((ls[0].children[0] as THREE.LineLoop).material as THREE.LineBasicMaterial).color.getHex()).toBe(PAD_RISE.grey);
+    }
+    // 안 A 는 옛 값 그대로(5 층 · 0.05 m 간격)
+    const a = padRise(PAD_PLANS.A); [1, 0.98, 0.96, 0.94, 0.92, 0.9].forEach((v, i) => expect(a.scale[i]).toBeCloseTo(v, 9)); expect(a.dy).toBeCloseTo(0.05, 9);
   });
 
   it('안 B = 7 층 · 꼭대기 높이(0.25 m) · 꼭대기 크기(0.90)는 A 와 같고 더 촘촘 · 진하기는 오를수록 낮음', () => {
@@ -38,7 +44,7 @@ describe('바닥 표시 오르는 층', () => {
   it('주소 값 ?pad=B (또는 #… ?pad=B) 로 안을 덮어씀 · 다른 값 · 없음은 PAD_PLAN', () => {
     const at = (u: string) => { history.replaceState(null, '', u); return padPlan(); };
     expect(at('/?pad=B')).toBe('B'); expect(at('/#/fleet?pad=B')).toBe('B'); expect(at('/#/control?pad=A')).toBe('A');
-    expect(at('/?pad=C')).toBe(PAD_PLAN); expect(at('/#/control')).toBe(PAD_PLAN);
+    expect(at('/?pad=D')).toBe(PAD_PLAN); expect(at('/#/control')).toBe(PAD_PLAN);
   });
 
   it('층마다 원 중심 기준으로 작아지며 위로 · 진하기는 오를수록 낮음 · 낮은 채도', () => {
@@ -57,16 +63,16 @@ describe('바닥 표시 오르는 층', () => {
     }
   });
 
-  it('박 단계: 한 박마다 한 층씩 끊어서(0 → 1 → … → 5 → 다시 0) · 박 안에서는 그대로', () => {
+  it('박 단계: 한 박마다 한 층씩 끊어서(0 → 1 → … → 11 → 다시 0) · 박 안에서는 그대로', () => {
     const b = PAD_RISE.beat;
-    expect(PAD_BEATS).toBe(6);
-    expect([0, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5].map((k) => padStep(k * b))).toEqual([0, 0, 1, 2, 3, 4, 5, 0]);
+    expect(PAD_BEATS).toBe(12);
+    expect([0, 0.5, 1.5, 2.5, 5.5, 11.5, 12.5].map((k) => padStep(k * b))).toEqual([0, 0, 1, 2, 5, 11, 0]);
     expect(padStep(b * 1.01)).toBe(padStep(b * 1.99));   // 이음 없이 계단
     const g = padGroup('charge');
     padTick(g, 2.5 * b, false); expect(shown(g)).toBe(2); expect(layers(g)[0].visible && layers(g)[1].visible && !layers(g)[2].visible).toBe(true);
     padTick(g, 3.5 * b, false); expect(shown(g)).toBe(3);
-    padTick(g, 5.5 * b, false); expect(shown(g)).toBe(5);
-    padTick(g, 6.5 * b, false); expect(shown(g)).toBe(0);
+    padTick(g, 11.5 * b, false); expect(shown(g)).toBe(11);
+    padTick(g, 12.5 * b, false); expect(shown(g)).toBe(0);
   });
 
   it('밝은 판 색 = 밝음 1 (충전 #18A07E · 점검 #5E6662) · 오른 층도 그 색에서 회색 쪽', () => {
