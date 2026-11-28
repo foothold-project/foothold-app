@@ -71,8 +71,8 @@ describe('관제 탭', () => {
     expect($('[data-sum="임무 중"] b').textContent).toBe('6');   // 타일이 «임무 중» 인 로봇 = RUNNING · 끊기지 않음(K-07 끊김 · K-08 시뮬 대기 빼고)
     expect($('[data-sum="충전"] b').textContent).toBe('');   // 가용(GET /robots/availability)을 받지 못함 = 수를 비움(em dash 없음)
     expect($('[data-sum="충전"]').dataset.none).toBe('true');
-    expect($('[data-sum="점검"] b').textContent).toBe('');   // 서버에 점검 상태 값이 없음
-    expect($('[data-sum="점검"]').title).toBe('서버에 점검 상태 값이 없습니다');
+    expect($('[data-sum="점검"] b').textContent).toBe('');   // 가용을 받지 못함 = 수를 비움
+    expect($('[data-sum="점검"]').title).toBe('가용(GET /robots/availability)을 받지 못했습니다');
     expect($('[data-sum="시뮬 대기"] b').textContent).toBe('1');
     expect($('.u5 .tb .flipb').textContent).toBe('정면 상태로 뒤집기');
     expect($$('.u5 .tb .flt [data-f]').map((e) => e.textContent)).toEqual(['모두', '내 로봇']);
@@ -897,13 +897,14 @@ describe('관제 탭', () => {
     act(() => { go.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true })); });   // 새 Space 누름
     expect(FakeWS.last.of('stop')).toHaveLength(10);
   });
-  it('가용(GET /robots/availability) · 오늘 일정(GET /schedule): 구역 이름 = location_label · 데모 칩 · 충전 = CHARGING 또는 지금 걸친 BATTERY_SWAP 칸 · 실패면 수를 비움', async () => {
+  it('가용(GET /robots/availability) · 오늘 일정(GET /schedule): 구역 이름 = location_label · 데모 칩 · 충전 = state CHARGING 만 · 지금 걸친 BATTERY_SWAP 칸 = «배터리 교체» · MAINTENANCE = «점검 중» 칩 + busy_label 줄 · 실패면 수를 비움', async () => {
     const item = (id: string, o: object = {}) => ({ robot_id: id, robot_name: id, state: 'FREE', busy_until: null, busy_slot_id: null, busy_label: null, battery_pct: 70, demo: false, sim: false, location_label: null, ...o });
     const av = vi.spyOn(api, 'availability').mockResolvedValue({ items: [
       item('k1', { demo: true, location_label: '정비동 · 1 층' }),   // demo 플래그 PR 전: 시험 자료는 demo=true 고정
       item('k2', { state: 'BUSY', busy_slot_id: 's-swap', busy_label: '배터리 교체' }),
       item('k3', { state: 'CHARGING' }),
-      item('k4', { state: 'BUSY', busy_slot_id: 's-run', busy_label: '배터리 교체' }),   // 이름만 같은 임무 칸은 충전이 아님
+      item('k4', { state: 'BUSY', busy_slot_id: 's-run', busy_label: '배터리 교체' }),   // 이름만 같은 임무 칸은 교체가 아님
+      item('k8', { state: 'MAINTENANCE', busy_label: '정기 점검 · 다리 관절' }),
     ] } as never);
     const sc = vi.spyOn(api, 'schedule').mockResolvedValue({ day: '2026-11-28', tz: 'Asia/Seoul', slots: [{ id: 's-swap', kind: 'BATTERY_SWAP' }, { id: 's-run', kind: 'CONFIRMED' }] } as never);
     mount('u-kim', EIGHT); feed(EIGHT);
@@ -911,10 +912,17 @@ describe('관제 탭', () => {
     expect(tile('k1').querySelector('.nm [data-demo]')!.textContent).toBe('데모');
     expect(tile('k2').querySelector('[data-demo]')).toBeNull();
     expect(tile('k1').querySelectorAll('.ln')[1].textContent).toBe('정비동 · 1 층');
-    expect($('[data-sum="충전"] b').textContent).toBe('2');
+    expect($('[data-sum="충전"] b').textContent).toBe('1');   // CHARGING 인 k3 만(서버가 CHARGING 을 보내지 않으면 충전으로 그리지 않음)
     expect($('[data-sum="충전"]').dataset.none).toBeUndefined();
-    expect(small('k2', 'battery')).toBe('충전 중');
+    expect(small('k2', 'battery')).toBe('배터리 교체');
+    expect(tile('k2').querySelector('[data-charging]')).toBeNull();
+    expect(tile('k2').querySelector('[data-swap]')!.textContent).toBe('배터리 교체');
     expect(small('k4', 'battery')).toBe('');
+    expect(tile('k4').querySelector('[data-swap]')).toBeNull();
+    // 점검(시안 u5_1 K-06): 카메라 칸 «점검 중» 칩 · 일 줄 = busy_label · 배터리 칸 «점검 중» · 점검 수
+    expect(tile('k8').querySelector('[data-maint]')!.textContent).toBe('점검 중');
+    expect(tile('k8').querySelector('.ln span')!.textContent).toBe('정기 점검 · 다리 관절');
+    expect($('[data-sum="점검"] b').textContent).toBe('1');
     expect(tile('k3').querySelector('[data-charging]')!.textContent).toBe('충전 중');
     expect((tile('k3').querySelector('[data-charging]') as HTMLElement).style.color).toBe('rgb(0, 195, 137)');   // 시안 민트
     av.mockRestore(); sc.mockRestore();
