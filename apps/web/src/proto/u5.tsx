@@ -268,30 +268,37 @@ function RealCam({ id }: { id: string }) {
  *  1 끊김(다시 붙는 중 = «다시 연결 중», 꺼짐 = «연결 끊김») 2 정지 잠금 3 넘어짐(robot_info.fallen) 4 점검(가용 MAINTENANCE)
  *  5 충전(가용 CHARGING) · 그 둘이 아닐 때 일정 칸 배터리 교체 6 임무(사용자 시뮬 = «시뮬 중», 데모 · 실기 = «임무 중», 멈춤 = «임무 멈춤») 7 그 밖 «대기 · 임무 전».
  *  «조종 중»은 서버가 조종권 안에 실제 입력 여부를 줄 때까지 내지 않는다(값 없으면 7). 상태를 아직 모르면(요약 · 받는 중) null */
-export type Badge = { key: 'relink' | 'lost' | 'pre' | 'latched' | 'fallen' | 'maint' | 'swap' | 'charging' | 'paused' | 'run' | 'simrun' | 'idle'; text: string; icon: keyof typeof IC; col: string; blink?: boolean; why?: string };
+export type Badge = { key: 'relink' | 'lost' | 'pre' | 'latched' | 'fallen' | 'maint' | 'swap' | 'charging' | 'paused' | 'run' | 'simrun' | 'idle'; text: string; icon: keyof typeof IC; col: string; pulse: boolean; dim?: boolean; why?: string };
 const GREY = '#a9b8c6';
+/** «연결 전» 점(팀장 02:14 두 안): 'still' = B 하얀 점 멈춤 · 흐리게(기본), 'pulse' = A 하얀 점 펄스. 주소 ?preDot=pulse(또는 #… ?preDot=pulse)로 A 를 볼 수 있음 */
+export const PRE_DOT: 'still' | 'pulse' = 'still';
+export const preDot = (): 'still' | 'pulse' => {
+  try { const q = new URLSearchParams(location.search || location.hash.split('?')[1] || ''); const v = q.get('preDot'); return v === 'pulse' || v === 'still' ? v : PRE_DOT; } catch { return PRE_DOT; }
+};
+/** 모든 배지는 같은 틀(아이콘 · 글 · 점). 글 색 = col, 점 색 = badgeDot, 펄스 = pulse(움직임 줄이기면 멈춤) */
 export function tileBadge(f: TileFacts): Badge | null {
   const x = f.x;
-  if (f.lostNow) return { key: 'relink', text: '다시 연결 중', icon: 'wifi', col: 'var(--u5-amb)', blink: true };
+  if (f.lostNow) return { key: 'relink', text: '다시 연결 중', icon: 'wifi', col: 'var(--u5-amb)', pulse: true };
   // 한 번도 붙은 적 없는 로봇(seenAt 없음)은 끊김 경고가 아니라 «연결 전»(관제 끊김 규칙과 같음)
-  if (!x.unknown && !x.online && !x.seenAt) return { key: 'pre', text: '연결 전', icon: 'wifi', col: GREY };
-  if (x.unknown === 'link' || (!x.unknown && !x.online) || x.attention?.includes('OFFLINE')) return { key: 'lost', text: '연결 끊김', icon: 'wifi', col: 'var(--u5-amb)' };
+  if (!x.unknown && !x.online && !x.seenAt) { const a = preDot() === 'pulse'; return { key: 'pre', text: '연결 전', icon: 'wifi', col: GREY, pulse: a, dim: !a }; }
+  if (x.unknown === 'link' || (!x.unknown && !x.online) || x.attention?.includes('OFFLINE')) return { key: 'lost', text: '연결 끊김', icon: 'wifi', col: 'var(--u5-amb)', pulse: false };
   if (x.unknown) return null;
-  if (x.status === 'STOP_LATCHED') return { key: 'latched', text: '정지 잠금', icon: 'stop', col: 'var(--u5-red)' };
-  if (pickInfo(x)?.v?.fallen) return { key: 'fallen', text: '넘어짐', icon: 'warn', col: 'var(--u5-red)' };
+  if (x.status === 'STOP_LATCHED') return { key: 'latched', text: '정지 잠금', icon: 'stop', col: 'var(--u5-red)', pulse: false };
+  if (pickInfo(x)?.v?.fallen) return { key: 'fallen', text: '넘어짐', icon: 'warn', col: 'var(--u5-red)', pulse: false };
   // 지금 상태(가용 MAINTENANCE · CHARGING)가 일정 칸(BATTERY_SWAP)보다 먼저(01:31 K-04: 충전 중인데 «배터리 교체»)
-  if (f.job?.kind === 'maint') return { key: 'maint', text: '점검 중', icon: 'wrench', col: GREY, blink: true };
-  if (f.charging) return { key: 'charging', text: '충전 중', icon: 'bolt', col: 'var(--u5-ok)', blink: true };   // 배터리 아이콘 대신 점검 중과 같은 점 펄스 · 초록(팀장 01:51)
-  if (f.job) return { key: 'swap', text: '배터리 교체', icon: 'bat', col: GREY };
-  if (f.onRun) return f.paused ? { key: 'paused', text: '임무 멈춤', icon: 'warn', col: 'var(--u5-amb)', blink: true, why: f.paused }
-    : f.sim ? { key: 'simrun', text: '시뮬 중', icon: 'box', col: 'var(--u5-sim)', blink: true } : { key: 'run', text: '임무 중', icon: 'flag', col: 'var(--u5-ok)' };
-  return { key: 'idle', text: '대기 · 임무 전', icon: 'home', col: GREY };
+  if (f.job?.kind === 'maint') return { key: 'maint', text: '점검 중', icon: 'wrench', col: GREY, pulse: true };
+  if (f.charging) return { key: 'charging', text: '충전 중', icon: 'bolt', col: 'var(--u5-on)', pulse: true };   // 글 하양(밝은 판 그라파이트) · 점 초록(팀장 02:14)
+  if (f.job) return { key: 'swap', text: '배터리 교체', icon: 'bat', col: GREY, pulse: false };
+  if (f.onRun) return f.paused ? { key: 'paused', text: '임무 멈춤', icon: 'warn', col: 'var(--u5-amb)', pulse: true, why: f.paused }
+    : f.sim ? { key: 'simrun', text: '시뮬 중', icon: 'box', col: 'var(--u5-sim)', pulse: true } : { key: 'run', text: '임무 중', icon: 'flag', col: 'var(--u5-ok)', pulse: true };
+  return { key: 'idle', text: '대기 · 임무 전', icon: 'home', col: GREY, pulse: false };
 }
-/** 배지 점 색은 여기 한 곳에서 고른다. 충전 = 초록 · 시뮬 = 파랑(팀장 01:51 · 02:07), 나머지는 배지 글 색 그대로 */
-export const badgeDot = (b: Badge): string => (b.key === 'charging' ? 'var(--u5-ok)' : b.key === 'simrun' ? 'var(--u5-sim)' : b.col);
+/** 배지 점 색은 여기 한 곳(팀장 02:14): 임무 중 = 빨강(--u5-dot-red) · 충전 = 초록 · 시뮬 = 파랑 · 연결 전 = 하양(--u5-on), 나머지 = 배지 글 색 */
+export const badgeDot = (b: Badge): string =>
+  b.key === 'run' ? 'var(--u5-dot-red)' : b.key === 'charging' ? 'var(--u5-ok)' : b.key === 'simrun' ? 'var(--u5-sim)' : b.key === 'pre' ? 'var(--u5-on)' : b.col;
 function BadgeTag({ b }: { b: Badge }) {
-  return <span className={`stb${b.blink ? ' chk' : ''}`} style={{ color: b.col }} title={b.why} data-badge={b.key} {...{ [`data-${b.key}`]: '' }}>{I(14, IC[b.icon])}{b.text}
-    {b.blink ? <i style={{ background: badgeDot(b) }}></i> : null}</span>;
+  return <span className={`stb${b.pulse ? ' chk' : ''}`} style={{ color: b.col }} title={b.why} data-badge={b.key} data-pulse={b.pulse ? '1' : '0'} {...{ [`data-${b.key}`]: '' }}>{I(14, IC[b.icon])}{b.text}
+    <i className={b.dim ? 'dim' : undefined} style={{ background: badgeDot(b) }}></i></span>;
 }
 
 function Tile({ f, sel, front, open, boards }: { f: TileFacts; sel: boolean; front: boolean; open: () => void; boards: Set<string> }) {
