@@ -133,9 +133,9 @@ function This({ p, robots, rehearse, ready, names }: { p: Plan; robots: Robot[];
     <div className="lab">이 임무</div>
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: '16px', rowGap: '14px', marginTop: '14px' }}>
       <div><div className="lab">길이</div><b className="num" style={{ fontSize: '22px' }}>{ln}</b><small className="mu2"> {lu}</small></div>
-      <div><div className="lab">걷기 + 할 일</div><b className="num" style={{ fontSize: '22px' }}>{e ? `${mins(e.walk_s)} + ${mins(e.task_s)}` : '없음'}</b><small className="mu2"> 분</small>{e && <Guess e={e} />}</div>
+      <div><div className="lab">걷기 + 할 일</div><b className="num" style={{ fontSize: '22px' }}>{e ? `${mins(e.walk_s)} + ${mins(e.task_s)}` : '없음'}</b>{e && <small className="mu2"> 분</small>}{e && <Guess e={e} />}</div>
       <div><div className="lab">예상 끝</div><b className="num" style={{ fontSize: '22px' }} data-plan-eta>{e ? hm(e.eta) : '없음'}</b></div>
-      <div><div className="lab">종료 시 배터리</div><b className="num" style={{ fontSize: '22px' }}>{e?.end_battery_pct != null ? Math.round(e.end_battery_pct) : '없음'}</b><small className="mu2"> %</small></div>
+      <div><div className="lab">종료 시 배터리</div><b className="num" style={{ fontSize: '22px' }}>{e?.end_battery_pct != null ? Math.round(e.end_battery_pct) : '없음'}</b>{e?.end_battery_pct != null && <small className="mu2"> %</small>}</div>
     </div>
     {!e && <Why>예상은 저장한 임무를 로봇 · 걷기 모드와 함께 고르면 나옵니다.</Why>}
     <div style={{ marginTop: '18px', padding: '14px', borderRadius: '14px', border: '1.5px dashed rgba(159,182,255,.5)', background: 'rgba(159,182,255,.06)' }}>

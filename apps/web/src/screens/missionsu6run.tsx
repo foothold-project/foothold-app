@@ -17,7 +17,6 @@ import { result, stops, took } from './runreport';
 
 const DONE = ['COMPLETED', 'FAILED', 'CANCELED'];
 export const NO = '서버에 값 없음';
-const band = { color: 'rgba(159,182,255,.75)', fontWeight: 600 } as const;
 /** 배속: 서버에 배속 값이 없어 시뮬은 실제 속도(1 배) 로만 돈다. 위 띠 · 배속 칸이 같은 값을 쓴다 */
 export const SPEEDS = [1, 10, 30, 60] as const, SPEED = 1;
 /** 진행 칸 시간 눈금: 일정 칸의 시작 ~ 끝(HH:MM)을 셋으로 나눈 네 눈금 (시안 15:00 · 15:10 · 15:20 · 15:30). 끝이 시작보다 이르면 다음 날로 본다 */
@@ -46,7 +45,7 @@ function Dot({ robot, route }: { robot: Robot; route: Route }) {
 export function Rehearse({ x, route, robots, user, cancel, p, close, result: toResult }: { x: Scenario; route: Route; robots: Robot[]; user: Ctx['user']; cancel?: AbortSignal; p: Plan; close: () => void; result: (run: string, robot: string) => void }) {
   const sims = useSimRobot(robots), sim = sims[0], g = useRunGate(sim, x, user, cancel);
   return <>
-    <div className="band" data-band><Ic d={IC.play} />모의 실행 · 시뮬 · {SPEED} 배<span style={band}>실제 로봇은 움직이지 않습니다</span></div>
+    <div className="band" data-band><Ic d={IC.play} />모의 실행 · 시뮬 · {SPEED} 배<span className="u6-bandsub">실제 로봇은 움직이지 않습니다</span></div>
     <div className="map" style={{ left: '24px', top: '128px', width: '1476px', height: '692px', border: '1.5px dashed rgba(159,182,255,.5)' }} aria-label="모의 실행 지도">
       <div className="stage" style={{ inset: 0 }}><RouteStage x={x} route={route} rehearse>{sims.map((r) => <Dot key={r.id} robot={r} route={route} />)}</RouteStage></div>
       <div className="chips"><span className="g dk" style={{ gap: '8px' }}><Ic d={IC.robot} />시뮬 로봇 {sims.length} 대</span>
@@ -140,7 +139,7 @@ export function Result({ x, route, run, robot, cancel, close, again, edit, fix, 
   const total = x.waypoints.length, arrived = list.filter((s) => s.arrived).length;
   const shown = list.slice(page * 3, page * 3 + 3);
   return <>
-    <div className="band" data-band><Ic d={IC.play} />모의 실행 끝 · 시뮬<span style={band}>결과를 보고 다음 단계를 고르세요</span></div>
+    <div className="band" data-band><Ic d={IC.play} />모의 실행 끝 · 시뮬<span className="u6-bandsub">결과를 보고 다음 단계를 고르세요</span></div>
     <div className="map" style={{ left: '24px', top: '128px', width: '820px', bottom: '24px', border: '1.5px dashed rgba(159,182,255,.5)' }} aria-label="모의 실행 지도">
       <div className="stage" style={{ inset: 0 }}><RouteStage x={x} route={route} rehearse /></div>
       <div className="g dk pill" style={{ left: '16px', top: '16px' }}><Ic d={IC.pin} /><span data-result-tag>도착 {arrived} / {total}{badN ? ` · 실패 지점 ${badN}` : ''}</span></div>

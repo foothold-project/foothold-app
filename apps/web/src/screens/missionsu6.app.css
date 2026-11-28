@@ -99,3 +99,6 @@
 /* 배속 잠금: 지금 값(고른 칸)은 또렷이, 못 고르는 나머지만 흐리게 (칸 전체 .45 이면 밝은 판에서 「1 배」 가 사라진다) */
 .u6 .mseg[data-locked]{opacity:1}
 .u6 .mseg[data-locked] span:not(.on){opacity:.45}
+/* 모의 실행 위 띠 덧글: 어둠은 시안 연파랑, 밝은 판은 기존 흐린 글 값(연파랑은 밝은 바탕에서 안 보임) */
+.u6 .u6-bandsub{color:rgba(159,182,255,.75);font-weight:600}
+.proto.light.u6 .u6-bandsub{color:#5E6662}
