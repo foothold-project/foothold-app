@@ -139,6 +139,12 @@ export function makeStartDemoMap(mj, m, d, makeTerrainSampler, { fastVertical = 
 }
 // Depth sensor range (m): rays and the geometry cull share it.
 export const START_DEPTH_RANGE = 4;
+// Above this many native (non-JS) geometries in range, a scan uses mj_multiRay.
+// Measured (40 random poses per scene): even one native geometry asked per ray
+// from JS is slower than one mj_multiRay (plant-a 9.1 vs 2.2 ms, warehouse with
+// 1~7: 10.5 vs 5.2 ms, collapsed-house 161~168: 1686 vs 112 ms), so the JS path
+// is used only when every geometry in range is a world-aligned box or plane.
+export const NATIVE_MAX = 0;
 export function makeStartDemoDepth(mj,m,d,{ cull = true, index: useIndex = true } = {}) {
   const n = 3600, vec = new Float64Array(n*3), local = new Float64Array(n*3), axial = new Float64Array(n);
   const dist = new mj.DoubleBuffer(n), gid = new mj.IntBuffer(n), out = new Float32Array(n);
@@ -163,17 +169,24 @@ export function makeStartDemoDepth(mj,m,d,{ cull = true, index: useIndex = true 
       const x=local[i],y=local[i+1],z=local[i+2];
       vec[i]=R[0]*x+R[1]*y+R[2]*z;vec[i+1]=R[3]*x+R[4]*y+R[5]*z;vec[i+2]=R[6]*x+R[7]*y+R[8]*z;
     }
-    let distances;
+    let distances, near = null;
     if (index) {
-      // mj_multiRay walks every model geometry for every ray. Ask the same
-      // native per-geometry intersections only for the static geometries the
-      // cull keeps, and per ray only where its AABB can meet the ray.
-      const pos = d.geom_xpos, mat = d.geom_xmat, aabb = m.geom_aabb, near = [];
+      const pos = d.geom_xpos, mat = d.geom_xmat, aabb = m.geom_aabb;
+      near = [];
       for (const g of index.always) if (index.geoms.get(g).rayable) near.push(index.geoms.get(g));
       for (const g of index.near(origin, START_DEPTH_RANGE)) {
         const geom = index.geoms.get(g);
         if (geom.rayable && !outsideCutoff(g, pos, mat, aabb, origin, START_DEPTH_RANGE, planes)) near.push(geom);
       }
+      // Each native call from JS costs a few microseconds per ray. With meshes,
+      // heightfields or turned boxes in range, one mj_multiRay over the culled
+      // model is cheaper (same result bit for bit, see parity selftest).
+      if (near.filter((geom) => !geom.aligned).length > NATIVE_MAX) near = null;
+    }
+    if (near) {
+      // mj_multiRay walks every model geometry for every ray. Ask the same
+      // per-geometry intersections only for the static geometries the cull
+      // keeps, and per ray only where its AABB can meet the ray.
       distances = direct;
       const ray = new Float64Array(3), order = [];
       for (let i = 0; i < n; i++) {

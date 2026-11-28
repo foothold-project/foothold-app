@@ -43,7 +43,7 @@ const manyBoxes=()=>{
   return `<mujoco><worldbody><geom name="ground" type="box" size="100 60 .1" pos="75 45 -.1"/>${boxes.join('')}</worldbody></mujoco>`;
 };
 FIXED['many-boxes']=[[.75,.75,0],[.75,.75,.785],[30.75,20.25,1.5708],[60.75,44.25,3.1416],[148.5,88.5,-2.356],[75.75,45.75,.3]];
-const scenes=['warehouse','factory-inspection','element-course','plant-a','many-boxes',
+const scenes=['warehouse','factory-inspection','element-course','plant-a','many-boxes','collapsed-house-v2',
   ...(existsSync(new URL('../sim/assets/factory-site/map.json',import.meta.url))?['factory-site']:[])];
 for(const id of scenes){
   const root=new URL('../sim/assets/'+id+'/',import.meta.url),map=id==='many-boxes'?{spawn_xyyaw:[.75,.75,0],floor_z:0}:JSON.parse(readFileSync(new URL('map.json',root)));
