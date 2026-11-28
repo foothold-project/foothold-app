@@ -11,6 +11,7 @@ import u6AppCss from '../screens/missionsu6.app.css?raw';
 import u6Css from '../screens/missionsu6.css?raw';
 import pcPvCss from '../proto/pc.pv.css?raw';
 import { ticks } from '../screens/missionsu6run';
+import { KINDS, kindLabel, kindOf } from '../screens/missionsu6edit';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
 
@@ -30,6 +31,8 @@ const S1 = scen('s1', '공정 순찰 A', [wp(0, 0, '펌프'), wp(3.5, 0, '게이
 const S2 = scen('s2', '가스 점검', [wp(0, 1), wp(1, 1)], { finish: { mode: 'STAY', target: null }, est_distance_m: 30 });
 const S3 = scen('s3', '지난 임무', [wp(0, 0)], { archived_at: '2026-11-27T00:00:00Z' });
 const ALL = [S1, S2, S3];
+/** 둥근 차림 시험이 더하는 임무(다른 시험은 M1 만) */
+let moreJobs: Mission[] = [];
 
 let calls: { method: string; path: string; q: URLSearchParams; body?: Record<string, unknown>; key?: string | null }[] = [];
 /** POST /assignments 답(시험이 바꿈). 기본 = 그 로봇 ACTIVE */
@@ -69,7 +72,7 @@ function serve() {
       return ok({ format_version: 1, map_version_id: 'v1', origin: V1.origin, resolution: 0.05, width: 100, height: 80, row_order: 'TOP_TO_BOTTOM', cursor: 0, cells, next_cursor: null });
     }
     if (path === '/scenarios') return ok({ items: ALL, next_cursor: null });
-    if (path === '/missions') return ok({ items: [M1], next_cursor: null });
+    if (path === '/missions') return ok({ items: [M1, ...moreJobs], next_cursor: null });
     const m = path.match(/^\/scenarios\/(s\d)$/);
     if (m && method === 'PUT') { const x = ALL.find((s) => s.id === m[1])!; return ok({ ...x, ...body, version: x.version + 1 }); }
     if (m) { const x = ALL.find((s) => s.id === m[1]); return x ? ok(x) : new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: '없음', detail: {} } }), { status: 404 }); }
@@ -111,7 +114,7 @@ const click = async (e: Element | null) => { expect(e).toBeTruthy(); act(() => (
 describe('임무 탭(W2)', () => {
   // 시계: 오늘 08:05(지난 시각 · 처음 값 판정이 돌리는 때에 따라 바뀌지 않게). 타이머는 진짜 그대로
   beforeEach(() => { const d = new Date(); d.setHours(8, 5, 0, 0); vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'], now: d }); });
-  afterEach(() => { vi.useRealTimers(); });
+  afterEach(() => { vi.useRealTimers(); moreJobs = []; });
   it('주소 · 메뉴: #/missions 와 옛 #/mission 은 임무 탭, oldScenario 는 고를 id', () => {
     expect(tabFromHash('#/missions', false)).toBe('missions');
     expect(tabFromHash('#/mission', false)).toBe('missions');
@@ -338,6 +341,42 @@ describe('임무 탭(W2)', () => {
     await click($('[data-back-list]'));
     await click($('[data-edit-mission]')); await flush();
     expect(document.body.textContent!.replace(/\s+/g, ' ')).not.toMatch(/없음 ?(분|%)/);
+  });
+  it('할 일 종류 대응표: steps 없음 = 이동 · PHOTO · WAIT 또는 wait_s · OPERATOR_CONFIRM · SENSOR_LOG · 모르는 action 은 「알 수 없는 일」(기록 아님)', () => {
+    const m = (id: string, steps: Mission['steps']): Mission => ({ ...M1, id, steps });
+    const jobs: Record<string, Mission> = {
+      mv: m('mv', []), ph: m('ph', [{ action: 'PHOTO', params: { camera: 'rgb' } }]), wt: m('wt', [{ action: 'WAIT', params: { seconds: 5 } }] as Mission['steps']),
+      ok: m('ok', [{ action: 'OPERATOR_CONFIRM', params: {} }] as Mission['steps']), lg: m('lg', [{ action: 'SENSOR_LOG', params: { device: 'lidar' } }] as Mission['steps']),
+      zz: m('zz', [{ action: 'TEMP_READ', params: {} }] as unknown as Mission['steps']),
+    };
+    const k = (mission_id: string, wait_s: number | null = null) => kindOf({ mission_id, wait_s }, jobs);
+    expect([k('mv'), k('ph'), k('wt'), k('ok'), k('lg')]).toEqual(['MOVE', 'PHOTO', 'WAIT', 'OPERATOR_CONFIRM', 'SENSOR_LOG']);
+    expect(k('mv', 30)).toBe('WAIT');   // 단계 없음 + 지점 wait_s = 대기
+    expect(k('ph', 30)).toBe('PHOTO');   // 첫 단계가 먼저
+    expect(k('zz')).toBe('UNKNOWN'); expect(kindLabel(k('zz'))).toBe('알 수 없는 일'); expect(kindLabel(k('zz'))).not.toBe('기록');
+    expect(k('없는-임무')).toBe('UNKNOWN');
+    expect([k('mv'), k('ph'), k('wt'), k('ok'), k('lg')].map(kindLabel)).toEqual(['여기로 가기', '사진', '기다리기', '사람 확인', '기록']);
+    expect(KINDS.filter((x) => 'soon' in x).map((x) => x.k)).toEqual(['GAUGE_READ', 'TEMP_READ', 'GAS_READ']);
+  });
+  it('시안 u6_5 둥근 할 일 메뉴: 지점 누르면 열림 · 지금 종류 칠함 · 온도 · 게이지 · 가스 꺼짐 + 「서버 준비 중」 · 종류 고르면 그 종류 임무로 바뀜', async () => {
+    moreJobs = [{ ...M1, id: 'm2', name: '들르기만', steps: [] }];
+    await mount('#/missions');
+    await click($('[data-edit-mission]')); await flush();
+    await click($('[data-look="map"]'));
+    await act(async () => { $('[data-pt="1"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 10, clientY: 10 })); });   // svg 지점
+    expect($('[data-radial]')!.getAttribute('aria-label')).toBe('이 지점의 할 일');
+    expect($$('[data-radial-kind]').map((b) => b.dataset.radialKind)).toEqual(['MOVE', 'GAUGE_READ', 'TEMP_READ', 'GAS_READ', 'PHOTO', 'WAIT', 'OPERATOR_CONFIRM', 'SENSOR_LOG']);
+    expect($('[data-radial-kind="PHOTO"]')!.getAttribute('aria-pressed')).toBe('true');   // m1 = PHOTO
+    for (const k of ['GAUGE_READ', 'TEMP_READ', 'GAS_READ']) { const b = $(`[data-radial-kind="${k}"]`)!; expect(b.getAttribute('aria-disabled')).toBe('true'); expect(b.title).toBe('서버 준비 중'); }
+    expect($('[data-radial-kind="WAIT"]')!.getAttribute('aria-disabled')).toBe('true');   // WAIT 임무 없음
+    await click($('[data-radial-kind="TEMP_READ"]'));   // 꺼진 칸은 아무 일 없음
+    expect($('[data-radial]')).toBeTruthy();
+    await click($('[data-radial-kind="MOVE"]'));
+    expect($('[data-radial]')).toBeNull();
+    await click($('[data-look="list"]'));   // 같은 초안: 고른 지점 1 의 할 일이 «들르기만»(m2) 으로, 지점 2 는 그대로
+    expect($<HTMLSelectElement>('[data-step-job]')!.value).toBe('m2');
+    expect($('[data-row="task"][data-row-i="0"]')!.textContent).toContain('들르기만');
+    expect($('[data-row="task"][data-row-i="1"]')!.textContent).toContain('게이지 읽기');
   });
   it('모의 실행 시간 눈금: 셋으로 나눈 네 눈금 · 자정 넘김 · 모양이 틀리면 비움', () => {
     expect(ticks('15:00', '15:30')).toEqual(['15:00', '15:10', '15:20', '15:30']);
