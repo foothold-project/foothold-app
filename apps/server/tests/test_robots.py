@@ -179,6 +179,30 @@ def test_assignment_recalls_disconnected_phone_without_server_lease(client, seed
         assert str(jti) in [j for item in packet['items'] for j in item['jtis']]
 
 
+@pytest.mark.parametrize('actor', ['one', 'admin'])
+def test_assignment_recalls_admin_phone_control_pass_too(client, seeded, rt, actor):
+    # #544 검토 H1: 총괄도 실기 출입증을 받으므로 담당 변경은 옛 담당뿐 아니라 총괄의 조종 출입증도 회수한다.
+    rid, now_s = seeded['robots']['mine'], int(time.time())
+    passes = {user: uuid4() for user in ('one', 'admin')}
+    with DBSession(client.app.state.engine) as db:
+        db.get(Robot, rid).simulation = False
+        for user, jti in passes.items():
+            db.add(PhonePass(org_id=seeded['org'], user_id=seeded['users'][user], robot_id=rid,
+                device=uuid4(), purpose='control', jti=jti, iat=now_s, exp=now_s + 600))
+        db.commit()
+    with agent(client, seeded, direct=True) as ag:
+        result = client.patch(P + '/robots/' + str(rid), headers=app_token(client, actor),
+                              json={'owner_user_id': str(seeded['users']['two'])})
+        assert result.status_code == 200, result.text
+        wanted, sent = {str(j) for j in passes.values()}, set()
+        for _ in range(3):  # 회수 묶음은 사람·목적별로 나뉠 수 있다
+            packet = receive(ag, 'phone.revoke')
+            sent |= {j for item in packet['items'] for j in item['jtis']}
+            if wanted <= sent:
+                break
+        assert wanted <= sent
+
+
 def test_assignment_change_preserves_admin_subscription_and_phone_direct_gate(client, seeded, rt):
     admin = app_token(client, 'admin')
     rid = seeded['robots']['mine']

@@ -280,6 +280,27 @@ def test_owner_actions_stop_active_control(trial, seeded, operation, actor):
                 assert db.get(Robot, UUID(rid)).field_approval_expires_at is None
 
 
+def test_owner_change_revokes_admin_server_lease(trial, seeded):
+    # #544 검토 H1: 총괄이 서버 조종권을 쥔 채 담당이 바뀌면 그 조종권도 거두고 정지 잠김.
+    own, admin = app_token(trial), app_token(trial, 'admin')
+    rid = str(seeded['robots']['mine'])
+    rt = trial.app.state.realtime
+    with trial.websocket_connect(P + '/agent/ws', headers={
+            'authorization': 'Bearer fake-test-' + rid}) as ag:
+        ag.send_json(hello()); receive(ag, 'stop')
+        receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
+        with screen(trial, admin) as ws:
+            take(ws, ag, rid)
+            before = rt.arbiter.robot(rid).stop_ref
+            assert trial.patch(P + '/robots/' + rid, headers=own, json={
+                'owner_user_id': str(seeded['users']['two'])}).status_code == 200
+            receive(ag, 'lease', predicate=lambda m: m['lease_id'] is None)
+            receive(ag, 'stop')
+            record = rt.arbiter.robot(rid)
+            assert record.holder is None and record.transfer is None and record.latched
+            assert record.stop_ref > before
+
+
 @pytest.mark.parametrize('actor', ['one', 'admin'])
 def test_delete_during_control_is_refused_or_stops_first(trial, seeded, actor):
     # 운영 결정 2026-11-28: 총괄도 담당과 같은 규칙. 조종권이 살아 있으면 409, 지우기 시작과 함께

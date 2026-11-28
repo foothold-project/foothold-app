@@ -734,6 +734,10 @@ def create_app(settings: Settings | None = None):
                 old_owner = row.owner_user_id
                 if changing_owner and old_owner is not None:
                     phone_pass.revoke(db, user.org_id, user_id=old_owner, robot_id=row.id,clock=issuer.clock)
+                if changing_owner:
+                    # 총괄도 실기 조종 출입증을 받는다(운영 결정 2026-11-28). 담당이 바뀌면 누구의 것이든
+                    # 이 로봇의 조종 출입증을 거둔다. 회수 묶음은 에이전트에 phone.revoke 로 간다.
+                    phone_pass.revoke(db, user.org_id, robot_id=row.id, purpose='control', clock=issuer.clock)
                 for key, value in values.items():
                     setattr(row, key, value)
                 if changing_owner:
