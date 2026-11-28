@@ -178,6 +178,11 @@
           "title": "Buildings",
           "type": "array"
         },
+        "demo": {
+          "default": false,
+          "title": "Demo",
+          "type": "boolean"
+        },
         "id": {
           "format": "uuid",
           "title": "Id",
@@ -200,7 +205,8 @@
         "id",
         "name",
         "purpose",
-        "buildings"
+        "buildings",
+        "demo"
       ],
       "title": "MapSite",
       "type": "object"

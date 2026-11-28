@@ -276,7 +276,7 @@ def load_worlds(folder):
                 or not math.isfinite(entry['floor_z']) or generated['size_pixels'] != [width, height]
                 or generated['origin'] != metadata['origin'] or generated['resolution'] != metadata['resolution']):
             raise ValueError('Static map metadata does not match image/YAML/floor')
-        if key in (('warehouse', 'f1'), ('plant_a', 'l1'), ('plant_a', 'l2'), ('plant_a', 'l3')):
+        if key in (('warehouse', 'f1'), ('plant_a', 'l1'), ('plant_a', 'l2'), ('plant_a', 'l3'), ('factory_site', 'f1')):
             _, _, pixels = gray_pixels(png)
             pgm = f'P5\n{width} {height}\n255\n'.encode() + pixels
             metadata['connected_gt'] = dict(world_id=entry['world_id'], ros_building_id=entry['building_id'],
@@ -288,7 +288,10 @@ def load_worlds(folder):
             raise ValueError('Duplicate preset scenario')
         check_clearance(png, metadata, scenarios)
         model, rejected = load_model(root, entry, metadata, width, height)
-        entry = dict(entry, model_glb=model, model_rejected=rejected)
+        # Named places (AREA etc.) from the world file are its canonical zones; checked like editor saves.
+        zones = json.loads(local_file(root, entry['zones']).read_text())['zones'] if entry.get('zones') else []
+        zones = C.MapFeatures(zones=zones, waypoints=[], connectors=[], edits=[]).model_dump(mode='json', exclude_none=True)['zones']
+        entry = dict(entry, model_glb=model, model_rejected=rejected, zone_features=zones)
         result.append((entry, metadata, png, width, height, scenarios))
     return result
 
@@ -390,7 +393,8 @@ def sync_worlds(db, org_id, actor_id, folder, files_root):
             version = MapVersion(provenance='SIMULATION', org_id=org_id, floor_id=floor.id, number=number, base_version_id=floor.approved_version_id,
                 upload_id=upload.id, status='APPROVED', image_path=str(path), image_sha256=digest, width=width, height=height,
                 resolution=metadata['resolution'], origin_x=metadata['origin'][0], origin_y=metadata['origin'][1],
-                origin_yaw=metadata['origin'][2], features=C.MapFeatures(zones=[], waypoints=[], connectors=[], edits=[]).model_dump(), source='IMPORT',
+                origin_yaw=metadata['origin'][2], features=dict(C.MapFeatures(zones=[], waypoints=[], connectors=[], edits=[]).model_dump(),
+                    zones=entry.get('zone_features', [])), source='IMPORT',
                 reason='검토된 시뮬 월드 자동 등록 (2026-10-23 결정)', created_by=actor.id)
             db.add(version)
             db.flush()

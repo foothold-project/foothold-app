@@ -696,7 +696,7 @@ export interface FloorContext {
   run_id: string;
   epoch: number;
   floor_rev: number;
-  world_id: "v5_building" | "plant_a" | "warehouse";
+  world_id: "v5_building" | "plant_a" | "warehouse" | "factory_site";
   building_id: string;
   spawn_floor_id: "l1" | "l2" | "l3" | "f1";
   current_floor_id: "l1" | "l2" | "l3" | "f1" | null;
@@ -948,6 +948,7 @@ export interface MapSite {
   name: string;
   purpose: "SIM" | "REAL";
   buildings: MapBuilding[];
+  demo: boolean;
 }
 
 export interface MapUpdateReason {
@@ -1008,7 +1009,7 @@ export interface MapWaypoint {
 
 export interface MapZone {
   id: string;
-  type: "NO_GO" | "SLOW";
+  type: "NO_GO" | "SLOW" | "AREA";
   name: string;
   polygon: [number, number][];
   max_speed_mps?: number | null;
@@ -2683,7 +2684,7 @@ export interface SimFailureDetail {
 }
 
 export interface SimMapBinding {
-  world_id: "v5_building" | "plant_a" | "warehouse";
+  world_id: "v5_building" | "plant_a" | "warehouse" | "factory_site";
   building_id: string;
   ros_building_id: string;
   ros_floor_id: "l1" | "l2" | "l3" | "f1";

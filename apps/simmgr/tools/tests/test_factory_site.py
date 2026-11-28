@@ -233,3 +233,29 @@ def test_every_leg_keeps_body_radius_clear_and_corridor_fixes_are_listed():
 def test_body_clear_is_exact_box_distance():
     assert S.body_clear(PNG, 450.0, -284.5)  # 주 동서 도로 가운데
     assert not S.body_clear(PNG, 366.0, -240.0)  # 제어실 안
+
+
+AREA_NAMES = ['충전소 1 (정비동 옆)', '정비동 점검대 2', '출하장 옆', '공정 B 철골 계단', '제어실 앞 주도로',
+              '탱크 마당 1 동쪽', '공정 C 배관 밑']
+
+
+def test_area_zones_convert_design_px_to_world_metres():
+    """시안 구역 일곱 (app-design-lx 11/28 14:24): px -> m 는 design.json transform 그대로, 모두 AREA."""
+    design = json.loads((OUT / "design.json").read_text())
+    stored = json.loads((OUT / "zones-f1.json").read_text())
+    assert stored == {'schema': 'factory_site_zones/1', 'zones': S.area_zones(design)}
+    zones = stored['zones']
+    assert [z['name'] for z in zones] == AREA_NAMES
+    assert all(z['type'] == 'AREA' and 'max_speed_mps' not in z for z in zones)
+    assert len({z['id'] for z in zones}) == 7
+    for z, source in zip(zones, design['zones_svg_px']):
+        assert len(z['polygon']) == len(source['px']) == 4
+        assert z['polygon'] == [list(S.design_to_world(px, py, design['transform'])) for px, py in source['px']]
+    # 충전소 1 (2000, 935) px -> (564.2857, -261.4286) m, 꼭짓점 (1970, 905) -> (555.7143, -252.8571)
+    assert zones[0]['polygon'][0] == [555.7143, -252.8571]
+    # 시안 점 셋은 제 구역 안 (구역은 모두 축 정렬 사각형, 서버 규칙 location_zone 은 apps/server 시험이 본다)
+    inside = lambda z, x, y: (min(p[0] for p in z['polygon']) <= x <= max(p[0] for p in z['polygon'])
+                              and min(p[1] for p in z['polygon']) <= y <= max(p[1] for p in z['polygon']))
+    for place_id, name in (('charger-1', '충전소 1 (정비동 옆)'), ('check-2', '정비동 점검대 2'), ('shipping', '출하장 옆')):
+        (x, y), _ = S.place(design, place_id)
+        assert [z['name'] for z in zones if inside(z, x, y)] == [name]

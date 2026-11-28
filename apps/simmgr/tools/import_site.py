@@ -98,6 +98,13 @@ def design_to_world(px, py, transform):
     return round((px - ox) / k, 4), round(-(py - oy) / k, 4)
 
 
+def area_zones(design):
+    """시안 구역 (px 다각형) -> 서버 MapZone (AREA, 세계 m). 세계 구역 정본 zones-f1.json 이 이 값."""
+    return [{'id': z['id'], 'type': 'AREA', 'name': z['name'],
+             'polygon': [list(design_to_world(px, py, design['transform'])) for px, py in z['px']]}
+            for z in design['zones_svg_px']]
+
+
 def world_cell(x, y, h=None):
     """세계 (x, y) -> 지도 (행, 열). 행 0 = 위쪽 (PNG)."""
     h = h or round((BOUNDS[3] - BOUNDS[1]) / RESOLUTION)
@@ -590,6 +597,7 @@ def register():
     if bad:
         raise ValueError(f'프리셋 지점이 0.5 m 여유 밖: {bad}')
     write_json(OUT / f'scenarios-{FLOOR}.json', presets)
+    write_json(OUT / f'zones-{FLOOR}.json', dict(schema='factory_site_zones/1', zones=area_zones(design)))
     table_path = OUT / 'routes-table.json'
 
     spawn = [*start, round(-math.pi / 2, 4)]  # 제어실 앞에서 남쪽 (주도로) 을 봄
@@ -604,8 +612,8 @@ def register():
         world=rel(f'{WORLD_ID}.sdf'), gt_map=rel(f'maps/{FLOOR}.yaml'), map_metadata=rel('maps/metadata.json'),
         ledger_key=f'{WORLD_ID}/{FLOOR}', height_source='static_sdf_collision',
         readiness='offline_prepared', native_supported=False,
-        notes='MuJoCo 로컬 전용. 서버 run.start 지도 묶음은 계약 SIM_WORLD_FLOORS 에 없어 아직 안 됨.',
-        scenarios=rel(f'scenarios-{FLOOR}.json'),
+        notes='MuJoCo 로컬 전용.',
+        scenarios=rel(f'scenarios-{FLOOR}.json'), zones=rel(f'zones-{FLOOR}.json'),
         sha256=dict(world=digest(OUT / f'{WORLD_ID}.sdf'), map=digest(OUT / 'maps' / f'{FLOOR}.yaml'),
                     metadata=digest(OUT / 'maps/metadata.json')),
         mesh_sha256={})

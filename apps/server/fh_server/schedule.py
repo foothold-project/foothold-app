@@ -14,8 +14,9 @@ from apps.contracts import models as C
 from . import idempotency
 from .event_messages import render
 from .robots import robot_objects
-from .models import (Assignment, Building, Event, Floor, MissionVersion, Robot, Scenario, ScenarioVersion,
+from .models import (Assignment, Building, Event, Floor, MapVersion, MissionVersion, Robot, Scenario, ScenarioVersion,
                      ScheduleSlot, now)
+from .zones import location_zone
 
 # 미실측 추정 표. 실기 · 시뮬에서 잰 값이 아니다. 잰 값이 생기기 전까지 estimate_source 는
 # 항상 TABLE_UNMEASURED 다. 값을 바꿀 때는 이 표 한 곳만 고친다.
@@ -264,6 +265,22 @@ def install(app, DB, Identity, fail):
                 busy[row.robot_id] = (row, names[row.id])
         places = floor_labels(db, user.org_id, {s.location.floor_id for s in summaries.values()
                                                 if s.location and s.location.floor_id})
+        # Named zone the robot stands in (smallest area, then id; any type), else building · floor.
+        # The pose's map version, or its floor's approved version when the robot did not say.
+        approved = dict(db.execute(select(Floor.id, Floor.approved_version_id).where(Floor.org_id == user.org_id,
+            Floor.id.in_(places))).all()) if places else {}
+        version_of = lambda location: location.map_version_id or approved.get(location.floor_id)
+        versions = {version_of(s.location) for s in summaries.values() if s.location} - {None}
+        zones = {v.id: v.features.get('zones', []) for v in db.scalars(select(MapVersion).where(
+            MapVersion.org_id == user.org_id, MapVersion.id.in_(versions)))} if versions else {}
+        def place(location):
+            if location is None:
+                return None
+            if location.x is not None and location.y is not None and version_of(location) in zones:
+                zone = location_zone(zones[version_of(location)], location.x, location.y)
+                if zone is not None:
+                    return zone['name']
+            return places.get(location.floor_id)
         items = []
         for robot in robots:
             summary = summaries[robot.id]
@@ -274,7 +291,7 @@ def install(app, DB, Identity, fail):
                 busy_until=slot.end_at if slot else None, busy_slot_id=slot.id if slot else None,
                 busy_label=label, battery_pct=summary.battery.soc if summary.battery else None,
                 demo=summary.demo is True, sim=robot.simulation is True,
-                location_label=places.get(summary.location.floor_id) if summary.location else None))
+                location_label=place(summary.location)))
         return C.RobotAvailabilityList(items=items)
 
     @app.post('/api/v1/estimates', response_model=C.Estimate)

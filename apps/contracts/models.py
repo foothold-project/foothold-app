@@ -174,7 +174,7 @@ class Battery(Contract):
 
 
 # Sim worlds whose observations carry a floor context; the only world-to-floor table.
-SIM_WORLD_FLOORS = {'v5_building': ('l1', 'l2'), 'plant_a': ('l1', 'l2', 'l3'), 'warehouse': ('f1',)}
+SIM_WORLD_FLOORS = {'v5_building': ('l1', 'l2'), 'plant_a': ('l1', 'l2', 'l3'), 'warehouse': ('f1',), 'factory_site': ('f1',)}
 
 
 class FloorContext(Contract):
@@ -188,7 +188,7 @@ class FloorContext(Contract):
     run_id: str = Field(min_length=1, max_length=128)
     epoch: int = Field(ge=0, strict=True)
     floor_rev: int = Field(ge=0, strict=True)
-    world_id: Literal['v5_building', 'plant_a', 'warehouse']
+    world_id: Literal['v5_building', 'plant_a', 'warehouse', 'factory_site']
     building_id: UUID
     spawn_floor_id: Literal['l1', 'l2', 'l3', 'f1']
     current_floor_id: Literal['l1', 'l2', 'l3', 'f1'] | None
@@ -2053,6 +2053,8 @@ class MapSite(Contract):
     name: str
     purpose: SitePurpose
     buildings: list[MapBuilding] = Field(default_factory=list)
+    # SIM site whose world has a demo robot (Robot.demo); REAL sites are always false.
+    demo: bool = False
 
 
 class SiteTree(Contract):
@@ -2064,11 +2066,12 @@ MapCoordinate = Annotated[float, Field(strict=True)]
 
 
 class MapZone(Contract):
-    model_config = ConfigDict(json_schema_serialization_defaults_required=False, json_schema_extra={
-        'if': {'properties': {'type': {'const': 'NO_GO'}}},
-        'then': {'not': {'required': ['max_speed_mps']}}})
+    # AREA = a named place only (location label). No movement rule, so no speed value.
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False, json_schema_extra={'allOf': [
+        {'if': {'properties': {'type': {'const': kind}}}, 'then': {'not': {'required': ['max_speed_mps']}}}
+        for kind in ('NO_GO', 'AREA')]})
     id: str = Field(min_length=1, max_length=128, pattern=r'\S')
-    type: Literal['NO_GO', 'SLOW']
+    type: Literal['NO_GO', 'SLOW', 'AREA']
     name: str = Field(min_length=1, max_length=128, pattern=r'\S')
     polygon: list[tuple[MapCoordinate, MapCoordinate]] = Field(min_length=3, max_length=256)
     max_speed_mps: Annotated[float, Field(strict=True, ge=0.3, le=1.5)] | None = Field(
@@ -2076,8 +2079,8 @@ class MapZone(Contract):
 
     @model_validator(mode='after')
     def slow_speed_only(self):
-        if self.type == 'NO_GO' and 'max_speed_mps' in self.model_fields_set:
-            raise ValueError('NO_GO cannot specify max_speed_mps')
+        if self.type in ('NO_GO', 'AREA') and 'max_speed_mps' in self.model_fields_set:
+            raise ValueError(f'{self.type} cannot specify max_speed_mps')
         return self
 
 
@@ -3666,7 +3669,7 @@ class SimRemove(Contract):
 
 class SimMapBinding(Contract):
     """Server-verified canonical GT registration; PNG and PGM hashes are distinct."""
-    world_id: Literal['v5_building', 'plant_a', 'warehouse']
+    world_id: Literal['v5_building', 'plant_a', 'warehouse', 'factory_site']
     building_id: UUID
     ros_building_id: str = Field(min_length=1, max_length=64)
     ros_floor_id: Literal['l1', 'l2', 'l3', 'f1']

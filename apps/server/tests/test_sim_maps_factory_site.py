@@ -17,7 +17,8 @@ def test_factory_site_map_plate_reads_with_simulation_thresholds():
     entry, metadata, png, width, height, _ = factory_site()
     assert (entry['floor_id'], entry['floor_z'], width, height) == ('f1', 0.0, 1800, 1120)
     assert metadata['resolution'] == .5 and metadata['origin'] == [0.0, -560.0, 0.0]
-    assert 'connected_gt' not in metadata  # 서버 run.start 묶음은 계약 SIM_WORLD_FLOORS 에 넣은 뒤
+    # 서버 run.start 지도 묶음 (계약 SIM_WORLD_FLOORS 에 factory_site 를 넣음, app-lx 11/28 14:25)
+    assert metadata['connected_gt']['world_id'] == 'factory_site' and metadata['connected_gt']['ros_floor_id'] == 'f1'
     assert 'factory_site' in supported_world_ids()
     x, y, _ = entry['spawn_xyyaw']
     check_clearance(png, metadata, [{'waypoints': [{'x': x, 'y': y}]}])

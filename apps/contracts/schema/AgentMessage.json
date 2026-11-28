@@ -1679,7 +1679,8 @@
           "enum": [
             "v5_building",
             "plant_a",
-            "warehouse"
+            "warehouse",
+            "factory_site"
           ],
           "title": "World Id",
           "type": "string"
