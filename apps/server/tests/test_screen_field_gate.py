@@ -71,3 +71,22 @@ def test_server_side_reason_is_not_doubled_by_closed_field_gate(relay):
     peer.state_received_at = realtime.clock()
     peer.state['field_gate'] = 'CLOSED'
     assert summary(realtime, rid, owner).server_drive_blocked == ['AGENT_OFFLINE']
+
+
+def test_stop_applied_only_when_agent_reports_latest_server_stop(runtime):
+    # Review H1: a gate-close latch (agent reports stop_ref 0 or an older ref)
+    # must not read as the human STOP being applied.
+    realtime, rid, other = runtime
+    peer = realtime.agents[rid]
+    realtime.arbiter.robots = {rid: SimpleNamespace(stop_ref=3)}
+    accept = lambda **kw: Realtime.accept_state(realtime, rid, peer, C.AgentState.model_validate(state(**kw)))
+    assert accept(stop_ref=3)
+    assert Realtime.screen_state(realtime, rid)['stop_applied'] is True
+    assert accept(stop_ref=0, field_gate='CLOSED')
+    assert Realtime.screen_state(realtime, rid)['stop_applied'] is False
+    assert accept(stop_ref=2, field_gate='OPEN')
+    assert Realtime.screen_state(realtime, rid)['stop_applied'] is False
+    assert Realtime.screen_state(realtime, other)['stop_applied'] is None
+    assert accept(stop_ref=3)
+    realtime.clock.step(3.001)
+    assert Realtime.screen_state(realtime, rid)['stop_applied'] is None
