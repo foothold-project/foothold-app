@@ -253,11 +253,48 @@ describe('B1 폭 전환', () => {
     expect($('main').getAttribute('aria-label')).toBe('로봇 연결');
     expect($('nav')).toBeNull();
     expect(location.hash).toBe('#/drive');
+    resize(false);   // 폰에 없던 지도 탭은 기억해 뒀다가 PC 로 돌아오면 되돌린다(11-28 조정 결정)
+    expect($('h1').textContent).toBe('지도');
+    expect(location.hash).toBe('#/map');
+    expect($('nav a[aria-current="page"]').getAttribute('href')).toBe('#/map');
+  });
+});
+
+// 창 줄였다 넓히기(태블릿 돌리기 · 창 나누기): 새 배치에 없는 탭은 첫 탭을 보이되 고른 탭을 기억해 돌아온다. 그 사이 직접 고르면 그 고름이 이김
+describe('폭 전환 뒤 고른 탭 기억', () => {
+  it('운영 관리자: 설정 → 폰 폭 → PC 폭이면 설정', () => {
+    mount(false, 'u-lee', '#/settings');
+    resize(true);
+    expect(location.hash).toBe('#/drive');
     resize(false);
-    expect($('h1').textContent).toBe('로봇');
+    expect(location.hash).toBe('#/settings');
+    expect($('main').getAttribute('aria-label')).toBe('설정');
+    expect($('nav a[aria-current="page"]').getAttribute('href')).toBe('#/settings');
+  });
+  it('운영 관리자: 지도 → 폰 폭 → PC 폭이면 지도, 두 번 오가도 그대로', () => {
+    mount(false, 'u-lee', '#/map');
+    resize(true); resize(false);
+    expect(location.hash).toBe('#/map');
+    resize(true); resize(false);
+    expect($('main').getAttribute('aria-label')).toBe('지도');
+  });
+  it('폰 폭에서 조종을 직접 고르면 PC 폭은 기본 탭(설정으로 안 감)', () => {
+    mount(false, 'u-lee', '#/settings');
+    resize(true);
+    click($$('.dv-card button')[0]);
+    expect(location.hash).toBe('#/drive/r3');
+    resize(false);
     expect(location.hash).toBe('#/fleet');
-    expect($('nav a[aria-current="page"]').getAttribute('href')).toBe('#/fleet');
-    expect($('[aria-label="로봇 연결 상태"]')).not.toBeNull();   // 운영 관리자 로봇 탭 = 한 대 집중(상태 한 줄)
+    expect($('main').getAttribute('aria-label')).toBe('로봇');
+  });
+  it('총괄(터치 아닌 PC)은 좁아져도 PC 배치 그대로 — 설정 유지', () => {
+    mount(false, 'u-kim', '#/settings');
+    const mm = window.matchMedia;   // 폭만 좁아지고 터치는 아님
+    window.matchMedia = ((q: string) => q === '(pointer: coarse)' ? { matches: false, media: q, addEventListener() {}, removeEventListener() {} } : mm(q)) as typeof window.matchMedia;
+    resize(true);
+    expect(location.hash).toBe('#/settings');
+    resize(false);
+    expect(location.hash).toBe('#/settings');
   });
 });
 
