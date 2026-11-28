@@ -22,6 +22,9 @@ export const TEX_LOOK = {
   dark: { bg: 0x0b0f14, hemi: [0xa8b8cc, 0x161c24, 1.4] as const, sun: 1.3, exp: 0.72 },
 };
 export const SITE_GLB = `${ASSET}/assets/maps_large/3d/factory_site.glb`, GO2_GLB = `${ASSET}/shared/go2_isaac.glb`, WALK_JSON = `${ASSET}/shared/go2_walk.json`;
+/** 공장 부지 위 그림 크기(px) · 배율(px/m) · 그림 원점(px). 부지 그림을 바꿀 때(rev 2 = 3500 px 등) 여기 한 곳만 고친다.
+ *  쓰는 곳: simcam(데모 판 판정 · 그림 좌표) · mapframe(지도 위 그림) · u7 site3d(현장 크기 · 작은 지도 칸) · u5map(바닥 판) */
+export const SITE_PX_W = 3200, SITE_PX_H = 2000;
 /** 지도 px → 현장 m (site3d.js K · OX · OY) */
 export const K = 3.5, OX = 25, OY = 20;
 export const toWorld = (px: number, py: number, y = 0) => new THREE.Vector3((px - OX) / K, y, (py - OY) / K);

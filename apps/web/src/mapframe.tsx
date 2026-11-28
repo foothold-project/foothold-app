@@ -7,7 +7,7 @@ import type { MapVersion } from '../../contracts/ts';
 import { api } from './api';
 import { terrainTop } from './terraintop';
 import { stageRect } from './stage';
-import { K, OX, OY, SITE_TOP } from './proto/site';
+import { K, OX, OY, SITE_PX_H, SITE_PX_W, SITE_TOP } from './proto/site';
 import { useTheme } from './theme';
 
 export type Box = [number, number, number, number];   // x y 폭 높이(그림 픽셀)
@@ -44,7 +44,7 @@ export function FactoryImage({ v }: { v: Pick<MapVersion, 'origin' | 'resolution
   const [ox, oy, yaw] = v.origin, c = Math.cos(yaw), s = Math.sin(yaw);
   const at = (px: number, py: number) => { const dx = (px - OX) / K - ox, dy = (OY - py) / K - oy; return [(c * dx + s * dy) / v.resolution, v.height - (-s * dx + c * dy) / v.resolution]; };
   const [e, f] = at(0, 0), [x1, y1] = at(1, 0), [x2, y2] = at(0, 1);
-  return <image href={SITE_TOP[light ? 'light' : 'dark']} data-factory width={3200} height={2000} preserveAspectRatio="none" transform={`matrix(${[x1 - e, y1 - f, x2 - e, y2 - f, e, f].join(' ')})`} style={{ pointerEvents: 'none' }} />;
+  return <image href={SITE_TOP[light ? 'light' : 'dark']} data-factory width={SITE_PX_W} height={SITE_PX_H} preserveAspectRatio="none" transform={`matrix(${[x1 - e, y1 - f, x2 - e, y2 - f, e, f].join(' ')})`} style={{ pointerEvents: 'none' }} />;
 }
 
 /** 시뮬 월드 «실제 모습»: mobile/scripts/make-top.mjs 가 구운 top.png 와 그 범위 top.json(사진이 덮는 지도 좌표 [x0, y0, x1, y1] m + 그 지도 판).

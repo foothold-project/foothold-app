@@ -5,12 +5,12 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { K, OX, OY, SITE_TOP, TEX_LOOK, lightNow, loadGo2, loadSite, ringLine, sitePose, toneSite } from '../../proto/site';
+import { K, OX, OY, SITE_PX_H, SITE_PX_W, SITE_TOP, TEX_LOOK, lightNow, loadGo2, loadSite, ringLine, sitePose, toneSite } from '../../proto/site';
 import { useRt } from '../../rt';
 import type { Robot } from '../../fake';
 import { whereOf } from '../map3d';
 
-const SITE_W = 3200 / K, SITE_H = 2000 / K;   // 공장 그림 전체(m)
+const SITE_W = SITE_PX_W / K, SITE_H = SITE_PX_H / K;   // 공장 그림 전체(m)
 
 type View = 'iso' | 'k01';
 /** 시안 카메라(build_scene.py look_cam): 대상(현장 m) · 거리 · 렌즈(36 mm 가로 기준). iso 는 단지 폭(916 m)이 가로에 꽉 차게(fit_cam) */
@@ -100,7 +100,7 @@ export function DemoSite3D({ preview, nogo = true, robots = [], floor = '', vid 
           ray.setFromCamera(new THREE.Vector2(u, w), cam);
           if (ray.ray.intersectPlane(floor, hit)) { xs.push(hit.x); zs.push(hit.z); } else { xs.push(u < 0 ? -OX / K : SITE_W); zs.push(-OY / K); }
         }
-        const px = (x: number) => Math.min(1, Math.max(0, (x * K + OX) / 3200)), py = (z: number) => Math.min(1, Math.max(0, (z * K + OY) / 2000));
+        const px = (x: number) => Math.min(1, Math.max(0, (x * K + OX) / SITE_PX_W)), py = (z: number) => Math.min(1, Math.max(0, (z * K + OY) / SITE_PX_H));
         const l = px(Math.min(...xs)), r = px(Math.max(...xs)), t = py(Math.min(...zs)), b = py(Math.max(...zs));
         setBox([l, t, r - l, b - t]);
       };
