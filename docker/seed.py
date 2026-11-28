@@ -13,13 +13,6 @@ from pathlib import Path
 import secrets
 from uuid import UUID, uuid5
 
-from sqlalchemy import create_engine, func, select
-from sqlalchemy.orm import Session
-
-from apps.server.fh_server.api import event
-from apps.server.fh_server.models import Organization, Robot, User
-from apps.server.fh_server.security import digest, hash_password, token
-from apps.server.fh_server.sim_maps import WORLD_FOLDER, sync_worlds
 
 
 ACCOUNTS = (('local-operator', '로컬 운영자', 'OPERATOR'),
@@ -70,7 +63,16 @@ def ensure_secrets(path, repository):
     return {key: os.environ.get(key) or stored[key] for key in secret_keys()}
 
 
-def seed(database_url, org_id, files_root, admin_username, passwords, worlds=WORLD_FOLDER):
+def seed(database_url, org_id, files_root, admin_username, passwords, worlds=None):
+    # Server imports stay here: tools/local_up.py reads the account file with plain python3.
+    from sqlalchemy import create_engine, func, select
+    from sqlalchemy.orm import Session
+
+    from apps.server.fh_server.api import event
+    from apps.server.fh_server.models import Organization, Robot, User
+    from apps.server.fh_server.security import digest, hash_password, token
+    from apps.server.fh_server.sim_maps import WORLD_FOLDER, sync_worlds
+
     missing = [password_key(name) for name, *_ in ACCOUNTS if not passwords.get(password_key(name))]
     if missing:
         raise ValueError(f'.env의 {missing[0]} 값을 채우세요')
@@ -90,7 +92,7 @@ def seed(database_url, org_id, files_root, admin_username, passwords, worlds=WOR
                     db.add(user)
                     db.flush()
                     event(db, org_id, 'USER_CREATED', admin.id, {'user_id': str(user.id), 'role': role})
-            sync_worlds(db, org_id, admin.id, worlds, files_root)
+            sync_worlds(db, org_id, admin.id, worlds or WORLD_FOLDER, files_root)
             robot_id = uuid5(NAMESPACE, f'{org_id}/sim-robot-1')
             if db.get(Robot, robot_id) is None:
                 # Same shape as an unowned slot after a rejected start; no manager needed.

@@ -34,6 +34,24 @@ lockfile에 맞춘다. 서버 소스를 고치면 `docker compose up --build ser
 시뮬 프로세스를 실행하지 않아도 필요하다. `worlds.json`이 참조하는 YAML·PNG·메타데이터·시나리오를
 빠뜨리지 않도록 `worlds` 디렉터리를 복사하고 `.dockerignore`에서도 허용한다.
 
+## 입구 스크립트와 Docker 없이 띄우기
+
+`python3 tools/local_up.py` 는 `.env` 가 없으면 `.env.example` 로 만들고, 쓰는 포트가 비었는지 보고,
+비밀번호(DB · 최초 총괄 · 시험 운영 계정 둘)를 저장소 밖 계정 파일
+(`FH_LOCAL_SECRETS`, 기본 `~/.config/foothold-local/accounts.env`, 권한 600)에 한 번 만든다.
+값은 화면에 쓰지 않는다. 이미 있는 값과 셸 환경 값은 바꾸지 않는다. 끝에 다음 명령을 보여 준다.
+
+- `python3 tools/local_up.py --docker`: 위 준비 뒤 `docker compose --env-file .env --env-file <계정 파일> up --build`
+- `<서버 venv>/bin/python tools/local_up.py --no-docker`: Docker 없이 pgserver 의 PostgreSQL 을
+  `127.0.0.1:FH_DB_PORT` 에 띄우고(자료는 `FH_LOCAL_DATA`, 기본 `~/.local/share/foothold-local`)
+  `docker/server.py` 로 초기화한 뒤 API 를 `127.0.0.1:FH_API_PORT` 에 띄운다. venv 에
+  `apps/server/requirements-test.txt` 가 있어야 한다. DB 는 `--stop` 으로 멈춘다.
+
+`FH_SEED=1` 이면 서버가 시작할 때 `docker/seed.py` 가 시험 자료를 넣는다: 운영 계정
+`local-operator` · `local-operator-2`, 시뮬 로봇 칸 하나(시뮬 관리자 없이 대기 상태),
+저장소 `apps/simmgr/worlds` 의 월드 지도 · 임무 · 시나리오(서버의 `sim_maps.sync_worlds`).
+두 번 돌려도 늘지 않고 비밀번호를 바꾸지 않는다. 실행 기록 · 넘어짐 사건은 로봇이 보내야 생기므로 넣지 않는다.
+
 ## 환경 변수와 포트
 
 `.env`는 Git에서 제외된다. 실제 계정·비밀번호·서버 주소를 예제에 옮기지 않는다.
@@ -42,6 +60,9 @@ lockfile에 맞춘다. 서버 소스를 고치면 `docker compose up --build ser
 | 항목 | 로컬에서 하는 일 |
 |---|---|
 | `FH_WEB_PORT`, `FH_API_PORT` | 호스트 포트(기본 5180, 8810); 컨테이너 포트는 5180, 8810으로 고정 |
+| `FH_DB_PORT` | `--no-docker` 의 PostgreSQL 포트(기본 55480). Compose 는 DB 포트를 공개하지 않음 |
+| `FH_SEED`, `FH_SEED_PASSWORD_*` | 시험 자료 넣기(1)와 시험 운영 계정 비밀번호; 비밀번호는 계정 파일에 둠 |
+| `FH_PORT` | `docker/server.py` 의 API 포트(없으면 8810). Compose 에서는 쓰지 않음 |
 | `FH_DB_USER`, `FH_DB_NAME` | 전용 DB 초기 관리자·DB 이름; 관리자 이름으로 `fh_app`·`fh_migrate`·`fh_readonly`는 사용 불가 |
 | `FH_DB_PASSWORD` | 로컬 DB 관리자와 전용 역할의 비밀번호; 빈 값은 시작 거절 |
 | `FH_DATABASE_URL` | `db:5432`의 `fh_app` SQLAlchemy 주소; 비밀번호는 `FH_DB_PASSWORD`에서 URL 인코딩해 주입 |
