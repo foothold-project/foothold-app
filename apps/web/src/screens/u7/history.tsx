@@ -11,7 +11,7 @@ import '../../proto/light.pv.css';
 import './u7.css';
 
 const md = (iso: string) => { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
-const SAME = '#9aa19d';
+const SAME = 'var(--u7-same)';   // 시안 「같음」 회색 · 밝은 판은 u7.css 에서 바꿈
 const GONE = '이 기록을 찾을 수 없습니다. 지워졌을 수 있어 새로 불러오세요.';
 const light = () => typeof document !== 'undefined' && document.documentElement.dataset.theme === 'light';
 
