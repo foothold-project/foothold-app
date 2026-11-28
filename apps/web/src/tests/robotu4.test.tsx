@@ -10,7 +10,7 @@ import { simTune } from '../phone';
 import { SIDE_BLOCK, axesOf, canDrive, tokStick } from '../serverdrive';
 import { deadzone, keyStick, stickVelocity, teleopCaps } from '../../../contracts/teleop';
 import { keyAxes } from '../simdrive';
-import { barChipText, checkShort, driveLabel, hotBub, jointTip, railOrder } from '../screens/u4/robotu4';
+import { barChipText, checkShort, driveLabel, hotBub, jointTip, railOrder, simTok } from '../screens/u4/robotu4';
 import { rt } from '../rt';
 import { api } from '../api';
 import u4css from '../screens/u4/u4.css?raw';
@@ -956,9 +956,17 @@ describe('조종 한 식 (contracts teleop · 팀장 11-28 23:08)', () => {
     expect(f).toBeCloseTo(Math.sqrt(0.6 / 1.0), 9); expect(t).toBe(1); expect(y).toBe(1);
     expect(keyAxes(['forward'], { ...(w as object), simulation: false } as never)[0]).toBe(1);
   });
+  it('시뮬 손잡이: 방향 토큰 문턱 없이 기울기 그대로 → 문턱은 teleop 데드존 하나 (검토 00:53)', () => {
+    expect(simTok([0.15, 0, 0])).toEqual(['up']); expect(simTok([0, -0.12, 0])).toEqual(['right']); expect(simTok([0, 0, 0.2])).toEqual(['rotl']); expect(simTok([0, 0, 0])).toEqual([]);
+    // 0.3 아래 기울기도 나감: 전진 0.2 → 0.2·0.2 × sim_max_vx 1.0 = 0.04 · 데드존(0.1) 안 0.05 → 0
+    expect(axesOf(simTok([0.2, 0, 0]), ORG, true, [0.2, 0, 0])[0]).toBeCloseTo(0.04, 6);
+    expect(axesOf(simTok([0, 0, 0.2]), ORG, true, [0, 0, 0.2])[2]).toBeCloseTo(0.2, 6);
+    expect(axesOf(simTok([0.05, 0, 0]), ORG, true, [0.05, 0, 0])).toEqual([0, 0, 0]);
+    expect(u4src).toContain('put(e.pointerId, el, sim ? simTok(an) : stickTok(side, x, y), an);');
+  });
   it('키를 누르면 로봇 탭 화면 손잡이도 그 자리로 (보내는 식과 같은 자리)', () => {
     expect(u4src).toContain("keyPos = tokStick(d.on ? (d.on.split('+') as Tok[]) : [], tune, !!d.sim)");
-    expect(u4src).toContain('<Stick side="L" put={d.stick} show={[-keyPos[1], -keyPos[0]]} /><Stick side="R" put={d.stick} show={[-keyPos[2], 0]} />');
+    expect(u4src).toContain('<Stick side="L" put={d.stick} show={[-keyPos[1], -keyPos[0]]} sim={!!d.sim} /><Stick side="R" put={d.stick} show={[-keyPos[2], 0]} sim={!!d.sim} />');
   });
 });
 

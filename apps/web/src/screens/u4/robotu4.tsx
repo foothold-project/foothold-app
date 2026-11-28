@@ -275,7 +275,10 @@ function Stage({ r, q, down, walk, pad, drive, hot, temps }: { r: Robot; q: numb
 export const jointTip = (j: string, c: number | null | undefined) => `${jointName(`${j}_joint`)} ${c == null ? '온도 보고 없음' : `${Math.round(c)} °C`}`;
 
 /** 손잡이 하나(시안 .stick): 왼쪽 = 앞(세로만 · 뒤로는 막음) · 오른쪽 = 돌기(가로만). 처음 잡은 손가락 하나만 */
-function Stick({ side, put, show }: { side: 'L' | 'R'; put: (p: number, el: HTMLElement, t: Tok[], an?: [number, number, number]) => void;
+/** 시뮬 손잡이 기울기 [전후, 옆, 돌기] → 방향 토큰(문턱 없음 · 0 이 아니면 그 방향). 속도 · 데드존은 serverdrive axesOf(teleop) 가 기울기로 정함 */
+export const simTok = ([f, y, t]: [number, number, number]): Tok[] => (f > 0 ? ['up'] : f < 0 ? ['down'] : y > 0 ? ['left'] : y < 0 ? ['right'] : t > 0 ? ['rotl'] : t < 0 ? ['rotr'] : []);
+function Stick({ side, put, show, sim }: { side: 'L' | 'R'; put: (p: number, el: HTMLElement, t: Tok[], an?: [number, number, number]) => void;
+  /** 시뮬 · 데모: 방향 토큰 문턱(0.3) 없이 기울기 그대로 → 문턱은 teleop 데드존 하나(serverdrive axesOf). 실기는 표라 stickTok 문턱 */ sim?: boolean;
   /** 키로 누른 막대 자리(-1..1 · 화면 x 오른쪽 + · y 아래 +) · 손가락으로 끄는 동안은 끈 자리가 이김 (팀장 23:08 키보드를 누르면 화면 손잡이도 움직임) */ show?: [number, number] }) {
   const own = useRef<number | null>(null), [xy, setXy] = useState([0, 0]), box = useRef<HTMLDivElement>(null);
   const km = (box.current?.clientWidth ?? 0) * 0.3, shown = xy[0] || xy[1] || !show ? xy : [show[0] * km, show[1] * km];
@@ -287,8 +290,8 @@ function Stick({ side, put, show }: { side: 'L' | 'R'; put: (p: number, el: HTML
     if (side === 'L') { if (Math.abs(y) >= Math.abs(x)) setXy([0, y * m]); else setXy([x * m, 0]); }
     else setXy([x * m, 0]);
     // 기울기(시뮬은 teleop 비례 · 실기는 표라 안 씀): 그림과 같은 한 축만 [전후, 옆, 돌기]
-    const big = side === 'L' && Math.abs(y) >= Math.abs(x);
-    put(e.pointerId, el, stickTok(side, x, y), side === 'R' ? [0, 0, -x] : big ? [-y, 0, 0] : [0, -x, 0]);
+    const big = side === 'L' && Math.abs(y) >= Math.abs(x), an: [number, number, number] = side === 'R' ? [0, 0, -x] : big ? [-y, 0, 0] : [0, -x, 0];
+    put(e.pointerId, el, sim ? simTok(an) : stickTok(side, x, y), an);
   };
   const end = (e: PEv<HTMLDivElement>) => { if (e.pointerId !== own.current) return; own.current = null; setXy([0, 0]); put(e.pointerId, e.currentTarget, []); };
   return <div ref={box} className={`stick${shown[0] || shown[1] ? ' on' : ''}`} style={side === 'L' ? { left: '26px' } : { right: '26px' }} data-u4-stick={side} data-u4-stick-key={show && (show[0] || show[1]) ? show.map((v) => v.toFixed(3)).join(',') : undefined}
@@ -578,7 +581,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
         <div className="g dk keys" data-u4-keys><span title="앞으로 걷기"><kbd>↑</kbd>앞</span><span title="뒤로 걷기"><kbd>↓</kbd>뒤</span><span title="옆걸음"><kbd>←</kbd><kbd>→</kbd>옆</span><span title="제자리 돌기"><kbd>A</kbd><kbd>D</kbd>돌기</span><span data-u4-key-combo title="↑ 와 A 또는 D 를 같이 누르면 앞으로 가며 돕니다"><kbd>↑</kbd><kbd>A</kbd><kbd>D</kbd>돌며 앞</span><span title="정지"><kbd>Space</kbd>정지</span><span title="보기 칸 바꾸기"><kbd>1</kbd>~<kbd>4</kbd>화면</span><span title="Shift + 1 ~ 4 걷기 모드"><kbd>⇧</kbd><kbd>1</kbd>~<kbd>4</kbd>모드</span></div>
       </div>
       <div className={`deck joybig${latched ? ' dim' : ''}`} data-u4-deck data-ready={ready || undefined}>
-        <Stick side="L" put={d.stick} show={[-keyPos[1], -keyPos[0]]} /><Stick side="R" put={d.stick} show={[-keyPos[2], 0]} />
+        <Stick side="L" put={d.stick} show={[-keyPos[1], -keyPos[0]]} sim={!!d.sim} /><Stick side="R" put={d.stick} show={[-keyPos[2], 0]} sim={!!d.sim} />
         <div className="act">{ACTS.map(([name, t, em, ic]) => {
           const off = offAct(name);
           return <div key={name} className={off ? 'no' : undefined} {...(off && name === 'StandUp' ? { 'data-why': STANDUP_WHY } : {})} role="button" tabIndex={0} data-u4-act={name} onClick={() => act(name)}>
