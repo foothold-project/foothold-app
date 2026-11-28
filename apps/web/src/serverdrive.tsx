@@ -21,7 +21,7 @@ import type { OrgSettings, UnlockRefused } from '../../contracts/ts';
 import orgSettingsSchema from '../../contracts/schema/OrgSettings.json';
 
 /** 누름 하나: up·down = 전후, left·right = 옆걸음, rotl·rotr = 제자리 회전(A·D) */
-type Tok = 'up' | 'down' | 'left' | 'right' | 'rotl' | 'rotr';
+export type Tok = 'up' | 'down' | 'left' | 'right' | 'rotl' | 'rotr';
 /** 계약 JSON 스키마 중 OrgSettings 가 쓰는 낱말만(type·required·properties·additionalProperties·anyOf·minimum·maximum). 모르는 type 은 거절 */
 type Schema = { type?: string; required?: string[]; properties?: Record<string, Schema>; additionalProperties?: boolean | Schema; anyOf?: Schema[]; minimum?: number; maximum?: number };
 const plain = (o: unknown): o is Record<string, unknown> => !!o && typeof o === 'object' && !Array.isArray(o);
@@ -186,7 +186,10 @@ export const keepDrive = (c: Pick<Ctx, 'user' | 'phone' | 'cancel'>, r: Robot) =
 
 /** 조종 논리 하나(조종권·키·누름 단추·deadman 0·STOP·잠금 해제·자세) — 작은 패널(ServerDrive)과 PC 로봇 탭 세 칸 화면(pcdrive.tsx)이 같이 쓴다.
  *  한 화면에 하나만 붙인다(키·조종권이 하나). esc = Esc 를 눌렀을 때(패널의 전체화면 닫기) */
-export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: () => void }) {
+/** 키 배치를 화면마다 달리 줄 때(로봇 탭 시안 u4: ↑ 앞으로 · ← → 돌기 · ↓ 막힘). block = 누르면 보내지 않고 까닭만 보이는 키 */
+export type DriveKeys = { map: Record<string, Tok>; block?: Record<string, string> };
+export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: () => void }, keyset?: DriveKeys) {
+  const KEYS = keyset?.map ?? KEY, BLOCK = keyset?.block ?? {};
   const settings = useTuneSettings(), settingsRef = useRef(settings); settingsRef.current = settings;
   // got = 이 화면이 조직 설정을 받음(그리고 지금 공용 설정이 검증된 객체 — simTune(null) 로 비면 못 받음). 받기 전(앞 화면이 남긴 값 포함)·못 받으면 입력은 0 — 기본 상한 1.5 로 보내 서버가 거절·STOP 하지 않게(폰 drive.tsx 와 같게)
   const [got, setGot] = useState(false), gotRef = useRef(got); gotRef.current = got;
@@ -215,7 +218,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   /** 지금 세대에 누른 것. 앞 세대에 누른 키·단추가 아직 눌려 있으면 null(→ 0) */
   const pressed = (): Set<Tok> | null => {
     const n = sync(), out = new Set<Tok>();
-    for (const [c, x] of keys.current) { if (x !== n) return null; out.add(KEY[c]); }
+    for (const [c, x] of keys.current) { if (x !== n) return null; out.add(KEYS[c]); }
     for (const p of pads.current.values()) { if (p.n !== n) return null; p.t.forEach((t) => out.add(t)); }
     return out;
   };
@@ -237,6 +240,13 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
     if (readyRef.current && permitted(command(t), settingsRef.current)) setWhy(''); changed();
   };
   const lift = (p: number) => { if (pads.current.delete(p)) changed(); };
+  /** 손잡이(시안 u4 조이스틱): 끄는 동안 방향이 바뀌면 같은 누름 세대로 바꾸고, 빈 방향이면 놓음 */
+  const stick = (p: number, el: HTMLElement, t: Tok[]) => {
+    const was = pads.current.get(p);
+    if (!t.length) return lift(p);
+    if (was && id(was.t) === id(t)) return;
+    pads.current.set(p, { n: was ? was.n : now(), t, el }); changed();
+  };
   /** 누른 단추가 사라짐(작게 보기·전체화면 전환 등 — 놓음을 못 받음): 그 포인터를 지우고 세대 +1(RV-426 ⑥) */
   const gone = (el: HTMLElement) => { let hit = false; for (const [p, x] of pads.current) if (x.el === el) { pads.current.delete(p); hit = true; } if (hit) zero(); };
 
@@ -254,11 +264,11 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
     const down = (e: KeyboardEvent) => {
       if (e.code === 'Escape') return esc?.current();
       if (metaCut(e)) return cut();   // Cmd 동안은 keyup 이 안 올 수 있다 — 적은 키를 지우고 세대 +1(RV-429 ③)
-      const t = KEY[e.code], k = keys.current;
+      const t = KEYS[e.code], k = keys.current;
       // 글 입력 중·반복(e.repeat)은 새 누름이 아니다 — 모르는 키면 앞 세대로 적어 뗄 때까지 0
       if (typing(e.target) || e.repeat) { if (t && !k.has(e.code)) { k.set(e.code, -1); changed(); } return; }
       if (e.code === 'Space') return zero(SD_NOTE.stop);   // STOP 은 App 머리줄이 보낸다 — 여기는 입력만 먼저 0
-      if (!t) return;
+      if (!t) { if (BLOCK[e.code] && !e.shiftKey) setWhy(BLOCK[e.code]); return; }
       if (!e.ctrlKey && !e.altKey) e.preventDefault();   // Ctrl·Alt 조합도 같은 누름으로 적는다(브라우저 단축키는 막지 않음)
       k.set(e.code, now());   // 잠긴 동안 누른 것도 적는다 — 해제(ready)되면 세대가 올라 앞 세대가 된다
       const p = pressed();
@@ -364,7 +374,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   const trial = <ActionTrial robot={r} allowed={!!r.serverDrive && !r.sim} beforeSend={zero} />;
   const releasing = l.releasing?.why && <div className="fh-row" role="status"><span className="fh-why">조종권 반납을 확인하지 못했습니다. {l.releasing.why}</span>
     <button type="button" className="btn" onClick={() => rt.release(r.id)}>다시 시도</button></div>;
-  return { l, s, mine, off, link, posture, shifting, stalled, refused, age, lock, zero, stop, stopNote, unlock, pad, status, latency, notes, hint, end, begin, poseRow, trial, releasing };
+  return { l, s, mine, off, link, posture, shifting, stalled, refused, age, lock, zero, stop, stopNote, unlock, pad, status, latency, notes, hint, end, begin, poseRow, trial, releasing, stick, stopPress, why, on, ready, askPose, poseNow, poseMsg: poseMsg || lost };
 }
 
 /** 화면 이동 단추 — 사라질 때(unmount) gone 으로 알린다. 잠긴 동안에도 누름을 받아야 해서 disabled 대신 aria-disabled(누른 세대만 적고 명령은 0) */
