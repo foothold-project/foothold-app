@@ -10,6 +10,8 @@ import { simTune } from '../phone';
 import { SIDE_BLOCK, canDrive } from '../serverdrive';
 import { checkShort, railOrder } from '../screens/u4/robotu4';
 import { api } from '../api';
+import { reasonText } from '../media';
+import { RETRY_MS } from '../drivemedia';
 import u4css from '../screens/u4/u4.css?raw';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -253,15 +255,49 @@ describe('로봇 탭 보기 칸 · 지도 경로 · 시뮬 시점(서버 값만)
     expect([...top.querySelectorAll('[aria-label]')].map((e) => e.getAttribute('aria-label')).join()).not.toContain('—');
   });
 
-  it('보기만 하는 로봇: 카메라 작은 칸 · 라이다 · 깊이 = 「… 신호 없음 · 까닭」, 시뮬 시점 표지 없음', () => {
-    mount('u-park'); serve('r7', 'r3');
-    click($$('.rail .rcard').find((x) => x.getAttribute('data-r') === 'Go2-3')!);
-    expect(text($('.views .small [data-sd-cam]'))).toBe('카메라 신호 없음 · 보기만 하는 로봇이라 영상을 받지 않습니다');
-    expect($('[data-u4-simtag]')).toBeNull();
+  // 결정 13 (가) · 서버 계약 안(11/28): 보기 통로(rgb · lidar · depth)는 조종 허용과 떼고 「연결됨(online)」 하나로 받는다. 조종 단추 · 키는 그대로 막힘
+  const media = (id: string, ch: string) => FakeWS.all.filter((x) => x.url.endsWith(`/api/v1/robots/${id}/drive-media/${ch}`) && x.readyState !== 3).pop();
+  const pick = (name: string) => click($$('.rail .rcard').find((x) => x.getAttribute('data-r') === name)!);
+  it('결정 13: 조종 허용 없는 실기(남의 로봇)도 연결돼 있으면 카메라 · 라이다 · 깊이 보기 소켓을 연다 · 조종 단추 · 키는 그대로 막힘', () => {
+    mount('u-park'); serve('r7', 'r3'); pick('Go2-3');
+    expect($('[data-u4-can]')).toBeNull();
+    expect(media('r3', 'rgb')).toBeTruthy();   // 지도 보기의 작은 카메라 칸
+    click($('[data-view="lidar"]')!); expect(media('r3', 'lidar')).toBeTruthy();
+    click($('[data-view="depth"]')!); expect(media('r3', 'depth')).toBeTruthy();
+    expect(text($('[data-u4-big="depth"]'))).not.toContain('보기만 하는 로봇');
+    expect($('[data-u4-drive]')!.getAttribute('aria-disabled')).toBe('true');
+    const n = w.of('cmd').length;
+    click($('[data-u4-drive]')!);
+    key('keydown', 'ArrowUp'); tick(120); key('keyup', 'ArrowUp'); tick(60);
+    expect(w.of('cmd').length).toBe(n); expect(w.of('lease.take')).toEqual([]);
+    expect(FakeWS.all.filter((x) => x.url.includes('drive-media')).flatMap((x) => x.sent)).toEqual([]);   // 받기만
+  });
+
+  it('결정 13: 남의 시뮬도 연결돼 있으면 라이다 소켓을 연다', () => {
+    mount('u-park', ON.map((r) => (r.id === 'r3' ? { ...r, sim: true } : r))); serve('r7', 'r3'); pick('Go2-3');
+    expect($('[data-u4-can]')).toBeNull();
+    click($('[data-view="lidar"]')!); expect(media('r3', 'lidar')).toBeTruthy();
+  });
+
+  it('결정 13: 연결 끊긴 로봇은 보기 소켓을 열지 않는다', () => {
+    mount('u-park'); serve('r7', 'r3'); act(() => push('r3', { connection: 'OFFLINE' })); pick('Go2-3');
     click($('[data-view="lidar"]')!);
-    expect(text($('[data-u4-big="lidar"]'))).toContain('라이다 신호 없음 · 보기만 하는 로봇이라 영상을 받지 않습니다');
-    click($('[data-view="depth"]')!);
-    expect(text($('[data-u4-big="depth"] [data-sd-depth]'))).toBe('뎁스 카메라 신호 없음 · 보기만 하는 로봇이라 영상을 받지 않습니다');
+    expect(media('r3', 'lidar')).toBeUndefined();
+    expect(FakeWS.all.some((x) => x.url.includes('/robots/r3/drive-media'))).toBe(false);
+  });
+
+  it('결정 13: 보기 소켓이 권한 없음(4403)으로 닫히면 「이 로봇을 볼 권한이 없습니다」 · 다시 붙지 않음 · NO_POINTS 는 지금 표시 그대로', () => {
+    mount('u-park'); serve('r7', 'r3'); pick('Go2-3');
+    click($('[data-view="lidar"]')!);
+    const l = media('r3', 'lidar')!;
+    act(() => { l.open(); l.recv({ t: 'media.status', version: 'media/1', channel: 'lidar', robot: 'r3', epoch: 0, reason: 'NO_POINTS' }); });
+    expect(text($('[data-u4-big="lidar"]'))).toContain(`라이다 신호 없음 · ${reasonText('NO_POINTS')}`);
+    act(() => l.drop(4403));
+    expect(text($('[data-u4-big="lidar"]'))).toContain('라이다 신호 없음 · 이 로봇을 볼 권한이 없습니다');
+    const k = FakeWS.all.length; tick(RETRY_MS * 3);
+    expect(FakeWS.all.slice(k).some((x) => x.url.includes('drive-media'))).toBe(false);
+    act(() => push('r3', { battery: { pct: 70 } } as never)); tick(RETRY_MS);   // 상태가 와도 그대로
+    expect(FakeWS.all.slice(k).some((x) => x.url.includes('drive-media'))).toBe(false);
   });
 
   it('라이다 · 깊이 보기(11/28): 라이다 칸 왼쪽 위 「3D · 상자 · 위에서」 단추 없음(.vsel 뒤에 가려졌던 것) · 깊이는 drive-media/depth 를 받아 그림 + 범례', () => {

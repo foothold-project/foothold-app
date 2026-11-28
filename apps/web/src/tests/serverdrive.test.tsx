@@ -97,9 +97,9 @@ describe('서버 경유 시험 조종 패널', () => {
     expect($('[data-sd-stop]')).not.toBeNull();
     unmount();
     const k = FakeWS.all.length;
-    mount('u-park', ROBOTS); serve('r7'); click(row('Go2-7'));   // 서버가 켜지 않음 → 보기만(카메라·라이다 연결도 없음)
+    mount('u-park', ROBOTS); serve('r7'); click(row('Go2-7'));   // 서버가 켜지 않음 → 조종 없음 · 보기는 연결됨 하나로 받음(결정 13 · 11/28)
     expect($('[data-u4-can]')).toBeNull(); expect($('[data-server-drive]')).toBeNull();
-    expect(FakeWS.all.slice(k).some((x) => x.url.includes('drive-media'))).toBe(false);
+    expect(FakeWS.all.slice(k).filter((x) => x.url.includes('drive-media')).map((x) => x.url.split('/').pop())).toEqual(['rgb']);   // 지도 보기의 작은 카메라 칸
     unmount();
     mount('u-kim', ON, false); serve('r3', 'r7', 'r1'); click(row('Go2-7'));   // 총괄 = 모든 권한(#547 · 11/28): 서버가 허용한 실기면 로봇 탭에 조종이 붙음
     expect($('[data-u4-can]')).not.toBeNull();
@@ -585,7 +585,7 @@ describe('서버 경유 카메라·라이다', () => {
       act(() => push('r7', { devices: [{ key: 'go2-preflight', kind: 'OTHER', label: '연결 프로그램 자동 점검', state: 'OK' }, { key: 'go2-identity', kind: 'OTHER', label: '로봇 확인', state: 'MISSING' }] }));
       tick(5000); expect(media()).toBe(0);
       act(() => push('r7', identOk));
-      expect(media()).toBe(3 - 1);   // rgb·lidar (뎁스는 고른 동안만)
+      expect(media()).toBe(3);   // 패널 rgb·lidar (뎁스는 고른 동안만) + 로봇 탭 작은 카메라 칸 rgb(결정 13 · 보기는 연결됨 하나로)
       const rgb = mediaSock('rgb');
       act(() => { rgb.open(); rgb.recv(video()); });
       act(() => push('r7', { devices: [{ key: 'go2-identity', kind: 'OTHER', label: IDENTITY_FAULT_LABEL, state: 'MISSING' }] }));   // 오래돼 MISSING 이지만 영구 오류 문구
@@ -605,7 +605,7 @@ describe('서버 경유 카메라·라이다', () => {
       listed(p);
       try {
         mount('u-park'); serve('r7'); click(row('Go2-7'));
-        expect(media()).toBe(2);
+        expect(media()).toBe(3);   // 패널 rgb·lidar + 로봇 탭 카메라 칸 rgb(결정 13)
         unmount(); FakeWS.all.length = 0;
       } finally { LIST.length = 0; }
     }
@@ -619,8 +619,8 @@ describe('서버 경유 카메라·라이다', () => {
       mount('u-park'); serve('r7'); click(row('Go2-7'));
       expect(media()).toBe(0);
       act(() => push('r7', { devices: [{ key: 'go2-preflight', kind: 'OTHER', label: '연결 프로그램 자동 점검', state: 'OK' }] }));
-      expect(media()).toBe(2);
-      view(); ch('depth'); expect(media()).toBe(3);
+      expect(media()).toBe(3);   // 패널 rgb·lidar + 로봇 탭 카메라 칸 rgb(결정 13)
+      view(); ch('depth'); expect(media()).toBe(4);
     } finally { LIST.length = 0; }
   });
 
@@ -995,11 +995,12 @@ describe('서버 경유 뎁스', () => {
     expect($('[data-sd-full] [data-feed-held]')!.textContent).toContain('마지막 그림 · 2초 전');
   });
 
-  it('로봇 관측 칸에 «뎁스» 보기 — 받는 연결 없이 «뎁스 카메라 신호 없음»', () => {
+  it('로봇 관측 칸에 «뎁스» 보기 — 조종 없는 로봇 탭도 뎁스 연결을 열고, 그림 전에는 «뎁스 카메라 신호 없음»(결정 13)', () => {
     mount('u-park'); serve('r7'); click(row('Go2-7'));
+    expect(has()).toBe(false);   // 고르기 전에는 열지 않음
     click($('.u4 .views .vsel [data-view="depth"]')!);   // PC 로봇 탭(시안 u4) 보기 고르기
     expect($('[data-u4-big="depth"]')!.textContent).toContain(NO_SIGNAL.depth);
-    expect(has()).toBe(false);
+    expect(has()).toBe(true);
   });
 });
 

@@ -24,6 +24,8 @@ const poseOf = (p: unknown): Pose | null => {
 };
 export const RETRY_MS = 2000;
 export const DEPTH_HINT = '뎁스 카메라 영상이 아직 오지 않습니다. 로봇 컴퓨터의 뎁스 카메라 프로그램이 켜져 있는지 확인하세요';
+/** 보기 소켓을 서버가 권한 없음(4403)으로 닫음(결정 13 · 보기 = ROBOT_READ + 같은 조직 + 보관 안 됨). 다시 붙지 않는다 */
+export const VIEW_DENIED = '이 로봇을 볼 권한이 없습니다';
 export const NO_SIGNAL: Record<DriveCh, string> = { rgb: '카메라 신호 없음', lidar: '라이다 신호 없음', depth: '뎁스 카메라 신호 없음' };
 const blank = (state: Feed['state'] = 'wait', why = ''): Raw => ({ state, why, at: 0, seq: -1, img: '', xyz: new Float32Array(0), n: 0, frame: '', truncated: false, ver: 0, range: null, pose: null });
 /** 계약 depth_min_m·depth_max_m: 유한·0≤min<max≤10000 — 아니면 null(RGB 를 뎁스로 보여 주지 않음) */
@@ -75,7 +77,7 @@ export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
   now.current = gate;
   useEffect(() => {
     if (!on) return;
-    let ws: WebSocket | null = null, retry: ReturnType<typeof setTimeout> | undefined, alive = true;
+    let ws: WebSocket | null = null, retry: ReturnType<typeof setTimeout> | undefined, alive = true, denied = false;
     const ep = (epsRobot(robot).ch[ch] ??= { epoch: null, gone: new Set() });
     let top = -1, pending: MediaPointCloudHeader | null = null, skip = false, ver = 0;   // skip = pending 의 본문은 읽기만 하고 쓰지 않음 — 이미 본 판·지난 epoch 판(RV-443 ④)
     const gone = ep.gone;   // 지난 epoch(에이전트가 켤 때마다 52비트 무작위라 다시 쓰지 않음)
@@ -121,15 +123,20 @@ export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
     };
     function open() {
       clearTimeout(retry);
-      if (!alive || ws || now.current !== 'ok' || document.visibilityState === 'hidden') return;
+      if (!alive || denied || ws || now.current !== 'ok' || document.visibilityState === 'hidden') return;
       const w = ws = new WebSocket(driveMediaUrl(robot, ch));
       w.binaryType = 'arraybuffer';
       w.onmessage = (e: { data?: unknown }) => { if (ws === w) frame(e.data); };
-      w.onclose = () => { if (ws === w) { ws = null; again('lost', '연결이 끊겼습니다'); } };
+      w.onclose = (e: { code?: number }) => {
+        if (ws !== w) return;
+        ws = null;
+        if (e?.code === 4403) { denied = true; clearTimeout(retry); return clear('none', VIEW_DENIED, true); }
+        again('lost', '연결이 끊겼습니다');
+      };
     }
     const vis = () => { if (document.visibilityState === 'hidden') { close(); clear('off'); } else open(); };
     // 장치 표 확인 전·로봇 끊김이면 닫고 받은 그림은 남긴다(«마지막 그림»), 영구 오류면 닫고 그림을 버린다
-    hold.current = (g) => { if (g === 'ok') { if (!ws) clear('wait'); return open(); } close(); if (g === 'fault') clear('none', BODY_FAULT, true); else clear('wait', BODY_CHECK); };
+    hold.current = (g) => { if (denied) return; if (g === 'ok') { if (!ws) clear('wait'); return open(); } close(); if (g === 'fault') clear('none', BODY_FAULT, true); else clear('wait', BODY_CHECK); };
     document.addEventListener('visibilitychange', vis);
     hold.current(now.current);
     return () => { alive = false; hold.current = () => {}; close(); document.removeEventListener('visibilitychange', vis); setFeed(blank()); };

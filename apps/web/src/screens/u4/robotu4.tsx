@@ -181,16 +181,17 @@ export function jobLine(run: Run | null, route: Route | null, b: Board) {
 
 /** 카메라 · 깊이 · 라이다 받기. 세 채널 다 이 로봇 화면에 붙여 두고 보이는 칸만 켠다(on). 숨겼다 다시 열어도 epoch 기록이 이어진다(RV-450 ② · RV-452).
  *  can = 서버가 이 화면의 조종을 허용한 로봇만 받는다(허용 안 된 로봇은 보기만 · 카메라 · 라이다 연결도 없음 · 옛 세 칸 화면과 같음) */
-function useFeeds(id: string, view: string, can: boolean) {
-  return { rgb: useDriveFeed(id, 'rgb', can && (view === 'map' || view === 'rgb')), depth: useDriveFeed(id, 'depth', can && view === 'depth'), lidar: useDriveFeed(id, 'lidar', can && view === 'lidar') };
+/** 보기 통로(결정 13 · 서버 계약 안 11/28): 조종 허용 · 주인 · 총괄과 떼고 «연결됨» 하나로 받는다. 연결됨(상태 connection ONLINE)은 useDriveFeed 의 문이 본다
+ *  (끊기면 열지 않고 받은 그림은 «마지막 그림» 으로 남김). 막힘은 서버가 소켓을 4403 으로 닫아 알린다 */
+function useFeeds(id: string, view: string) {
+  return { rgb: useDriveFeed(id, 'rgb', view === 'map' || view === 'rgb'), depth: useDriveFeed(id, 'depth', view === 'depth'), lidar: useDriveFeed(id, 'lidar', view === 'lidar') };
 }
 type Feeds = ReturnType<typeof useFeeds>;
-/** 보기만 하는 로봇의 빈 칸 까닭(영상 연결을 열지 않음) */
-export const VIEW_ONLY = '보기만 하는 로봇이라 영상을 받지 않습니다';
+/** 영상 칸의 빈 자리(시뮬 시점이 까닭을 적을 때) */
 const NoFeed = ({ ch, why }: { ch: 'rgb' | 'depth'; why: string }) => <div className="dv-video" role="img" aria-label={ch === 'rgb' ? '카메라' : '뎁스 카메라'} {...(ch === 'rgb' ? { 'data-sd-cam': '' } : { 'data-sd-depth': '' })}>
   <span style={{ padding: 12, textAlign: 'center' }}>{`${NO_SIGNAL[ch]} · ${why}`}</span></div>;
-const Feed = ({ fs, ch, big, can }: { fs: Feeds; ch: 'depth'; big: boolean; can: boolean }) => (can ? <DriveView f={fs[ch]} ch={ch} big={big} /> : <NoFeed ch={ch} why={VIEW_ONLY} />);
-const Lidar = ({ fs, can }: { fs: Feeds; can: boolean }) => <LidarMap feed={fs.lidar} empty={can ? driveFeedText(fs.lidar, 'lidar') : `${NO_SIGNAL.lidar} · ${VIEW_ONLY}`} bare />;
+const Feed = ({ fs, ch, big }: { fs: Feeds; ch: 'depth'; big: boolean }) => <DriveView f={fs[ch]} ch={ch} big={big} />;
+const Lidar = ({ fs }: { fs: Feeds }) => <LidarMap feed={fs.lidar} empty={driveFeedText(fs.lidar, 'lidar')} bare />;
 
 /** 시뮬 시점 칸: 렌더러 하나(simcam)에 붙여 서버 위치에서 본 현장을 그린다. 못 그리면 「카메라 신호 없음 · 까닭」 */
 function SimCam({ v, pose }: { v: MapVersion; pose: { x: number; y: number; yaw: number } }) {
@@ -208,13 +209,13 @@ function SimCam({ v, pose }: { v: MapVersion; pose: { x: number; y: number; yaw:
     <span className="g dk tag rehearse simtag" data-u4-simtag>시뮬 시점</span></>;
 }
 /** 카메라 칸: 받은 영상(지금 · 마지막 그림)이 먼저. 영상이 없으면 서버 위치 · 지도판 3D 로 시뮬 시점, 그것도 없으면 신호 없음 + 까닭 */
-function Cam({ fs, big, can, b }: { fs: Feeds; big: boolean; can: boolean; b: Board }) {
+function Cam({ fs, big, b }: { fs: Feeds; big: boolean; b: Board }) {
   const f = fs.rgb, l = b.loc;
-  if (can && (!driveFeedText(f, 'rgb') || driveFeedHeld(f))) return <DriveView f={f} ch="rgb" big={big} />;
+  if (!driveFeedText(f, 'rgb') || driveFeedHeld(f)) return <DriveView f={f} ch="rgb" big={big} />;
   const why = !l || l.x == null || l.y == null ? '서버 위치 없음' : l.yaw == null ? '서버 방향 값 없음' : !b.v ? (l.map_version_id ? '지도판 받는 중' : '지도판 없음')
     : !siteKey(b.v) ? '이 지도판에 3D 현장이 없습니다' : '';
   if (!why) return <SimCam v={b.v!} pose={{ x: l!.x!, y: l!.y!, yaw: l!.yaw! }} />;
-  return can ? <DriveView f={f} ch="rgb" big={big} /> : <NoFeed ch="rgb" why={VIEW_ONLY} />;
+  return <DriveView f={f} ch="rgb" big={big} />;
 }
 
 /** 가운데 3D: 시안 go2view 를 그대로 띄우고 실제 관절값 · 나간 명령으로 움직인다 */
@@ -376,7 +377,7 @@ function Check({ c, r, guide }: { c: Ctx; r: Robot; guide: () => void }) {
 }
 function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   const { l, s, mine } = d;
-  const [tab, setTab] = useState<Tab>('drive'), [guide, setGuide] = useState(false), [view, setView] = useState<View>('map'), fs = useFeeds(r.id, view, can);
+  const [tab, setTab] = useState<Tab>('drive'), [guide, setGuide] = useState(false), [view, setView] = useState<View>('map'), fs = useFeeds(r.id, view);
   // 메인 칸 확대(팀장 11-28 17:33 · 시안 밖 · 새로 그림): 더블클릭 · Esc · 「돌아가기」. 브라우저 전체 화면이 아니라 무대 안에서 제자리 → 무대 전체로(FLIP · transform 만)
   const [zoom, setZoom] = useState(false), viewsEl = useRef<HTMLDivElement>(null), from = useRef<DOMRect | null>(null);
   const flip = (on: boolean) => { if (viewsEl.current) from.current = viewsEl.current.getBoundingClientRect(); setZoom(on); };
@@ -459,7 +460,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   const offAct = (name: ScreenAction['action']) => actOff(name, lowlevel);
   const b = useBoard(c, r), [place, onFactory] = usePlace(c, b), run = runOf(r, s?.run), route = useRoute(r.id, run?.name ?? null, c.cancel), job = jobLine(run, route, b);
   const map = <MapView c={c} r={r} b={b} run={run} route={route} onFactory={onFactory} />;
-  const small = view === 'map' ? <Cam fs={fs} big={false} can={can} b={b} /> : map;
+  const small = view === 'map' ? <Cam fs={fs} big={false} b={b} /> : map;
   return <>
     <div className="hdr" data-robot-head={r.id}><span className="ttl" style={{ fontSize: '26px', marginRight: '6px' }}>{r.name}{demo && DEMO}</span>
       <span className="g dk st" data-cell="link"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M12 20h.01" /><path d="M2 8.82a15 15 0 0 1 20 0" /><path d="M5 12.859a10 10 0 0 1 14 0" /><path d="M8.5 16.429a5 5 0 0 1 7 0" /></svg>{sim && online ? '시뮬' : online ? '연결' : r.online ? '연결 중' : '끊김'}<small>{sim && online ? '서버 계산' : ms}</small></span>
@@ -489,7 +490,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
     {tab === 'check' ? <div className="right" data-u4-can={can || undefined}><Check c={c} r={r} guide={() => setGuide(true)} /></div>
       : <div className="right" data-u4-can={can || undefined} {...(zoom ? { 'data-u4-zoom': '' } : {})}><div className="views" ref={viewsEl} aria-label="로봇 보기" onDoubleClick={zoomDbl} title={zoom ? undefined : '더블클릭하면 크게 봅니다'}>
       {zoom && <div className="g dk zback" role="button" tabIndex={0} data-u4-zback onClick={() => flip(false)} onKeyDown={(e) => { if (e.key === 'Enter') flip(false); }}><svg className="ic" viewBox="0 0 24 24" style={{ width: '18px', height: '18px' }}><path d="m15 18-6-6 6-6" /></svg>돌아가기<small>Esc</small></div>}
-      {view === 'map' ? map : <div className="mapv" data-u4-big={view}>{view === 'lidar' ? <Lidar fs={fs} can={can} /> : view === 'rgb' ? <Cam fs={fs} big can={can} b={b} /> : <Feed fs={fs} ch={view} big can={can} />}</div>}
+      {view === 'map' ? map : <div className="mapv" data-u4-big={view}>{view === 'lidar' ? <Lidar fs={fs} /> : view === 'rgb' ? <Cam fs={fs} big b={b} /> : <Feed fs={fs} ch={view} big />}</div>}
       <div className="g dk vsel">{VIEWS.map(([k, t]) => <span key={k} className={view === k ? 'on' : undefined} data-view={k} role="button" tabIndex={0} aria-pressed={view === k} onClick={() => setView(k)}>{t}</span>)}</div>
       <div className="small" data-swap="1" data-cam-inset role="button" tabIndex={0} onClick={() => setView(view === 'map' ? 'rgb' : 'map')}>{small}<span className="cl">{view === 'map' ? '앞 카메라' : '지도'}</span></div>
       <div className="g dk job" data-u4-job><b>{job.name}</b><span>{job.line}</span><i><em style={{ width: `${job.pct}%` }} /></i></div>
