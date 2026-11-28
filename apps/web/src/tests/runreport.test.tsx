@@ -69,6 +69,20 @@ describe('Q2 표시만 실행', () => {
   });
 });
 
+describe('t19 빈 칸은 줄표 대신 말', () => {
+  it('이 지점 도착 기록이 없으면 구간 걸린 시간 = 「계산 못함」', async () => {
+    serve(() => ok(HIST), () => ok({ items: [wp('1', 'RUN_WAYPOINT_RECORDED', local(27, 10, 4), { idx: 0, mission_name: '가', results: { mode: 'DISPLAY_ONLY' } })], next_cursor: null }));
+    await render();
+    expect(cells()[0].slice(1, 3)).toEqual(['도착 기록 없음', '계산 못함']);
+  });
+  it('앞 지점 도착 기록이 없으면 도착한 지점도 구간 걸린 시간 = 「계산 못함」 (「도착 전」 은 거짓)', async () => {
+    serve(() => ok(HIST), () => ok({ items: [wp('1', 'RUN_WAYPOINT_RECORDED', local(27, 10, 4), { idx: 0, mission_name: '가', results: { mode: 'DISPLAY_ONLY' } }),
+      wp('2', 'RUN_WAYPOINT_ARRIVED', local(27, 10, 9), { idx: 1, mission_name: '나' })], next_cursor: null }));
+    await render();
+    expect(cells()[1][2]).toBe('계산 못함');
+  });
+});
+
 describe('Q3 여는 초점', () => {
   it('열면 초점이 보고서 제목으로', async () => {
     serve(() => ok(HIST), () => ok({ items: [], next_cursor: null }));

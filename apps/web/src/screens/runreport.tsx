@@ -90,7 +90,7 @@ export function RunReport({ id, cancel, close }: { id: string; cancel?: AbortSig
         <thead><tr><th scope="col">지점</th><th scope="col">도착</th><th scope="col">구간 걸린 시간</th><th scope="col">결과</th></tr></thead>
         <tbody>{list.map((s, i) => { const from = i ? list[i - 1].arrived : r.started_at;
           return <tr key={s.idx}><td>{s.idx + 1}{s.name ? ` · ${s.name}` : ''}</td><td className="mono">{s.arrived ? clock(s.arrived) : '도착 기록 없음'}</td>
-            <td>{s.arrived && from ? took(Date.parse(s.arrived) - Date.parse(from)) : '—'}</td><td>{result(s.results)}</td></tr>; })}</tbody>
+            <td>{s.arrived && from ? took(Date.parse(s.arrived) - Date.parse(from)) : '계산 못함'}</td><td>{result(s.results)}</td></tr>; })}</tbody>
       </table></div> : <p className="lv-note">이 실행에는 지점 기록이 없습니다.</p>)}
     </>}
   </section>;

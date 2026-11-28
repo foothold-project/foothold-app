@@ -122,6 +122,12 @@ function code(src: string) {
 /** 빈 값 자리 표시(«—» 하나: '—' · "—" · >—< · {'—'}) 는 문장 줄표가 아니다 */
 const dashes = (src: string) => code(src).split('\n').map((l, k) => [k + 1, l.replace(/(['"`>])—(['"`<])/g, '$1$2')] as const)
   .filter(([, l]) => /[—–]/.test(l)).map(([k, l]) => `${k}: ${l.trim().slice(0, 80)}`);
+// t19 (11-28 조정 결정): 빈 칸 자리 표시도 말로. 기록 표 「로봇·사람」 빈 칸 = 「없음」, 실행 보고 구간 걸린 시간 = 「계산 못함」, id 는 있는데 이름을 모르면 「이름 모름」
+describe('빈 칸 자리 표시도 줄표 대신 말(t19)', () => {
+  for (const f of ['screens/history.tsx', 'screens/runreport.tsx']) it(f, () => {
+    expect(code(SRC[`../${f}`]).split('\n').filter((l) => /[—–]/.test(l))).toEqual([]);
+  });
+});
 describe('화면 글에 줄표 없음(t19)', () => {
   for (const f of SWEPT) it(f, () => {
     const src = SRC[`../${f}`];
