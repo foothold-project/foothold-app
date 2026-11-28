@@ -255,6 +255,23 @@ describe('로봇 탭 보기 칸 · 지도 경로 · 시뮬 시점(서버 값만)
     expect(text($('[data-u4-big="depth"] [data-sd-depth]'))).toBe('뎁스 카메라 신호 없음 · 보기만 하는 로봇이라 영상을 받지 않습니다');
   });
 
+  it('라이다 · 깊이 보기(11/28): 라이다 칸 왼쪽 위 「3D · 상자 · 위에서」 단추 없음(.vsel 뒤에 가려졌던 것) · 깊이는 drive-media/depth 를 받아 그림 + 범례', () => {
+    mount('u-park'); serve('r7');
+    const sock = (ch: string) => FakeWS.all.filter((x) => x.url.endsWith(`/api/v1/robots/r7/drive-media/${ch}`)).pop();
+    click($('[data-view="lidar"]')!);
+    expect(sock('lidar')).toBeTruthy();
+    expect($('[data-u4-big="lidar"] [data-lidar-map]')).not.toBeNull();
+    expect($('[data-u4-big="lidar"] [data-lm-view]')).toBeNull();
+    click($('[data-view="depth"]')!);
+    const d = sock('depth')!;
+    expect(d).toBeTruthy(); expect(sock('lidar')!.readyState).toBe(3);   // 라이다는 닫힘 · 보이는 칸만 받음
+    act(() => { d.open(); d.recv({ t: 'media.video', version: 'media/1', channel: 'depth', robot: 'r7', epoch: 1, episode_id: null, seq: 1, source: 'go2_depth', mime: 'image/jpeg', jpeg: 'BBBB', width: 160, height: 90, depth_min_m: 0.2, depth_max_m: 5 }); });
+    const pic = $('[data-u4-big="depth"] [data-sd-depth]')!;
+    expect(pic.tagName).toBe('IMG'); expect(pic.getAttribute('src')).toBe('data:image/jpeg;base64,BBBB');
+    expect(text($('[data-u4-big="depth"] [data-sd-depth-legend]'))).toContain('멀리 5.0 m');
+    expect(d.sent.length).toBe(0);   // 받기만
+  });
+
   it('임무 없음 · 위치 없음: 임무 칸 「임무 없음」 + 빈 줄 · 막대 0 · 지도 이름 「지도 없음」 · 경로 없음', () => {
     mount('u-park'); serve('r7');
     expect(text($('[data-u4-job] b'))).toBe('임무 없음'); expect(text($('[data-u4-job] span'))).toBe('');

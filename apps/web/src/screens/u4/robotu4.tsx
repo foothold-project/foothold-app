@@ -201,7 +201,7 @@ export const VIEW_ONLY = '보기만 하는 로봇이라 영상을 받지 않습�
 const NoFeed = ({ ch, why }: { ch: 'rgb' | 'depth'; why: string }) => <div className="dv-video" role="img" aria-label={ch === 'rgb' ? '카메라' : '뎁스 카메라'} {...(ch === 'rgb' ? { 'data-sd-cam': '' } : { 'data-sd-depth': '' })}>
   <span style={{ padding: 12, textAlign: 'center' }}>{`${NO_SIGNAL[ch]} · ${why}`}</span></div>;
 const Feed = ({ fs, ch, big, can }: { fs: Feeds; ch: 'depth'; big: boolean; can: boolean }) => (can ? <DriveView f={fs[ch]} ch={ch} big={big} /> : <NoFeed ch={ch} why={VIEW_ONLY} />);
-const Lidar = ({ fs, can }: { fs: Feeds; can: boolean }) => <LidarMap feed={fs.lidar} empty={can ? driveFeedText(fs.lidar, 'lidar') : `${NO_SIGNAL.lidar} · ${VIEW_ONLY}`} pick />;
+const Lidar = ({ fs, can }: { fs: Feeds; can: boolean }) => <LidarMap feed={fs.lidar} empty={can ? driveFeedText(fs.lidar, 'lidar') : `${NO_SIGNAL.lidar} · ${VIEW_ONLY}`} bare />;
 
 /** 시뮬 시점 칸: 렌더러 하나(simcam)에 붙여 서버 위치에서 본 현장을 그린다. 못 그리면 「카메라 신호 없음 · 까닭」 */
 function SimCam({ v, pose }: { v: MapVersion; pose: { x: number; y: number; yaw: number } }) {
