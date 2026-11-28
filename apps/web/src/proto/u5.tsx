@@ -65,8 +65,10 @@ const hm = (iso?: string | null) => { if (!iso) return null; const m = /(\d\d:\d
 const missionOf = (m?: string) => { const g = m ? /^(.*) (\d+)\/(\d+)$/.exec(m) : null; return g ? { name: g[1], done: +g[2], total: +g[3] } : m ? { name: m, done: 0, total: 0 } : null; };
 const GAIT_NAME = Object.fromEntries(GAITS.map((g) => [g.g, g.name])) as Record<string, string>;
 const stateOf = (x: Robot): ScreenState | null => (x.unknown === 'summary' ? null : rt.get(x.id).state);
-/** 지금 시각의 가용 한 줄: 데모(RobotAvailability.demo) · 구역 이름(location_label) · 충전(state CHARGING 또는 지금 걸친 일정 칸 kind BATTERY_SWAP) */
-export type Avail = { demo: boolean; label: string | null; charging: boolean };
+/** 지금 시각의 가용 한 줄: 데모(RobotAvailability.demo) · 구역 이름(location_label) · 충전(state CHARGING 만)
+ *  · 하는 일(job): 점검 = state MAINTENANCE, 배터리 교체 = 지금 걸친 일정 칸 kind BATTERY_SWAP. 글은 서버 busy_label 그대로(없으면 «점검 중» · «배터리 교체») */
+export type Job = { kind: 'maint' | 'swap'; text: string };
+export type Avail = { demo: boolean; label: string | null; charging: boolean; job: Job | null };
 const two = (v: number) => String(v).padStart(2, '0');
 /** 10 초마다 GET /robots/availability(지금 ~ 1 분 뒤) + GET /schedule(오늘). 받지 못하면 null(충전 수는 빈 칸 · 위치는 층 이름 또는 좌표) */
 export function useAvail(cancel?: AbortSignal) {
@@ -80,7 +82,9 @@ export function useAvail(cancel?: AbortSignal) {
         if (!live) return;
         const kind = new Map((day?.slots ?? []).map((s) => [s.id, s.kind]));
         setGot(new Map(a.items.map((r: RobotAvailability) => [r.robot_id, {
-          demo: r.demo, label: r.location_label, charging: r.state === 'CHARGING' || (!!r.busy_slot_id && kind.get(r.busy_slot_id) === 'BATTERY_SWAP') }])));
+          demo: r.demo, label: r.location_label, charging: r.state === 'CHARGING',
+          job: (r.state as string) === 'MAINTENANCE' ? { kind: 'maint', text: r.busy_label || '점검 중' }
+            : r.busy_slot_id && kind.get(r.busy_slot_id) === 'BATTERY_SWAP' ? { kind: 'swap', text: r.busy_label || '배터리 교체' } : null } as Avail])));
       }, () => { if (live) setGot(null); });
     };
     load(); const h = setInterval(load, 10_000);
@@ -94,7 +98,7 @@ const stText = (x: Robot) => (x.online && !x.unknown && x.status === 'IDLE' ? '�
 
 /** 타일 한 장의 글 · 칸(서버 값만 · 없으면 그 글을 비움) */
 export type TileFacts = {
-  x: Robot; demo: boolean; charging: boolean; level: Level; flag: string | null; why: string; alert: boolean; sim: boolean; lostAt: string | null; lostNow: boolean;
+  x: Robot; demo: boolean; charging: boolean; job: Job | null; level: Level; flag: string | null; why: string; alert: boolean; sim: boolean; lostAt: string | null; lostNow: boolean;
   act: ReturnType<typeof actOf>; walk: boolean; paused: string | null;
   /** 정지 한 줄(serverdrive stopLine 과 같은 판정 · 미전달 · 현장 관문 포함). 정지를 보낸 적 없으면 null */ stop: { tone: string; text: string } | null;
   mode: string; mission: { name: string; done: number; total: number } | null; place: string;
@@ -120,9 +124,9 @@ export function facts(x: Robot, me: string, places: Map<string, string>, av?: Av
   const bat = x.battery != null ? `${Math.round(x.battery)} %` : null, tv = h ? lastly(x, `${Math.round(h.t)} °C`, x.seenAt) : null;
   return {
     stop: x.unknown === 'summary' ? null : stopLine(rt.get(x.id)),
-    x, demo: !!av?.demo, charging, level, why, alert: needs(x) || !!lvTemp, flag: level ? `${LEVEL_TEXT[level]} · ${why}` : null, sim, lostNow: gone, lostAt: gone ? hm(x.seenAt) ?? '' : null, paused,
+    x, demo: !!av?.demo, charging, job: av?.job ?? null, level, why, alert: needs(x) || !!lvTemp, flag: level ? `${LEVEL_TEXT[level]} · ${why}` : null, sim, lostNow: gone, lostAt: gone ? hm(x.seenAt) ?? '' : null, paused,
     act, walk: act === 'walk' && !paused, mode: s?.gait?.gait ? GAIT_NAME[s.gait.gait] ?? s.gait.gait : '', mission: m, place, hot: h,
-    bat: sim ? ['시뮬', '배터리 해당 없음'] : [bat ?? '', charging ? '충전 중' : left != null ? `약 ${left} 분` : ''],
+    bat: sim ? ['시뮬', '배터리 해당 없음'] : [bat ?? '', charging ? '충전 중' : av?.job ? (av.job.kind === 'maint' ? '점검 중' : '배터리 교체') : left != null ? `약 ${left} 분` : ''],
     temp: sim ? ['없음', stText(x), ''] : tv ? [tv, lvTemp ? LEVEL_TEXT[lvTemp] : '보통', lvTemp === 'bad' || lvTemp === 'crit' ? ' r' : lvTemp === 'warn' ? ' w' : ''] : ['', '', ''],
     link: sim ? ['서버', '시뮬 계산', ''] : gone ? ['연결 중', hm(x.seenAt) ? `${hm(x.seenAt)} 끊김` : '', ' w'] : x.online ? ['연결', lat != null ? `${Math.round(lat)} ms` : '', ''] : [st.text, '', ''],
     who,
@@ -168,7 +172,9 @@ function Cv({ f, front, hotMap }: { f: TileFacts; front: boolean; hotMap: Record
       : <RealCam id={f.x.id} />}
     {f.stop ? <span className="stb" style={{ color: TONE_COL[f.stop.tone] ?? '#9aa19d' }} data-stop-line={f.stop.tone} title={f.stop.text}>{I(14, IC.stop)}{f.stop.text}</span>
       : !front && f.paused ? <span className="stb chk" style={{ color: '#f2b705' }} data-paused>{I(14, IC.warn)}{f.paused}<i></i></span>
-      : !front && f.charging && <span className="stb" style={{ color: '#00c389' }} data-charging>{I(14, IC.bolt)}충전 중<span className="bt"><i style={f.x.battery != null ? { width: `${Math.round(f.x.battery)}%` } : undefined}></i></span></span>}
+      : !front && f.charging ? <span className="stb" style={{ color: '#00c389' }} data-charging>{I(14, IC.bolt)}충전 중<span className="bt"><i style={f.x.battery != null ? { width: `${Math.round(f.x.battery)}%` } : undefined}></i></span></span>
+      : !front && f.job ? (f.job.kind === 'maint' ? <span className="stb chk" style={{ color: '#a9b8c6' }} data-maint>{I(14, IC.wrench)}점검 중<i></i></span>
+        : <span className="stb" style={{ color: '#a9b8c6' }} data-swap>{I(14, IC.bat)}배터리 교체</span>) : null}
   </div>;
 }
 
@@ -192,8 +198,8 @@ function Tile({ f, sel, front, pick, open }: { f: TileFacts; sel: boolean; front
     {f.flag && <span className="flag warntag" style={{ background: red ? '#ff4d4f' : '#f2b705' }} data-warn-flag>{I(13, IC.warn)}{f.flag}</span>}
     <Cv f={f} front={front} hotMap={hotMap} />
     <div className="inf"><div className="nm"><b style={red ? { color: '#ff4d4f' } : undefined}>{f.x.name}</b>{f.sim && <span className="chip sim">시뮬</span>}{f.demo && <span className="chip" data-demo>데모</span>}<span className="md">{f.mode && I(15, IC.mode)}{f.mode}</span></div>
-      <div className="ln">{(() => { const txt = f.mission?.name || (f.charging ? '충전 중' : f.sim ? '임무 전 · 시뮬 등록' : '');
-        return <>{I(16, f.mission ? IC.flag : f.charging ? IC.bolt : f.sim ? IC.home : IC.flag, undefined, !txt)}<span>{txt}</span></>; })()}{f.mission && f.mission.total > 0 && <em>할 일 {f.mission.done} / {f.mission.total}</em>}</div>
+      <div className="ln">{(() => { const txt = f.mission?.name || (f.charging ? '충전 중' : f.job ? f.job.text : f.sim ? '임무 전 · 시뮬 등록' : '');
+        return <>{I(16, f.mission ? IC.flag : f.charging ? IC.bolt : f.job ? (f.job.kind === 'maint' ? IC.wrench : IC.bat) : f.sim ? IC.home : IC.flag, undefined, !txt)}<span>{txt}</span></>; })()}{f.mission && f.mission.total > 0 && <em>할 일 {f.mission.done} / {f.mission.total}</em>}</div>
       {f.mission && f.mission.total > 0 && <div className="pg"><i style={{ width: `${Math.round((f.mission.done / f.mission.total) * 100)}%` }}></i></div>}
       <div className="ln">{I(16, IC.pin)}<span>{f.place}</span></div>
       <div className="sts"><div className="s" data-fact="battery">{I(16, f.sim ? IC.box : f.charging ? IC.bolt : IC.bat)}{f.bat[0]}<small>{f.bat[1]}</small></div><div className={`s${f.temp[2]}`} data-fact="temp">{I(16, IC.temp, undefined, !f.temp[0])}{f.temp[0]}<small>{f.temp[1]}</small></div><div className={`s${f.link[2]}`} data-fact="link">{I(16, IC.wifi)}{f.link[0]}<small>{f.link[1]}</small></div><div className="s" data-fact="who">{I(16, IC.user)}{f.who[0]}<small>{f.who[1]}</small></div></div></div>
@@ -294,7 +300,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
       {/* 임무 중 = 타일이 «임무 중» 인 로봇(실행 상태 RUNNING · 끊기지 않음, 시뮬 포함). 서버 요약의 robots_running 은 실기만이라 타일과 어긋나서 쓰지 않음 */}
       {cnt('임무 중', IC.flag, n((f) => f.x.status === 'RUNNING' && !f.lostNow))}
       {cnt('충전', IC.bolt, av ? n((f) => f.charging) : null, false, undefined, av ? undefined : '가용(GET /robots/availability)을 받지 못했습니다')}
-      {cnt('점검', IC.wrench, null, false, undefined, '서버에 점검 상태 값이 없습니다')}
+      {cnt('점검', IC.wrench, av ? n((f) => f.job?.kind === 'maint') : null, false, undefined, av ? undefined : '가용(GET /robots/availability)을 받지 못했습니다')}
       {/* 시안 칸 줄 그대로 여섯 칸 · 0 이면 0. 서버에 없는 값은 수를 비우고 까닭은 title */}
       {cnt('연결 중', IC.wifi, nLink)}
       {cnt('시뮬 대기', IC.box, nSim)}
