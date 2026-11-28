@@ -137,7 +137,8 @@ function Main({ c, m, plan: p, route, go, fix, fixOff, setFixOff, rehearseFix }:
   return <>
     <List x={x} m={m} p={p} edit={(id) => go({ at: 'plan', id, floor: route.floor, robot: p.rid, gait: p.gait })} add={() => go({ at: 'setup' })} />
     <div className="map" style={{ left: '388px', top: '88px', width: '1112px', height: '600px' }} aria-label="임무 지도">
-      <div className="stage" style={{ inset: 0 }}><RouteStage x={x} route={route}>{rob && <RobotPill robot={rob} route={route} label={`${rob.name}${av ? ` ${stateText(av, c.robots)}` : ''}`} />}</RouteStage></div>
+      <div className="stage" style={{ inset: 0 }}><RouteStage x={x} route={route}>{rob && <RobotPill robot={rob} route={route} label={`${rob.name}${av ? ` ${stateText(av, c.robots)}` : ''}`} />}
+        {showFix && c.robots.filter((r) => r.status === 'ERROR' && r.id !== rob?.id).map((r) => <RobotPill key={r.id} robot={r} route={route} bad label={`${r.name} 정지 · 오류`} />)}</RouteStage></div>
       <Chips />
       {x && route.v && <div className="u6-tags">
         <span className="g pill" data-floor-tag>{floorName(route.place!.floor.name)}{route.more > 0 ? ` · 다른 층 지점 ${route.more}` : ''}</span>
@@ -168,7 +169,7 @@ function Stat({ x, route, est }: { x: Scenario; route: Route; est: Estimate | nu
   return <div className="g dk stat" aria-label="경로 요약">
     <div><div className="lab">길이</div><span data-length>{x.est_distance_m > 0 ? <><b className="num">{n}</b> <small>{u}</small></> : <b className="num">—</b>}</span></div>
     <div><div className="lab">걷기 + 할 일</div><span data-walk-task>{est ? <><b className="num">{mins(est.walk_s)} + {mins(est.task_s)}</b> <small>분</small><Guess e={est} /></> : <b className="num">—</b>}</span></div>
-    <div><div className="lab">미리 확인</div><b style={{ fontSize: '16px', color: '#fff' }} className="row" data-check>{!x.waypoints.length ? '지점 없음'
+    <div><div className="lab">미리 확인</div><b style={{ fontSize: '16px' }} className="row u6-check" data-check>{!x.waypoints.length ? '지점 없음'
       : !pr ? <span role="status">확인하는 중…</span>
       : pr.r ? <><span style={{ color: pr.r.reachable ? '#00c389' : '#ff4d4f', display: 'flex' }}><Ic d={pr.r.reachable ? IC.check : IC.warn} s={17} /></span>{pr.r.reachable ? ' 모두 갈 수 있음' : ' 갈 수 없는 지점이 있음'}</>
       : <span className="bad" title={pr.err}>확인하지 못했습니다</span>}</b></div>
@@ -223,9 +224,11 @@ const ROBOTS_PER = 4;
 function Side({ x, robots, p, slot, rehearse, made, preflight, unpick }: { x?: Scenario; robots: Robot[]; p: Plan; slot?: ScheduleSlot; rehearse: () => void; made: boolean; preflight: () => void; unpick: () => void }) {
   const [page, setPage] = useState(0);
   const can = !!x && !x.archived_at && !!p.rid && !!p.gait && p.ok && !!p.est && !p.late && !p.busy;
-  const e = p.est, avail = p.avail ?? [], sims = robots.filter((r) => r.sim);
-  const time = (k: 'start' | 'end') => <TimeBox k={k} value={k === 'start' ? p.start : p.end} set={k === 'start' ? p.setStart : p.setEnd} />;
-  const why = p.past ? <Why alert data-past>지난 시각은 고를 수 없습니다. 지금({p.nowM}) 뒤로 시작을 고르세요.</Why>
+  const e = slot ? null : p.est, avail = p.avail ?? [], sims = robots.filter((r) => r.sim);
+  // u6_8: 오늘 일정에서 고른(또는 방금 넣은) 칸이면 그 칸의 시각 · 로봇 · 걷기 모드를 보인다(읽기만 · 「새로 넣기 ›」 로 돌아감)
+  const rid = slot ? slot.robot_id : p.rid, gait = slot ? slot.gait ?? '' : p.gait;
+  const time = (k: 'start' | 'end') => (slot ? <span data-slot-time={k}>{hm(slot[k])}</span> : <TimeBox k={k} value={k === 'start' ? p.start : p.end} set={k === 'start' ? p.setStart : p.setEnd} />);
+  const why = slot ? null : p.past ? <Why alert data-past>지난 시각은 고를 수 없습니다. 지금({p.nowM}) 뒤로 시작을 고르세요.</Why>
     : !p.ok ? <Why alert>마감은 시작보다 뒤여야 합니다.</Why>
     : p.late && e ? <p className="lab u6-why bad mt-bad" role="alert" data-late>마감 넘음 · 예상 끝 {hm(e.eta)}</p>
     : p.msg && !p.msg.ok ? <Why alert data-add-msg>{p.msg.text}</Why>
@@ -242,8 +245,8 @@ function Side({ x, robots, p, slot, rehearse, made, preflight, unpick }: { x?: S
     <div className="row" style={{ margin: '14px 0 8px', justifyContent: 'space-between' }}><div className="lab">이 시간에 쓸 수 있는 로봇</div>
       <Pager n={avail.length} per={ROBOTS_PER} at={page} go={setPage} label="로봇" /></div>
     <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }} aria-label="로봇">
-      {avail.slice(page * ROBOTS_PER, page * ROBOTS_PER + ROBOTS_PER).map((a) => { const free = a.state === 'FREE' || a.state === 'CHARGING', on = p.rid === a.robot_id;
-        return <button key={a.robot_id} type="button" className={`rob ${on ? 'on' : free ? '' : 'off'}`} aria-pressed={on} data-robot={a.robot_id} data-state={a.state} disabled={!free}
+      {avail.slice(page * ROBOTS_PER, page * ROBOTS_PER + ROBOTS_PER).map((a) => { const free = a.state === 'FREE' || a.state === 'CHARGING', on = rid === a.robot_id;
+        return <button key={a.robot_id} type="button" className={`rob ${on ? 'on' : free ? '' : 'off'}`} aria-pressed={on} data-robot={a.robot_id} data-state={a.state} disabled={!free || !!slot}
           onClick={() => p.setRid(on ? '' : a.robot_id)}>
           <i style={{ width: '8px', height: '8px', borderRadius: '50%', background: on ? '#00c389' : '#5e6662' }} />{a.robot_name}
           <small>{a.sim ? '시뮬' : '실제'} · {stateText(a, robots)}</small>
@@ -257,7 +260,7 @@ function Side({ x, robots, p, slot, rehearse, made, preflight, unpick }: { x?: S
     {/* AME-2 는 서버가 확정 일정을 거절한다(GAIT_NOT_READY) · 흐리게 «준비 중». 예상과 일정에만 쓰고 로봇에 보내지 않는다 */}
     <div className="mseg" role="group" aria-label="걷기 모드">{MODES.map(([t, g]) => g === 'ame2'
       ? <button key={g} type="button" disabled data-mode={t} title="AME-2 는 아직 일정에 넣을 수 없습니다">{t}<small className="u6-soon">준비 중</small></button>
-      : <button key={g} type="button" className={p.gait === g ? 'on' : ''} aria-pressed={p.gait === g} data-mode={t} onClick={() => p.setGait(p.gait === g ? '' : g)}>{t}</button>)}</div>
+      : <button key={g} type="button" className={gait === g ? 'on' : ''} aria-pressed={gait === g} disabled={!!slot} data-mode={t} onClick={() => p.setGait(p.gait === g ? '' : g)}>{t}</button>)}</div>
     <div className={`row u6-est${e ? '' : ' none'}`} style={{ marginTop: '12px', justifyContent: 'space-between' }} aria-label="예상">
       <div><div className="lab">예상 끝</div><b className="num" style={{ fontSize: '22px' }} data-est="eta">{e ? hm(e.eta) : '—'}</b>{e && <Guess e={e} />}</div>
       <div><div className="lab" title="다음 일정까지 여유">여유</div><b className={`num${e?.margin_s != null && e.margin_s < 0 ? ' bad mt-bad' : ''}`} style={{ fontSize: e && (e.margin_s == null || e.margin_s < 0) ? '15px' : '22px' }} data-est="margin">
@@ -484,14 +487,15 @@ function Mini({ t0, a, b, slots }: { t0: number; a: number; b: number; slots: Sc
 }
 
 /** 시안 u6_1 지도 위 「● K-01 관제실 대기」: 일정 칸에서 고른 로봇의 지금 자리(실시간 state.location, 그 층일 때만) */
-export function RobotPill({ robot, route, label }: { robot: Robot; route: Route; label: string }) {
+export function RobotPill({ robot, route, label, bad }: { robot: Robot; route: Route; label: string; /** 시안 u6_9 고장 로봇: 빨간 점 · 빨간 글 */ bad?: boolean }) {
+  const tone = bad ? '#e04a2f' : '#00c389';
   useEffect(() => rt.watch(robot.id), [robot.id]);
   const l = useLive(robot.id), at = l.state?.location;
   if (!route.v || !at || at.x == null || at.y == null || at.floor_id !== route.floor) return null;
   const [a, b] = route.px({ x: at.x, y: at.y }), r = route.r, fs = r * 1.05, w = label.length * fs * 0.95 + r * 2.6, h = r * 2.2;
   return <g data-robot-pill={robot.id} style={{ pointerEvents: 'none' }}>
-    <circle cx={a} cy={b} r={r} style={{ fill: '#fff', stroke: '#00c389', strokeWidth: 3 }} vectorEffect="non-scaling-stroke" />
+    <circle cx={a} cy={b} r={r} style={{ fill: bad ? tone : '#fff', stroke: bad ? '#fff' : tone, strokeWidth: 3 }} vectorEffect="non-scaling-stroke" />
     <rect x={a - w / 2} y={b - r * 4.2} width={w} height={h} rx={h * 0.3} style={{ fill: 'rgba(255,255,255,.85)', stroke: 'rgba(255,255,255,.95)' }} />
-    <circle cx={a - w / 2 + r * 1.1} cy={b - r * 4.2 + h / 2} r={r * 0.32} style={{ fill: '#00c389' }} />
-    <text x={a - w / 2 + r * 1.8} y={b - r * 4.2 + h / 2 + fs * 0.36} fontSize={fs} fontWeight={700} style={{ fill: '#1f2421' }}>{label}</text></g>;
+    <circle cx={a - w / 2 + r * 1.1} cy={b - r * 4.2 + h / 2} r={r * 0.32} style={{ fill: tone }} />
+    <text x={a - w / 2 + r * 1.8} y={b - r * 4.2 + h / 2 + fs * 0.36} fontSize={fs} fontWeight={700} style={{ fill: bad ? tone : '#1f2421' }}>{label}</text></g>;
 }

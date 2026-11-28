@@ -128,7 +128,7 @@ export function Result({ x, route, run, robot, cancel, close, again, edit, fix, 
   const failCode = failEv && typeof (failEv.data as Record<string, unknown>)?.fail_code === 'string' ? String((failEv.data as Record<string, unknown>).fail_code) : '';
   const pass = r?.status === 'COMPLETED', badN = list.filter((s) => s.results?.steps?.some((t) => t.status === 'FAILED')).length;
   const total = x.waypoints.length, arrived = list.filter((s) => s.arrived).length;
-  const shown = list.slice(page * 5, page * 5 + 5);
+  const shown = list.slice(page * 3, page * 3 + 3);
   return <>
     <div className="band" data-band><Ic d={IC.play} />모의 실행 끝 · 시뮬<span style={band}>결과를 보고 다음 단계를 고르세요</span></div>
     <div className="map" style={{ left: '24px', top: '128px', width: '820px', bottom: '24px', border: '1.5px dashed rgba(159,182,255,.5)' }} aria-label="모의 실행 지도">
@@ -151,15 +151,18 @@ export function Result({ x, route, run, robot, cancel, close, again, edit, fix, 
         {!pass && <div className="row" style={{ gap: '14px', padding: '14px 0', borderBottom: '1px solid var(--line)' }} data-fail><span className="bad"><Ic d={IC.warn} /></span>
           <div style={{ flex: '1' }}><div style={{ fontSize: '15px', fontWeight: '800' }}>{RUN_STATUS[r.status] ?? r.status}</div><div className="lab" style={{ marginTop: '3px' }}>{failCode ? RUN_FAIL[failCode] ?? failCode : '까닭 기록 없음'}</div></div>
           <span className="bad" style={{ fontSize: '14px', fontWeight: '800' }}>통과 못 함</span></div>}
+        {/* 시안 u6_7 점검 다섯 줄: 서버에 값이 없어 줄은 두고 값만 비움 */}
+        {['겹침', '충돌', '중복', '혼잡', '물리 점검'].map((t) => <div key={t} className="row" style={{ gap: '14px', padding: '12px 0', borderBottom: '1px solid var(--line)' }} data-chk={t}>
+          <span className="mu2"><Ic d={IC.clock} /></span><div style={{ flex: '1', fontSize: '15px', fontWeight: '800' }}>{t}</div><span className="lab" style={{ fontSize: '13px', fontWeight: '700' }}>{NO}</span></div>)}
+        <div className="lab" style={{ margin: '18px 0 6px' }}>지점</div>
         {shown.map((s) => { const bad = s.results?.steps?.some((t) => t.status === 'FAILED');
-          return <div key={s.idx} className="row" style={{ gap: '14px', padding: '14px 0', borderBottom: '1px solid var(--line)' }} data-stop={s.idx + 1}>
+          return <div key={s.idx} className="row" style={{ gap: '14px', padding: '14px 0', borderBottom: '1px solid var(--line)' }} data-stop-row={s.idx + 1}>
             <span className={bad ? 'bad' : s.arrived ? 'ok' : 'wn'}><Ic d={bad ? IC.warn : s.arrived ? IC.check : IC.clock} /></span>
             <div style={{ flex: '1' }}><div style={{ fontSize: '15px', fontWeight: '800' }}>{s.idx + 1} · {s.name || '지점'}</div><div className="lab" style={{ marginTop: '3px' }}>{s.arrived ? `${hm(s.arrived)} 도착` : '도착 기록 없음'} · {result(s.results)}</div></div>
             <span className={bad ? 'bad' : 'ok'} style={{ fontSize: '14px', fontWeight: '800' }}>{bad ? '실패' : s.arrived ? '도착' : ''}</span></div>; })}
         {evs && 'ok' in evs && !list.length && <Why>이 실행에는 지점 기록이 없습니다.</Why>}
         {evs && 'why' in evs && <p className="lab u6-why" role="alert">지점 기록을 받지 못했습니다. {evs.why}</p>}
-        <div style={{ marginTop: '10px' }}><Pager n={list.length} per={5} at={page} go={setPage} label="지점" /></div>
-        <Why>겹침 · 충돌 · 중복 · 혼잡 · 물리 점검은 서버에 아직 값이 없어 보고서에 넣지 않습니다.</Why>
+        <div style={{ marginTop: '10px' }}><Pager n={list.length} per={3} at={page} go={setPage} label="지점" /></div>
         <div className="lab row" style={{ gap: '6px', position: 'absolute', left: '24px', bottom: '24px' }}><Ic d={IC.doc} />보고서는 기록 탭에 남습니다 · {hm(r.started_at)} 모의 실행{robot ? ` · ${robot.name}` : ''}</div>
       </>}
     </div>

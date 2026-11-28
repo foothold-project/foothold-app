@@ -113,7 +113,7 @@ function Over({ p, est, last, drop, jobs, body }: { p: Plan; est: Estimate; last
   return <div className="toastw" style={{ left: '560px', top: '168px', width: '860px' }} role="alert" data-time-over>
     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}><span style={{ width: '36px', height: '36px', borderRadius: '11px', background: 'rgba(242,183,5,.18)', color: '#f2b705', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ic d={IC.clock} /></span>
       <div style={{ flex: '1' }}><div style={{ fontSize: '16.5px', fontWeight: '800' }}>고른 시간대 {p.start} ~ {p.end} 을 {over} 분 넘깁니다</div>
-        <div style={{ fontSize: '13px', fontWeight: '600', color: 'rgba(255,255,255,.7)', marginTop: '3px' }}>{w ? `방금 넣은 「${jobs[w.mission_id]?.name ?? '할 일'}」 까지 더하면 ` : ''}예상 끝이 {hm(est.eta)} 입니다. 저장은 되지만 일정에 넣을 때 다시 묻습니다.</div></div></div>
+        <div style={{ fontSize: '13px', fontWeight: '600', marginTop: '3px' }} className="u6-sub">{w ? `방금 넣은 「${jobs[w.mission_id]?.name ?? '할 일'}」 까지 더하면 ` : ''}예상 끝이 {hm(est.eta)} 입니다. 저장은 되지만 일정에 넣을 때 다시 묻습니다.</div></div></div>
     <div style={{ display: 'flex', gap: '8px', marginTop: '12px', marginLeft: '48px' }}>
       <button type="button" className="chipb" disabled={!w} title={w ? undefined : '이번에 넣은 작업이 없습니다'} onClick={drop} data-over-drop>방금 넣은 작업 빼기</button>
       <button type="button" className="chipb" onClick={() => p.setEnd(upHm)} data-over-extend>끝을 {upHm} 으로 늘리기</button>
