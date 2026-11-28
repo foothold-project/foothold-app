@@ -9,11 +9,11 @@ const camOf = (s: SiteShot) => { const c = new THREE.PerspectiveCamera(SITE_FOV,
   c.position.set(t.x + Math.sin(s.az) * Math.cos(s.el) * s.d, Math.sin(s.el) * s.d, t.z + Math.cos(s.az) * Math.cos(s.el) * s.d); c.lookAt(t); c.updateMatrixWorld(); return c; };
 
 describe('지도 보기 전체 보기', () => {
-  it('꽉 채움(03:42): 앞 변은 칸 폭을 조금 넘침(FULL_OVER) · 먼 변은 FULL_TOP 아래 · 위 하늘은 칸 높이 10 % 안', () => {
+  it('꽉 채움(03:42): 앞 변은 칸 폭을 조금 넘침(FULL_OVER) · 먼 변은 FULL_TOP 아래 · 좋은 예처럼 부지 가운데가 화면 가운데 조금 아래', () => {
     const c = camOf(fullShot(AR)), W = SITE_PX_W / K, H = SITE_PX_H / K, x0 = -OX / K, z0 = -OY / K;
     const p = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z).project(c);
     const far = p(x0, 25, z0), nl = p(x0, 0, z0 + H), nr = p(x0 + W, 0, z0 + H);
-    expect(far.y).toBeLessThanOrEqual(FULL_TOP + 1e-3); expect((1 - far.y) / 2).toBeLessThan(0.1);
+    expect(far.y).toBeLessThanOrEqual(FULL_TOP + 1e-3); expect(far.y).toBeGreaterThan(0.45); expect(far.y).toBeLessThan(0.7);   // 좋은 예: 먼 변 +0.55 · 앞 변 -0.8
     expect(nl.x).toBeLessThan(-1); expect(Math.abs(nl.x)).toBeLessThanOrEqual(FULL_OVER + 1e-3); expect(nl.y).toBeGreaterThanOrEqual(FULL_BOT - 1e-3);
     expect(nr.x).toBeCloseTo(-nl.x, 3);
     expect(LIFT_MAX).toBeLessThanOrEqual(60);
@@ -42,6 +42,7 @@ describe('지도 보기 전체 보기', () => {
   });
   it('받은 현장 모형 둘레로 맞춤(모형이 판보다 작으면 더 가까이) · 모형 없으면 판 크기', () => {
     const g = new THREE.Group(); const m = new THREE.Mesh(new THREE.BoxGeometry(700, 10, 450)); m.position.set(450, 5, 280); g.add(m);
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(2000, 0.1, 2000)); g.add(floor);   // 납작한 바닥판은 빼고
     const b = siteBox(g)!; expect(b.W).toBeCloseTo(700, 3); expect(b.H).toBeCloseTo(450, 3); expect(siteBox(null)).toBeUndefined();
     expect(fullShot(AR, undefined, undefined, b).d).toBeLessThan(fullShot(AR).d);
   });

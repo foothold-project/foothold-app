@@ -49,7 +49,7 @@ export const shotMix = (a: SiteShot, b: SiteShot, t: number): SiteShot => { cons
 export const flyTime = () => (calm() ? 0 : FLY_S);
 /** 「전체 보기」 시점(팀장 03:19 · 03:42 «꽉»): 정북 · 아래로 첫 시점과 같은 각(SITE_EL · 팀장 좋은 예도 이 각).
  *  가까운 변(앞 모서리 둘)이 칸 폭을 FULL_OVER(1.3 · 팀장 좋은 예처럼 양옆이 잘림) 만큼 넘치게 하는 가장 가까운 거리 · 먼 변(높이 FULL_H)은 FULL_TOP 아래 · 앞 변은 FULL_BOT 위. 거리 · 바라볼 점은 반 가르기 */
-export const FULL_TOP = 0.93, FULL_OVER = 1.3, FULL_BOT = -0.97, FULL_H = 25, FULL_EL = SITE_EL, FULL_UP = 0.2;
+export const FULL_TOP = 0.93, FULL_OVER = 1.3, FULL_BOT = -0.97, FULL_H = 25, FULL_EL = SITE_EL, FULL_UP = -0.12;
 /** box = 실제 받은 현장 모형의 바닥 둘레(x · z). 없으면 지도 판 크기(SITE_PX). 04:13 사진: 모형이 판보다 작아 판 모서리로 맞추면 공장이 칸 폭만큼만 보였음 */
 export function fullShot(aspect: number, elDeg = FULL_EL, over = FULL_OVER, box?: { x0: number; z0: number; W: number; H: number }): SiteShot {
   const { W, H, x0, z0 } = box ?? { W: SITE_PX_W / K, H: SITE_PX_H / K, x0: -OX / K, z0: -OY / K }, el = (elDeg * Math.PI) / 180;
@@ -57,7 +57,7 @@ export function fullShot(aspect: number, elDeg = FULL_EL, over = FULL_OVER, box?
   const far = [new THREE.Vector3(x0, FULL_H, z0), new THREE.Vector3(x0 + W, FULL_H, z0)], near = [new THREE.Vector3(x0, 0, z0 + H), new THREE.Vector3(x0 + W, 0, z0 + H)];
   const put = (d: number, tz: number) => { tgt.set(x0 + W / 2, 0, tz); cam.position.set(tgt.x, Math.sin(el) * d, tz + Math.cos(el) * d); cam.lookAt(tgt); cam.updateMatrixWorld(); };
   const y = (p: THREE.Vector3) => v.copy(p).project(cam).y, x = (p: THREE.Vector3) => v.copy(p).project(cam).x;
-  // 거리 d 에서 부지 위아래(먼 변 위 · 앞 변)의 가운데가 화면 가운데보다 FULL_UP 위(위 하늘을 줄이고 아래 땅을 더 보임)에 오는 바라볼 점(앞뒤) 자리
+  // 거리 d 에서 부지 위아래(먼 변 위 · 앞 변)의 가운데가 화면 가운데보다 FULL_UP 위에 오는(-0.12 = 조금 아래 · 04:17 팀장 좋은 예 사진 재기: 먼 변 화면 높이 +0.55 · 앞 변 -0.8) 바라볼 점(앞뒤) 자리
   const aimAt = (d: number) => { let lo = z0 - H, hi = z0 + 2 * H; for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; put(d, m); if ((y(far[0]) + y(near[0])) / 2 > FULL_UP) hi = m; else lo = m; } return (lo + hi) / 2; };
   const ok = (d: number) => { put(d, aimAt(d)); return Math.abs(x(near[0])) <= over && Math.abs(x(near[1])) <= over && y(near[0]) >= FULL_BOT && y(far[0]) <= FULL_TOP; };
   let lo = 50, hi = 20000; for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (ok(m)) hi = m; else lo = m; }
@@ -65,7 +65,13 @@ export function fullShot(aspect: number, elDeg = FULL_EL, over = FULL_OVER, box?
 }
 /** 안개는 지도 밖 땅만: 시작 = 바라볼 점까지 거리 + 부지 반 대각선(지도 어디도 안개 앞) · 끝 = 시작 + FOG_LEN. 지도 밝기는 거리와 상관없음 */
 /** 받은 현장 모형의 바닥 둘레(없거나 비면 undefined → 판 크기) */
-export const siteBox = (o: THREE.Object3D | null) => { if (!o) return undefined; const b = new THREE.Box3().setFromObject(o); return b.isEmpty() ? undefined : { x0: b.min.x, z0: b.min.z, W: b.max.x - b.min.x, H: b.max.z - b.min.z }; };
+export const siteBox = (o: THREE.Object3D | null) => {
+  if (!o) return undefined;
+  // 납작한 바닥판(높이 0.5 m 아래)은 빼고 서 있는 것(건물 · 탱크 · 배관)만: 바닥판이 판 크기 그대로라 둘레가 판과 같아지던 것(04:17 사진)
+  o.updateMatrixWorld(true); const b = new THREE.Box3(), mb = new THREE.Box3();
+  o.traverse((m) => { if (!(m as THREE.Mesh).isMesh) return; mb.setFromObject(m); if (!mb.isEmpty() && mb.max.y - mb.min.y > 0.5) b.union(mb); });
+  return b.isEmpty() ? undefined : { x0: b.min.x, z0: b.min.z, W: b.max.x - b.min.x, H: b.max.z - b.min.z };
+};
 export const SITE_R = Math.hypot(SITE_PX_W / K, SITE_PX_H / K) / 2, FOG_LEN = 1200;
 export const fogFor = (d: number) => ({ near: d + SITE_R, far: d + SITE_R + FOG_LEN });
 /** 지금 카메라 자리를 시점 값으로(바라볼 점 · 높이각 · 방위 · 거리) */

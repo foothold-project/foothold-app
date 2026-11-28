@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { padGroup, padTick } from '../../proto/padanim';
 import { applyWalk, loadWalk, type Walk } from '../../proto/site';
-import { LIGHT_FLOOR, feetUp, greyPadBody, lightFloor, lightRobot, simLook } from '../../proto/tileview';
+import { LIGHT_FLOOR, feetUp, greyPadBody, lightFloor, lightRobot, padBodyCol, simLook } from '../../proto/tileview';
 
 export const GO2_GLB = '/proto-assets/shared/go2_isaac.glb';
 const SIM = 0x4c9bff;
@@ -149,7 +149,7 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
   function setHot(map: Record<string, string>) {
     hotNow = map;
     if (!root || opt.cyber) return;
-    root.traverse((o) => { const m = o as THREE.Mesh; if (!m.isMesh) return; const mt = m.material as THREE.MeshStandardMaterial; mt.color.copy(m.userData.c0); mt.emissive?.setHex(0x000000); });
+    root.traverse((o) => { const m = o as THREE.Mesh; if (!m.isMesh) return; const mt = m.material as THREE.MeshStandardMaterial; mt.color.copy(padBodyCol(!!api.pad, m.userData.c0)); mt.emissive?.setHex(0x000000); });   // 충전 · 점검 몸 회색(?padBody)
     for (const [name, lvl] of Object.entries(map)) {
       const n = root.getObjectByName(name); if (!n) continue;
       n.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && (m.parent === n || m === n || !/_(hip|thigh|calf)$/.test(m.parent?.name || ''))) {
@@ -189,6 +189,7 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
     if (api.pad !== padNow || (api.pad && !padG)) {
       if (padG) { scene.remove(padG); padG.traverse((o) => { const m = o as THREE.Line; m.geometry?.dispose(); (m.material as THREE.Material | undefined)?.dispose(); }); padG = null; }
       padNow = api.pad; if (padNow) { padG = padMesh(padNow, !!lit); scene.add(padG); }
+      setHot(hotNow);   // 바닥 표시가 바뀌면 몸 바탕색(회색 · 원래)도 다시
     }
     if (padG) padTick(padG, t);
     lightRobot(!!lit, hemi, key, rims); greyPadBody(!!api.pad && !opt.cyber, hemi, rims);   // 충전 · 점검 몸 회색(테두리 빛 뺌 · 관제 타일과 같은 값)   // 바닥 위로 같은 꼴이 한 박씩 오름(움직임 줄이기면 바닥만)

@@ -49,17 +49,22 @@ export function lightRobot(light: boolean, hemi: THREE.HemisphereLight, key: THR
   for (const [l, base, c] of rims) { l.color.setHex(light ? 0xffffff : c); l.intensity = base * k.rim; }
   return k;
 }
-/** 충전 · 점검 로봇 몸(팀장 03:14 «회색 로봇 · A 처럼 라이팅 뺀 꼴» · 04:05 app-lx 해석): 민트 · 파랑 테두리 빛을 끄고 하늘 빛을 hemi 배로 올려 검은 몸을 회색으로.
- *  기본 'grey' · 주소 ?padBody=lit 이면 옛 꼴(테두리 빛 그대로 · 견주기) */
-export const PAD_GREY = { hemi: 1.8 } as const;
-export const padBodyOf = (q: string): 'grey' | 'lit' => (new URLSearchParams(q).get('padBody') === 'lit' ? 'lit' : 'grey');
-const PAD_BODY = (() => { try { return padBodyOf(location.search || location.hash.split('?')[1] || ''); } catch { return 'grey' as const; } })();
-/** 바닥 표시가 있는(충전 · 점검) 실기 · 데모 로봇이면 lightRobot 뒤에 불러 몸을 회색으로 */
-export function greyPadBody(on: boolean, hemi: THREE.HemisphereLight, rims: [THREE.DirectionalLight, number, number][], body = PAD_BODY) {
-  if (!on || body !== 'grey') return;
+/** 충전 · 점검 로봇 몸 회색(팀장 03:14 «회색 로봇 · A 처럼 라이팅 뺀 꼴» · 04:16 후보 둘). 주소 ?padBody= 로 고름:
+ *  mat(기본) = 테두리 빛을 끄고 몸 재질 색을 중간 회색 #8D9590(오르는 줄과 같은 회색)으로 · 노랑 · 빨강 부품 표시는 그대로
+ *  hemi = 테두리 빛을 끄고 하늘 빛만 2.8 배(재질 색 그대로) · lit = 옛 꼴(테두리 빛 그대로) */
+export const PAD_GREY = { hemi: 2.8, col: 0x8d9590 } as const;
+export type PadBody = 'mat' | 'hemi' | 'lit';
+export const padBodyOf = (q: string): PadBody => { const v = new URLSearchParams(q).get('padBody'); return v === 'hemi' || v === 'lit' ? v : 'mat'; };
+export const PAD_BODY: PadBody = (() => { try { return padBodyOf(location.search || location.hash.split('?')[1] || ''); } catch { return 'mat' as const; } })();
+/** 바닥 표시가 있는(충전 · 점검) 실기 · 데모 로봇이면 lightRobot 뒤에 불러 테두리 빛을 끔(hemi 면 하늘 빛도 올림) */
+export function greyPadBody(on: boolean, hemi: THREE.HemisphereLight, rims: [THREE.DirectionalLight, number, number][], body: PadBody = PAD_BODY) {
+  if (!on || body === 'lit') return;
   for (const [l] of rims) l.intensity = 0;
-  hemi.intensity *= PAD_GREY.hemi;
+  if (body === 'hemi') hemi.intensity *= PAD_GREY.hemi;
 }
+/** 몸 재질 바탕색: mat 이고 충전 · 점검이면 회색, 아니면 모형 원래 색 */
+export const padBodyCol = (on: boolean, c0: THREE.Color, body: PadBody = PAD_BODY) => (on && body === 'mat' ? new THREE.Color(PAD_GREY.col) : c0);
+
 /** 밝은 판 점 바닥 아래 회색 바닥(팀장 03:31 «로봇이 떠 보이지 않게»): 발밑이 짙은 회색(#5E6662 · 밝음 1 점검 색) · 점과 같은 꼴(1 - smoothstep(0.35, 1.9, 거리))로 흐려짐.
  *  어둠 판은 끔(op 0). 관제 타일 · 로봇 탭이 같이 씀 */
 /** 견주기: 주소 ?floor=0.24 처럼 진하기만 덮어씀(0 ~ 1) */
@@ -197,7 +202,7 @@ class Tiles {
       if (look.cyber) { m.material = this.cyber!; return; }
       if (m.material === this.cyber) m.material = (m.userData.own ??= (m.userData.c0 && new THREE.MeshStandardMaterial({ color: m.userData.c0 }))) as THREE.Material;
       const mat = m.material as THREE.MeshStandardMaterial; if (!m.userData.own) m.userData.own = mat;
-      mat.color.copy(m.userData.c0); mat.emissive?.setHex(0x000000);
+      mat.color.copy(padBodyCol(!!look.pad, m.userData.c0)); mat.emissive?.setHex(0x000000);
     });
     if (look.cyber) return;
     for (const [name, lvl] of Object.entries(look.hot)) {
