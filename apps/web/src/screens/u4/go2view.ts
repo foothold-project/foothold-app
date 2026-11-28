@@ -3,6 +3,7 @@
 // 바닥 점 흐름은 api.drive = {v, turn, side} (로봇에 나간 명령 값). 모형 파일은 저장소 밖 자산 폴더(/proto-assets/, FH_ASSET_DIR)에서 읽는다.
 import * as THREE from 'three';
 import { applyWalk, loadWalk, type Walk } from '../../proto/site';
+import { feetUp } from '../../proto/tileview';
 
 export const GO2_GLB = '/proto-assets/shared/go2_isaac.glb';
 const SIM = 0x4c9bff;
@@ -24,6 +25,10 @@ type Joints = Record<string, { o: THREE.Object3D; r0: THREE.Euler }>;
 export function applyQ(root: THREE.Object3D, joints: Joints, q: number[]) {
   ORDER.forEach((n, i) => { const j = joints[n]; if (!j) return; j.o.rotation.copy(j.r0); j.o.rotation[n.endsWith('hip') ? 'z' : 'x'] += q[i] - STAND[i]; });
   ground(root);
+}
+/** 걷기 기록 t 초 자리로 다리를 놓고 종아리 넷의 가장 낮은 점을 y=0 에(관제 타일 tileview feetUp 과 같은 맞춤 · 엎드림 → 걷기로 바뀌어도 발이 묻히거나 뜨지 않게, 검토 L2) */
+export function walkPose(root: THREE.Object3D, joints: Joints, gait: Walk, t: number) {
+  const b = { root, joints, top: 0 }; applyWalk(b, gait, t); root.position.y = feetUp(b); root.updateMatrixWorld(true);
 }
 /** 모형의 가장 낮은 점(꼭짓점 기준)을 y=0 에 */
 export function ground(root: THREE.Object3D) {
@@ -153,7 +158,7 @@ export function mount(canvas: HTMLCanvasElement, opt: Go2Opt = {}): Go2Api {
     if (d) { off -= d.v * dt * 0.75; gm.uniforms.off.value = off; grid.rotation.y -= d.turn * dt * 0.9; grid.position.x = ((grid.position.x - (d.side || 0) * dt * 0.75) + 2) % 4 - 2; }
     const q = api.q;
     // 관절값이 바뀐 때만 다시 놓는다(바닥 맞춤은 꼭짓점을 훑으므로 같은 배열이면 건너뜀)
-    if (root && !posed && gait && legMode(q, api.down, api.walk) === 'walk') { applyWalk({ root, joints, top: 0 }, gait, t); lastQ = null; }
+    if (root && !posed && gait && legMode(q, api.down, api.walk) === 'walk') { walkPose(root, joints, gait, t); lastQ = null; }
     else {
       const want = poseQ(q, api.down);
       if (want !== lastQ && root && !posed) { applyQ(root, joints, want); lastQ = want; }
