@@ -80,6 +80,9 @@ def check_assets(place):
     and every file in the folder (except UNLISTED) must be listed: the whole folder is mounted."""
     if not place:
         raise SystemExit(ASSETS_HELP + ' (FH_SIM_ASSETS 가 비어 있음)')
+    if not Path(place).expanduser().is_absolute():
+        # Compose reads a bare relative name as a named volume; never guess the base folder.
+        raise SystemExit(f'FH_SIM_ASSETS={place} 는 상대 경로입니다 · 절대 경로로 적으세요')
     root = Path(place).expanduser().resolve()
     sums = root / 'SHA256SUMS'
     if not root.is_dir() or not sums.is_file():

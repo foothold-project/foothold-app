@@ -78,6 +78,17 @@ def test_no_assets_skips_prepare_and_starts_web(run):
     assert not (run.out / 'sim').exists()  # localSim shows its own guide page
 
 
+def test_restart_without_assets_drops_previous_sim(run):
+    """A simulator prepared on an earlier start must not outlive the assets that made it."""
+    result, calls = run(partial=True)  # prepare_sim leaves a simulator in $OUT/sim
+    assert result.returncode == 0 and (run.out / 'sim/go2.xml').exists()
+    for path in run.assets.iterdir():
+        path.unlink()
+    result, calls = run()
+    assert result.returncode == 0 and calls[-1] == f'npm run dev FH_SIM_DIR={run.out}/sim'
+    assert not (run.out / 'sim').exists()  # localSim shows its own guide page, not the old simulator
+
+
 @pytest.mark.skipif(hasattr(os, 'geteuid') and os.geteuid() == 0, reason='root reads 000 files')
 def test_unreadable_assets_warn_on_sim_page(run):
     """Assets owned by another uid with mode 600 cannot be read by node (uid 1000) in the container."""
@@ -127,6 +138,8 @@ def test_compose_and_image_wire_the_start_script():
     mounts = re.findall(r'^\s+- (.+)$', web, re.M)
     assert './deploy/prepare_sim.py:/workspace/deploy/prepare_sim.py:ro' in mounts
     assert any(m.endswith(':/workspace/sim-assets:ro\'') or m.endswith(':/workspace/sim-assets:ro') for m in mounts)
+    # Checked-in policies sit where prepare_sim.py (mounted at /workspace/deploy) looks for them.
+    assert './assets/sim-policy:/workspace/assets/sim-policy:ro' in mounts
     dockerfile = (REPOSITORY / 'docker/web.Dockerfile').read_text()
     assert 'python3' in dockerfile and 'docker/web-start.sh' in dockerfile
     assert re.search(r'^CMD \["sh", "/usr/local/bin/fh-web-start"\]$', dockerfile, re.M)
@@ -146,3 +159,6 @@ def test_compose_config_without_sim_assets(tmp_path):
     web = json.loads(result.stdout)['services']['web']
     mount = next(v for v in web['volumes'] if v['target'] == '/workspace/sim-assets')
     assert mount['type'] == 'volume' and mount['read_only'] is True
+    policy = next(v for v in web['volumes'] if v['target'] == '/workspace/assets/sim-policy')
+    assert policy['type'] == 'bind' and policy['read_only'] is True
+    assert Path(policy['source']) == REPOSITORY / 'assets/sim-policy'

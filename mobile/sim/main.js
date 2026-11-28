@@ -7,7 +7,7 @@
 import * as THREE from './vendor/three.module.js';
 import load from './mujoco/mujoco.js';
 import { createSim, ISAAC_LIKE } from './sim.js';
-import { POLICY_MODES, DEFAULT_POLICY_ID, getPolicyMode as getPolicyAdapter } from './policy-modes.js';
+import { POLICY_MODES, PICK_POLICY_IDS, pickPolicyId, getPolicyMode as getPolicyAdapter } from './policy-modes.js';
 import { ame2Joystick } from './ame2-adapter.js';
 import { topFrame, topPoint, validateStart, startPickUrl } from './top-fit.js';
 import { makeLidar, decodeMap, cell } from './lidar.js';
@@ -25,7 +25,7 @@ import { loadCustomTerrain } from './terrain/index.js';
 import { loadZoneGrid, zoneLayer, zoneEnters, guardCommand, zoneSpeed, capCommand, zoneLimit, zoneQuads, ZONE_STOP } from './zones.js';
 
 let adapter = getPolicyAdapter(), selectionError = null;
-try { adapter = getPolicyAdapter(new URLSearchParams(location.search).get('policy') ?? DEFAULT_POLICY_ID); }
+try { adapter = getPolicyAdapter(pickPolicyId(new URLSearchParams(location.search).get('policy'))); }
 catch (e) { selectionError = e; }
 const DEFAULT_POLICY_BACKEND = 'wasm';
 const START_DRAW_MAX_GAP_MS = 100;
@@ -215,12 +215,14 @@ try {
 
 async function preparePolicies() {
   const choice = $('policySelect'), reason = $('policyReason');
-  choice.replaceChildren(...Object.values(POLICY_MODES).map((mode) => new Option(mode.label, mode.id)));
+  // Only the screen choices; a view-only replay opened from its own link is shown as the current item.
+  const shown = PICK_POLICY_IDS.includes(adapter.id) ? PICK_POLICY_IDS : [...PICK_POLICY_IDS, adapter.id];
+  choice.replaceChildren(...shown.map((id) => getPolicyAdapter(id)).map((mode) => new Option(mode.label, mode.id)));
   choice.value = adapter.id;
   const replayOption = Array.from(choice.options).find((x) => x.value === POLICY_MODES.go2.id);
   const replayReason = replayRequirement(new URL(location.href));
-  replayOption.disabled = !!replayReason;
-  if (replayReason) replayOption.textContent += ` · ${replayReason}`;
+  if (replayOption) replayOption.disabled = !!replayReason;
+  if (replayOption && replayReason) replayOption.textContent += ` · ${replayReason}`;
   choice.onchange = () => {
     lock();
     const mode = getPolicyAdapter(choice.value);

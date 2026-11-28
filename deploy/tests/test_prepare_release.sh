@@ -15,16 +15,6 @@ printf trusted-nav2 > "$work/source/apps/agent/tools/nav2/marker"
 printf trusted-contracts > "$work/source/apps/contracts/marker"
 printf trusted-deploy > "$work/source/deploy/marker"
 cp "$(dirname "$prepare")/prepare_sim.py" "$work/source/deploy/prepare_sim.py"
-# Only the temporary archived helper uses a tiny, deterministic policy fixture.
-python3 - "$work/source/deploy/prepare_sim.py" <<'PY'
-import hashlib
-from pathlib import Path
-import re
-import sys
-path = Path(sys.argv[1])
-digest = hashlib.sha256(b'fixture-policy').hexdigest()
-path.write_text(re.sub(r'^POLICY_SHA = "[0-9a-f]+"$', f'POLICY_SHA = "{digest}"', path.read_text(), flags=re.M))
-PY
 printf '{}' > "$work/source/apps/web/package.json"
 printf '<html>sim</html>' > "$work/source/mobile/sim/index.html"
 printf '{}' > "$work/source/mobile/sim/maps.json"
@@ -83,7 +73,7 @@ tar -xzf "$work/out/$sha.tar.gz" -C "$work/check"
 [[ $(cat "$work/check/apps/agent/tools/nav2/marker") == trusted-nav2 ]]
 [[ $(cat "$work/check/deploy/marker") == trusted-deploy ]]
 rm "$work/out/$sha.tar.gz" "$work/out/$sha.tar.gz.sha256"
-# Wrong policy bytes must not make set -e abort release creation.
+# A bundle holding only policy_v2 (no runtime) must not make set -e abort release creation.
 mkdir "$work/wrong-policy"
 printf incorrect-policy > "$work/wrong-policy/policy_v2.f32"
 assert_web_only() {
@@ -98,14 +88,13 @@ assert_web_only() {
     rm "$work/out/$sha.tar.gz" "$work/out/$sha.tar.gz.sha256"
 }
 assert_web_only "$work/wrong-policy" wrong-policy-result
-# A valid fixture policy with exactly one required runtime file absent has the same fallback.
+# Exactly one required runtime file absent has the same fallback.
 python3 - "$work/missing-runtime" <<'PY'
 import json
 from pathlib import Path
 import sys
 root = Path(sys.argv[1])
 files = {
-    'policy_v2.f32': b'fixture-policy',
     'vendor/three.module.js': b'three', 'vendor/three.core.js': b'core', 'vendor/LICENSE': b'license',
     'mujoco/mujoco.js': b'js',
     'mujoco/package.json': json.dumps({'name': '@mujoco/mujoco', 'version': '3.17.0'}).encode(),
@@ -118,6 +107,35 @@ for name, data in files.items():
 assert not (root / 'mujoco/mujoco.wasm').exists()
 PY
 assert_web_only "$work/missing-runtime" missing-runtime-result
+# Operating decision 2026-11-28: the full runtime without policy_v2.f32 still prepares /sim/,
+# and a policy_v2 file in the bundle is never published.
+python3 - "$work/no-policy-v2" <<'PY'
+import json
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+files = {
+    'vendor/three.module.js': b'three', 'vendor/three.core.js': b'core', 'vendor/LICENSE': b'license',
+    'mujoco/mujoco.js': b'js', 'mujoco/mujoco.wasm': b'\x00asm',
+    'mujoco/package.json': json.dumps({'name': '@mujoco/mujoco', 'version': '3.17.0'}).encode(),
+    'assets/unitree_go2/go2.xml': b'<mujoco/>', 'assets/unitree_go2/LICENSE': b'license',
+    'policy_v2.onnx': b'not connected',
+}
+for name, data in files.items():
+    path = root / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+PY
+(cd "$work/repo.git" && FH_SIM_ASSETS="$work/no-policy-v2" PATH="$work/bin:$PATH" bash "$prepare" "$sha" "$work/out") > "$work/no-policy-v2.log" 2>&1
+mkdir "$work/no-policy-v2-result"
+tar -xzf "$work/out/$sha.tar.gz" -C "$work/no-policy-v2-result"
+dist=$work/no-policy-v2-result/apps/web/dist
+[[ -s $dist/sim/index.html && -s $dist/sim/mujoco/mujoco.wasm ]]
+[[ ! -e $dist/sim/policy_v2.f32 && ! -e $dist/sim/policy_v2.onnx ]]
+! grep -q 'preparing web only' "$work/no-policy-v2.log"
+! grep -q 'policy_v2' "$work/no-policy-v2.log"
+grep -q 'Prepared /sim/index.html' "$work/no-policy-v2.log"
+rm "$work/out/$sha.tar.gz" "$work/out/$sha.tar.gz.sha256"
 if (cd "$work/repo.git" && TEST_LINK=1 PATH="$work/bin:$PATH" bash "$prepare" "$sha" "$work/out") > "$work/rejected" 2>&1; then
     echo 'Expected symlink dist rejection' >&2; exit 1
 fi
@@ -144,4 +162,4 @@ if (cd "$work/repo.git" && PATH="$work/bin:$PATH" bash "$prepare" "$bad_sha" "$w
     echo 'Expected empty top-view input rejection' >&2; exit 1
 fi
 [[ ! -e $work/out/$bad_sha.tar.gz ]]
-printf 'PASS: bare archive, paired top-view input, single/per-floor grids, pristine trusted code, dist symlink rejection, wrong-policy/missing-runtime web-only releases\n'
+printf 'PASS: bare archive, paired top-view input, single/per-floor grids, pristine trusted code, dist symlink rejection, policy-only/missing-runtime web-only releases, /sim/ without policy_v2\n'

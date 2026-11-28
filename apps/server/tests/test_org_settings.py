@@ -174,14 +174,14 @@ def test_model_merge_reset_sparse_persistence_and_audit(client, seeded):
     headers = csrf(client)
     assert client.get(P).json()['model_overrides'] == {}
     patches = [
-        {'model_overrides': {'nvidia-demo': {'sim_key_vx': .4, 'lidar_view_m': 20},
+        {'model_overrides': {'ame2-demo': {'sim_key_vx': .4, 'lidar_view_m': 20},
                              'start-demo': {'stick_deadzone': .2}}},
-        {'model_overrides': {'nvidia-demo': {'sim_runner_vx': .6}}},
-        {'model_overrides': {'nvidia-demo': {'sim_key_vx': None}}},
+        {'model_overrides': {'ame2-demo': {'sim_runner_vx': .6}}},
+        {'model_overrides': {'ame2-demo': {'sim_key_vx': None}}},
     ]
     for patch in patches:
         assert client.patch(P, headers=headers, json=patch).status_code == 200
-    expected = {'nvidia-demo': {'lidar_view_m': 20, 'sim_runner_vx': .6},
+    expected = {'ame2-demo': {'lidar_view_m': 20, 'sim_runner_vx': .6},
                 'start-demo': {'stick_deadzone': .2}}
     assert client.get(P).json()['model_overrides'] == expected
     with Session(client.app.state.engine) as db:
@@ -189,10 +189,10 @@ def test_model_merge_reset_sparse_persistence_and_audit(client, seeded):
         assert list(db.scalars(select(Event.data).where(Event.code == 'ORG_SETTINGS_UPDATED')
                                .order_by(Event.id))) == patches
     # Empty objects are no-ops, never erase a model's existing choices.
-    assert client.patch(P, headers=headers, json={'model_overrides': {'nvidia-demo': {}}}).json()['model_overrides'] == expected
+    assert client.patch(P, headers=headers, json={'model_overrides': {'ame2-demo': {}}}).json()['model_overrides'] == expected
     result = client.patch(P, headers=headers, json={'model_overrides': {
-        'nvidia-demo': {'lidar_view_m': None, 'sim_runner_vx': None},
-        'start-demo': {'stick_deadzone': None}, 'ame2-demo': {'sim_key_vx': None}}})
+        'ame2-demo': {'lidar_view_m': None, 'sim_runner_vx': None},
+        'start-demo': {'stick_deadzone': None}, 'nvidia-demo': {'sim_key_vx': None}}})
     assert result.status_code == 200 and result.json()['model_overrides'] == {}
     with Session(client.app.state.engine) as db:
         assert db.get(Organization, seeded['org']).settings == {}
@@ -200,10 +200,11 @@ def test_model_merge_reset_sparse_persistence_and_audit(client, seeded):
 
 @pytest.mark.parametrize('overrides', [
     {'unknown': {'sim_key_vx': .5}}, {'foothold-v2': {'sim_key_vx': .5}},
-    {'nvidia-demo': {'battery_low_pct': 30}}, {'nvidia-demo': {'unknown': None}},
-    {'nvidia-demo': {'real_no_fast_server_drive': True}}, {'go2-demo': {'sim_max_vx': 1}},
-    {'go2-demo': {'real_no_fast_server_drive': True}}, {'nvidia-demo': None},
-    {'nvidia-demo': {'sim_key_vx': '0.5'}}, {'nvidia-demo': {'lidar_view_m': 2.5}},
+    {'ame2-demo': {'battery_low_pct': 30}}, {'ame2-demo': {'unknown': None}},
+    {'ame2-demo': {'real_no_fast_server_drive': True}}, {'go2-demo': {'sim_max_vx': 1}},
+    {'go2-demo': {'real_no_fast_server_drive': True}}, {'ame2-demo': None},
+    {'ame2-demo': {'sim_key_vx': '0.5'}}, {'ame2-demo': {'lidar_view_m': 2.5}},
+    {'nvidia-demo': {'sim_key_vx': .5}},  # retired 2026-11-28: clearing only
 ])
 def test_unknown_model_field_and_strict_override_validation_422(client, overrides):
     headers = csrf(client)
@@ -220,28 +221,28 @@ def test_model_ranges_match_common_ranges(client, field):
     low, high = BOUNDS[field]
     for value in (low, high):
         fields = {'sim_min_vx': 0, 'sim_key_vx': .1, field: value}
-        patch = {'model_overrides': {'nvidia-demo': fields}}
+        patch = {'model_overrides': {'ame2-demo': fields}}
         result = client.patch(P, headers=headers, json=patch)
         assert result.status_code == 200, result.json()
-        assert result.json()['model_overrides']['nvidia-demo'][field] == value
+        assert result.json()['model_overrides']['ame2-demo'][field] == value
     before = client.get(P).json()
     for value in (low - 1, high + 1, True, '0.2'):
-        result = client.patch(P, headers=headers, json={'model_overrides': {'nvidia-demo': {field: value}}})
+        result = client.patch(P, headers=headers, json={'model_overrides': {'ame2-demo': {field: value}}})
         assert result.status_code == 422
         assert client.get(P).json() == before
 
 
 def test_model_cross_validation_common_changes_and_reset_are_atomic(client):
     headers = csrf(client)
-    initial = {'model_overrides': {'nvidia-demo': {'sim_key_vx': .6, 'sim_max_vx': .7},
+    initial = {'model_overrides': {'ame2-demo': {'sim_key_vx': .6, 'sim_max_vx': .7},
                                   'start-demo': {'sim_min_vx': .5}}}
     assert client.patch(P, headers=headers, json=initial).status_code == 200
     before = client.get(P).json()
     for patch, model in [
-        ({'model_overrides': {'nvidia-demo': {'sim_min_vx': .5, 'sim_max_vx': .4}}}, 'nvidia-demo'),
-        ({'model_overrides': {'nvidia-demo': {'sim_key_vx': None}}}, 'nvidia-demo'),
+        ({'model_overrides': {'ame2-demo': {'sim_min_vx': .5, 'sim_max_vx': .4}}}, 'ame2-demo'),
+        ({'model_overrides': {'ame2-demo': {'sim_key_vx': None}}}, 'ame2-demo'),
         ({'sim_key_vx': .3, 'sim_max_vx': .4}, 'start-demo'),
-        ({'sim_key_vx': .8, 'model_overrides': {'nvidia-demo': {'sim_key_vx': None}}}, 'nvidia-demo'),
+        ({'sim_key_vx': .8, 'model_overrides': {'ame2-demo': {'sim_key_vx': None}}}, 'ame2-demo'),
     ]:
         result = client.patch(P, headers=headers, json=patch)
         assert result.status_code == 422, result.json()
@@ -254,7 +255,7 @@ def test_model_cross_validation_common_changes_and_reset_are_atomic(client):
     assert client.get(P).json() == before
     # Simultaneously restoring both related fields can return to common values.
     assert client.patch(P, headers=headers, json={'model_overrides': {
-        'nvidia-demo': {'sim_key_vx': None, 'sim_max_vx': None}}}).status_code == 200
+        'ame2-demo': {'sim_key_vx': None, 'sim_max_vx': None}}}).status_code == 200
 
 
 def test_only_admin_updates_model_overrides_and_orgs_remain_isolated(client, seeded):

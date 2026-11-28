@@ -52,9 +52,9 @@ rsync -av "$ARTIFACT_DIR/$COMMIT.tar.gz" "$ARTIFACT_DIR/$COMMIT.tar.gz.sha256" \
 
 | 비공개 디렉터리 안 상대 경로 | 웹 묶음 |
 |---|---|
-| `policy_v2.f32` | 기본 정책, `docs/POLICY-PROVENANCE.md` SHA-256 대조 |
 | `ame2_actor.f32`, `ame2_actor.json` | 둘 다 있을 때만 포함, `docs/AME2-PROVENANCE.md` SHA-256 대조 |
-| `ame2_actor.onnx`, `policy_v2.onnx` | 선택적 ONNX, 위 두 출처 문서의 SHA-256 대조 |
+| `policy_v2.f32`, `policy_v2.onnx` | 쓰지 않음 (운영 결정 2026-11-28). 있어도 싣지 않고, 없어도 `/sim/` 이 준비된다 |
+| `ame2-demo.onnx`, `start-m15500_map_on.onnx`, `start-m15500_map_off.onnx` | 선택적 ONNX, 위 두 출처 문서의 SHA-256 대조. 앞의 셋은 묶음에 없으면 로컬 · Docker 준비에서 저장소 `assets/sim-policy/` 사본을 쓴다 (배포 묶음에는 `assets/` 가 없어 서버는 이 폴더만 쓴다) |
 | `ort/ort.wasm.min.mjs`, `ort/ort-wasm-simd-threaded.mjs`, `ort/ort-wasm-simd-threaded.wasm` | 공유 onnxruntime-web 1.31.1, `docs/POLICY-PROVENANCE.md` 파일별 SHA 대조 |
 | `vendor/three.module.js`, `vendor/three.core.js`, `vendor/LICENSE` | 모바일과 동일한 three 자산 |
 | `mujoco/mujoco.js`, `mujoco/mujoco.wasm`, `mujoco/package.json` | 기존 `@mujoco/mujoco` 3.17.0 자산 그대로, npm/lock 갱신 없음 |

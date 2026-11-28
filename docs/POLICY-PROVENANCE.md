@@ -1,25 +1,42 @@
 # MVP foothold-v2 → policy_v2.f32 출처 기록
 
-## start-demo (m13000)
+## start-demo (m15500 정본 3)
 
-`start-m13000-app/CONTRACT.md` 및 `contract.json`의 m13000 ONNX 두 파일을 그대로 사용한다. 원본 checkpoint SHA-256은 `20365a2c6d70f94f65f1114471f7df198e56d86db6d02d89cea43c666b95e768`이며, checkpoint 재내보내기는 수행하지 않았다.
+운영 결정 2026-11-28 로 앱 시뮬의 start-demo 를 실기 실행기 (`apps/agent` 의 `start.py` · `runner_cpp`) 와 같은 m15500 정본 3 으로 바꿨다. `start-m15500-app/CONTRACT.md` 및 `contract.json` 의 두 ONNX 를 그대로 쓴다. 원본 checkpoint SHA-256 은 `13caeb4ae52dd41ab3c2d23f9e6e34801a2414aa811c3efd4b38895e9ce29df6` (EX-42 E1F model_250 = 누적 m15500) 이며 재내보내기는 하지 않았다.
 
 | 파일 | bytes | SHA-256 |
 |---|---:|---|
-| `start-m13000_map_on.onnx` | 5813202 | `4799677acdc9fbc22da28fd56fefa3181f24b38b198e3bea02270c1c1cd11d93` |
-| `start-m13000_map_off.onnx` | 5823033 | `8317548f51a046afb537c212eec47a12b2888b6ea049fa84361d83aa8c30849f` |
+| `start-m15500_map_on.onnx` | 5816755 | `df91c2d772c7d054e33c74fca479e79550cfd228d7682402f7eef4a0865e279f` |
+| `start-m15500_map_off.onnx` | 5826586 | `be6c8b103d3b39503447ee71076ec199e5ed0688c3540ccfe449a96d6e2a9a41` |
 
-정답/복원은 map_on + use_gt true/false, 끔은 map_off이다. ONNX 전용이며 f32 되돌림이 없다. `FH_START_SRC`(또는 `FH_POLICY_ONNX_SRC`)에서 복사하고 SHA를 확인한다. 모델·가중치·시험 벡터는 커밋하지 않는다. 배포 준비의 private-assets 루트에 두 파일을 놓으면 `/sim/`으로 복사하며, 없거나 SHA가 다르면 start 메뉴만 비활성화한다. 실제 서버 복사·배포는 별도 승인 작업이다.
+두 파일은 공개 저장소 foothold-lab 의 `inbox/jay/20261103-policy-handoff/start-m15500-app` 와 SHA-256 이 같고, 실기 실행기가 고정한 SHA 와도 같다. 정답/복원은 map_on + use_gt true/false, 끔은 map_off 이다. ONNX 전용이며 f32 되돌림이 없다.
 
-2026-11-09 m13000 벡터 20스텝을 Node 22.23.2 / ORT 1.31.1 CPU 및 Chrome 154.0.8037.97 / ORT Web 1.31.1 WASM main·Worker에서 대조했다. 입력 9개·출력 4개의 이름·순서·모양·bool 플래그는 전달 계약과 같으며 실행기·상태 되먹임은 유지했다.
+**정책 자리: 저장소에 둠.** `assets/sim-policy/` 에 m15500 두 파일과 `ame2-demo.onnx` 를 `SHA256SUMS` 와 함께 둔다. `deploy/prepare_sim.py` 는 자산 묶음에 같은 이름의 파일이 있으면 묶음을 먼저 쓰고 (묶음 사본이 틀리면 저장소 사본으로 바꾸지 않고 그 정책만 뺀다), 없으면 저장소 사본을 쓴다. 저장소 사본은 `SHA256SUMS` 의 값과 아래 고정 SHA 가 같고 파일도 그 값일 때만 `/sim/` 으로 복사한다. 하나라도 다르면 그 정책만 빼고 경고한다. MuJoCo · onnxruntime-web · Go2 모형은 저장소에 두지 않고 지금처럼 자산 묶음에서 SHA 로 확인해 받는다 (policy_v2 는 아래 nvidia-demo 절). 그래서 묶음이 없으면 저장소 정책만으로는 시뮬이 뜨지 않고 `/sim/` 은 안내 화면이다. 시험 벡터는 커밋하지 않는다. 운영 서버는 `/var/lib/foothold/sim-policy` 를 그대로 쓴다 (배포 묶음에 `assets/` 를 넣지 않으므로 저장소 사본 길은 로컬 · Docker 에서만 쓰인다).
 
-| m13000 벡터 | Node 행동 최대 차 | Chrome main | Chrome Worker |
+### 입출력 계약 (m13000 과 비교)
+
+2026-11-28 onnxruntime-node 1.31.1 로 네 그래프의 입출력을 직접 읽었다. 이름 · 순서 · 모양 · 형이 m13000 과 같다.
+
+| | 입력 9 | 출력 4 |
+|---|---|---|
+| m13000 map_on · map_off | obs45 [1,45] · hist [1,10,45] · depth2 [1,2,60,60] · h_prop [1,128] · h_terr [1,128] · depth_tick bool [1] · first_after_reset bool [1] · use_gt bool [1] · gt_map [1,32,16] | action [1,12] · h_prop_next [1,128] · h_terr_next [1,128] · recon_map [1,32,16] |
+| m15500 map_on · map_off | 같음 | 같음 |
+
+`contract.json` 에서 m13000 과 다른 키는 artifacts · checkpoint · checkpoint_iter · checkpoint_sha256 · format · label · model · source · source_ref 와 새로 생긴 perception_weights (평균 지각 가중치) · vx_corr (전진 속도 보정을 그래프 안에 넣음) 뿐이다. inputs · outputs · action · state · actor_input_order · pose_cmd · perception_cfg · app_onnx 는 같다. 그래서 어댑터 (`mobile/sim/start-demo-adapter.js`) 는 파일 이름과 SHA 만 바꿨고 관측 조립 · 상태 되먹임은 그대로다.
+
+### 시험 벡터 대조
+
+2026-11-28 m15500 벡터 20스텝 (`test_vectors_flat20_{reconstruction,gt,off}.json`) 을 Node 24.22.2 / onnxruntime-node 1.31.1 CPU 와 Chrome 157.0.8103.38 / ORT Web 1.31.1 WASM main · Worker 에서 대조했다. 방법은 `policy-vector-selftest.mjs` 의 start 부분과 같다 (AME-2 f32 묶음이 없어 그 스크립트 전체는 돌리지 않았다).
+
+| m15500 벡터 | Node 행동 최대 차 | Chrome main | Chrome Worker |
 |---|---:|---:|---:|
-| reconstruction | 2.05636024e-6 | 2.62260437e-6 | 2.62260437e-6 |
-| gt | 2.14576721e-6 | 1.90734863e-6 | 1.90734863e-6 |
-| off | 1.90734863e-6 | 2.02655792e-6 | 2.02655792e-6 |
+| reconstruction | 4.66406345e-6 | 3.75509262e-6 | 3.75509262e-6 |
+| gt | 2.26497650e-6 | 2.19605863e-6 | 2.19605863e-6 |
+| off | 3.45706940e-6 | 2.47359276e-6 | 2.47359276e-6 |
 
-모든 출력의 최대 차는 2.62260437e-6으로 허용 오차 1e-4 이하다. 후진 모드 상한은 학습 범위에 맞춰 1.3 m/s다.
+모든 출력 (행동 · 두 GRU 상태 · 복원 지도) 의 최대 차는 4.66406345e-6 으로 허용 오차 1e-4 이하다. 20 스텝 모두 기한 20 ms 안이다 (Node 중앙값 1.7~2.0 ms, Chrome 3.7~5.1 ms). 후진 모드 상한은 1.3 m/s 그대로다.
+
+이전 기록: 2026-11-09 m13000 (`4799677a…` · `8317548f…`) 을 같은 방법으로 대조해 최대 차 2.62260437e-6 이었다. m13000 은 이제 앱에 쓰지 않는다.
 
 시험 벡터 실측 및 조정 결정(2026-11-04)에 따라 이력은 **현재 포함 최신 관측부터 10개**, 리셋 뒤 첫 관측을 10칸에 채운다. 인계 v0.3의 «오래된 것이 앞» 설명과 다르다. 깊이 두 장도 최신부터이며, tick 15 입력은 `[f10, f5]`다. 관측 이력·깊이 버퍼·GRU 출력은 실제 행동 적용 때만 확정한다. `policy-vector-selftest.mjs`는 원시 프레임 f0/f5/f10을 기록에서 꺼내 등록된 모드의 obs45/hist/depth2/gt_map을 만들고 대조한 뒤 그대로 Node/브라우저/Worker ONNX에 넣는다. 비정답 모드의 기록에는 사용하지 않는 진단 gt_map이 남아 있어, 앱의 0 지도와의 차이는 별도 수치로 보고하고 유효 입력은 0인지 확인한다.
 
@@ -30,6 +47,8 @@ start는 추론 중이고 `stats.slow`로 시뮬 지연이 확인될 때만 그�
 ## nvidia-demo
 
 앱 시뮬 모드 id·메뉴 이름은 `nvidia-demo`이며, 옛 URL 값 `foothold-v2`는 별칭으로 받는다. 원본 모델·파일 이름과 해시는 유지한다.
+
+운영 결정 2026-11-28: nvidia-demo 는 더 이상 고르지 않는다. 웹 시뮬의 고르기 목록과 기본값은 START (m15500) · AME-2 이고 기본은 START 다 (`mobile/sim/policy-modes.js` 의 `PICK_POLICY_IDS` · `DEFAULT_PICK_POLICY_ID` · `pickPolicyId`, 웹 설정은 `apps/web/src/screens/settings.tsx` 의 `SIM_MODELS`). 옛 링크 `?policy=nvidia-demo` · `foothold-v2` 는 START 로 연다. 계약의 `model_overrides` 는 저장된 nvidia-demo 값을 그대로 읽지만 새 값은 받지 않고 지우기 (null) 만 받는다. `policy_v2.onnx` · `policy_v2.f32` 는 저장소 `assets/policy-v2/` 에 보관만 하며 (아래 SHA-256 과 같음) prepare_sim · compose · 웹 · 서버 어디서도 그 폴더를 읽지 않는다. `deploy/prepare_sim.py` 도 policy_v2 를 쓰지 않는다. 자산 묶음에 `policy_v2.f32` · `policy_v2.onnx` 가 있어도 확인하거나 `/sim/` 에 싣지 않고, 없어도 `/sim/` 은 START · AME-2 로 준비된다 (이전에는 `policy_v2.f32` 가 없거나 SHA 가 다르면 `/sim/` 전체를 뺐다). Node 핵심 `sim.js` 와 simmgr 는 아직 nvidia-demo 를 기본으로 쓰며 자기 자산 폴더에서 읽는다. 그 교체는 따로 한다.
 
 2026-10-29, 기준 `origin/dev` = `468715b2f78d39d38fc9124bd8cbc05fa12d36bf`.
 MVP `foothold-v2`의 LFS oid·모델 카드와 10월 12일 내보내기의 원본 SHA-256이 같다.

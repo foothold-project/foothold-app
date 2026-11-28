@@ -631,6 +631,8 @@ REAL_SETTING_FIELDS = frozenset(('real_no_fast_server_drive', 'real_max_vx', 're
 REAL_SETTING_MODELS: frozenset[str] = frozenset()
 MODEL_SETTING_FIELDS.update({key: REAL_SETTING_FIELDS for key in REAL_SETTING_MODELS})
 MODEL_SETTING_FIELDS['go2-demo'] = frozenset()
+# Operating decision 2026-11-28: no longer picked. Stored values stay readable; a patch may only clear them.
+RETIRED_SETTING_MODELS = frozenset(('nvidia-demo',))
 SettingValue = StrictFloat | StrictInt | StrictBool
 
 
@@ -647,6 +649,8 @@ def validate_model_settings(value, *, patch=False):
                 raise ValueError(f'{model}: 허용되지 않는 모델 설정 칸입니다.')
             if item is None and patch:
                 continue
+            if patch and model in RETIRED_SETTING_MODELS:
+                raise ValueError(f'{model}: 더 이상 고르지 않는 모델이라 값을 지우는 것만 됩니다.')
             field = OrgSettings.model_fields[key]
             try:
                 TypeAdapter(Annotated[field.annotation, *field.metadata]).validate_python(item)
