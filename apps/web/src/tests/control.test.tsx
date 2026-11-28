@@ -101,14 +101,15 @@ describe('관제 탭', () => {
     expect(tiles().every((t) => t.querySelector('.ct-video')!.getAttribute('data-face') === 'front')).toBe(true);
   });
 
-  it('3D 는 지금 동작대로: 임무 중 = 걷기, 잠금·오류 = 엎드림, 대기 = 서 있음, 끊김 = 마지막 자세 모름(보고 자세가 오면 그 자세)', () => {
+  it('3D 는 지금 동작대로: 임무 중 = 걷기, 잠금·오류 = 자세 모름(보고 자세 없을 때), 대기 = 서 있음, 끊김 = 마지막 자세 모름(보고 자세가 오면 그 자세)', () => {
     mount('u-kim', TWENTY); feed(TWENTY);
     expect(tile('g5').querySelector('.ct-fig')!.getAttribute('data-act')).toBe('walk');
     expect(tile('g15').querySelector('.ct-fig')!.getAttribute('data-act')).toBe('lost');
     expect(tile('g15').querySelector('.ct-fig')!.hasAttribute('data-dim')).toBe(true);
     expect(tile('g15').querySelector('[data-act-text]')!.textContent).toBe('마지막 자세 모름');
-    expect(actOf({ ...TWENTY[3], status: 'STOP_LATCHED' }, false)).toBe('lie');   // 연결 중 잠금은 그대로 엎드림
-    expect(actOf({ ...TWENTY[3], status: 'ERROR' }, false)).toBe('lie');
+    // #533 r2 4: 잠금·오류는 서버 잠금 표시일 뿐 자세가 아니다. 보고 자세가 없으면 엎드림을 그리지 않고 «자세 모름»(흐리게)
+    expect(actOf({ ...TWENTY[3], status: 'STOP_LATCHED' }, false)).toBe('hold');
+    expect(actOf({ ...TWENTY[3], status: 'ERROR' }, false)).toBe('hold');
     expect(tile('g3').querySelector('.ct-fig')!.getAttribute('data-act')).toBe('stand');
     const r = TWENTY[3];
     expect(actOf(r, true)).toBe('report');
@@ -232,18 +233,70 @@ describe('#533 관제 · 머리줄 STOP 대상', () => {
     press();
     expect(stops()).toEqual(['r-a']);
   });
-  it('H2: 이 창에 시뮬이 떠 있어도 관제 STOP 은 실기를 고를 수 있음 (시뮬 정지는 그대로 보냄)', () => {
-    const live = vi.spyOn(sim, 'live').mockReturnValue(MIX[1] as never), halt = vi.spyOn(sim, 'stop').mockImplementation(() => {});
-    mount('u-park', MIX, '#/control'); feed(MIX);
+  const TWO: Robot[] = [...MIX, { id: 'r-b', name: 'Go2-B', owner: 'u-park', ownerName: '박OO', battery: 60, online: true, seenAt: '14:05:20', status: 'IDLE' }];
+  const pickBox = () => box.querySelector<HTMLElement>('[role="dialog"][aria-label="정지할 로봇 고르기"]');
+  // 11-28 조정 결정(「STOP 은 언제나 먹어야」): 시뮬이 떠 있고 대상이 없는 화면이면 어느 탭이든 시뮬 정지는 그대로 + 실기 한 대면 그 실기로 바로, 여럿이면 고르기
+  for (const hash of ['#/control', '#/map', '#/history']) {
+    it(`H2 ${hash}: 시뮬이 떠 있어도 정지할 실기가 한 대면 시뮬 정지 + 그 실기 STOP 을 바로 보냄 (Space 도)`, () => {
+      vi.spyOn(sim, 'live').mockReturnValue(MIX[1] as never); const halt = vi.spyOn(sim, 'stop').mockImplementation(() => {});
+      mount('u-park', MIX, hash); feed(MIX);
+      press();
+      expect(halt).toHaveBeenCalledTimes(1);
+      expect(stops()).toEqual(['r-a']);
+      expect(pickBox()).toBeNull();
+      space();
+      expect(halt).toHaveBeenCalledTimes(2);
+      expect(stops()).toEqual(['r-a', 'r-a']);
+    });
+    it(`H2 ${hash}: 정지할 실기가 여럿이면 시뮬 정지 + 실기 고르기 → 고른 실기 STOP`, () => {
+      vi.spyOn(sim, 'live').mockReturnValue(MIX[1] as never); const halt = vi.spyOn(sim, 'stop').mockImplementation(() => {});
+      mount('u-park', TWO, hash); feed(TWO);
+      press();
+      expect(halt).toHaveBeenCalledTimes(1);
+      expect(stops()).toEqual([]);
+      const pick = pickBox()!, sel = pick.querySelector<HTMLSelectElement>('select')!;
+      expect([...sel.options].map((o) => o.value)).toEqual(expect.arrayContaining(['r-a', 'r-b']));
+      act(() => { sel.value = 'r-b'; sel.dispatchEvent(new Event('change', { bubbles: true })); });
+      act(() => { pick.querySelector<HTMLElement>('button.fh-stop')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })); pick.querySelector<HTMLElement>('button.fh-stop')!.click(); });
+      expect(stops()).toContain('r-b');
+      expect(stops()).not.toContain('r-a');
+    });
+  }
+  it('H2: 정지할 실기가 없으면(시뮬뿐) 시뮬 정지만, 고르기 없음 (기존 그대로)', () => {
+    vi.spyOn(sim, 'live').mockReturnValue(MIX[1] as never); const halt = vi.spyOn(sim, 'stop').mockImplementation(() => {});
+    mount('u-park', [MIX[1]], '#/map'); feed([MIX[1]]);
     press();
-    expect(halt).toHaveBeenCalledTimes(1);   // 떠 있는 시뮬 슬롯 정지는 그대로(기존)
-    const pick = box.querySelector<HTMLElement>('[role="dialog"][aria-label="정지할 로봇 고르기"]');
-    expect(pick).not.toBeNull();
-    const sel = pick!.querySelector<HTMLSelectElement>('select')!;
-    expect([...sel.options].map((o) => o.value)).toContain('r-a');
-    act(() => { sel.value = 'r-a'; sel.dispatchEvent(new Event('change', { bubbles: true })); });
-    act(() => { pick!.querySelector<HTMLElement>('button.fh-stop')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })); pick!.querySelector<HTMLElement>('button.fh-stop')!.click(); });
-    expect(stops()).toContain('r-a');
-    live.mockRestore();
+    expect(halt).toHaveBeenCalledTimes(1);
+    expect(stops()).toEqual([]);
+    expect(pickBox()).toBeNull();
+  });
+});
+
+describe('#533 r2 (11-28 Codex 재검토)', () => {
+  const MIX: Robot[] = [
+    { id: 'r-a', name: 'Go2-A', owner: 'u-park', ownerName: '박OO', battery: 70, online: true, seenAt: '14:05:20', status: 'RUNNING', mission: '순찰 1/4' },
+    { id: 's-1', name: '시뮬-1', owner: 'u-park', ownerName: '박OO', battery: 90, online: true, seenAt: '14:05:20', status: 'IDLE', sim: true },
+  ];
+  const stops = () => FakeWS.last.of('stop').map((m) => m.robot);
+  it('1: 다른 창에서 도는 시뮬 타일을 열면(이 창 직결 시뮬 없음) 머리줄 STOP · Space 대상 = 그 시뮬, 고르기 · 실기 없음', () => {
+    mount('u-park', MIX, '#/control'); feed(MIX);
+    act(() => { tile('s-1').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
+    expect(location.hash).toBe('#/sim/s-1');
+    act(() => { $('header .fh-stop').click(); });
+    expect(stops()).toEqual(['s-1']);
+    expect(box.querySelector('[role="dialog"][aria-label="정지할 로봇 고르기"]')).toBeNull();
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true, cancelable: true })); });
+    expect(stops()).toEqual(['s-1', 's-1']);
+  });
+  it('4: 연결 중 잠금 · 오류 타일은 보고 자세가 없으면 엎드림 그림이 아니라 «자세 모름» 글 + 흐림', () => {
+    const R: Robot[] = [{ ...MIX[0], id: 'r-l', status: 'STOP_LATCHED', mission: undefined }, { ...MIX[0], id: 'r-e', status: 'ERROR', mission: undefined }];
+    mount('u-park', R, '#/control'); feed(R);
+    for (const [id, t] of [['r-l', '자세 모름 · 정지 잠금'], ['r-e', '자세 모름 · 오류']]) {
+      const f = tile(id).querySelector('.ct-fig')!;
+      expect(f.getAttribute('data-act')).toBe('hold');
+      expect(f.hasAttribute('data-dim')).toBe(true);
+      expect(tile(id).querySelector('[data-act-text]')!.textContent).toBe(t);
+      expect(tile(id).textContent).not.toContain('엎드림');
+    }
   });
 });

@@ -148,7 +148,7 @@ const SHEET: Record<SheetId, (c: Ctx) => JSX.Element> = {
 const KEY: Record<string, string> = { KeyW: 'f', ArrowUp: 'f', KeyS: 'b', ArrowDown: 'b', KeyA: 'l', ArrowLeft: 'l', KeyD: 'r', ArrowRight: 'r', KeyQ: 'sl', KeyE: 'sr' };
 const held = (keys: Map<string, number>, d: string) => [...keys.keys()].some((c) => KEY[c] === d);
 /** 누른 키(후진 제외, 따로 막음 안내) → 서버 명령표 낱말. 표에 없는 조합이면 0 + COMBO_BLOCK */
-const TOK = { f: 'up', l: 'rotl', r: 'rotr', sl: 'left', sr: 'right' } as const;
+const TOK = { f: 'up', b: 'down', l: 'rotl', r: 'rotr', sl: 'left', sr: 'right' } as const;   // b: S 와 같이 누른 키(S+Q · W+S)도 표 밖 조합 = 0(#533 r2 3). S 만이면 표 값이나 아래 axes 가 후진을 막음
 const keyToks = (keys: Map<string, number>) => [...new Set([...keys.keys()].map((c) => TOK[KEY[c] as keyof typeof TOK]).filter(Boolean))];
 
 /** F-TO-02~05: 조종 화면 */
@@ -200,7 +200,9 @@ function Screen(c: Ctx) {
       if (metaCut(e)) { if (keys.size) blur(); return; }   // Cmd 동안은 keyup 이 안 올 수 있다 — 적은 키를 지우고 세대 +1(RV-429 ③)
       const k = KEY[e.code]; if (!k) return;
       if (field(e.target)) { if (!keys.has(e.code)) { keys.set(e.code, -1); sendRef.current(); } return; }   // 글 입력칸: 글자는 그대로, 조종은 아님. 뗄 때까지 앞 세대(0)
-      if (!e.ctrlKey && !e.altKey) e.preventDefault();   // Ctrl·Alt 조합도 같은 누름으로 적는다(브라우저 단축키는 막지 않음)
+      // Ctrl · Alt 조합(브라우저 단축키)은 조종 입력이 아니다: 앞 세대로 적어 뗄 때까지 0, 단축키는 막지 않음(#533 r2 2 · PC 와 같음)
+      if (e.ctrlKey || e.altKey) { if (!keys.has(e.code)) { keys.set(e.code, -1); sendRef.current(); } return; }
+      e.preventDefault();
       if (!e.repeat) keys.set(e.code, nowRef.current());
       else if (!keys.has(e.code)) keys.set(e.code, -1);   // 반복은 새 누름이 아니다 — 모르는 키면 앞 세대로 적어 뗄 때까지 0
       if (k === 'b') setBack(true);

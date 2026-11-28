@@ -51,16 +51,17 @@ export const hottest = (x: Robot) => { const t = temps(x)?.filter((c): c is numb
 const missionOf = (m?: string) => { const g = m ? /^(.*) (\d+)\/(\d+)$/.exec(m) : null; return g ? { name: g[1], done: +g[2], total: +g[3] } : m ? { name: m, done: 0, total: 0 } : null; };
 
 /** 3D 로 그릴 동작(로봇 보고 자세가 없을 때만 씀) */
-type Act = 'report' | 'walk' | 'lie' | 'stand' | 'lost' | 'unknown';
+type Act = 'report' | 'walk' | 'lie' | 'hold' | 'stand' | 'lost' | 'unknown';
 export function actOf(x: Robot, reported: boolean): Act {
   if (reported) return 'report';
   if (isLost(x)) return 'lost';   // 끊김: 지금 자세를 단정하지 않는다(흐리게 · 기본 자세 고정)
   if (x.unknown || !x.online) return 'unknown';
-  if (x.status === 'STOP_LATCHED' || x.status === 'ERROR') return 'lie';
+  // 잠금·오류는 서버 잠금 표시일 뿐 기체 자세가 아니다(서 있거나 정지 출력 미확인일 수 있음): 보고 자세 없이 엎드림을 그리지 않는다(#533 r2 4)
+  if (x.status === 'STOP_LATCHED' || x.status === 'ERROR') return 'hold';
   if (x.status === 'RUNNING' || x.status === 'TELEOP') return 'walk';
   return 'stand';
 }
-const ACT_TEXT: Record<Act, string> = { report: '로봇 보고 자세', walk: '상태 그림 · 걷는 중', lie: '상태 그림 · 엎드림', stand: '상태 그림 · 서 있음', lost: '마지막 자세 모름', unknown: '상태 모름' };
+const ACT_TEXT: Record<Act, string> = { report: '로봇 보고 자세', walk: '상태 그림 · 걷는 중', lie: '상태 그림 · 엎드림', hold: '자세 모름', stand: '상태 그림 · 서 있음', lost: '마지막 자세 모름', unknown: '상태 모름' };
 /** 상태 그림 자세(보고 자세가 아님 · 관절 값 글자·온도 점을 띄우지 않는다). 걷기 = 대각 다리 한 쌍씩(트롯) */
 const LIE = JOINTS.map((n) => (n.includes('hip') ? 0 : n.includes('thigh') ? 1.25 : -2.6));
 function walkPose(ph: number): Pose {
@@ -90,9 +91,9 @@ function Figure({ x, front }: { x: Robot; front: boolean }) {
   const shown = pose ?? (act === 'walk' ? walkPose(ph) : act === 'lie' ? { q: LIE, wxyz: [1, 0, 0, 0] } : null);
   const t = front ? temps(x) : null;
   // 상태 그림은 보고 값이 아니라 그림 안 설명을 덮어 쓴다(aria-hidden + 글 한 줄)
-  return <div className="ct-fig" data-act={act} data-dim={act === 'unknown' || act === 'lost' || undefined} data-dots={t ? '' : undefined}>
+  return <div className="ct-fig" data-act={act} data-dim={act === 'unknown' || act === 'lost' || act === 'hold' || undefined} data-dots={t ? '' : undefined}>
     <div aria-hidden={!pose && !t ? true : undefined}><Go2Figure pose={shown} showJoints={front && !!pose} temps={t} /></div>
-    <span className="ct-badge ct-act" data-act-text>{ACT_TEXT[act]}</span>
+    <span className="ct-badge ct-act" data-act-text>{act === 'hold' ? `자세 모름 · ${x.status === 'ERROR' ? '오류' : '정지 잠금'}` : ACT_TEXT[act]}</span>
   </div>;
 }
 
@@ -190,7 +191,7 @@ export function Control(c: Ctx) {
   const tiles = order(list), alerts = tiles.filter(needs);
   // 로봇 탭이 그 로봇을 고른 채 열린다(U5-07). 로봇 탭은 실기만 보이므로 시뮬은 시뮬 탭으로: 시뮬을 열었는데 화면은 첫 실기 · STOP 대상이 어긋나지 않게(#533 H1)
   const isSim = (id: string) => !!list.find((x) => x.id === id)?.sim;
-  const open = (id: string) => { c.pick(id); c.go(isSim(id) ? 'sim' : 'fleet'); };
+  const open = (id: string) => { c.pick(id); if (isSim(id)) c.go('sim', id); else c.go('fleet'); };   // 시뮬은 #/sim/<id>: 머리줄 STOP 대상 = 그 시뮬(#533 r2 1)
   const where = (id: string) => (isSim(id) ? '시뮬 탭에서 보기' : '로봇 탭에서 보기');
   const front = (x: Robot) => !!x.sim || allFront !== flipped.has(x.id);
   const flip = (id: string) => setFlipped((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });

@@ -2176,6 +2176,32 @@ describe('폰 실기 조종 = 서버 명령표', () => {
     key('keydown', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, -MAX_TURN_RATE]);
     key('keyup', 'KeyD');
   });
+  it('#533 r2 2: Ctrl · Alt 와 같이 누른 Q · E(브라우저 단축키)는 옆걸음 아님 · 뗄 때까지 0, 단축키는 막지 않음', () => {
+    open();
+    for (const [c, m] of [['KeyQ', { ctrlKey: true }], ['KeyE', { altKey: true }], ['KeyW', { ctrlKey: true }]] as [string, KeyboardEventInit][]) {
+      const e = new KeyboardEvent('keydown', { code: c, bubbles: true, cancelable: true, ...m });
+      act(() => { window.dispatchEvent(e); }); tick(100);
+      expect(e.defaultPrevented).toBe(false);
+      expect(lastAxes()).toEqual([0, 0, 0]);
+      key('keydown', 'KeyD'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);   // 단축키로 누른 키가 남아 있는 동안 새 키도 0
+      act(() => { window.dispatchEvent(new KeyboardEvent('keyup', { code: c, bubbles: true, cancelable: true, ...m })); }); key('keyup', 'KeyD'); tick(100);
+    }
+    key('keydown', 'KeyQ'); tick(100); expect(lastAxes()).toEqual([0, 1, 0]);   // 그냥 Q 는 그대로 옆걸음
+    key('keyup', 'KeyQ');
+  });
+  it('#533 r2 3: S 와 같이 누른 Q · E · W(S+Q · S+E · W+S)는 표 밖 조합 = 0 + 까닭 줄, S 만이면 0 + 후진 막음', () => {
+    open();
+    for (const ks of [['KeyS', 'KeyQ'], ['KeyS', 'KeyE'], ['KeyW', 'KeyS']]) {
+      ks.forEach((k) => key('keydown', k)); tick(100);
+      expect(lastAxes()).toEqual([0, 0, 0]);
+      tick(200); expect(lastAxes()).toEqual([0, 0, 0]);
+      expect(text()).toContain(COMBO_BLOCK);
+      [...ks].reverse().forEach((k) => key('keyup', k)); tick(100);
+    }
+    key('keydown', 'KeyS'); tick(100); expect(lastAxes()).toEqual([0, 0, 0]);
+    expect(text()).toContain('후진은 아직 지원하지 않습니다'); expect(text()).not.toContain(COMBO_BLOCK);
+    key('keyup', 'KeyS');
+  });
   it('#533 H3: 「입력 0」 까닭 줄이 뜬 조합(W+Q+E · W+A+D)은 실제로도 0 (Q·E 나 A·D 가 서로 지워 전진만 나가지 않음)', () => {
     open();
     for (const ks of [['KeyW', 'KeyQ', 'KeyE'], ['KeyW', 'KeyA', 'KeyD']]) {
@@ -2378,7 +2404,9 @@ describe('RV-425: 앞 세대에 누른 키·손가락은 떼고 다시 눌러야
     key('keydown', 'ArrowUp', window, true); key('keydown', 'KeyA'); tick(200);
     expect(lastAxes()).toEqual([0, 0, 0]);                  // 고치기 전: [0, 0, 2.5]
     key('keyup', 'KeyW'); key('keyup', 'ArrowUp'); key('keyup', 'KeyA'); tick(100);
-    key('keydown', 'ArrowUp', window, true); tick(100);    // 새로 누른 Ctrl+↑ 도 같은 누름
+    key('keydown', 'ArrowUp', window, true); tick(100);    // 새로 누른 Ctrl+↑ 는 조종 아님(#533 r2 2 · 브라우저 단축키)
+    expect(lastAxes()).toEqual([0, 0, 0]);
+    key('keyup', 'ArrowUp'); key('keydown', 'ArrowUp'); tick(100);   // 수정키 없이 새로 누르면 표 값
     expect(lastAxes()).toEqual([1.5, 0, 0]);
   });
 
