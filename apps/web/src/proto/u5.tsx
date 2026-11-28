@@ -338,6 +338,22 @@ function BadgeTag({ b }: { b: Badge }) {
     <i className={b.dim ? 'dim' : undefined} style={{ background: badgeDot(b) }}></i></span>;
 }
 
+/** 칸 밖 로봇(팀장 02:21): 작은 단추 «+N 대» → 이름 · 배지 목록. 한 번 = 고르기, 두 번 = 로봇 탭(타일과 같은 pickPress) */
+function Rest({ list, sel, open }: { list: TileFacts[]; sel: string; open: (id: string) => void }) {
+  const [on, setOn] = useState(false), box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!on) return undefined;
+    const off = (e: Event) => { if (!box.current?.contains(e.target as Node)) setOn(false); }, esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOn(false); };
+    document.addEventListener('pointerdown', off); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('pointerdown', off); document.removeEventListener('keydown', esc); };
+  }, [on]);
+  return <div className="rest" ref={box} data-wall-rest={list.length}>
+    <span className="btns" role="button" tabIndex={0} aria-expanded={on} onClick={() => setOn(!on)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOn(!on); } }}>{`+${list.length} 대`}</span>
+    {on && <div className="pane" role="list" aria-label="칸 밖 로봇">{list.map((f) => { const b = tileBadge(f); return <div key={f.x.id} className="rrow" role="listitem" data-r={f.x.name} tabIndex={0} aria-pressed={f.x.id === sel}
+      {...pickPress(f.x.id, f.x.id === sel, () => open(f.x.id))} onKeyDown={(e) => { if (e.key === 'Enter') open(f.x.id); }}>{f.x.name}{b && <BadgeTag b={b} />}</div>; })}</div>}
+  </div>;
+}
+
 function Tile({ f, sel, front, open, boards }: { f: TileFacts; sel: boolean; front: boolean; open: () => void; boards: Set<string> }) {
   const q = f.x.online && !f.x.unknown ? f.x.robotInfo?.temperature?.joints : null, qk = q ? q.join(',') : '';
   const hotMap = useMemo(() => Object.fromEntries((q && q.length === 12 ? q : []).flatMap((c, i) => { const lv = tempLevel(c ?? null); return lv ? [[JOINTS[i].replace(/_joint$/, ''), lv === 'warn' ? 'warn' : 'hot']] : []; })), [qk]);
@@ -530,7 +546,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
       {cnt('주의', IC.warn, n(GROUP['주의']), 'var(--u5-amb)')}
       {why && <span className="ap-sr" role="alert" data-dash-err>{why}</span>}
       {/* 시안 밖 · 새로 그림: 타일은 8 칸까지(wallPick), 남은 로봇이 어디 있는지 한 줄 */}
-      {view === 'tiles' && shown.length > wall.length && <span className="mu2" style={{ fontSize: '12.5px' }} data-wall-rest={shown.length - wall.length}>{`타일 ${wall.length} 대 · 나머지 ${shown.length - wall.length} 대는 지도 보기 · 로봇 탭`}</span>}
+      {view === 'tiles' && shown.length > wall.length && <Rest list={shown.filter((f) => !wall.includes(f))} sel={sel} open={open} />}
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '14px' }}>
         {view === 'tiles' && <span className="btns flipb" style={{ height: '42px', padding: '0 14px', fontSize: '13.5px', ...(front ? { background: 'var(--u5-ok-bg)', borderColor: 'var(--u5-ok-line)', color: 'var(--u5-ok)' } : {}) }} role="button" tabIndex={0} aria-pressed={front}
           onClick={() => setFront(!front)} onKeyDown={(e) => { if (e.key === 'Enter') setFront(!front); }}>{I(16, IC.flip)}{front ? `${REAR_LABEL} 시점으로` : '정면 상태로 뒤집기'}</span>}
