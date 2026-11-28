@@ -95,7 +95,7 @@ export const dist = (m: number) => (m >= 1000 ? [(m / 1000).toFixed(2), 'km'] : 
 export function RouteStage({ x, route, rehearse, children, pick, pickAt, sel, still }: { x?: Scenario; route: Route; rehearse?: boolean; children?: ReactNode;
   /** 작은 지도(u6_4 노드 오른쪽 아래): 시안처럼 그림만 · 확대 · 보기 · 축척 단추 없음 */ still?: boolean;
   /** 지도 누름 → 지도 좌표(m) · 그 자리 화면 좌표(칸 안 px). 편집기(u6_3 · u6_5)만 */ pick?: (m: [number, number], at: [number, number], ctx: boolean) => void;
-  /** 지점 누름(번호) */ pickAt?: (i: number) => void; sel?: number | null }) {
+  /** 지점 누름(번호 · 그 자리 화면 좌표(칸 안 px)) */ pickAt?: (i: number, at: [number, number]) => void; sel?: number | null }) {
   const { v, vid, look, mapErr, retry, on, segs, inNoGo, px, r, place, floor } = route;
   const svg = useRef<SVGSVGElement | null>(null);
   const hit = (e: React.MouseEvent, ctx: boolean) => {
@@ -119,7 +119,7 @@ export function RouteStage({ x, route, rehearse, children, pick, pickAt, sel, st
       <line data-seg={i} data-hit={s.hit || undefined} x1={s.a[0]} y1={s.a[1]} x2={s.b[0]} y2={s.b[1]}
         style={{ stroke: s.hit ? '#ff4d4f' : line, strokeWidth: 4, strokeLinecap: 'round', strokeDasharray: s.hit || rehearse ? '6 5' : undefined }} vectorEffect="non-scaling-stroke" /></g>)}
     {on.map(({ w, i }) => { const [a, b] = px(w), bad = inNoGo(w);
-      return <g key={i} data-pt={i + 1} data-hit={bad || undefined} aria-pressed={pickAt ? sel === i : undefined} onClick={pickAt ? () => pickAt(i) : undefined} style={pickAt ? { cursor: 'pointer' } : undefined}>
+      return <g key={i} data-pt={i + 1} data-hit={bad || undefined} aria-pressed={pickAt ? sel === i : undefined} onClick={pickAt ? (ev) => { const b = (ev.currentTarget as Element).closest('.map, .stage, .pane')?.getBoundingClientRect(); pickAt(i, b ? [ev.clientX - b.left, ev.clientY - b.top] : [0, 0]); } : undefined} style={pickAt ? { cursor: 'pointer' } : undefined}>
         {sel === i && <circle cx={a} cy={b} r={r * 1.9} style={{ fill: 'rgba(0,195,137,.22)', stroke: '#00c389', strokeWidth: 2.5 }} vectorEffect="non-scaling-stroke" />}
         <circle cx={a} cy={b} r={r} style={{ fill: '#fff', stroke: bad ? '#ff4d4f' : line, strokeWidth: 3 }} vectorEffect="non-scaling-stroke" />
         <text x={a} y={b + r * 0.38} fontSize={r * 1.05} fontWeight={800} textAnchor="middle" style={{ fill: '#1f2421', pointerEvents: 'none' }}>{i + 1}</text></g>; })}
