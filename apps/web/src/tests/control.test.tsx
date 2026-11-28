@@ -229,6 +229,19 @@ describe('관제 탭', () => {
     expect(tiles()).toHaveLength(20);
   });
 
+  it('작은 지도를 누르면 지도 보기로(팀장 11-28 · 시안 밖): 작은 지도 자리에서 자라 넘어감 · 위 단추로 가면 자라지 않음', () => {
+    mount('u-kim', TWENTY); feed(TWENTY);
+    const mini = $('.u5 .mini[data-to-map]') as HTMLElement;
+    expect(mini.getAttribute('role')).toBe('button');
+    act(() => { mini.click(); });
+    expect($('[aria-label="로봇 타일"]')).toBeNull();
+    expect($('.u5 .big canvas#site')).not.toBeNull();
+    expect($('.u5 .big')!.hasAttribute('data-from-mini')).toBe(true);
+    act(() => { seg('보기', 0).click(); });
+    act(() => { seg('보기', 1).click(); });
+    expect($('.u5 .big')!.hasAttribute('data-from-mini')).toBe(false);
+  });
+
   it('운영 관리자도 같은 틀(u5_6) · 처음은 «내 로봇»만, «모두»로 받은 목록 전부', () => {
     mount('u-lee', TWENTY); feed(TWENTY.filter((r) => r.owner === 'u-lee'));
     expect($('h1').textContent).toBe('관제');
