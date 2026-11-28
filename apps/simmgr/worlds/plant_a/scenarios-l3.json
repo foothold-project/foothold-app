@@ -1,0 +1,39 @@
+[
+  {
+    "id": "l3-inspection",
+    "name": "공정동 A 3층 점검 순회 · 초안",
+    "finish": "RETURN_TO_START",
+    "waypoints": [
+      {
+        "x": 12.0,
+        "y": 4.6,
+        "yaw": 1.5708,
+        "mission_name": "plant_a-l3-p1 · V-301 밸브 열림"
+      },
+      {
+        "x": 24.0,
+        "y": 4.6,
+        "yaw": 1.5708,
+        "mission_name": "plant_a-l3-p2 · V-302 밸브 압력계"
+      },
+      {
+        "x": 18.0,
+        "y": 15.0,
+        "yaw": 0.0,
+        "mission_name": "plant_a-l3-p3 · 배기 팬 소리"
+      },
+      {
+        "x": 30.0,
+        "y": 9.0,
+        "yaw": 0.0,
+        "mission_name": "plant_a-l3-p4 · 옥상 배관 가스"
+      },
+      {
+        "x": 32.0,
+        "y": 2.6,
+        "yaw": 0.0,
+        "mission_name": "plant_a-l3-p5 · 안테나 주변 사진"
+      }
+    ]
+  }
+]

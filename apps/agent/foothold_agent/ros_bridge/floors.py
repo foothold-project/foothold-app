@@ -13,18 +13,21 @@ def digest(value):
     return isinstance(value, str) and len(value) == 64 and all(c in '0123456789abcdef' for c in value)
 
 
+# Mirror of apps/contracts SIM_WORLD_FLOORS (the runtime has no Pydantic); a test pins equality.
+WORLD_FLOORS = {'v5_building': ('l1', 'l2'), 'plant_a': ('l1', 'l2', 'l3'), 'warehouse': ('f1',)}
+
+
 class FloorBindings:
     """Immutable launch registrations; no discovery from an odom frame/floor name."""
     def __init__(self, robot_id, generation, run_id, epoch, spawn_floor_id, bindings):
         self.robot_id = str(UUID(robot_id))
-        single = spawn_floor_id == 'f1'
-        world = bindings[0].get('world_id') if single and bindings else 'v5_building'
-        if single and world != 'warehouse':
-            raise ValueError('unsupported single-floor world')
-        allowed = {'f1'} if single else {'l1', 'l2'}
+        world = bindings[0].get('world_id') if bindings else None
+        if world not in WORLD_FLOORS:
+            raise ValueError('unsupported floor world')
+        allowed = set(WORLD_FLOORS[world])
         if (type(generation) is not int or generation < 1 or type(epoch) is not int or epoch < 0
                 or not isinstance(run_id, str) or not 1 <= len(run_id) <= 128
-                or spawn_floor_id not in ('l1', 'l2', 'f1')):
+                or spawn_floor_id not in allowed):
             raise ValueError('invalid floor launch identity')
         self.generation, self.run_id, self.epoch, self.spawn = generation, run_id, epoch, spawn_floor_id
         self.bindings = {}

@@ -1,0 +1,14 @@
+{
+  "revision": "plant_a-rev7 · 충돌을 그림과 같게 (팀장 05:12 · 결정 d8): 배관 받침 l2-rack-1/2 · 배관대 l1-pipe-p · 선반 l1-shelf 는 collision = 기둥 상자 + 덩어리, 배관 헤더 l3-hdr 은 관 · 플랜지 · 받침 기둥 · 가로대, 밸브 V-301/302 는 받침 · 몸통 원기둥 + 가로관 + 보닛 + 핸들, 탱크 T-1/2 는 원기둥. collision 이 있으면 box 대신 충돌로 쓰고 box · kind 는 그림용. 계단 밑 막힘은 그대로 (그림에 강판)",
+  "author": "app-design-lx 세션",
+  "draft": true,
+  "generated": true,
+  "imported": "2026-11-28",
+  "schema": "foothold_building/1",
+  "inputs": {
+    "plant_a.json": "b5c9fbbd1aee36a081eddab1dbcd2fa9a10bb3fe0c2ad02e59d42a05f1b66602"
+  },
+  "copy": "layout.json (입력 바이트 그대로)",
+  "generator": "apps/simmgr/tools/import_building.py",
+  "conversion": "모든 형상 static box · cylinder. 바닥판 = poly - holes 직사각형 분할, 벽 문틈 + 상인방, 장애물 box+yaw (collision 배열이 있으면 그 상자 · z0 · 원기둥), 덮개 판(covers), 계단 단마다 통짜 상자(구멍 위는 한 단 두께) + 줄 사이 계단참(마지막 줄 뒤 없음). 메쉬·텍스처 없음."
+}

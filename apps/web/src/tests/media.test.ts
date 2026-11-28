@@ -49,7 +49,7 @@ describe('media/1 수신', () => {
     expect(FakeWS.all[0].sent[0]).toEqual({ t: 'media.hello', version: 'media/1', robot: R, epoch: 4, episode_id: EP, channel: 'rgb', token: tok('r') });
     expect(FakeWS.all[1].sent[0]).toMatchObject({ channel: 'lidar', token: tok('l') });
     expect(F().external.state).toBe('none');
-    expect(feedText(F().external, 'external')).toBe('외부 카메라 연결 전 — 시뮬 외부 카메라 소스가 아직 연결되지 않았습니다 (External camera source is not connected)');
+    expect(feedText(F().external, 'external')).toBe('외부 카메라 연결 전 · 시뮬 외부 카메라 소스가 아직 연결되지 않았습니다 (External camera source is not connected)');
     media.offer(undefined, ADDR);
     expect(feedText(F().rgb, 'rgb')).toBe(NO_MEDIA);
   });

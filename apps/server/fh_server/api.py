@@ -231,7 +231,8 @@ def create_app(settings: Settings | None = None):
                     AND has_column_privilege(current_user, 'approvals', column_name, 'UPDATE'))
                 OR has_table_privilege(current_user, 'map_versions', 'UPDATE')
                 OR EXISTS (SELECT 1 FROM information_schema.columns
-                    WHERE table_schema = 'public' AND table_name = 'map_versions' AND column_name <> 'status'
+                    WHERE table_schema = 'public' AND table_name = 'map_versions'
+                    AND column_name NOT IN ('status', 'model_path', 'model_sha256')
                     AND has_column_privilege(current_user, 'map_versions', column_name, 'UPDATE'))
                 OR has_table_privilege(current_user, 'map_versions', 'DELETE')
                 OR has_table_privilege(current_user, 'map_versions', 'TRUNCATE')
@@ -894,6 +895,8 @@ def create_app(settings: Settings | None = None):
     assignments.install(app, DB, Identity, fail, page)
     approvals.install(app, DB, Identity, fail, authorize, page)
     events_api.install(app, DB, Identity, fail)
+    from . import records
+    records.install(app, DB, Identity, fail, authorize)
     notifications.install(app, DB, Identity, fail)
     maps.install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity, upload_write)
     from . import terrains

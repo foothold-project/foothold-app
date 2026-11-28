@@ -519,9 +519,9 @@ describe('서버 경유 카메라·라이다', () => {
     expect(cam().tagName).toBe('IMG'); expect(rgb.readyState).not.toBe(3);
     act(() => push('r7', ident(IDENTITY_FAULT_LABEL)));
     expect(rgb.readyState).toBe(3); expect(lid.readyState).toBe(3);
-    expect(cam().tagName).toBe('DIV'); expect(cam().textContent).toBe(`${NO_SIGNAL.rgb} — ${BODY_FAULT}`); expect(held()).toBeNull();
+    expect(cam().tagName).toBe('DIV'); expect(cam().textContent).toBe(`${NO_SIGNAL.rgb} · ${BODY_FAULT}`); expect(held()).toBeNull();
     ch('lidar');
-    expect(map()!.dataset.lidarMap).toBe('0'); expect($('[data-sd-full]')!.textContent).toContain(`${NO_SIGNAL.lidar} — ${BODY_FAULT}`);
+    expect(map()!.dataset.lidarMap).toBe('0'); expect($('[data-sd-full]')!.textContent).toContain(`${NO_SIGNAL.lidar} · ${BODY_FAULT}`);
     const n = FakeWS.all.length;
     tick(10_000);   // 10 초가 지나도 다시 열지 않고 옛 그림도 없음
     expect(FakeWS.all.length).toBe(n); expect(map()!.dataset.lidarMap).toBe('0'); expect(held()).toBeNull();
@@ -545,10 +545,10 @@ describe('서버 경유 카메라·라이다', () => {
     act(() => { w.drop(1006); });   // 상태 소켓만 끊김 → state = null
     tick(1000); serve();   // 다시 이어짐 — 아직 장치 표 없음
     tick(10_000);
-    expect(media()).toBe(n); expect(cam().tagName).toBe('DIV'); expect(cam().textContent).toBe(`${NO_SIGNAL.rgb} — ${BODY_CHECK}`);
+    expect(media()).toBe(n); expect(cam().tagName).toBe('DIV'); expect(cam().textContent).toBe(`${NO_SIGNAL.rgb} · ${BODY_CHECK}`);
     act(() => push('r7', ident(IDENTITY_FAULT_LABEL)));   // 에이전트는 다시 켤 때까지 영구 오류를 보낸다
     tick(10_000);
-    expect(media()).toBe(n); expect(cam().textContent).toBe(`${NO_SIGNAL.rgb} — ${BODY_FAULT}`);
+    expect(media()).toBe(n); expect(cam().textContent).toBe(`${NO_SIGNAL.rgb} · ${BODY_FAULT}`);
     act(() => push('r7', identOk));
     expect(media()).toBeGreaterThan(n); expect(mediaSock('rgb')).not.toBe(rgb);
   });
@@ -580,7 +580,7 @@ describe('서버 경유 카메라·라이다', () => {
     try {
       mount('u-park'); serve('r7'); click(row('Go2-7'));   // serve = ONLINE, devices: [] (에이전트 첫 상태 전)
       expect(media()).toBe(0); view(); ch('rgb');
-      expect(cam().textContent).toBe(`${NO_SIGNAL.rgb} — ${BODY_CHECK}`);
+      expect(cam().textContent).toBe(`${NO_SIGNAL.rgb} · ${BODY_CHECK}`);
       act(() => push('r7', { devices: [{ key: 'go2-preflight', kind: 'OTHER', label: '연결 프로그램 자동 점검', state: 'OK' }, { key: 'go2-identity', kind: 'OTHER', label: '로봇 확인', state: 'MISSING' }] }));
       tick(5000); expect(media()).toBe(0);
       act(() => push('r7', identOk));
@@ -588,7 +588,7 @@ describe('서버 경유 카메라·라이다', () => {
       const rgb = mediaSock('rgb');
       act(() => { rgb.open(); rgb.recv(video()); });
       act(() => push('r7', { devices: [{ key: 'go2-identity', kind: 'OTHER', label: IDENTITY_FAULT_LABEL, state: 'MISSING' }] }));   // 오래돼 MISSING 이지만 영구 오류 문구
-      expect(rgb.readyState).toBe(3); expect(cam().textContent).toBe(`${NO_SIGNAL.rgb} — ${BODY_FAULT}`);
+      expect(rgb.readyState).toBe(3); expect(cam().textContent).toBe(`${NO_SIGNAL.rgb} · ${BODY_FAULT}`);
       const n = media();
       act(() => { w.drop(1006); }); tick(1000); serve();
       act(() => push('r7', { connection: 'ONLINE', devices: [] }));   // 다시 붙은 뒤 서버가 줄 수 있는 빈 표(robots.py live_state)
