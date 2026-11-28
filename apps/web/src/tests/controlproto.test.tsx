@@ -30,7 +30,7 @@ const R: Robot[] = [
 ];
 
 describe('관제 타일 · 시안 u5_1', () => {
-  it('칸 넷: 배터리 · 연결 ms(받은 latency_ms 그대로) · 조종(조종권자) 또는 담당 · 값 없는 연결 ms 는 비움', () => {
+  it('칸 넷: 배터리 · 연결 ms(받은 latency_ms 그대로) · 조종 · 조종권 또는 담당 · 값 없는 연결 ms 는 비움', () => {
     mount('u-lee', R);
     act(() => {
       FakeWS.last.open();
@@ -42,7 +42,7 @@ describe('관제 타일 · 시안 u5_1', () => {
     expect(fact('a1', 'battery')[0]).toBe('66 %');   // 시안 「66 %」
     expect(fact('a1', 'link')).toEqual(['연결', '40 ms']);
     expect(fact('a2', 'link')).toEqual(['연결', '']);   // 받은 ms 가 없으면 지어내지 않음
-    expect(fact('a1', 'who')).toEqual(['박OO', '조종']);
+    expect(fact('a1', 'who')).toEqual(['박OO', '조종권']);   // WS lease 알림에는 driving 이 없음 = 조종권(조정 02:38 · 「조종」 은 목록 lease.driving 일 때만)
     expect(fact('a2', 'who')).toEqual(['나', '담당자']);   // 보는 사람(이OO)이 담당이면 「나」
     expect(fact('a1', 'temp')[0]).toBe('');   // 관절 온도는 값이 있을 때만
     expect([...tile('a1').querySelectorAll('[data-fact]')].map((e) => (e as HTMLElement).dataset.fact)).toEqual(['battery', 'temp', 'link', 'who']);   // 시안 칸 넷 순서

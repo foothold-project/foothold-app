@@ -7,7 +7,7 @@ import { App } from '../App';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
 import { EmptyControl, UNPICK_MS, actOf, controlPick, lastly } from '../screens/control';
-import { WALK_MIN_SPEED, badgeDot, facts, jointLerp, jointsNow, lying, order, resetSiteBoards, labelsBelow, tempLevel, tileBadge, tileView, wallGrid, wallPick, walking } from '../proto/u5';
+import { CELLS_MAX, WALK_MIN_SPEED, badgeDot, facts, fakeRobots, jointLerp, jointsNow, lying, order, resetSiteBoards, labelsBelow, tempLevel, tileBadge, tileView, wallGrid, wallPick, walking } from '../proto/u5';
 import { JOINTS } from '../go2model';
 import { api } from '../api';
 import { sim } from '../phone';
@@ -38,7 +38,9 @@ const feed = (robots: Robot[], extra: Record<string, object> = {}) => act(() => 
   for (const r of robots) FakeWS.last.recv(r.online ? state(r.id, { status: r.status, battery: r.battery == null ? null : { soc: r.battery, updated_at: '' }, ...extra[r.id] })
     : state(r.id, { connection: 'OFFLINE', status: null, battery: null, latched: null, stop_gen: null, applied: null }));
 });
-afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.restoreAllMocks(); localStorage.clear(); });
+afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.restoreAllMocks(); localStorage.clear(); url(''); });
+/** 주소 값(?cells · ?fake) 시험용: 해시는 두고 search 만 바꿈 */
+const url = (q: string) => history.replaceState(null, '', `${location.pathname}${q}${location.hash}`);
 const $ = <T extends Element = HTMLElement>(s: string) => box.querySelector<T>(s)!;
 const $$ = (s: string) => [...box.querySelectorAll<HTMLElement>(s)];
 const tiles = () => $$('[aria-label="로봇 타일"] .tile');
@@ -128,15 +130,16 @@ describe('관제 탭', () => {
     expect(tile('k2').querySelector('.nm .md')!.textContent).toBe('');   // 걷기 모드를 받기 전
   });
 
-  it('PC 첫 화면 = 관제(메뉴 첫 탭), 20대: 타일은 8 칸(wallPick · 팀장 23:53) · 나머지 수 한 줄 · 경고 타일이 맨 앞 + 테두리 · 머리표', async () => {
+  it('PC 첫 화면 = 관제(메뉴 첫 탭), 20대: 타일 20 칸 모두(팀장 02:41 · 스크롤 0) · 아래 네 칸 뺌 · 경고 타일이 맨 앞 + 테두리 · 머리표', async () => {
     dashOk({ robots_attention: 1 });
     mount('u-kim', TWENTY); feed(TWENTY);
     await act(async () => {});
     expect($('h1').textContent).toBe('관제');
     expect($('[aria-label="주 메뉴"] [aria-current="page"]').getAttribute('data-href')).toBe('#/control');
-    expect(tiles()).toHaveLength(8);
-    expect($('[aria-label="로봇 타일"]').dataset.count).toBe('8'); expect($('[aria-label="로봇 타일"]').dataset.all).toBe('20');
-    expect($('[data-wall-rest]').textContent).toBe('타일 8 대 · 나머지 12 대는 지도 보기 · 로봇 탭');
+    expect(tiles()).toHaveLength(20);
+    expect($('[aria-label="로봇 타일"]').dataset.count).toBe('20'); expect($('[aria-label="로봇 타일"]').dataset.all).toBe('20');
+    expect($('[data-wall-rest]')).toBeNull();   // 안내문 없음
+    expect($('main.u5').dataset.cells).toBe('off'); expect(tiles().every((t) => !t.querySelector('.sts'))).toBe(true);
     expect(tiles()[0].dataset.robot).toBe('g9');
     expect(tile('g9').dataset.tone).toBe('warn'); expect(tile('g9').classList.contains('lv-warn')).toBe(true); expect(tile('g9').classList.contains('warncell')).toBe(true);
     expect(tile('g9').querySelector('[data-warn-flag]')!.textContent).toBe('주의 · 배터리 낮음');
@@ -145,6 +148,51 @@ describe('관제 탭', () => {
     expect(wallGrid(8).zoom).toBe(1);   // 8 칸 = 시안 4×2 그대로(줄이지 않음)
   });
 
+  it('대수별 격자(팀장 02:41): 8 대 이하는 시안 그대로 · 10 · 20 대는 열 · 줄이 늘고 모두 보임', () => {
+    expect([4, 8].map((n) => wallGrid(n).cols)).toEqual([2, 4]);
+    const g10 = wallGrid(10), g20 = wallGrid(20);
+    expect(g10.cols).toBeGreaterThan(4); expect(g20.cols).toBeGreaterThanOrEqual(g10.cols);
+    expect(g10.cols * g10.rows).toBeGreaterThanOrEqual(10); expect(g20.cols * g20.rows).toBeGreaterThanOrEqual(20);
+    expect(g20.zoom).toBeLessThan(1);
+    mount('u-kim', TWENTY); feed(TWENTY);
+    expect($('[aria-label="로봇 타일"]').style.gridTemplateColumns).toBe(`repeat(${g20.units ?? g20.cols},1fr)`);
+  });
+  it('네 칸 문턱(CELLS_MAX): 문턱 이하 = 타일에 있음 · 넘으면 뺌 · ?cells=on|off 로 두 판', () => {
+    expect(CELLS_MAX).toBe(8);
+    mount('u-kim', EIGHT); feed(EIGHT);
+    expect(tiles().every((t) => t.querySelectorAll('.sts [data-fact]').length === 4)).toBe(true);
+    act(() => root!.unmount()); root = null; box.remove();
+    url('?cells=off'); mount('u-kim', EIGHT); feed(EIGHT);
+    expect(tiles()).toHaveLength(8); expect(tiles().every((t) => !t.querySelector('.sts'))).toBe(true);
+    act(() => root!.unmount()); root = null; box.remove();
+    url('?cells=on'); mount('u-kim', TWENTY); feed(TWENTY);
+    expect(tiles()).toHaveLength(20); expect(tiles().every((t) => t.querySelectorAll('.sts [data-fact]').length === 4)).toBe(true);
+  });
+  it('네 칸이 빠진 판: 로봇을 한 번 누르면 오른쪽 정보 칸에 배터리 · 온도 · 연결 · 담당자 · 고르지 않으면 최근 경고 그대로', () => {
+    mount('u-kim', TWENTY); feed(TWENTY);
+    expect($('[data-picked]')).toBeNull(); expect($('[aria-label="최근 경고"]')).not.toBeNull();
+    act(() => { tile('g3').dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })); });
+    const cells = $('[data-picked] [data-picked-cells]');
+    expect([...cells.querySelectorAll<HTMLElement>('[data-fact]')].map((e) => e.dataset.fact)).toEqual(['battery', 'temp', 'link', 'who']);
+    expect($('[aria-label="최근 경고"]')).not.toBeNull();
+  });
+  it('가짜 모드(?fake=10|20): 서버 로봇에 가짜를 더해 그 대수 · 띠가 늘 보임 · 가짜는 서버에 묻지 않고 열기 · 쓰기 막음', async () => {
+    const robot = vi.spyOn(api, 'robot');
+    url('?fake=10'); mount('u-kim', EIGHT); feed(EIGHT);
+    await act(async () => {});
+    expect(tiles()).toHaveLength(10); expect($('[data-fake]').textContent).toBe('화면 검토용 가짜 자료 · 로봇 10 대');
+    const f1 = tiles().find((t) => t.dataset.t === '가짜 1')!;
+    act(() => { f1.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })); });
+    expect($('[data-picked] [data-fake-block]').getAttribute('aria-disabled')).toBe('true');
+    const hash = location.hash;
+    act(() => { f1.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
+    expect(location.hash).toBe(hash);   // 로봇 탭(쓰기 단추)으로 가지 않음
+    expect(robot.mock.calls.some(([id]) => String(id).startsWith('fake-'))).toBe(false);   // 상세 GET 도 묻지 않음
+    expect(fakeRobots(20, EIGHT)).toHaveLength(12); expect(fakeRobots(10, TWENTY)).toHaveLength(0);
+    act(() => root!.unmount()); root = null; box.remove();
+    url(''); mount('u-kim', EIGHT); feed(EIGHT);
+    expect($('[data-fake]')).toBeNull(); expect(tiles()).toHaveLength(8);
+  });
   it('타일 8 칸 고르기(wallPick · 팀장 23:53): 위험 · 경고 → 실기(Go2 X) → 점검 · 충전 · 시뮬 · 끊김/주의 한 대씩 → 임무 중 → 나머지, 차례는 줄 차례 그대로', () => {
     const base = { owner: 'u-kim', ownerName: '김OO', battery: 70, online: true, seenAt: '14:05:20' };
     const av = (demo: boolean, x: Partial<{ charging: boolean; job: { kind: 'maint' | 'swap'; text: string } }> = {}) => ({ demo, label: null, charging: false, job: null, ...x });
@@ -247,6 +295,7 @@ describe('관제 탭', () => {
   });
 
   it('값이 없는 칸은 시안 칸을 두고 글을 비움(em dash 없음) · 온도 · 배터리 · 위치를 지어내지 않는다 · «미확인» 글자 없음', () => {
+    url('?cells=on');   // 20 대 = 네 칸 없는 판이 기본 · 칸 값 시험은 네 칸을 켠 판으로
     mount('u-kim', TWENTY); feed(TWENTY);
     expect(fact('g3', 'temp')).toBe('');
     expect(small('g3', 'temp')).toBe('');
@@ -261,6 +310,7 @@ describe('관제 탭', () => {
   });
 
   it('관절 온도는 로봇이 보낸 robot_info.temperature 의 최고값 · 단계(보통 · 주의 · 경고 · 위험), 위치는 state 값', () => {
+    url('?cells=on');   // 20 대 = 네 칸 없는 판이 기본 · 칸 값 시험은 네 칸을 켠 판으로
     mount('u-kim', TWENTY);
     feed(TWENTY, { g3: { ...temp([40, 41, 42, 43, 61, 44, 45, 46, 47, 48, 49, null]), location: { floor_id: 'f1', map_version_id: 'v1', x: 1.25, y: 2, yaw: 0, confidence: 1, updated_at: '' } } });
     expect(fact('g3', 'temp')).toBe('61 °C');
@@ -275,6 +325,7 @@ describe('관제 탭', () => {
 
   // 팀장 21:26: Go2 X 처럼 정지 잠금과 높지 않은 관절 온도(41 °C)가 붙어 온도가 잠금 원인처럼 읽혔다 → 머리표 = 잠금 까닭(서버 값만), 온도 칩은 온도 문턱(tempLevel)을 넘을 때만 경고색
   it('정지 잠금 + 보통 온도: 머리표 «경고 · 정지 잠금 · 까닭»(서버 latch_reason · 없으면 까닭 미상), 정면 온도 칩은 회색 «최고 관절 온도 41 °C», 최근 경고 제목도 잠금', () => {
+    url('?cells=on');   // 20 대 = 네 칸 없는 판이 기본 · 칸 값 시험은 네 칸을 켠 판으로
     mount('u-kim', TWENTY); feed(TWENTY, { g3: { status: 'STOP_LATCHED', ...temp([40, 41, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]) } });
     const flag = () => tile('g3').querySelector('[data-warn-flag]')!.textContent;
     expect(flag()).toBe('경고 · 정지 잠금 · 까닭 미상');   // 칸 없음
@@ -321,6 +372,7 @@ describe('관제 탭', () => {
     expect(tile('a2').querySelector('[data-fact="temp"]')!.className).toBe('s w');
   });
   it('정지 잠금 + 문턱 넘은 온도(61 °C): 머리표는 잠금(위험 70 °C 전까지), 온도 칩만 경고색 · 관절 이름, 잠금 없으면 전처럼 온도가 머리표', () => {
+    url('?cells=on');   // 20 대 = 네 칸 없는 판이 기본 · 칸 값 시험은 네 칸을 켠 판으로
     mount('u-kim', TWENTY); feed(TWENTY, { g3: { status: 'STOP_LATCHED', ...temp([40, 41, 42, 43, 61, 44, 45, 46, 47, 48, 49, null]) }, g5: temp([40, 41, 42, 43, 52, 44, 45, 46, 47, 48, 49, null]) });
     expect(tile('g3').querySelector('[data-warn-flag]')!.textContent).toBe('경고 · 정지 잠금 · 까닭 미상');
     expect(tile('g3').querySelector('[data-fact="temp"]')!.className).toBe('s r');
@@ -524,6 +576,11 @@ describe('관제 탭', () => {
     for (const off of [F(toRobot(sum(L(false)))), F(toRobot(sum(L()))), F(toRobot(sum(null)))]) {   // false · 칸 없음 · 조종권 없음(lease null)
       expect(off.driving).toBe(false); expect(tileBadge(off)!.key).toBe('idle');
     }
+    // 사람 칸(조정 02:38): USER + driving = 조종 · USER 만 = 조종권 · RUN(driving false) = 임무 · lease null = 담당자
+    expect(on.who[1]).toBe('조종'); expect(F(toRobot(sum(L(false)))).who[1]).toBe('조종권'); expect(F(toRobot(sum(L()))).who[1]).toBe('조종권');
+    const byRun = F(toRobot(sum({ holder_type: 'RUN', user: { id: 'u-a', display_name: '운영자 A' }, since: '2026-11-29T00:00:00Z', driving: false })));
+    expect([byRun.who[1], byRun.driving, tileBadge(byRun)!.key]).toEqual(['임무', false, 'idle']);
+    expect(F(toRobot(sum(null))).who[1]).toBe('담당자');
     const run = F({ ...toRobot(sum(L(true))), status: 'RUNNING', run: { id: 'r1', run_id: 'r1', scenario_name: '순찰', status: 'MOVING', step: 0, wait_reason: null, fail_code: null, progress: { done: 1, total: 4 } } as never });
     expect(tileBadge(run)!.key).toBe('run');   // 임무가 먼저
   });
@@ -571,7 +628,7 @@ describe('관제 탭', () => {
     expect($$('.u5 .mks .mk3')).toHaveLength(20);
     expect($$('.u5 .mks .mk3').every((e) => e.style.display === 'none')).toBe(true);   // 위치가 오기 전에는 표지를 그리지 않음
     act(() => { seg('보기', 0).click(); });
-    expect(tiles()).toHaveLength(8);   // 타일은 8 칸, 지도 보기는 20 대 전부
+    expect(tiles()).toHaveLength(20);   // 타일도 지도 보기도 20 대 전부(팀장 02:41)
   });
 
   it('지도 보기 이름표: 시뮬 로봇은 경고가 있어도 시안 K-08 꼴(파란 점선 · 상자 아이콘)', () => {
@@ -1487,6 +1544,7 @@ describe('관제 탭', () => {
     av.mockRestore(); sc.mockRestore();
   });
   it('글이 없는 줄 · 칸은 아이콘을 보이지 않게(줄 높이는 지킴) · 걸음 이름이 없으면 아이콘 없음', () => {
+    url('?cells=on');   // 20 대 = 네 칸 없는 판이 기본 · 칸 값 시험은 네 칸을 켠 판으로
     mount('u-kim', TWENTY); feed(TWENTY);
     const ln = tile('g15').querySelector('.ln')!;   // 정지 잠금 · 꺼짐 = 임무 줄 글 없음(머리표가 상태)
     expect(ln.querySelector('span')!.textContent).toBe('');
@@ -1502,10 +1560,20 @@ describe('관제 탭', () => {
     expect(tile('k4').querySelector('.cv .ov')!.textContent).toBe('대기 중 · 정면 보기');
     expect(tile('k2').querySelector('.ln span')!.textContent).toBe('공정 순찰 A');
   });
-  it('시뮬 임무 전 = 시안 고정 글 «임무 전 · 시뮬 등록» · 배터리 칸 «시뮬 · 배터리 해당 없음»', () => {
+  it('시뮬 임무 전 = 시안 고정 글 «임무 전 · 시뮬 등록» · 배터리 · 온도 칸은 데모와 같은 규칙(서버 값 · 정말 없을 때만 «없음»)', () => {
     mount('u-kim', EIGHT); feed(EIGHT);
     expect(tile('k8').querySelector('.ln span')!.textContent).toBe('임무 전 · 시뮬 등록');
-    expect([fact('k8', 'battery'), small('k8', 'battery')]).toEqual(['시뮬', '배터리 해당 없음']);
+    expect(fact('k8', 'battery')).toBe('70 %'); expect(small('k8', 'battery')).not.toContain('해당 없음');   // 서버가 보낸 배터리
+    expect(fact('k8', 'temp')).toBe('없음');   // 관절 온도를 받지 않음
+    act(() => root!.unmount()); root = null; box.remove();
+    const on8 = EIGHT.map((r) => (r.id === 'k8' ? { ...r, online: true } : r));   // 서버에 붙은 시뮬
+    mount('u-kim', on8); feed(on8, { k8: temp([40, 41, 42, 43, 61, 44, 45, 46, 47, 48, 49, null]) });
+    expect([fact('k8', 'temp'), small('k8', 'temp')]).toEqual(['61 °C', '경고']);   // 머리띠 · 최근 경고의 관절 경고와 같은 값(60 °C 이상 = 경고)
+    expect(tile('k8').querySelector('[data-fact="temp"]')!.className).toBe('s r');
+    const noBat = EIGHT.map((r) => (r.id === 'k8' ? { ...r, battery: null } : r));
+    act(() => root!.unmount()); root = null; box.remove();
+    mount('u-kim', noBat); feed(noBat, { k8: { battery: null } });
+    expect(fact('k8', 'battery')).toBe('없음');
   });
   it('데모 = 실기 꼴: 가용 demo = true 인 시뮬 로봇은 시뮬 점선 · 칩 · «배터리 해당 없음» 없이 실기 타일과 같고 «데모» 칩만 더함', async () => {
     const av = vi.spyOn(api, 'availability').mockResolvedValue({ items: [{ robot_id: 'k8', robot_name: 'K-08', state: 'FREE', busy_until: null, busy_slot_id: null, busy_label: null, battery_pct: 70, demo: true, sim: true, location_label: null }] } as never);
