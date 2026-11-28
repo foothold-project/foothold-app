@@ -10,7 +10,8 @@ import { IC, ic, type TileFacts } from './u5';
 
 const ST_COL = { walk: 0x00c389, link: 0xf2b705, rest: 0x4c9bff, bad: 0xff4d4f, idle: 0xa9b8c6 } as const;
 const S = 20, STEM = 16;   // 시안 data-site scale 20
-const tone = (f: TileFacts): keyof typeof ST_COL => (f.level === 'bad' || f.level === 'crit' ? 'bad' : f.lostNow ? 'link' : f.sim ? 'rest' : f.walk ? 'walk' : 'idle');
+// 시뮬 로봇은 시안 K-08 처럼 늘 파란 꼴(상자 아이콘 · 점선 이름표 · 파란 고리). 시뮬 경고는 타일 · 오른쪽 줄에 남음
+const tone = (f: TileFacts): keyof typeof ST_COL => (f.sim ? 'rest' : f.level === 'bad' || f.level === 'crit' ? 'bad' : f.lostNow ? 'link' : f.walk ? 'walk' : 'idle');
 const poseOf = (f: TileFacts) => sitePose((f.x.unknown === 'summary' ? null : rt.get(f.x.id).state?.location) ?? (f.x.unknown === 'summary' ? null : f.x.location));
 
 type R = { id: string; g: THREE.Group; body: Body; ring: THREE.Line; col: number; sim: boolean; top: number; t: number };
@@ -143,7 +144,7 @@ export function SiteView({ all, sel, pick, open, from }: { all: TileFacts[]; sel
     raf = requestAnimationFrame(frame);
     return () => { live = false; cancelAnimationFrame(raf); ctl.dispose(); r.dispose(); };
   }, []);
-  const icon = (f: TileFacts): ReactNode => (f.level === 'bad' || f.level === 'crit' ? ic(13, IC.warn, '#ff4d4f') : f.lostNow ? ic(13, IC.wifi, '#f2b705') : f.sim ? ic(13, IC.box, '#4c9bff') : f.charging ? ic(13, IC.bolt, 'var(--u5-ok)') : null);   // 시안 K-04 충전 = 번개
+  const icon = (f: TileFacts): ReactNode => (f.sim ? ic(13, IC.box, '#4c9bff') : f.level === 'bad' || f.level === 'crit' ? ic(13, IC.warn, '#ff4d4f') : f.lostNow ? ic(13, IC.wifi, '#f2b705') : f.charging ? ic(13, IC.bolt, 'var(--u5-ok)') : null);   // 시안 K-04 충전 = 번개
   const sub = (f: TileFacts) => f.mission?.name ?? (f.lostNow ? '연결 끊김' : f.sim ? '시뮬 대기' : f.x.status ? STATUS_NAME[f.x.status] : '');
   return <div className="big st3" ref={box} data-from-mini={from ? '' : undefined}>
     <canvas id="site" ref={cv} aria-label="현장 3D"></canvas>
