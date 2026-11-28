@@ -63,7 +63,7 @@ export function Rehearse({ x, route, robots, user, cancel, p, close, result: toR
 
 function Battery({ robot }: { robot: Robot }) {
   const l = useLive(robot.id), b = l.state?.battery?.soc ?? robot.battery;
-  return <div className="chk" data-chk="배터리"><span className="ok"><Ic d={IC.battery} /></span><div>배터리</div><span className="v ok">{b == null ? NO : `지금 ${Math.round(b)} %`}</span></div>;
+  return <div className="chk" data-chk="배터리"><span className={b == null ? 'mu2' : 'ok'}><Ic d={IC.battery} /></span><div>배터리</div><span className={`v ${b == null ? 'mu2' : 'ok'}`}>{b == null ? NO : `지금 ${Math.round(b)} %`}</span></div>;
 }
 
 /** 결과 바로 보기: 이 화면에서 본 실행이 끝났을 때(끝난 실행 id 로 보고서) */

@@ -1,6 +1,6 @@
 /* 시안 u6 를 앱으로 옮기며 더한 것(시안 값 아님): span 단추를 button · input 으로 바꾼 데서 생기는 브라우저 기본 모양 지우기,
    사진 자리에 실제 지도, 쪽 넘김 · 까닭 한 줄 · 시안 그림이 없는 배정 · 실행 칸 */
-.u6 button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;letter-spacing:inherit;text-align:inherit}
+.u6 button:where(:not(.u6-fh *)){font:inherit;color:inherit;background:none;border:0;cursor:pointer;letter-spacing:inherit;text-align:inherit}
 .u6 button:disabled,.u6 [aria-disabled="true"]{cursor:default;opacity:.45}
 .u6 button:focus-visible{outline:2px solid #00c389;outline-offset:2px}
 .u6 ol{list-style:none}
@@ -80,4 +80,12 @@
 .u6 .u6-editbar .btns{height:34px;padding:0 12px;border-radius:10px;font-size:13px}
 .u6 .u6-editbody{position:relative;flex:1;min-height:0;overflow:hidden}
 .u6 .u6-editbody>*{height:100%}
-.u6 .wseg button{display:flex;align-items:center;gap:6px}
+.u6 .seg2 button{height:36px;padding:0 18px;border-radius:10px;display:flex;align-items:center;gap:6px;font-size:14px;font-weight:700;color:var(--mu2)}
+.u6 .seg2 button.on{background:#ffffff;color:#000000}
+.proto.light.u6 .seg2 button.on{background:#1F2421;color:#FFFFFF}
+.u6 .u6-editbody.fh{min-height:0;height:auto;background:transparent;font-size:14px;letter-spacing:normal}
+.u6 .u6-editbar .btn{height:34px}
+/* .proto 는 --ink 를 시안 글자색(#1f2421)으로 덮어 .fh(--text: var(--ink)) 글자가 어둠 판에서 검게 된다. 편집기 칸만 공식 토큰 ink 값으로(brand/tokens 값 그대로 옮김) */
+.u6 .u6-fh{--ink:#e9e7e1;--ink-2:#adb5c1;color:var(--text)}
+.proto.light.u6 .u6-fh{--ink:#161c26;--ink-2:#4a5566}
+.u6 .u6-fh [hidden]{display:none!important}

@@ -7,13 +7,14 @@ import { floorName, Note, type Msg, type Place } from './maps';
 import { ScenarioEdit, type Look } from './missions';
 import { Guess, hm, hourOf, mins, MODES, type Plan } from './missiontab';
 import { IC, Ic, Why, dist } from './missionsu6';
+import { useTheme } from '../theme';
 
 const GAIT_NOTE: Record<string, string> = { classic: '평지 기본', sport: '빠른 걷기', start: '험지 기본', ame2: '준비 중' };
 
 export function MissionPlan({ id, floor, robot, gait, user, robots, cancel, places, treeAgain, p, close, saved, rehearse }: { id: string; floor: string; robot: string; gait: string; user: User; robots: Robot[];
   cancel?: AbortSignal; places: Place[]; treeAgain: () => void; p: Plan; close: () => void; saved: (id: string) => void; rehearse: () => void }) {
   const [look, setLook] = useState<Look>('list'), [cur, setCur] = useState(id), [n, setN] = useState(0), [msg, setMsg] = useState<Msg>(null), [slot, setSlot] = useState<HTMLElement | null>(null);
-  const [name, setName] = useState('');
+  const [name, setName] = useState(''), light = useTheme()[1];
   const place = places.find((x) => x.floor.id === floor), r = robots.find((x) => x.id === robot) ?? robots.find((x) => x.id === p.rid);
   const g = gait || p.gait, gName = MODES.find(([, v]) => v === g)?.[0];
   const seg = (v: Look, label: string, cls: string, d: React.ReactNode) => <button type="button" className={`${look === v ? 'on ' : ''}${cls}`} aria-pressed={look === v} data-look={v} onClick={() => setLook(v)}><Ic d={d} />{label}</button>;
@@ -28,7 +29,7 @@ export function MissionPlan({ id, floor, robot, gait, user, robots, cancel, plac
     </div>
     <div className="pane u6-editor" style={{ left: '24px', top: '156px', width: '1500px', bottom: '24px', padding: '0' }} aria-label="편집 칸">
       <div className="u6-editbar"><button type="button" className="btns" data-back-list onClick={close}>‹ 임무 목록</button><span ref={setSlot} style={{ display: 'contents' }} /></div>
-      <div className="u6-editbody">
+      <div className={`u6-editbody fh u6-fh${light ? ' light' : ''}`}>
         <ScenarioEdit id={cur} n={n} user={user} robots={robots} cancel={cancel} places={places} treeAgain={treeAgain} floor={floor} slot={slot} side={<b>임무</b>} close={close} look={look}
           top={msg && <Note m={msg} />} done={(x, m) => { setMsg(m); if (x) { setName(x.name); saved(x.id); if (x.id !== cur) { setCur(x.id); setN((k) => k + 1); } } }} />
       </div>
@@ -64,7 +65,7 @@ function This({ p, robots, rehearse }: { p: Plan; robots: Robot[]; rehearse: () 
         <i className={`bk ${s.kind === 'DRAFT' ? 'k2' : 'kp'}`} style={{ left: f(hourOf(s.start)), width: `calc(${f(hourOf(s.end))} - ${f(hourOf(s.start))})`, top: 0, height: '22px', padding: 0 }} /></span>
       <span className="lab" style={{ width: '70px', textAlign: 'right' }}>{hm(s.start)}</span></div>)}
     {p.slots && !others.length && <Why>이 시간대({p.start} ~ {p.end})에 다른 일정이 없습니다.</Why>}
-    <button type="button" className="btnp rehearse" style={{ position: 'absolute', left: '22px', right: '22px', bottom: '22px', height: '54px', fontSize: '15.5px' }} disabled={!sims.length}
+    <button type="button" className="btnp" style={{ position: 'absolute', left: '22px', right: '22px', bottom: '22px', height: '54px', fontSize: '15.5px' }} disabled={!sims.length}
       title={sims.length ? undefined : '모의 실행은 시뮬 로봇으로 돌립니다. 이 조직에 시뮬 로봇이 없습니다.'} onClick={rehearse} data-plan-rehearse><Ic d={IC.play} />모의 실행 돌리기</button>
   </div>;
 }
