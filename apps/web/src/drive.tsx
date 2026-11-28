@@ -87,10 +87,12 @@ const DEMO_DEAD = 0.1;   // 조직 stick_deadzone 이 없을 때(8830 에 아직
 const org = (o: Partial<OrgSettings> | null, k: 'sim_max_vx' | 'sim_max_vy' | 'sim_max_wz' | 'sim_key_vx' | 'stick_deadzone', d: number, hi: number) => {
   const v = o?.[k]; return typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= hi ? v : d;
 };
+/** 앞 0 < vx < 0.2 는 내보내지 않는다(조직 키 속도가 더 작으면 올리지 않고 0) */
+const zeroBelowMin = (v: number) => (v >= SIM_LIMITS.vx_min_moving ? v : 0);
 export function demoCaps(o: Partial<OrgSettings> | null) {
   const vx = Math.min(org(o, 'sim_max_vx', 1.5, 1.5), SIM_LIMITS.vx_max);
   return { vx, back: -SIM_LIMITS.vx_min, vy: Math.min(org(o, 'sim_max_vy', 0.5, 0.5), SIM_LIMITS.vy_max), wz: Math.min(org(o, 'sim_max_wz', 1.2, 1.2), SIM_LIMITS.wz_max),
-    key: Math.max(SIM_LIMITS.vx_min_moving, Math.min(org(o, 'sim_key_vx', 1.5, 1.5), vx)), dead: org(o, 'stick_deadzone', DEMO_DEAD, 0.5) };
+    key: zeroBelowMin(Math.min(org(o, 'sim_key_vx', 1.5, 1.5), vx)), dead: org(o, 'stick_deadzone', DEMO_DEAD, 0.5) };
 }
 /** 데모 명령: 손잡이 = 비례(문턱 · 최소값 식 shape — 실기와 같은 함수), 키 = 상한 값. 앞 [0.2, 상한] · 뒤 [-0.3, -0.2] · 옆 · 돌기 [0, 상한].
  *  이동 손잡이는 큰 축 하나. 손잡이가 0 인 축만 키 값. 표에 없는 키 조합이면 null(→ 0 + 까닭) */

@@ -2503,6 +2503,44 @@ describe('폰 데모 로봇 = 서버 경유 u1 조종 화면', () => {
     expect(press('KeyW')).toEqual([1.5, 0, 0]);
   });
 
+  it('웹 상한 · 0.2 아래 앞 입력은 0: 조직 sim_key_vx 0.1 이면 키 앞은 0(0.1 도 0.2 로 올림도 아님) · 손잡이 앞은 0 아니면 0.2 이상', () => {
+    open(true, { ...ORG, sim_key_vx: 0.1 });
+    ready();
+    expect(press('KeyW')).toEqual([0, 0, 0]);
+    const { fwd } = sticks();
+    for (const f of [0.101, 0.105, 0.11, 0.15]) { const v = lstick(fwd, f)[0]; expect(v === 0 || v >= 0.2).toBe(true); }
+    expect(cmds().every((m) => { const v = (m.axes as number[])[0]; return v <= 0 || v >= 0.2; })).toBe(true);
+  });
+
+  it('웹 상한 · 후진 -0.3 은 로봇 한계로 잘림 — 조직 설정에는 시뮬 뒤 상한 칸이 없고 실기 real_max_vx_back 은 데모에 쓰지 않음', () => {
+    open(true, { ...ORG, real_max_vx_back: 0.1, sim_max_vx: 1.5 });
+    ready();
+    expect(press('KeyS')).toEqual([-0.3, 0, 0]);
+    const { fwd } = sticks();
+    expect(lstick(fwd, -1)).toEqual([-0.3, 0, 0]);
+    expect(cmds().every((m) => (m.axes as number[])[0] >= -0.3)).toBe(true);
+  });
+
+  it('웹 상한 합친 뒤에도 실기는 real_* 로 잡힘: real_max_vx 1 · real_max_wz 1 · real_max_vx_back 0 이면 표 값이 막혀 0', () => {
+    settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok({ ...ORG, real_max_vx: 1, real_max_wz: 1, real_max_vx_back: 0 }); } }) as never);
+    mount(true, 'u-park', '#/drive/r7'); serve(PARK, 'r7'); ready();
+    const { fwd, turn } = sticks();
+    expect(lstick(fwd, 1)).toEqual([0, 0, 0]);
+    expect(rstick(turn, 1)).toEqual([0, 0, 0]);
+    expect(press('KeyW')).toEqual([0, 0, 0]);
+    expect(press('KeyS')).toEqual([0, 0, 0]);
+    expect(press('KeyA')).toEqual([0, 0, 0]);
+  });
+
+  it('데모만 있는 조직: 「연결 없음」 으로 보지 않음(+ 로봇 연결하기 가 목록 아래 · 주 단추 아님)', () => {
+    settingsMock.mockImplementation(() => ({ then: (ok: (o: object) => void) => { ok(ORG); } }) as never);
+    const only = robots(true).filter((r) => r.id === 'r7').map((r) => ({ ...r, online: true }));
+    mount(true, 'u-park', '#/drive', only); serve(PARK, 'r7');
+    const add = $('[data-robot-connect]')!;
+    expect(add.classList.contains('pri')).toBe(false);
+    expect(add.compareDocumentPosition($('.dv-cards')!) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  });
+
   it('데모 STOP 은 서버로(noServerStop 은 데모를 서버 정지 대상으로 봄)', () => {
     open(true);
     ready();
