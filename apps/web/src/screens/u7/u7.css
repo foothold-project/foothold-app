@@ -61,3 +61,13 @@
 .u7 .sw2.e-new{border:1.5px dashed #00c389}
 .u7 .sw2.e-nogo{border:1.5px dashed #ff4d4f}
 .u7 .sw2.e-line{background:#9aa19d}
+/* 밝은 판(.proto.light) u7_1 · u7_2 칸 · 정본 DESIGN.md 「밝음 1」 값만 */
+.proto.light .u7 .site .av{background:#DCE0DE;color:#1F2421}
+.proto.light .u7 .site .av[style*="dashed"]{border-color:#DCE0DE!important}
+.proto.light .u7 .site.on{background:rgba(24,160,126,.10);border-color:#18A07E}
+.proto.light .u7 .site.on .av{background:#18A07E;color:#FFFFFF}
+.proto.light .u7 .tag{background:#F6F7F6;color:#5E6662}
+.proto.light .u7 .tag.m{background:rgba(24,160,126,.12);color:#0E7F63}
+.proto.light .u7 .tag.d{background:transparent;border-color:#18A07E;color:#0E7F63}
+.proto.light .u7 .frow.on{background:#FFFFFF;border-color:#DCE0DE;box-shadow:none}
+.proto.light .u7 .frow .th{background:#F6F7F6;border-color:#DCE0DE}
