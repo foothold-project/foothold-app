@@ -2,7 +2,7 @@
 // 조종권·넘김·정지 확인 판정은 서버 중재기가 한다. 여기는 서버가 준 lease·state 를 그대로 들고,
 // 화면 쪽 안전 규칙(넘김 중·잠금 중 0, 새 조종권은 새 중립부터, 숨기거나 떠나면 반납)만 더한다. 시각 판정은 단조 시계.
 import { useSyncExternalStore } from 'react';
-import type { ErrorBody, ScreenLeaseRequested, ScreenLeaseResult, ScreenLeaseUpdate, ScreenPosture, ScreenAction, ScreenGait, ScreenReply, ScreenState, ScreenSubscriptionRevoked } from '../../contracts/ts';
+import type { ErrorBody, RobotSummary, ScreenLeaseRequested, ScreenLeaseResult, ScreenLeaseUpdate, ScreenPosture, ScreenAction, ScreenGait, ScreenReply, ScreenState, ScreenSubscriptionRevoked } from '../../contracts/ts';
 import { api, expireAuth, type ApiFail } from './api';
 import type { Holder, Robot, Status } from './fake';
 
@@ -19,7 +19,7 @@ const LINK_LOST = '서버 연결이 끊겼습니다.';
 /** idle = 연결 안 함, connecting = 첫 연결 중, lost = 끊김(다시 연결 중), denied = 서버가 거부(다시 연결 안 함) */
 export type Link = { at: 'idle' | 'connecting' | 'open' | 'lost' | 'denied'; why?: string; retryAt?: number; latencyMs?: number; latencyAt?: number };
 /** sending → sent(서버 접수) | fallback(HTTP 대체 경로 접수) | unsure(보냈지만 접수 답을 못 받음) | failed(보내지 못함). 로봇이 멈췄는지는 state 로만 본다 */
-export type Stop = { phase: 'sending' | 'sent' | 'fallback' | 'unsure' | 'failed'; at: number; n: number; why?: string; g0: number; conn: number; rev: number; latched?: true };   // at = 이 단계가 된 때, g0·conn·rev = STOP 때 stop_gen·소켓·lease 차례, latched = 그 뒤 새 세대 잠금을 이 소켓에서 받음
+export type Stop = { phase: 'sending' | 'sent' | 'fallback' | 'unsure' | 'failed'; at: number; n: number; why?: string; g0: number; conn: number; rev: number; latched?: true; delivered?: false };   // at = 이 단계가 된 때, g0·conn·rev = STOP 때 stop_gen·소켓·lease 차례, latched = 그 뒤 새 세대 잠금을 이 소켓에서 받음
 /** 서버가 이 화면의 구독을 거둠(담당 바뀜·로봇 지움, apps/server README). n = 몇 번째인지(화면이 한 번씩 처리) */
 /** 임무 실행 명령 하나(05 §6.5 · ScreenRunStart · ScreenRunControl). sending = 서버 답 전, sent = 서버가 로봇에 넘김, done = 로봇이 SUCCEEDED(화면 반영은 state.run 으로 따로 봄),
  *  rejected = 서버 · 로봇 거절(code). id = request_id(state.run_result 와 맞춤) */
@@ -83,6 +83,15 @@ const RESULT_ERR: Record<string, string> = {
 export const now = () => performance.now();
 let screen = '';
 const screenId = () => (screen ||= crypto.randomUUID());   // 이 창의 화면 id(실행 명령 screen_id)
+/** 관문 닫힘 동안 STOP 한 줄(#602 G1). 이때는 «정지 확인»을 쓰지 않는다 */
+export const GATE_STOP_TEXT = '현장 승인이 닫혀 정지가 로봇에 가지 않음 · 리모컨으로 멈추세요';
+/** 이 상태에서 사람 STOP 을 어떻게 읽나(#602): gate = field_gate CLOSED 라 STOP 이 로봇에 가지 않음, other = 잠금이 사람 STOP 이 아닌 다른 까닭(stop_applied false),
+ *  applied = 사람 STOP 을 반영한 잠금으로 읽어도 됨(값이 없는 옛 서버는 기존 판정 그대로). «로봇 정지 확인»은 applied 일 때만 */
+export const stopReach = (s: Pick<ScreenState, 'field_gate' | 'stop_applied'> | null | undefined): 'gate' | 'other' | 'applied' =>
+  s?.field_gate === 'CLOSED' ? 'gate' : s?.stop_applied === false ? 'other' : 'applied';
+/** 조종 준비에 보일 조종 불가 이유: 허용이 아니면 서버 목록 그대로, 허용이어도 FIELD_GATE_CLOSED(앱 STOP 이 로봇에 안 감)만은 보인다. 허용 판단은 바꾸지 않는다 */
+export const shownDriveBlocked = (allowed: boolean | undefined, blocked: RobotSummary['server_drive_blocked'] | undefined): NonNullable<RobotSummary['server_drive_blocked']> | null =>
+  !allowed ? blocked ?? null : blocked?.includes('FIELD_GATE_CLOSED') ? ['FIELD_GATE_CLOSED'] : null;
 const clock = () => new Date().toTimeString().slice(0, 8);   // 13:40:05 — 목록의 seenAt 과 같은 꼴
 /** 출력 0 보고(빈 목록은 보고 없음이라 0 아님 · 정지띠가 [] ↔ [0,0,0] 바뀜을 다시 그리게) */
 const zero = (a: number[] | null | undefined) => !!a?.length && a.every((v) => v === 0);
@@ -269,7 +278,7 @@ function onState(s: ScreenState) {
   const p = l.state;
   // 화면에 보이는 값이 바뀔 때만 다시 그림(10 Hz 그대로 그리지 않음)
   const same = p && p.connection === s.connection && p.status === s.status && p.battery?.soc === s.battery?.soc && p.latched === s.latched
-    && (p.safety_reason ?? null) === (s.safety_reason ?? null)
+    && (p.safety_reason ?? null) === (s.safety_reason ?? null) && (p.stop_applied ?? null) === (s.stop_applied ?? null) && (p.field_gate ?? null) === (s.field_gate ?? null)
     && (p.control ?? null) === (s.control ?? null)   // 순정 · 저수준 (단추 끄기 · contracts ControlMode)
     && p.latency_ms === s.latency_ms
     && JSON.stringify(p.response_health ?? null) === JSON.stringify(s.response_health ?? null)
@@ -511,18 +520,18 @@ export const rt = {
    *  같은 STOP 의 WS 접수(ok)는 늦게 와도 반영하고 뒤의 HTTP 실패가 덮지 않는다. 대체 경로로 넘어간 뒤의 늦은 WS 거절은 버린다.
    *  타이머·HTTP 는 이 로그인 세션에 묶여 로그아웃·계정 전환 때 거둔다(다음 사람의 CSRF 로 나가지 않게) */
   stop(id: string) {
-    const k = ++n, s = era.signal, mark = (p: Pick<Stop, 'phase' | 'why'>) => { const t = get(id).stop; if (!s.aborted && t?.n === k) set(id, { stop: { ...t, phase: p.phase, why: p.why, at: now() } }); };
+    const k = ++n, s = era.signal, mark = (p: Pick<Stop, 'phase' | 'why'> & { delivered?: unknown }) => { const t = get(id).stop; if (!s.aborted && t?.n === k) set(id, { stop: { ...t, phase: p.phase, why: p.why, at: now(), delivered: p.delivered === false ? false : undefined } }); };
     set(id, { stop: { phase: 'sending', at: now(), n: k, g0: get(id).state?.stop_gen ?? gens.get(id) ?? -1, conn, rev: get(id).rev } });
     let via: 'ws' | 'http' = 'ws', acked = false, viaWs = false;   // viaWs = WS 로 실제로 보냄(닫혀 있으면 send 가 바로 답을 불러 false)
     const http = () => {
       via = 'http'; clearTimeout(late);
-      api.stop(id, { ms: STOP_HTTP_MS, cancel: s }).then(() => { if (!acked) mark({ phase: 'fallback' }); }, (e: ApiFail) => {
+      api.stop(id, { ms: STOP_HTTP_MS, cancel: s }).then((b) => { if (!acked) mark({ phase: 'fallback', delivered: (b as { delivered?: unknown } | null)?.delivered }); }, (e: ApiFail) => {
         if (!acked && e.code !== 'CANCELED') mark({ phase: !viaWs && e.said && e.status >= 400 && e.status < 500 ? 'failed' : 'unsure', why: e.message });   // 서버의 명시적 거절(4xx + 오류 본문)만 실패 — 응답 못 받음·5xx·프록시 오류는 처리됐을 수 있음
       });
     };
     const late = setTimeout(() => { if (via === 'ws') http(); }, STOP_WS_MS);
     viaWs = send({ t: 'stop', robot: id }, (r) => {
-      if (r.ok) { acked = true; clearTimeout(late); return mark({ phase: 'sent' }); }
+      if (r.ok) { acked = true; clearTimeout(late); return mark({ phase: 'sent', delivered: r.delivered }); }
       if (via !== 'ws') return;
       clearTimeout(late);
       if (r.error?.code === 'NETWORK') http(); else mark({ phase: 'failed', why: say(r.error) });
@@ -535,6 +544,12 @@ const version = () => ver;
 /** 실시간 저장소가 바뀌면 다시 그림 */
 /** 명령 틱이 이만큼 끊기면 에이전트 Core 가 입력 끊김(0.3 s)으로 새 중립을 요구한다 — 화면도 입력 세대를 올린다 */
 export const GAP_MS = 300;
+/** 서버가 STOP 을 받았지만 붙은 에이전트에 넣지 못함(delivered=false · Codex #536 M1). 에이전트가 끊겼으면 NOT_SENT(W1 #529 · #535 와 같은 문구) */
+export const NO_WAY_TEXT = '지금 로봇으로 보낼 길이 없습니다. 리모컨이나 현장에서 멈추세요.';
+export const NOT_SENT_TEXT = '연결이 끊겨 정지를 보내지 못했습니다. 다시 연결되면 로봇은 잠긴 상태로 시작합니다. 지금 멈춰야 하면 리모컨이나 현장에서 멈추세요.';
+/** delivered=false 인 STOP 의 한 줄(이 STOP 뒤 새 세대 잠금을 보면 없음 — 그때는 로봇 보고를 따른다). 옛 답(칸 없음)은 null */
+export const undelivered = (s: Stop | null | undefined, st: ScreenState | null | undefined) =>
+  !s || s.delivered !== false || s.latched || (s.phase !== 'sent' && s.phase !== 'fallback') ? null : st?.connection === 'ONLINE' ? NO_WAY_TEXT : NOT_SENT_TEXT;
 /** 입력 세대(RB-DRIVE-FRESH-PRESS): 화면은 키(e.code)·포인터(pointerId)마다 누른 순간의 세대(current)를 적고, 지금 세대 입력만 명령에 쓴다.
  *  앞 세대에 눌린 입력이 하나라도 아직 눌려 있으면 명령 전체가 0 — 떼었다가 다시 눌러야 한다(손을 뗐는지 추측하지 않음).
  *  sync = 조종권·잠금·stop_gen·연결·넘김·STOP·숨김·bumpInputs 와 화면이 주는 값(설정·ready) 중 하나라도 바뀌면 +1, tick = 마지막으로 보낸 cmd 뒤 GAP_MS 넘으면 +1 */
