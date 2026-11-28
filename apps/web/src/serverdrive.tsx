@@ -10,6 +10,7 @@ import { Chip, DriveButton, inApp, type Ctx } from './screens';
 import { STALLED } from './simdrive';
 import { HeldTag, LidarMap } from './lidarmap';
 import { REPORT_STALE_MS, go2Pose, type Pose } from './go2model';
+import { DriveInputNote } from './driveinput';
 import type { Look } from './lidar3d';
 import { DEPTH_HINT, driveFeedHeld, driveFeedText, useDriveFeed, type DriveCh, type DriveFeed } from './drivemedia';
 import { type Robot, type Tone } from './fake';
@@ -338,7 +339,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   const connection = rt.link();
   const freshState = rt.now()-l.stateAt < 3000 ? s : null;
   const latency = <ResponseLine state={freshState} screenMs={link === 'open' && connection.latencyAt != null && rt.now()-connection.latencyAt < 3000 ? connection.latencyMs ?? null : null} />;
-  const notes = <><SlowResponse health={freshState?.connection === 'ONLINE' ? freshState.response_health : null} />{posture === 'LYING' && <p className="dv-note" role="status" data-sd-lying>{mine ? LYING_TEXT : '로봇이 엎드려 있습니다. [조종 시작] 뒤 «일어서기»를 누르면 걸을 수 있습니다.'}</p>}
+  const notes = <><DriveInputNote devices={freshState?.devices} /><SlowResponse health={freshState?.connection === 'ONLINE' ? freshState.response_health : null} />{posture === 'LYING' && <p className="dv-note" role="status" data-sd-lying>{mine ? LYING_TEXT : '로봇이 엎드려 있습니다. [조종 시작] 뒤 «일어서기»를 누르면 걸을 수 있습니다.'}</p>}
     {posture === 'UNKNOWN' && mine && <p className="dv-note" role="status" data-sd-pose-unknown>로봇 자세를 아직 알 수 없어 이동 단추를 잠갔습니다. 현장에서 로봇을 확인한 뒤 «일어서기»를 누르세요.</p>}
     {ready && !(got && isSettings(settings)) && <p className="dv-note" role="status" data-real-wait>{REAL_WAIT}</p>}
     {why && <p className="dv-note" role="status" data-sd-why>{why}</p>}

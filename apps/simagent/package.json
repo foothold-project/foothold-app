@@ -1,0 +1,11 @@
+{
+  "name": "foothold-simagent",
+  "private": true,
+  "version": "0.0.1",
+  "description": "헤드리스 시뮬 에이전트 골격: mobile/sim 의 MuJoCo wasm · 걷기 코드를 Node 에서 화면 없이 돌리고 fh-agent/2 로 서버에 붙는다. 의존성 0 (MuJoCo wasm · 정책 가중치는 FH_SIM_SRC).",
+  "type": "module",
+  "engines": { "node": ">=22.0.0" },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  }
+}

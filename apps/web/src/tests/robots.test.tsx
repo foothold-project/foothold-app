@@ -199,12 +199,12 @@ describe('관제 요약 = GET /dashboard(05 §4)', () => {
     expect(sent('GET', '/dashboard')).toHaveLength(1);
     expect(kpi()).toEqual({ 전체: '0', 연결: '0', '임무 중': '0', '주의 필요': '0', '결재 대기': '0' });
     expect(card('운영 관리자').textContent).toContain('운영 관리자 2명');
-    expect(card('로봇 없음').textContent).toContain('로봇이 없습니다');
+    expect($('[data-empty="robots"]')!.textContent).toContain('등록된 로봇이 없습니다');
     act(() => root!.unmount()); box.remove();
     serve(signedIn(LEE, [], { 'GET /dashboard': { status: 200, body: { ...DASH, robots_total: 0, robots_online: 0, robots_attention: 0, operators: [] } } }));
     await open('#/fleet');
     expect($('[aria-label="요약"]')).toBeNull();
-    expect(card('로봇 없음').textContent).toContain('담당 로봇이 없습니다');
+    expect($('[data-empty="robots"]')!.textContent).toContain('담당 로봇이 없습니다');
     expect($('[aria-label="운영 관리자"]')).toBeNull();
   });
   it('요약을 10 s 마다 다시 받는다(화면 WS 에 요약 없음)', async () => {

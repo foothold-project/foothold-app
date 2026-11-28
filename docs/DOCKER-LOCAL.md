@@ -34,6 +34,28 @@ lockfile에 맞춘다. 서버 소스를 고치면 `docker compose up --build ser
 시뮬 프로세스를 실행하지 않아도 필요하다. `worlds.json`이 참조하는 YAML·PNG·메타데이터·시나리오를
 빠뜨리지 않도록 `worlds` 디렉터리를 복사하고 `.dockerignore`에서도 허용한다.
 
+## 입구 스크립트와 Docker 없이 띄우기
+
+`python3 tools/local_up.py` 는 `.env` 가 없으면 `.env.example` 로 만들고, 쓰는 포트가 비었는지 보고,
+비밀번호(DB · 최초 총괄 · 시험 운영 계정 둘)를 저장소 밖 계정 파일
+(`FH_LOCAL_SECRETS`, 기본 `~/.config/foothold-local/accounts.env`, 권한 600)에 한 번 만든다.
+값은 화면에 쓰지 않는다. 셸 환경이나 `.env` 에 채운 비밀번호가 있으면 어디서든 그 값을 쓰고,
+계정 파일에는 빈 칸의 값만 만든다. 스크립트가 만드는 `.env` 는 `FH_SEED=1` 이다.
+
+- `python3 tools/local_up.py --docker`: 위 준비 뒤 `docker compose --env-file .env up --build`.
+  비밀번호는 셸 환경으로 넘긴다(Compose 는 셸 환경을 `.env` 보다 먼저 본다)
+- `<서버 venv>/bin/python tools/local_up.py --no-docker`: Docker 없이 pgserver 의 PostgreSQL 을
+  `127.0.0.1:FH_DB_PORT` 에 띄우고(자료는 `FH_LOCAL_DATA`, 기본 `~/.local/share/foothold-local`)
+  `docker/server.py` 로 초기화한 뒤 API 를 `127.0.0.1:FH_API_PORT` 에 띄운다. venv 에
+  `apps/server/requirements-test.txt` 가 있어야 한다. DB 는 `--stop` 으로 멈춘다.
+
+`.env.example` 의 기본은 `FH_SEED=0` 이다. 스크립트 없이 `docker compose up` 만 쓰면서 `FH_SEED=1` 로 바꾸면
+`FH_SEED_PASSWORD_LOCAL_OPERATOR` · `FH_SEED_PASSWORD_LOCAL_OPERATOR_2` 를 채워야 서버가 시작한다(비면 시작 거절).
+`FH_SEED=1` 이면 서버가 시작할 때 `docker/seed.py` 가 시험 자료를 넣는다: 운영 계정
+`local-operator` · `local-operator-2`, 시뮬 로봇 칸 하나(시뮬 관리자 없이 대기 상태),
+저장소 `apps/simmgr/worlds` 의 월드 지도 · 임무 · 시나리오(서버의 `sim_maps.sync_worlds`).
+두 번 돌려도 늘지 않고 비밀번호를 바꾸지 않는다. 실행 기록 · 넘어짐 사건은 로봇이 보내야 생기므로 넣지 않는다.
+
 ## 환경 변수와 포트
 
 `.env`는 Git에서 제외된다. 실제 계정·비밀번호·서버 주소를 예제에 옮기지 않는다.
@@ -42,9 +64,12 @@ lockfile에 맞춘다. 서버 소스를 고치면 `docker compose up --build ser
 | 항목 | 로컬에서 하는 일 |
 |---|---|
 | `FH_WEB_PORT`, `FH_API_PORT` | 호스트 포트(기본 5180, 8810); 컨테이너 포트는 5180, 8810으로 고정 |
+| `FH_DB_PORT` | `--no-docker` 의 PostgreSQL 포트(기본 55480). Compose 는 DB 포트를 공개하지 않음 |
+| `FH_SEED`, `FH_SEED_PASSWORD_*` | 시험 자료 넣기(1)와 시험 운영 계정 비밀번호; 비밀번호는 계정 파일에 둠 |
+| `FH_PORT` | `docker/server.py` 의 API 포트(없으면 8810). Compose 에서는 쓰지 않음 |
 | `FH_DB_USER`, `FH_DB_NAME` | 전용 DB 초기 관리자·DB 이름; 관리자 이름으로 `fh_app`·`fh_migrate`·`fh_readonly`는 사용 불가 |
 | `FH_DB_PASSWORD` | 로컬 DB 관리자와 전용 역할의 비밀번호; 빈 값은 시작 거절 |
-| `FH_DATABASE_URL` | `db:5432`의 `fh_app` SQLAlchemy 주소; 비밀번호는 `FH_DB_PASSWORD`에서 URL 인코딩해 주입 |
+| `FH_DATABASE_URL` | `db:5432`의 `fh_app` SQLAlchemy 주소; 비밀번호는 `FH_DB_PASSWORD`에서 URL 인코딩해 주입. `docker/server.py` 는 이 PC(127.0.0.1 · localhost · ::1)의 5432 아닌 포트도 받는다(`--no-docker`). 원격 · 127.0.0.1:5432 는 거절 |
 | `FH_ORG_ID`, `FH_ORG_NAME` | 최초 로컬 조직 UUID·이름 |
 | `FH_WS_ORIGIN` | 브라우저의 정확한 `http://localhost:<웹 포트>` 출처 |
 | `FH_FILES_ROOT` | 컨테이너 안 파일 volume 연결 위치(기본 `/var/lib/foothold/files`) |

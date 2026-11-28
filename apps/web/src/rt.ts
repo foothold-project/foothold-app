@@ -69,7 +69,8 @@ const RESULT_ERR: Record<string, string> = {
 
 export const now = () => performance.now();
 const clock = () => new Date().toTimeString().slice(0, 8);   // 13:40:05 — 목록의 seenAt 과 같은 꼴
-const zero = (a: number[] | null | undefined) => !!a && a.every((v) => v === 0);
+/** 출력 0 보고(빈 목록은 보고 없음이라 0 아님 · 정지띠가 [] ↔ [0,0,0] 바뀜을 다시 그리게) */
+const zero = (a: number[] | null | undefined) => !!a?.length && a.every((v) => v === 0);
 
 let link: Link = { at: 'idle' };
 const live = new Map<string, Live>();

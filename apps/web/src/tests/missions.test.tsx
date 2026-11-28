@@ -1440,7 +1440,7 @@ describe('시나리오 탭 — 단추 줄·[단계 | 배정] 창(MAPSCEN-UI 11-0
     expect(saveBtn().closest('.mx-bar')).toBeTruthy();
     expect(card('단계 창').querySelector('.mx-pick [data-side="scen"]')!.textContent).toBe('시나리오 1');            // 창 맨 위 제목 = 시나리오만(RB-SIM-NO-MAPEL)
     expect(card('단계 창').querySelector('[data-side="map"], [aria-label="오른쪽 창"]')).toBeNull();
-    expect($('.mx-bar [data-locked]')!.getAttribute('aria-label')).toBe('지도: 본관 › 본동 › 1층 (잠김 — 시나리오를 닫으면 지도를 바꿀 수 있습니다)');
+    expect($('.mx-bar [data-locked]')!.getAttribute('aria-label')).toBe('지도: 본관 › 본동 › 1층 (잠김 · 시나리오를 닫으면 지도를 바꿀 수 있습니다)');
     expect(card('단계 창').contains(name())).toBe(true);
     await click($('[data-back]'));
     await click(row('s1'));
@@ -1636,7 +1636,7 @@ describe('시뮬 시나리오', () => {
     serve(KIM);
     await open('#/map');
     expect($('[data-building]')).toBeNull();
-    expect(text()).toContain('등록된 지도가 없습니다. «+ 지도 만들기»로 담당 실기 로봇이 돌아다니며 그리거나, «+ 파일 올리기»로 지도 파일을 올리면 여기에 보입니다.');
+    expect(text()).toContain('아직 지도가 없습니다');   // U11-04 빈 화면
     act(() => root?.unmount()); root = null;
     seed(); serve(KIM);
     await open('#/map'); await scen();

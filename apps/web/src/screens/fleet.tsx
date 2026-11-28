@@ -18,6 +18,8 @@ import { MapFrame, MapImage } from '../mapframe';
 import { Guard } from '../App';
 import { Shapes, floorsOf, isVersion, shape, toPixel, useFit, useTree } from './maps';
 import { FallChip, pickInfo, sdeg } from '../go2status';
+import { ReadyCheck } from './readycheck';
+import { RobotTiles } from './robottiles';
 import { useSimAt } from './missions';
 import { ManageRobot } from '../pairing';
 import { Chip, Detail, Kpi, LINK, Operators, Pair, Seen, attn, inApp, linkText, pct, type Ctx } from '../screens';
@@ -168,6 +170,7 @@ function Prepare({ c, r, guide }: { c: Ctx; r: Robot; guide: () => void }) {
         : on ? '서버가 아직 조종을 허용하지 않았습니다 — 담당·기체번호·서버 전체 스위치 중 맞지 않는 것이 있습니다.' : '로봇이 연결되면 서버가 담당·기체번호·서버 전체 스위치를 자동으로 확인합니다.', undefined, 'fl-step-drive')}
     </ol>
     {!ok && !r.sim && <ActionTrial robot={r} allowed={false} />}
+    <ReadyCheck r={r} server={net} again={c.refresh} />
   </section>;
 }
 
@@ -389,6 +392,7 @@ function Admin({ d, ...c }: Ctx & { d: Dashboard | null }) {
         <div className="fh-row"><h2>로봇 {rows.length === c.robots.length ? c.robots.length : `${rows.length}/${c.robots.length}`}대</h2><span className="fh-grow" />
           {sel('owner', '담당', [['', '전체'], ...owners.map(([id, name]): [string, string] => [id || '-', name])])}
           {sel('state', '상태', [['', '전체'], ['attn', '주의 필요'], ['online', '연결됨'], ['off', '끊김·연결 전']])}</div>
+        <RobotTiles robots={rows} open={open} />
         <div className="fl-row fl-head" aria-hidden="true"><span>로봇</span><span>담당</span><span>연결</span><span>배터리</span><span>임무</span><span>마지막 보고</span></div>
         {!rows.length && <p className="lv-note">거른 조건에 맞는 로봇이 없습니다.</p>}
         <ul className="fh-list robots fl-table">{rows.map((x) => { const a = attn(x); return <li key={x.id}>

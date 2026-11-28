@@ -17,6 +17,7 @@ import { SimTab } from './screens/sim';
 import { Terrain } from './screens/terrain';
 import { PhoneRelay, useRelayExpiry } from './phoneRelay';
 import { RobotInfo, pickInfo } from './go2status';
+import { Empty } from './empty';
 import { AdminFleet, OperatorRobot, realDash } from './screens/fleet';
 import { AddRobot, AssignOwner, ManageRobot } from './pairing';
 
@@ -75,20 +76,23 @@ export function useDash(cancel?: AbortSignal): Dash {
 
 /** 로봇 0대의 관제. 총괄: 요약·빈 목록 안내(children)·지도·운영 관리자 표. 운영 관리자: 등록·담당 요청·시뮬 띄우기 입구(요약 숫자 없이 — 한 대 집중 화면과 같게).
  *  robots = 끝낸 시뮬 슬롯까지 든 목록 — 요약은 로봇 탭처럼 실기만 센다(realDash) */
-export function EmptyFleet({ user, cancel, dash, robots, refresh, children }: { user: User; cancel?: AbortSignal; dash: Dash; robots: Robot[]; refresh: () => void; children: ReactNode }) {
+/** 로봇 0대(U11-04 빈 화면): 아이콘 · 한 줄 까닭 · 다음 할 일 하나. 운영자 = «+ 새 로봇 추가», 총괄 = «시뮬 탭 열기»(총괄은 실기를 연결하지 않음) */
+export function EmptyFleet({ user, cancel, dash, robots, refresh }: { user: User; cancel?: AbortSignal; dash: Dash; robots: Robot[]; refresh: () => void }) {
   const d = realDash(dash.d, robots), { err } = dash;
   if (user.role !== 'ORG_ADMIN') return <Pair user={user} mine={[]} refresh={refresh} cancel={cancel}>
-    <section className="lv-card" aria-label="로봇 없음"><h2>담당 로봇이 없습니다</h2>
-      <p className="lv-note">«+ 새 로봇 추가»에서 연결 코드로 실기를 등록하거나, 총괄에게 담당 지정을 요청하세요. 시뮬 로봇은 «시뮬» 탭에서 띄웁니다.</p>
-      <div className="fh-row"><a className="btn" href="#/sim">시뮬 탭 열기</a></div></section></Pair>;
-  return <><Kpi user={user} d={d} err={err} />{children}<MapCard cancel={cancel} /><Operators user={user} d={d} /></>;
+    {(add) => <Empty kind="robots" title="담당 로봇이 없습니다" why="연결 코드로 실기를 등록하거나 총괄에게 담당 지정을 요청하세요. 시뮬 로봇은 «시뮬» 탭에서 띄웁니다.">{add}</Empty>}</Pair>;
+  return <><Kpi user={user} d={d} err={err} />
+    <Empty kind="robots" title="등록된 로봇이 없습니다" why="운영 관리자가 실기 로봇을 연결하거나 «시뮬» 탭에서 띄우면 여기에 보입니다."><a className="btn pri" href="#/sim">시뮬 탭 열기</a></Empty>
+    <MapCard cancel={cancel} /><Operators user={user} d={d} /></>;
 }
 
-/** PC 웹 «새 로봇 추가»(폰과 같은 화면 · pairing.tsx). 펼치면 children(목록 칸) 자리에. 총괄도 붙인다(11/28 · 서버 #544) */
-export function Pair({ user, mine, refresh, cancel, children }: { user: User; mine: string[]; refresh: () => void; cancel?: AbortSignal; children: ReactNode }) {
-  const [on, setOn] = useState(false);
-  return on ? <AddRobot mine={mine} close={() => setOn(false)} refresh={refresh} cancel={cancel} />
-    : <>{children}<div className="fh-row" style={{ flexBasis: '100%' }}><button type="button" className="btn" onClick={() => setOn(true)} data-pair-start>+ 새 로봇 추가</button></div></>;
+/** PC 웹 «새 로봇 추가»(폰과 같은 화면 · pairing.tsx). 펼치면 children(목록 칸) 자리에. 총괄도 붙인다(11/28 · 서버 #544)
+ *  children 이 함수면 «+ 새 로봇 추가» 단추를 받아 그 칸 안에 둔다(빈 화면의 다음 할 일 하나) */
+export function Pair({ user, mine, refresh, cancel, children }: { user: User; mine: string[]; refresh: () => void; cancel?: AbortSignal; children: ReactNode | ((add: ReactNode) => ReactNode) }) {
+  const [on, setOn] = useState(false), fn = typeof children === 'function';
+  const add = <button type="button" className={fn ? 'btn pri' : 'btn'} onClick={() => setOn(true)} data-pair-start>+ 새 로봇 추가</button>;
+  if (on) return <AddRobot mine={mine} close={() => setOn(false)} refresh={refresh} cancel={cancel} />;
+  return fn ? <>{children(add)}</> : <>{children}<div className="fh-row" style={{ flexBasis: '100%' }}>{add}</div></>;
 }
 
 /** 서버 주의 코드(05 §4 attention, 목록 값) → 짧은 글 */

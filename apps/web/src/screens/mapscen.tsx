@@ -8,7 +8,7 @@ export const Lock = () => <svg width="14" height="14" viewBox="0 0 16 16" aria-h
 /** 오른쪽 창 맨 위 제목: 지도 탭 = «지도 요소 N», 시뮬 탭 = «시나리오 N»(RB-MAP-NO-SCEN·RB-SIM-NO-MAPEL 11-18 — 옛 [지도 요소 | 시나리오] 전환 없앰) */
 export const SideTitle = ({ scen, n }: { scen?: boolean; n: ReactNode }) => <b className="mx-side" data-side={scen ? 'scen' : 'map'}>{scen ? '시나리오' : '지도 요소'} <span className="mx-n">{n}</span></b>;
 /** 잠긴 장소 › 건물 › 층(시나리오가 열렸거나 지도 편집 중 — 바꾸지 못함) */
-export const Locked = ({ text, why }: { text: string; why: string }) => <span className="btn mx-lock" title={why} aria-label={`지도: ${text} (잠김 — ${why})`} data-locked><Lock /><span className="mx-cut">{text}</span></span>;
+export const Locked = ({ text, why }: { text: string; why: string }) => <span className="btn mx-lock" title={why} aria-label={`지도: ${text} (잠김 · ${why})`} data-locked><Lock /><span className="mx-cut">{text}</span></span>;
 
 /** 단추 줄 드롭다운(details) — 안 내용은 닫혀도 문서에 있다(시험·화면 읽기). end = 오른쪽 끝에 붙여 펼침 */
 export function Menu({ label, title, end, children, className }: { label: ReactNode; title?: string; end?: boolean; children: ReactNode; className?: string }) {

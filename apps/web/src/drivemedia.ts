@@ -146,7 +146,7 @@ export const hasPicture = (f: Feed) => f.img !== '' || f.n > 0;
 /** 칸에 쓸 한 줄 — 받는 중이고 새것이면 '', 아니면 «카메라/라이다/뎁스 카메라 신호 없음» + 까닭 */
 export function driveFeedText(f: Feed, ch: DriveCh, at = performance.now()) {
   const why = whyNot(f, at);
-  return why == null ? '' : why ? `${NO_SIGNAL[ch]} — ${why}` : NO_SIGNAL[ch];
+  return why == null ? '' : why ? `${NO_SIGNAL[ch]} · ${why}` : NO_SIGNAL[ch];
 }
 
 /** 남겨 둔 마지막 그림 위 표시 «마지막 그림 · N초 전»(+ 까닭 한 줄) — 지금 그림이거나 받은 그림이 없으면 '' */

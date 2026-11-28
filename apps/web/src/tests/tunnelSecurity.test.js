@@ -35,6 +35,7 @@ it('always excludes service ports, including widened environment and caller-supp
 });
 
 it('blocks the exact raw-import file attack and development internals on tunnel Hosts', async () => {
+  await mkdir(resolve('../../tmp/phone-tunnel'), { recursive: true });   // tmp/ 는 gitignore 라 새 작업 사본에는 없다
   const folder = await mkdtemp(resolve('../../tmp/phone-tunnel/attack-'));
   cleanup.push(() => rm(folder, { recursive: true, force: true }));
   const root = resolve(folder, 'web'); await mkdir(resolve(root, 'dist'), { recursive: true });
