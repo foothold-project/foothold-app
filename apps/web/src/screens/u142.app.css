@@ -3,7 +3,7 @@
 .proto.pv.u142{--pr:#12b886;--pr2:#0ca678;--ink:#16191f;--mu:#5d6573;--red:#e5383b}
 /* 폰 틀 .fh 머리줄 아래 본문을 꽉 채운다(조종 화면 .dv.ph 와 같은 길) */
 .fh:has(.u142){height:100dvh;min-height:0}
-.fh:has(.u142) .fh-main{overflow:hidden;padding:0}
+.fh.phone:has(.u142) .fh-main{overflow:hidden;padding:0}
 .proto.pv.u142{flex:1 1 100%;width:100%;height:100%}
 /* 배터리 칸 채움은 서버 값(시안은 68 % 고정 그림) */
 .u142 .bat i::before{width:var(--soc,68%)}
