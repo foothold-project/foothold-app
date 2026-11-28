@@ -530,7 +530,8 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
         <div data-go="u4_3_voice" className="g dk btn talk" role="button" tabIndex={0} onClick={() => say('말하기는 아직 서버에 없습니다')}>
           <svg className="ic" viewBox="0 0 24 24" style={{ width: '18px', height: '18px' }}><path d="M12 19v3" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><rect x="9" y="2" width="6" height="13" rx="3" /></svg>말하기</div>
         {/* 한 줄(시안 u4_1)에 맞게 짧은 말 · 긴 뜻은 title. 1920 폭에서 넘침 0 을 잼(조정 11-28 20:07) */}
-        <div className="g dk keys" data-u4-keys><span title="앞으로 걷기"><kbd>↑</kbd>앞</span><span title="뒤로 걷기"><kbd>↓</kbd>뒤</span><span title="옆걸음"><kbd>←</kbd><kbd>→</kbd>옆</span><span title="제자리 돌기"><kbd>A</kbd><kbd>D</kbd>돌기</span><span data-u4-key-combo title="↑ 와 A 또는 D 를 같이 누르면 앞으로 가며 돕니다"><kbd>↑</kbd><kbd>A</kbd><kbd>D</kbd>돌며 앞</span><span title="정지"><kbd>Space</kbd>정지</span><span title="보기 칸 바꾸기"><kbd>1</kbd>~<kbd>4</kbd>화면</span><span title="Shift + 1 ~ 4 걷기 모드"><kbd>⇧</kbd><kbd>1</kbd>~<kbd>4</kbd>모드</span></div>
+        {zoom ? <div className="g dk keys" data-u4-keys>이동{([['위', '↑'], ['아래', '↓'], ['왼쪽', '←'], ['오른쪽', '→']] as const).map(([n, k]) => <kbd key={n} aria-label={n}>{k}</kbd>)}</div>
+        : <div className="g dk keys" data-u4-keys><span title="앞으로 걷기"><kbd>↑</kbd>앞</span><span title="뒤로 걷기"><kbd>↓</kbd>뒤</span><span title="옆걸음"><kbd>←</kbd><kbd>→</kbd>옆</span><span title="제자리 돌기"><kbd>A</kbd><kbd>D</kbd>돌기</span><span data-u4-key-combo title="↑ 와 A 또는 D 를 같이 누르면 앞으로 가며 돕니다"><kbd>↑</kbd><kbd>A</kbd><kbd>D</kbd>돌며 앞</span><span title="정지"><kbd>Space</kbd>정지</span><span title="보기 칸 바꾸기"><kbd>1</kbd>~<kbd>4</kbd>화면</span><span title="Shift + 1 ~ 4 걷기 모드"><kbd>⇧</kbd><kbd>1</kbd>~<kbd>4</kbd>모드</span></div>}
       </div>
       <div className={`deck joybig${latched ? ' dim' : ''}`} data-u4-deck data-ready={ready || undefined}>
         <Stick side="L" put={d.stick} /><Stick side="R" put={d.stick} />
@@ -539,7 +540,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
           return <div key={name} className={off ? 'no' : undefined} {...(off && name === 'StandUp' ? { 'data-why': STANDUP_WHY } : {})} role="button" tabIndex={0} data-u4-act={name} onClick={() => act(name)}>
             <span><svg className="ic" viewBox="0 0 24 24" style={IC24}>{ic}</svg></span>{t}<em>{name === 'StandUp' && !lowlevel ? 'L2+A' : name === 'StandUp' ? em : off && !lowlevel ? '순정 확인 전' : em}</em></div>;
         })}</div>
-        <div className={`why${msg ? ' on' : ''}`} role="status" data-u4-why>{msg}</div>
+        <div className={`why${msg ? ' on' : ''}`} role="status" data-u4-why data-off-proto="help-pill">{msg}</div>
       </div>
     </div>}
     {modeNow && <><div className="veil" onClick={closeMode} />

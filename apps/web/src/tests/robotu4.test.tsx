@@ -588,7 +588,7 @@ describe('메인 칸 더블클릭 = 무대 안 확대(시안 밖 · 새로 그�
     expect($('[data-u4-zback]')!.textContent).toContain('돌아가기');
     expect($('.right .vstop[data-sd-stop="u4"]')).not.toBeNull();
     expect($$('.right [data-u4-stick]').length).toBe(2);
-    expect(text($('.right .keys'))).toContain('Space정지');
+    expect(text($('.right .keys'))).toBe('이동↑↓←→');   // 확대 중 키 안내 = 「이동」 + 방향키 그림만(팀장 11-28 23:48)
     key('keydown', 'Digit2'); key('keyup', 'Digit2'); expect($('.vsel [data-view].on')!.getAttribute('data-view')).toBe('rgb');
     key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0'); key('keyup', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('0,0,0');
     key('keydown', 'Escape'); expect(on()).toBe(false);
@@ -828,3 +828,33 @@ describe('로봇 탭 · 다시 시작 확인 창', () => {
 it('로봇 탭 말풍선 안 dv-note 는 바탕 없이 말풍선 글자색', () => {
   expect(u4css).toMatch(/\.u4 \.bub \.dv-note\{[^}]*background:none[^}]*color:inherit/);
 });
+
+// 팀장 11-28 23:48: 확대(전체 화면 조종) 배치를 폰 시안 u1_2 자리로 · 입력 · 정지 동작은 그대로(보이기만)
+describe('확대 조종 배치(폰과 같은 자리)', () => {
+  const dbl = (el: Element) => act(() => { el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
+  const flat = u4css.replace(/\s+/g, ' ');
+  it('키 안내: 확대 중엔 「이동」 한 단어 + ↑ ↓ ← → 그림만 · 위쪽 가운데 · 평소 키 줄은 그대로', () => {
+    mount('u-park'); serve('r7'); drive();
+    expect(text($('.right .keys'))).toContain('Space정지');
+    dbl($('.right .views')!);
+    const k = $('.right .keys')!;
+    expect(text(k)).toBe('이동↑↓←→');   // 설명 글 없음 · 키 그림만
+    expect([...k.querySelectorAll('kbd')].map((x) => x.getAttribute('aria-label'))).toEqual(['위', '아래', '왼쪽', '오른쪽']);
+    expect(flat).toContain('.u4 .right[data-u4-zoom] .ctl{position:fixed;left:16px;right:16px;top:88px;bottom:auto;justify-content:center;pointer-events:none}');   // transform 없음(말하기 fixed 기준이 바뀌지 않게)
+  });
+  it('자리: 손잡이 아래 양끝(오른쪽은 정지 왼쪽) · 정지 오른쪽 아래 · 말하기는 정지 바로 위 · 판 바탕 없음 · 임무 카드 자리 그대로 · 돌아가기 오른쪽 여백', () => {
+    expect(flat).toContain('.u4 .right[data-u4-zoom] .deck{position:fixed;left:16px;right:16px;top:auto;bottom:16px;height:200px;z-index:7;background:none;border:0;backdrop-filter:none;-webkit-backdrop-filter:none;pointer-events:none}');
+    expect(flat).toContain('.u4 .right[data-u4-zoom] .deck [data-u4-stick="R"]{right:172px!important}');
+    expect(flat).toContain('.u4 .right[data-u4-zoom] .vstop,.u4 .right[data-u4-zoom] .vslot{bottom:24px;right:24px}');
+    expect(flat).toContain('.u4 .right[data-u4-zoom] .ctl .talk{position:fixed;right:24px;bottom:136px;width:132px;height:72px');
+    expect(flat).toContain('.u4 .right[data-u4-zoom] .job{left:24px;bottom:330px}');
+    expect(flat).toContain('.u4 .right[data-u4-zoom] .vsel{left:172px;top:24px}');
+  });
+  it('도움말 알약(시안 밖 · 새로 그림): 가는 선 · 작은 글 · 표시 붙음', () => {
+    mount('u-park'); serve('r7');
+    const w = $('[data-u4-why]')!;
+    expect(w.getAttribute('data-off-proto')).toBe('help-pill');
+    expect(flat).toContain('.u4 .deck .why{position:absolute;left:50%;top:10px;transform:translateX(-50%);padding:4px 11px;border-radius:999px;background:rgba(20,24,30,.42);border:1px solid rgba(255,255,255,.16);color:rgba(255,255,255,.86);font-size:11.5px;font-weight:600');
+  });
+});
+
