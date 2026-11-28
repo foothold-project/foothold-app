@@ -10,7 +10,8 @@ import { Root } from '../session';
 import { SIM_SAVE, Shapes, TRAIL_WHY, areaText, floorName, pixelTo, toPixel } from '../screens/maps';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { featSub, kept } from '../screens/mapedit';
-import { FACTORY_LIGHT, FACTORY_PNG, FactoryImage } from '../mapframe';
+import { FactoryImage } from '../mapframe';
+import { SITE_TOP } from '../proto/site';
 import { setThemePref } from '../theme';
 /** 훅을 쓰는 작은 svg 조각을 그려 html 로 (renderToStaticMarkup 은 useSyncExternalStore 서버 값이 없어 못 씀) */
 const svgHtml = (el: React.ReactElement) => { const d = document.createElement('div'), r = createRoot(d); act(() => r.render(el)); const h = d.innerHTML; act(() => r.unmount()); return h; };
@@ -2462,7 +2463,7 @@ describe('지도 탭 · 시안 u7', () => {
     expect(sites.querySelector('[data-building="b8"]')).toBeNull();
     expect(box.querySelector('[data-factory]')).toBeNull();   // 실제 현장(REAL) = 서버 판 그대로
     await click(sites.querySelector('[data-building="b9"]'));
-    expect(card('층 목록').querySelector('.mx-thumb [data-factory]')!.getAttribute('href')).toBe(FACTORY_PNG);   // 데모 판 = 시안 공장 그림(썸네일 · 미리 보기 · 층 화면)
+    expect(card('층 목록').querySelector('.mx-thumb [data-factory]')!.getAttribute('href')).toBe(SITE_TOP.dark);   // 데모 판 = 시안 공장 그림(썸네일 · 미리 보기 · 층 화면)
     expect(card('미리 보기').querySelector('[data-site3d="preview"]')).not.toBeNull();   // 미리 보기 = 시안 u7_1 「3D 보기 · 미리 보기」(시안 공장 모형)
     expect(card('미리 보기').querySelector('[data-tag3d]')!.textContent).toBe('3D 보기 · 미리 보기');
     await click($('[data-open-map]'));
@@ -2501,10 +2502,10 @@ describe('지도 탭 · 시안 u7', () => {
     act(() => setThemePref('light'));
     try {
       const light = svgHtml(<svg><FactoryImage v={v} /></svg>);
-      expect(light).toContain(`href="${FACTORY_LIGHT}"`); expect(FACTORY_LIGHT).toMatch(/map_large_factory_top\.jpg$/);
+      expect(light).toContain(`href="${SITE_TOP.light}"`); expect(SITE_TOP.light).toMatch(/maps_v2\/factory_kr\/top_light\.png$/);
       expect(mx(light)).toBe(mx(dark));
     } finally { act(() => setThemePref('dark')); }
-    expect(dark).toContain(`href="${FACTORY_PNG}"`);
+    expect(dark).toContain(`href="${SITE_TOP.dark}"`);
   });
 
   it('넓이 글 = 시안 u7 꼴(50 만 m² · 4.2 만 m² · 8,400 m²)', () => {
