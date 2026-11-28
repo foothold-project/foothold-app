@@ -2,7 +2,7 @@
 // 동작(로그인 요청 본문 · 칸 표시 · 로봇 연결 입구 · 넘기기 / 계속 조종)은 그대로인지. 가짜 서버(fetch 가짜 · /api/v1 만) · FakeWS · 실기 없음.
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Event as Ev, RobotSummary, User } from '../../../contracts/ts';
 import { Root } from '../session';
 import { NO_ROBOT_WHY } from '../screens/norobot';
@@ -176,6 +176,17 @@ describe('폰 알림 목록 = 시안 u3_3', () => {
       scenario_name_snapshot: null, floor_name_snapshot: null, status: 'COMPLETED', started_at: AT, ended_at: AT } } });
   const tiles = () => [...box.querySelectorAll<HTMLButtonElement>('.u33 .g.list button.tile')];
   const segs = () => [...box.querySelectorAll<HTMLButtonElement>('.u33 .g.seg button')];
+  // 「오늘이면 시각, 아니면 날짜」(phonehistory clock) — 날짜만 고정(Date 만 가짜 · 다른 타이머는 진짜). 자정이 지나도 결과가 같게
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date(2026, 10, 28, 15, 0)); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('시각 칸 경계: 오늘 00:01 은 「00:01」 · 어제 23:59 는 「11/28」 (지금 = 11/29 00:10)', async () => {
+    vi.setSystemTime(new Date(2026, 10, 29, 0, 10));
+    const today = ev('a', { at: new Date(2026, 10, 29, 0, 1).toISOString(), message: '오늘 일' }), yday = ev('b', { at: new Date(2026, 10, 28, 23, 59).toISOString(), message: '어제 일' });
+    serve({ ...routes(), 'GET /events': () => page([today, yday]) });
+    await open(true, '#/history');
+    expect(tiles().map((t) => t.querySelector('.t')!.textContent)).toEqual(['00:01', '11/28']);
+  });
 
   it('시안 DOM(.proto.pv.u33 · .bg · .top 알림 · .seg 넷 · .list 타일 · .det), 옛 부품 없음, 첫 알림이 골라져 오른쪽 칸에', async () => {
     serve(routes());
