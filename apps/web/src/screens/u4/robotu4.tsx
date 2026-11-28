@@ -6,10 +6,11 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as PEv, type ReactNode } from 'react';
 import type { MapVersion, ScreenAction } from '../../../../contracts/ts';
 import { api } from '../../api';
-import { rt, useRt } from '../../rt';
-import type { Robot } from '../../fake';
+import { rt, useLive, useRt } from '../../rt';
+import { useStopPress } from '../../App';
+import { adminReal, type Robot } from '../../fake';
 import { useDriveFeed } from '../../drivemedia';
-import { DriveView, useServerDrive, type DriveKeys, type Tok } from '../../serverdrive';
+import { DriveView, canDrive, keepDrive, useServerDrive, type DriveKeys, type Tok } from '../../serverdrive';
 import { LidarMap } from '../../lidarmap';
 import { go2Temps } from '../../pcdrive';
 import { REPORT_STALE_MS, go2Pose, JOINTS, jointName } from '../../go2model';
@@ -153,8 +154,21 @@ type Tab = 'drive' | 'check' | 'settings';
 type View = 'map' | 'rgb' | 'lidar' | 'depth';
 const VIEWS: [View, string][] = [['map', '지도'], ['rgb', '카메라'], ['lidar', '라이다'], ['depth', '깊이']];
 
+/** 이 화면이 쓰는 조종 조각. 조종할 수 있는 로봇(canDrive · keepDrive)만 useServerDrive 를 붙인다(키 · 조종권은 한 화면에 하나 · 옛 세 칸 화면과 같은 규칙) */
+type D = Pick<ReturnType<typeof useServerDrive>, 'l' | 's' | 'mine' | 'off' | 'why' | 'ready' | 'zero' | 'stick' | 'stopPress'>;
+function Driven({ c, r }: { c: Ctx; r: Robot }) { return <Body c={c} r={r} d={useServerDrive(c, r, undefined, U4_KEYS)} can />; }
+function Viewed({ c, r }: { c: Ctx; r: Robot }) {
+  const l = useLive(r.id), stopPress = useStopPress(() => rt.stop(r.id));
+  return <Body c={c} r={r} d={{ l, s: l.state, mine: false, off: true, why: '', ready: false, zero: () => {}, stick: () => {}, stopPress }} can={false} />;
+}
 function Robot1({ c, r }: { c: Ctx; r: Robot }) {
-  const d = useServerDrive(c, r, undefined, U4_KEYS), { l, s, mine } = d;
+  return canDrive(c, r) || keepDrive(c, r) ? <Driven c={c} r={r} /> : <Viewed c={c} r={r} />;
+}
+/** 조종 못 하는 까닭(서버 허용 · 담당 · 총괄 실기) */
+const noDrive = (c: Ctx, r: Robot) => adminReal(c.user, r) ? '총괄은 실기 로봇을 조종하지 않습니다.' : r.owner !== c.user.id ? '내 담당 로봇만 조종할 수 있습니다.'
+  : '서버가 이 로봇의 웹 조종을 허용하지 않았습니다.';
+function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
+  const { l, s, mine } = d;
   const [tab, setTab] = useState<Tab>('drive'), [view, setView] = useState<View>('map');
   const [msg, setMsg] = useState(''), [pending, setPending] = useState<string | null>(null), tm = useRef(0);
   const say = (m: string) => { setMsg(m); clearTimeout(tm.current); tm.current = window.setTimeout(() => setMsg(''), 2600); };
@@ -178,6 +192,7 @@ function Robot1({ c, r }: { c: Ctx; r: Robot }) {
   const hot: Record<string, string> = temps && temps.hot >= 0 && hotJ != null && hotJ >= 60 ? { [JOINTS[temps.hot].replace(/_joint$/, '')]: 'hot' } : {};
   const ready = d.ready;
   const act = (name: ScreenAction['action']) => {
+    if (!can) return say(noDrive(c, r));
     if (!mine) return say('조종 시작 후 사용할 수 있습니다.');
     if (name === 'StandUp' && lowlevel) return say(STANDUP_WHY);
     if (lowlevel ? !LOWLEVEL.has(name) : FACTORY_OFF.has(name)) return say(`${ACTION_NAMES[name]}: ${lowlevel ? '저수준 제어 중에는 쓸 수 없음' : '순정 번호 확인 전'}`);
@@ -214,7 +229,7 @@ function Robot1({ c, r }: { c: Ctx; r: Robot }) {
     </div>
       <div className="ctl">
         <div className={`g dk btn${mine ? ' drv' : ''}`} role="button" tabIndex={0} data-u4-drive={mine ? 'mine' : 'take'}
-          onClick={() => { if (mine) { d.zero(); rt.release(r.id); } else if (!d.off) { if (l.holder?.type === 'USER') rt.request(r.id); else rt.take(r.id); } else say('로봇 연결이 끊겼습니다 · 다시 연결되면 누르세요'); }}>
+          onClick={() => { if (!can) say(noDrive(c, r)); else if (mine) { d.zero(); rt.release(r.id); } else if (!d.off) { if (l.holder?.type === 'USER') rt.request(r.id); else rt.take(r.id); } else say('로봇 연결이 끊겼습니다 · 다시 연결되면 누르세요'); }}>
           <svg className="ic" viewBox="0 0 24 24" style={{ width: '18px', height: '18px' }}><line x1="6" x2="10" y1="11" y2="11" /><line x1="8" x2="8" y1="9" y2="13" /><line x1="15" x2="15.01" y1="12" y2="12" /><line x1="18" x2="18.01" y1="10" y2="10" /><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z" /></svg>{mine ? '조종 중' : '조종 시작'}</div>
         <div data-go="u4_3_voice" className="g dk btn talk" role="button" tabIndex={0} onClick={() => say('말하기는 아직 서버에 없습니다')}>
           <svg className="ic" viewBox="0 0 24 24" style={{ width: '18px', height: '18px' }}><path d="M12 19v3" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><rect x="9" y="2" width="6" height="13" rx="3" /></svg>말하기</div>
