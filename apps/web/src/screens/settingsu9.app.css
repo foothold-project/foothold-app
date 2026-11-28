@@ -43,3 +43,11 @@
 .proto.light.u9 .step span{background:#FFFFFF;color:#1F2421}
 /* 시안 JSX 의 흰 글자 인라인 값(어둠 판 전용): 바탕색이 없는 글자만 그라파이트로 */
 .proto.light.u9 [style*="color: rgb(255, 255, 255)"]:not([style*="background"]){color:#1F2421!important}
+/* u9_7 조이스틱 · 폰 터치 그림: 어둠 판 흰 선 · 흰 채움이 밝은 판 흰 판 위에서 안 보임 = 흑연 선 · 옅은 흑연 채움 · 민트 · 빨강은 밝음 1 값 */
+.proto.light.u9 .pane svg [stroke^="rgba(255,255,255"]{stroke:#5E6662}
+.proto.light.u9 .pane svg [fill^="rgba(255,255,255"]{fill:rgba(31,36,33,.06)}
+.proto.light.u9 .pane svg circle[r="9"][fill^="rgba(255,255,255"],.proto.light.u9 .pane svg circle[r="6"][fill^="rgba(255,255,255"]{fill:#5E6662}
+.proto.light.u9 .pane svg [stroke="#00c389"]{stroke:#18A07E}
+.proto.light.u9 .pane svg [fill="#00c389"]{fill:#18A07E}
+.proto.light.u9 .pane svg [fill="rgba(0,195,137,.18)"]{fill:rgba(24,160,126,.18)}
+.proto.light.u9 .pane svg [fill="#ff4d4f"]{fill:#E04A2F}
