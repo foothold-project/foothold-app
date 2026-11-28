@@ -8,11 +8,11 @@ import type { User as ApiUser } from '../../contracts/ts';
 import { BrandLogo } from './BrandLogo';
 import { ROBOTS, ROLE_NAME, USERS, idleSim, lost, lostText, myRobots, robotsFor, runOn, eunNeun, type Robot, type User } from './fake';
 import { PC_BOTTOM, PC_TABS, PHONE_SCAN, labelOf, leaving, oldScenario, tabFromHash, tabsFor, type Tab, type TabId } from './menu';
-import { now, rt, undelivered, useRt, withLive, type Live } from './rt';
+import { now, rt, useRt, withLive, type Live } from './rt';
 import { BODY, EmptyFleet, inApp, useDash, type Ctx } from './screens';
 import { RobotTab } from './screens/u4/robotu4';
 import { pcBoard } from './pcboard';
-import { Connect, NO_ROBOT, endDrive } from './drive';
+import { Connect, NO_ROBOT, endDrive, stopText, stopWaiting } from './drive';
 import { sim, useSim } from './phone';
 import { SimDrive, SimPip, stopText as simStopText, type Cam } from './simdrive';
 import { SimWindow } from './simwin';
@@ -37,9 +37,6 @@ import { setStage } from './stage';
 import { Control5 } from './proto/u5';
 import { EmptyRobots, PcAsk } from './proto/u11';
 
-const NOT_LATCHED = '정지 요청됨 — 로봇이 아직 잠금을 알리지 않았습니다.';
-/** 서버가 받았고 그 뒤 state 도 왔는데 로봇이 아직 잠금을 알리지 않음(stopText 의 그 줄) = 시안 u1_7 「명령이 닿지 않았습니다」 */
-const stopWaiting = (r: Robot, l: Live) => !!l.stop && stopText(r, l).endsWith(NOT_LATCHED);
 /** 그 단계가 된 뒤 지난 초(1 초마다 다시 그림 · rt 단조 시계) */
 function Ago({ at }: { at: number }) {
   const [, tick] = useState(0);
@@ -47,25 +44,6 @@ function Ago({ at }: { at: number }) {
   return <>{Math.max(0, Math.floor((now() - at) / 1000))}</>;
 }
 
-/** STOP 결과 한 줄 — 서버가 받았는지와 로봇이 알린 잠금을 나눠 쓴다. 확인 안 된 «정지됨»은 쓰지 않는다(F-COM-01) */
-function stopText(r: Robot, l: Live) {
-  const s = l.stop, st = l.state;
-  if (!s) return '';
-  if (s.phase === 'sending') return `■ ${r.name} 정지 요청을 보내는 중입니다.`;
-  if (s.phase === 'failed') return `▲ ${r.name} 정지 요청을 보내지 못했습니다. ${s.why ?? ''} 현장에서 로봇을 직접 멈추세요.`;
-  if (s.phase === 'unsure') return `▲ ${r.name} 정지 요청을 보냈지만 서버 접수를 확인하지 못했습니다. ${s.why ?? ''} 현장에서 로봇을 직접 멈추세요.`;
-  const no = undelivered(s, st); if (no) return `▲ ${r.name} ${no}`;
-  // 대체 경로로 보낸 뒤에는 다시 연결되어 요청 뒤 state 가 와야 로봇 확인을 본다
-  if (s.phase === 'fallback' && !(st && l.stateAt > s.at)) return `■ ${r.name} 정지 요청됨(대체 경로) — 실시간 연결이 끊겨 로봇 확인은 보이지 않습니다. 현장을 확인하세요.`;
-  if (!st || l.stateAt <= s.at) return `■ ${r.name} 정지 요청됨 — 서버가 받았습니다. 로봇 확인을 기다립니다.`;
-  if (st.phone_relay && (st.connection !== 'ONLINE' || st.latched === null || st.applied === null))
-    return `▲ ${r.name} 정지 요청됨 — 폰 경유 자료는 받았지만 직접 로봇 보고로 정지를 확인하지 못했습니다. 현장을 확인하세요.`;
-  if (st.connection !== 'ONLINE') return `▲ ${r.name} 정지 요청 뒤 로봇 연결이 끊겼습니다. 지금 상태는 알 수 없습니다. 현장을 확인하세요.`;
-  if (!st.latched) return `■ ${r.name} ${NOT_LATCHED}`;
-  // applied 가 비었거나 없으면 출력 보고가 없는 것(현장 승인 관문이 닫힌 에이전트는 latched · applied [] 만 보냄). [].every 는 참이라 따로 거른다
-  if (!st.applied?.length) return `▲ ${r.name} 정지 잠금 · 멈춤 출력은 확인되지 않았습니다 (현장 승인이 닫혀 있을 수 있음). 리모컨이나 현장에서 멈추세요.`;
-  return st.applied.every((v) => v === 0) ? `■ ${r.name} 정지 잠금 · 로봇이 잠금과 멈춤 출력을 알렸습니다.` : `▲ ${r.name} 정지 잠금 · 출력이 아직 멈추지 않았습니다. 현장을 확인하세요.`;
-}
 
 /** 서버 끊김 폰 STOP(d2) 결과를 같은 결과끼리 한 줄로(로봇 이름만 나열 · 폰 말풍선 줄이기). 사유가 같으면 한 번, 다르면 로봇별로 짧게 뒤에.
  *  대체 경로로 접수됐지만 보낼 때 끊겨 있던 로봇(off)은 관제와 같은 «아직 닿지 않음 · 상태 모름» 줄. 로봇이 정지 뒤 상태를 알린 로봇은 기존 한 줄(stopText) */
