@@ -22,6 +22,7 @@ import { DAY_FROM, DAY_TO, Guess, KIND, MODES, STATE, hm, hourOf, isoAt, mins, t
 import { MissionPlan } from './missionsu6plan';
 import { Rehearse, Result } from './missionsu6run';
 import { Preflight } from './missionsu6pre';
+import { has3D, MissionMap3D, route3, RouteView, useRouteView, type Proj } from './missionsu6map3d';
 import { useTheme } from '../theme';
 
 /** 화면(시안 장): 목록 · 일정(u6_1 · u6_8 · u6_9) / 새 임무 고르기(u6_2) / 만들기(u6_3 · 4 · 5) / 모의 실행(u6_6) / 보고서(u6_7) */
@@ -96,33 +97,52 @@ export function RouteStage({ x, route, rehearse, children, pick, pickAt, sel, st
   /** 작은 지도(u6_4 노드 오른쪽 아래): 시안처럼 그림만 · 확대 · 보기 · 축척 단추 없음 */ still?: boolean;
   /** 지도 누름 → 지도 좌표(m) · 그 자리 화면 좌표(칸 안 px). 편집기(u6_3 · u6_5)만 */ pick?: (m: [number, number], at: [number, number], ctx: boolean) => void;
   /** 지점 누름(번호 · 그 자리 화면 좌표(칸 안 px)) */ pickAt?: (i: number, at: [number, number]) => void; sel?: number | null }) {
-  const { v, vid, look, mapErr, retry, on, segs, inNoGo, px, r, place, floor } = route;
+  const { v, vid, look, mapErr, retry, inNoGo, place, floor } = route;
   const svg = useRef<SVGSVGElement | null>(null);
+  // 판에 3D 모형이 있으면 점토 3D(missionsu6map3d) 위 겹에 같은 경로 · 지점 · 로봇. 못 그리면(404 · WebGL 없음) 그 판은 2D 로
+  const [p3, setP3] = useState<Proj | null>(null), [off3, setOff3] = useState<string | null>(null);
+  const use3 = !still && has3D(v) && off3 !== v!.id;
+  const rel = (e: React.MouseEvent) => { const b = (e.currentTarget as Element).closest('.map, .stage, .pane')?.getBoundingClientRect(); return (b ? [e.clientX - b.left, e.clientY - b.top] : [0, 0]) as [number, number]; };
   const hit = (e: React.MouseEvent, ctx: boolean) => {
     if (!pick || !v || !svg.current) return;
     if ((e.target as Element).closest('[data-pt]')) return;
     if (ctx) e.preventDefault();
-    const [qx, qy] = toView(svg.current, e.clientX, e.clientY), b = svg.current.closest('.map, .stage, .pane')!.getBoundingClientRect();
-    pick(toMap(v, qx, qy), [e.clientX - b.left, e.clientY - b.top], ctx);
+    if (use3) { if (!p3) return; const b = svg.current.getBoundingClientRect(), m = p3.from([e.clientX - b.left, e.clientY - b.top]); if (m) pick(m, rel(e), ctx); return; }
+    const [qx, qy] = toView(svg.current, e.clientX, e.clientY);
+    pick(toMap(v, qx, qy), rel(e), ctx);
   };
   const line = rehearse ? '#4c9bff' : '#00c389';
   if (!x) return <Why>임무를 고르면 지도에 경로가 보입니다.</Why>;
   if (!vid) return <Why>{floor ? '이 임무의 층에 승인된 지도가 없습니다.' : '이 임무에는 지점이 없습니다. 만들기에서 지도에 지점을 찍으세요.'}</Why>;
   if (!v) return mapErr ? <p className="lab u6-why" role="alert">지도를 받지 못했습니다. {mapErr} <button type="button" className="btns" onClick={retry}>다시 시도</button></p>
     : <Why>지도를 불러오는 중…</Why>;
-  return <MapFrame ref={svg} {...look} still={still} photo={v} at={{ right: 10, bottom: 10 }} role={pick ? 'application' : 'img'} aria-label={`${x.name || '임무'} 경로 · ${floorName(place!.floor.name)}`} data-map data-mission-map className={`u6-stage${rehearse ? ' u6-reh' : ''}`}
-    onClick={pick ? (e) => hit(e, false) : undefined} onContextMenu={pick ? (e) => hit(e, true) : undefined}>
-    <MapImage id={v.id} width={v.width} height={v.height} tint="#8d9590" />
-    {v.features.zones.filter((z) => z.type === 'NO_GO').map((z, i) => <polygon key={i} data-nogo points={z.polygon.map(([a, b]) => px({ x: a, y: b }).join(',')).join(' ')}
-      style={{ fill: '#e04a2f', fillOpacity: 0.16, stroke: '#e04a2f', strokeWidth: 1.5, strokeDasharray: '4 3' }} vectorEffect="non-scaling-stroke"><title>{`접근 금지 구역 ${z.name}`}</title></polygon>)}
-    {segs.map((s, i) => <g key={i}><line x1={s.a[0]} y1={s.a[1]} x2={s.b[0]} y2={s.b[1]} style={{ stroke: 'rgba(255,255,255,.85)', strokeWidth: 7, strokeLinecap: 'round' }} vectorEffect="non-scaling-stroke" />
+  /** 경로 · 지점(2D = 판 그림 px, 3D = 칸 화면 px) */
+  const marks = (rv: Route) => <>
+    {rv.segs.map((s, i) => <g key={i}><line x1={s.a[0]} y1={s.a[1]} x2={s.b[0]} y2={s.b[1]} style={{ stroke: 'rgba(255,255,255,.85)', strokeWidth: 7, strokeLinecap: 'round' }} vectorEffect="non-scaling-stroke" />
       <line data-seg={i} data-hit={s.hit || undefined} x1={s.a[0]} y1={s.a[1]} x2={s.b[0]} y2={s.b[1]}
         style={{ stroke: s.hit ? '#ff4d4f' : line, strokeWidth: 4, strokeLinecap: 'round', strokeDasharray: s.hit || rehearse ? '6 5' : undefined }} vectorEffect="non-scaling-stroke" /></g>)}
-    {on.map(({ w, i }) => { const [a, b] = px(w), bad = inNoGo(w);
-      return <g key={i} data-pt={i + 1} data-hit={bad || undefined} aria-pressed={pickAt ? sel === i : undefined} onClick={pickAt ? (ev) => { const b = (ev.currentTarget as Element).closest('.map, .stage, .pane')?.getBoundingClientRect(); pickAt(i, b ? [ev.clientX - b.left, ev.clientY - b.top] : [0, 0]); } : undefined} style={pickAt ? { cursor: 'pointer' } : undefined}>
+    {rv.on.map(({ w, i }) => { const [a, b] = rv.px(w), bad = inNoGo(w), r = rv.r;
+      return <g key={i} data-pt={i + 1} data-hit={bad || undefined} aria-pressed={pickAt ? sel === i : undefined} onClick={pickAt ? (ev) => pickAt(i, rel(ev)) : undefined} style={pickAt ? { cursor: 'pointer' } : undefined}>
         {sel === i && <circle cx={a} cy={b} r={r * 1.9} style={{ fill: 'rgba(0,195,137,.22)', stroke: '#00c389', strokeWidth: 2.5 }} vectorEffect="non-scaling-stroke" />}
         <circle cx={a} cy={b} r={r} style={{ fill: '#fff', stroke: bad ? '#ff4d4f' : line, strokeWidth: 3 }} vectorEffect="non-scaling-stroke" />
         <text x={a} y={b + r * 0.38} fontSize={r * 1.05} fontWeight={800} textAnchor="middle" style={{ fill: '#1f2421', pointerEvents: 'none' }}>{i + 1}</text></g>; })}
+  </>;
+  const label = `${x.name || '임무'} 경로 · ${floorName(place!.floor.name)}`;
+  if (use3) {
+    const rv = p3 && route3(route, p3);
+    return <div style={{ position: 'absolute', inset: 0 }} className={`u6-stage${rehearse ? ' u6-reh' : ''}`}>
+      <MissionMap3D v={v} ready={setP3} off={() => { setOff3(v.id); setP3(null); }} />
+      {rv && p3 && <svg ref={svg} viewBox={`0 0 ${p3.w} ${p3.h}`} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} role={pick ? 'application' : 'img'} aria-label={label}
+        data-map data-mission-map data-map3d onClick={pick ? (e) => hit(e, false) : undefined} onContextMenu={pick ? (e) => hit(e, true) : undefined}>
+        {marks(rv)}<RouteView.Provider value={rv}>{children}</RouteView.Provider></svg>}
+    </div>;
+  }
+  return <MapFrame ref={svg} {...look} still={still} photo={v} at={{ right: 10, bottom: 10 }} role={pick ? 'application' : 'img'} aria-label={label} data-map data-mission-map className={`u6-stage${rehearse ? ' u6-reh' : ''}`}
+    onClick={pick ? (e) => hit(e, false) : undefined} onContextMenu={pick ? (e) => hit(e, true) : undefined}>
+    <MapImage id={v.id} width={v.width} height={v.height} tint="#8d9590" />
+    {v.features.zones.filter((z) => z.type === 'NO_GO').map((z, i) => <polygon key={i} data-nogo points={z.polygon.map(([a, b]) => route.px({ x: a, y: b }).join(',')).join(' ')}
+      style={{ fill: '#e04a2f', fillOpacity: 0.16, stroke: '#e04a2f', strokeWidth: 1.5, strokeDasharray: '4 3' }} vectorEffect="non-scaling-stroke"><title>{`접근 금지 구역 ${z.name}`}</title></polygon>)}
+    {marks(route)}
     {children}
   </MapFrame>;
 }
@@ -491,9 +511,9 @@ function Mini({ t0, a, b, slots }: { t0: number; a: number; b: number; slots: Sc
 export function RobotPill({ robot, route, label, bad }: { robot: Robot; route: Route; label: string; /** 시안 u6_9 고장 로봇: 빨간 점 · 빨간 글 */ bad?: boolean }) {
   const tone = bad ? '#e04a2f' : '#00c389';
   useEffect(() => rt.watch(robot.id), [robot.id]);
-  const l = useLive(robot.id), at = l.state?.location;
-  if (!route.v || !at || at.x == null || at.y == null || at.floor_id !== route.floor) return null;
-  const [a, b] = route.px({ x: at.x, y: at.y }), r = route.r, fs = r * 1.05, w = label.length * fs * 0.95 + r * 2.6, h = r * 2.2;
+  const l = useLive(robot.id), at = l.state?.location, rv = useRouteView(route);   // 3D 겹이면 화면 투영 자리
+  if (!rv.v || !at || at.x == null || at.y == null || at.floor_id !== rv.floor) return null;
+  const [a, b] = rv.px({ x: at.x, y: at.y }), r = rv.r, fs = r * 1.05, w = label.length * fs * 0.95 + r * 2.6, h = r * 2.2;
   return <g data-robot-pill={robot.id} style={{ pointerEvents: 'none' }}>
     <circle cx={a} cy={b} r={r} style={{ fill: bad ? tone : '#fff', stroke: bad ? '#fff' : tone, strokeWidth: 3 }} vectorEffect="non-scaling-stroke" />
     <rect x={a - w / 2} y={b - r * 4.2} width={w} height={h} rx={h * 0.3} style={{ fill: 'rgba(255,255,255,.85)', stroke: 'rgba(255,255,255,.95)' }} />
