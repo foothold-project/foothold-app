@@ -1,9 +1,9 @@
 // 폰 조종(09 ADR-002 §3 — 02 기능 F-TO-01~05, 03 UX §5.7): 로봇 연결 → 조종(가로, 카메라 전체·양쪽 조이스틱·아래 줄 시트).
 // 조종권·잠금·STOP 은 실시간 연결(rt.ts → 관제 서버)만 부른다 — 판정은 서버 중재기. 시뮬 로봇은 폰 ↔ 에이전트 직결(phone.ts·simdrive.tsx).
-// 영상·지도·시나리오 제어는 자리만(가짜). 키보드(한 배치 · 11-28 17:25): W·↑ 전진, ← / → 옆걸음(조직 옆 상한이 허락할 때), A / D 회전, S·↓ 후진(조직 뒤 상한이 허락할 때 · 손잡이와 같은 규칙). Space = STOP 은 App 공통 층(모든 화면).
+// 카메라·라이다·뎁스는 서버 drive-media(PC 와 같은 drivemedia.ts · 받기만), 시나리오 제어는 자리만. 키보드(한 배치 · 11-28 17:25): W·↑ 전진, ← / → 옆걸음(조직 옆 상한이 허락할 때), A / D 회전, S·↓ 후진(조직 뒤 상한이 허락할 때 · 손잡이와 같은 규칙). Space = STOP 은 App 공통 층(모든 화면).
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { ADMIN_LATER, ROLE_NAME, driveBlock, robotStatus, type Holder, type Robot, type Role, type Tone } from './fake';
-import { CMD_MS, inputGen, metaCut, rt, useLive, useRt, type Live } from './rt';
+import { CMD_MS, inputGen, metaCut, rt, undelivered, useLive, useRt, type Live } from './rt';
 import { PHONE_SHEETS, type SheetId } from './menu';
 import { FallChip } from './go2status';
 import { DriveInputNote } from './driveinput';
@@ -14,7 +14,9 @@ import { NoRobot } from './screens/norobot';
 import { TakeoverAsk } from './screens/takeover';
 import { useTheme } from './theme';
 import { simTune, useSim, useTuneSettings } from './phone';
-import { COMBO_BLOCK, command, isSettings, permitted, REAL_WAIT, SIDE_BLOCK, TABLE, unknownCombo, type Tok } from './serverdrive';
+import { COMBO_BLOCK, DriveView, command, isSettings, permitted, REAL_WAIT, SIDE_BLOCK, TABLE, unknownCombo, type Tok } from './serverdrive';
+import { driveFeedText, useDriveFeed, type DriveFeed } from './drivemedia';
+import { LidarMap } from './lidarmap';
 import type { OrgSettings } from '../../contracts/ts';
 import { MissionCards, MissionMap, missionChip, missionOn, useMission, type MapSight } from './screens/u1mission';
 import { ACTS, RESTART_ASK, RESTART_TEXT, actOff, actWhy, shape, stickTok, useRestartAsk } from './robotact';
@@ -27,7 +29,8 @@ import './proto/ui.pv.css';
 import './proto/light.pv.css';
 import './screens/u1d.css';
 import './screens/u1.app.css';
-import { askShown } from './proto/u11';
+import { askShown, remoteWhy } from './proto/u11';
+import { hotJoint, jointName, tempLevel, type Level } from './proto/u5';
 import { keyCode } from './padkeys';
 
 /** 남은 시간을 그리려고 on 인 동안 0.2 s 마다 다시 그림. 시각은 단조 시계 */
@@ -67,6 +70,28 @@ function lockChip(l: Live, r: Robot, down = false): { tone: Tone; text: string }
   if (l.state.latched !== false) return { tone: 'bad', text: l.state.latched ? '정지됨' : '정지 잠금' };   // 「정지됨」 은 로봇이 잠금을 알렸을 때만(시안 u1_3 · 모르면 정지 잠금)
   if (!l.lease) return { tone: 'off', text: '보는 중' };
   return l.neutral ? { tone: 'ok', text: '조종 중' } : { tone: 'warn', text: '중립 확인 중' };   // 「조종 중」 = 시안 u1_2
+}
+const NOT_LATCHED = '정지 요청됨 — 로봇이 아직 잠금을 알리지 않았습니다.';
+/** 서버가 받았고 그 뒤 state 도 왔는데 로봇이 아직 잠금을 알리지 않음(stopText 의 그 줄) = 시안 u1_7 「명령이 닿지 않았습니다」 */
+export const stopWaiting = (r: Robot, l: Live) => !!l.stop && stopText(r, l).endsWith(NOT_LATCHED);
+/** STOP 결과 한 줄 — 서버가 받았는지와 로봇이 알린 잠금을 나눠 쓴다. 확인 안 된 «정지됨»은 쓰지 않는다(F-COM-01) */
+export function stopText(r: Robot, l: Live) {
+  const s = l.stop, st = l.state;
+  if (!s) return '';
+  if (s.phase === 'sending') return `■ ${r.name} 정지 요청을 보내는 중입니다.`;
+  if (s.phase === 'failed') return `▲ ${r.name} 정지 요청을 보내지 못했습니다. ${s.why ?? ''} 현장에서 로봇을 직접 멈추세요.`;
+  if (s.phase === 'unsure') return `▲ ${r.name} 정지 요청을 보냈지만 서버 접수를 확인하지 못했습니다. ${s.why ?? ''} 현장에서 로봇을 직접 멈추세요.`;
+  const no = undelivered(s, st); if (no) return `▲ ${r.name} ${no}`;
+  // 대체 경로로 보낸 뒤에는 다시 연결되어 요청 뒤 state 가 와야 로봇 확인을 본다
+  if (s.phase === 'fallback' && !(st && l.stateAt > s.at)) return `■ ${r.name} 정지 요청됨(대체 경로) — 실시간 연결이 끊겨 로봇 확인은 보이지 않습니다. 현장을 확인하세요.`;
+  if (!st || l.stateAt <= s.at) return `■ ${r.name} 정지 요청됨 — 서버가 받았습니다. 로봇 확인을 기다립니다.`;
+  if (st.phone_relay && (st.connection !== 'ONLINE' || st.latched === null || st.applied === null))
+    return `▲ ${r.name} 정지 요청됨 — 폰 경유 자료는 받았지만 직접 로봇 보고로 정지를 확인하지 못했습니다. 현장을 확인하세요.`;
+  if (st.connection !== 'ONLINE') return `▲ ${r.name} 정지 요청 뒤 로봇 연결이 끊겼습니다. 지금 상태는 알 수 없습니다. 현장을 확인하세요.`;
+  if (!st.latched) return `■ ${r.name} ${NOT_LATCHED}`;
+  // applied 가 비었거나 없으면 출력 보고가 없는 것(현장 승인 관문이 닫힌 에이전트는 latched · applied [] 만 보냄). [].every 는 참이라 따로 거른다
+  if (!st.applied?.length) return `▲ ${r.name} 정지 잠금 · 멈춤 출력은 확인되지 않았습니다 (현장 승인이 닫혀 있을 수 있음). 리모컨이나 현장에서 멈추세요.`;
+  return st.applied.every((v) => v === 0) ? `■ ${r.name} 정지 잠금 · 로봇이 잠금과 멈춤 출력을 알렸습니다.` : `▲ ${r.name} 정지 잠금 · 출력이 아직 멈추지 않았습니다. 현장을 확인하세요.`;
 }
 const BUSY_TEXT = { take: '로봇 정지를 확인한 뒤 조종권을 받습니다.', give: '조종권을 넘기는 중입니다. 로봇 정지를 확인하고 있습니다.' };
 
@@ -215,12 +240,15 @@ function Screen(c: Ctx) {
   // got = 이 화면이 조직 설정을 받음. 받기 전(앞 화면이 남긴 값 포함)·못 받으면 실기 입력은 0 — 서버가 상한 밖이라 거절·STOP 하지 않게
   const [got, setGot] = useState(false), gotRef = useRef(got); gotRef.current = got;
   const [view, setView] = useState<'rgb' | 'depth' | 'map'>('rgb');
+  // 카메라 · 라이다 · 뎁스(시안 u1_2): PC 로봇 탭과 같은 서버 drive-media 를 받기만. 서버 경유 실기 · 데모만 연다. 뎁스는 고른 동안만
+  const fs = { rgb: useDriveFeed(r.id, 'rgb', real), lidar: useDriveFeed(r.id, 'lidar', real), depth: useDriveFeed(r.id, 'depth', real && view === 'depth') };
   const [mview, setMview] = useState<MapSight>('follow'), [d3, setD3] = useState(false);   // 임무 바탕 지도 시점(시안 u1_1 왼쪽 고르개 · 보이기만)
   useEffect(() => { if (!d3) return; const id = window.setTimeout(() => setD3(false), 3000); return () => clearTimeout(id); }, [d3]);
   const [ask, setAsk] = useState(false);   // 시나리오 일시정지 확인창(F-TO-03, 03 §2 U10)
   const [back, setBack] = useState(false), [side, setSide] = useState(false), [combo, setCombo] = useState(false);   // combo = 표에 없는 키 조합을 누르는 중   // side = 옆걸음 키를 누르는 중(막혔으면 까닭 한 줄)
   const [sheet, setSheet] = useState<SheetId | null>(null);   // 아래 줄 시트(조종권은 그대로, 입력은 0으로)
   const [chip, setChip] = useState(false), light = useTheme()[1];   // chip = 로봇 칩 펼침(시안 u1_10)
+  const [tempShut, setTempShut] = useState<Level>(null);   // 관절 온도 띠(시안 u3_2)를 닫은 단계 · 그 단계 이하는 다시 띄우지 않음
   // 「다시 시작」 확인 창(u4_10 글): 연 때의 stop_gen · 조종권에 묶음(robotact useRestartAsk · reviewer H1)
   const restart = useRestartAsk(() => { const x = rt.get(r.id); return { mine: !!x.lease, latched: x.state?.latched, gen: x.state?.stop_gen, lease: x.lease }; });
   const [actMsg, setActMsg] = useState(''), [pending, setPending] = useState<string | null>(null), tm = useRef(0);   // 동작 까닭 · 결과 한 줄(2.6 초) · 접수된 요청 id
@@ -361,7 +389,12 @@ function Screen(c: Ctx) {
   const ban = (cls: string, x: ReactNode, p: Record<string, string | boolean> = {}) => <p className={`ban ${cls}`} role="status" {...p}>{x}</p>;
   // 정지 잠금 중(시안 u1_3): 조이스틱 · 동작 줄은 숨긴다(visibility · u1.app.css). 지우지 않는 까닭: 누른 손가락 · 세대(RV-425)는 부품이 붙어 있어야 그대로 판정
   // 임무 화면(시안 u1_1 · u1_15 · 보이기만): 끝나지 않은 실행이 있고 내 조종이 아닐 때 바탕 층 지도 · 왼쪽 아래 카드 · 칩 글. 칩 글만 바꾸고 lock(조종 판정)은 그대로
-  const mrun = !mine && missionOn(l.state?.run) ? l.state!.run! : null, mis = useMission(r.id, mrun?.run_id ?? ''), lockFirst = mrun && lock.text !== '보는 중' ? lock : null, chipNow = mrun && !lockFirst ? missionChip(mrun) : lock;   // 안전 표시: 정지 잠금 · 확인 중 · 상태 모름이면 임무 글보다 그 글이 먼저(칩 · 카드 줄)
+  const mrun = !mine && missionOn(l.state?.run) ? l.state!.run! : null, mis = useMission(r.id, mrun?.run_id ?? ''), lockFirst = mrun && lock.text !== '보는 중' ? lock : null, chipBase = mrun && !lockFirst ? missionChip(mrun) : lock;   // 안전 표시: 정지 잠금 · 확인 중 · 상태 모름이면 임무 글보다 그 글이 먼저(칩 · 카드 줄)
+  // 칩 글만(조종 판정 lock · ready 는 그대로): 정지 뒤 잠금 보고 전 「안 멈춤」(u1_7) → 정지 잠금 · 확인 중 · 모름 → 리모컨 우선 「리모컨 조종」(u1_9) → 관절 위험 「과열」(u3_2) → 임무 · 조종 글
+  const hot = hotJoint(l.state ? { ...r, robotInfo: l.state.robot_info ?? null } : r), lv = tempLevel(hot?.t ?? null), remote = rt.now() - l.stateAt < 3000 ? remoteWhy(l.state?.devices) : null, calm = ['조종 중', '중립 확인 중', '보는 중'].includes(lock.text);
+  const chipNow: { tone: Tone; text: string } = stopWaiting(r, l) ? { tone: 'bad', text: '안 멈춤' } : calm && remote ? { tone: 'warn', text: '리모컨 조종' } : calm && lv === 'crit' ? { tone: 'bad', text: '과열' } : chipBase;
+  const RANK = { warn: 1, bad: 2, crit: 3 } as const, hotBand = (lv === 'bad' || lv === 'crit') && !(tempShut && RANK[tempShut] >= RANK[lv]) ? lv : null;
+  useEffect(() => { if (lv !== 'bad' && lv !== 'crit') setTempShut(null); }, [lv]);   // 60 °C 아래로 내려가면 닫은 기록을 지움
   const u1 = <div className={`proto pv u1d${light ? ' light' : ''}`} data-u1d data-stop-held={stopHeld ? '' : undefined} data-mission={mrun ? '' : undefined}>
     {mrun && <MissionMap m={mis} run={mrun} pose={l.state?.location ?? r.location} view={mview} />}
     {mrun && <div className="g u1-vcol" role="group" aria-label="지도 시점">
@@ -383,10 +416,12 @@ function Screen(c: Ctx) {
     </div>
     {/* 칩 펼침(시안 u1_10 .pane): 조종권자 · 속도 · 지연 · 걷기 모드. 닫혀 있으면 hidden */}
     <div className="g pane" id="u1-pane" aria-label="로봇 상태" hidden={!chip}>
+      <div className="row" style={{ gap: '7px' }} data-pane-id><span className="tag">{r.sim ? (r.demo ? '데모' : '시뮬') : '실제'}</span><span style={{ fontSize: '11.5px', fontWeight: 700, color: 'var(--mu)' }}>{r.serial || '기체번호 없음'}</span></div>
       <div className="r"><span className="k">조종</span><span>{holderText(l, me, r)}</span></div>
       {r.online && speed != null && <div className="r"><span className="k">속도</span><span className="mono">{speed.toFixed(1)} m/s</span></div>}
       {r.online && l.state?.latency_ms != null && <div className="r"><span className="k">지연</span><span className="mono">{l.state.latency_ms} ms</span></div>}
       <div className="r"><span className="k">걷기</span><span>{gaitNow}</span></div>
+      {hot && <div className="r" data-pane-temp><Ic s={15}>{THERMO}</Ic><span className="k">관절</span>최고 {Math.round(hot.t)} °C<span className="v">{lv ? TEMP_TEXT[lv] : '정상'}</span></div>}
       {/* 시트(시나리오 · 지도·목표 · 정책). 「자세」 는 아래 동작 일곱이 대신한다 */}
       <div className="r u1-sheets dv-sheets" aria-label="조종 메뉴">{PHONE_SHEETS.map((x) =>
         <button key={x.id} type="button" aria-expanded={sheet === x.id} onClick={() => { setChip(false); pick(sheet === x.id ? null : x.id); }}>{x.label}</button>)}</div>
@@ -394,7 +429,7 @@ function Screen(c: Ctx) {
     {/* 작은 지도(시안 .mm 자리 · 꼴). 누르면 큰 보기를 지도 ↔ 영상으로. 반납 중에는 숨김(보기 단추로 같은 일) */}
     {!l.releasing && !mrun && <button type="button" className="g dk mm dv-mini" style={{ left: '12px', top: '64px', width: '140px', height: '96px', borderRadius: '16px', overflow: 'hidden', padding: 0 }}
       aria-label={view === 'map' ? '영상 크게' : '지도 크게'} onClick={() => setView(view === 'map' ? 'rgb' : 'map')}>
-      {view === 'map' ? <Video small /> : <MapView />}</button>}
+      {view === 'map' ? <Video fs={real ? fs : null} small /> : <MapView fs={real ? fs : null} />}</button>}
     {/* 오른쪽 줄(시안 .col): 첫 줄(연결 · ⋯)은 머리줄 겹 .u1-top, 아래로 걷기 모드(START 자리) · 보기 · 조종 */}
     <div className="col u1-col">
       <button type="button" className="g dk u1-mode" aria-expanded={sheet === 'policy'} onClick={() => pick(sheet === 'policy' ? null : 'policy')}>
@@ -413,6 +448,9 @@ function Screen(c: Ctx) {
       /* 시안 u1_8: 서버가 끊기면 띠 하나. 시안 「점검」 → 「다시 연결」(rt.reconnect): 폰에 망 점검 화면(u2_5 · u9_4)이 없어 시안 밖 · 새로 그림 */
       ? <p className="ban amb" role="status">서버 연결 안 됨 <button type="button" className="banbt" data-off-proto="reconnect" onClick={() => rt.reconnect()}>다시 연결</button></p>
       : <>
+      {hotBand && hot && <div className="g al" role="status" data-temp-band={hotBand}><span className="ico" style={hotBand === 'crit' ? { background: 'rgba(224,74,47,.12)', color: '#b8361f' } : { background: 'rgba(217,162,31,.14)', color: '#a86a00' }}><Ic s={17}>{THERMO}</Ic></span>
+        <div style={{ flex: 1, minWidth: 0 }}><b>관절 온도 {Math.round(hot.t)} °C · {TEMP_TEXT[hotBand]}</b><p>{jointName(hot.j)} · 걷기는 계속됩니다</p></div>
+        <button type="button" className="bt sbtn" onClick={() => setTempShut(hotBand)}>닫기</button></div>}   {/* 시안 u3_2 · 로봇은 스스로 멈추지 않는다(관제 u5_5 와 같은 뜻) */}
       {!mine && !mrun && ban('u1-who', holderText(l, me, r))}   {/* 임무 화면은 칩 · 카드가 같은 정보(시안 u1_1) */}
       {why && <p className={`ban ${driveBlock(c.user, r) ? 'amb' : 'u1-info'}`} role="status"><span id={whyId} className="fh-why" data-why>{why}</span>
         {l.outgoing && <button type="button" className="banbt" disabled={l.outgoing.canceling} onClick={() => rt.cancel(r.id)}>요청 취소</button>}</p>}
@@ -461,7 +499,7 @@ function Screen(c: Ctx) {
   return <section className="dv ph" style={{ flexBasis: '100%' }} aria-label="조종" onContextMenu={(e) => e.preventDefault()}>
     <div className="dv-body">
       <div className={`dv-stage ${view}`}>
-        {view === 'map' ? <MapView big /> : <Video depth={view === 'depth'} />}
+        {view === 'map' ? <MapView fs={real ? fs : null} big /> : <Video fs={real ? fs : null} depth={view === 'depth'} />}
         {c.scan}{/* 지도 스캔 겹(시안 u14_2): 시안 겹 · 조종권 요청 창보다 아래 */}
         {u1}
         {q && <TakeoverAsk id="dv-ask-t" title={`${[ROLE_NAME[q.role as Role], q.name].filter(Boolean).join(' ') || '다른 사람'} 님이 ${r.name} 조종권을 요청했습니다`}
@@ -472,18 +510,24 @@ function Screen(c: Ctx) {
     </div>
   </section>;
 }
+const THERMO = <path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z" />;
+/** 관절 온도 단계 글(관제 u5 tempLevel 과 같은 문턱 50 · 60 · 70 °C) */
+const TEMP_TEXT: Record<Exclude<Level, null>, string> = { warn: '주의', bad: '경고', crit: '위험' };
 const Ic = ({ s, children }: { s: number; children: ReactNode }) => <svg className="ic" viewBox="0 0 24 24" style={{ width: `${s}px`, height: `${s}px` }} aria-hidden="true">{children}</svg>;
 
-/** 실기 RGB·뎁스·지도: 실기 영상 어댑터·지도·라이다 자료가 아직 없다 — 연결·명령 시도 없이 이유만(가짜 그림 0).
- *  예전 지도 칸은 고정 벽·계산한 라이다 점을 그려 실제 센서로 읽힐 수 있었다(critique 11-10) — 받은 값이 없으면 그리지 않는다 */
+/** RGB·뎁스·지도 칸. fs = 서버 drive-media 로 받은 자료(PC serverdrive DriveView · LidarMap 그대로). 받은 값이 없으면 «… 신호 없음 · 까닭» 만(가짜 그림 0 · critique 11-10).
+ *  fs 가 없으면(서버 경유가 아닌 로봇) 연결 시도 없이 이유만. 지도 칸 = 라이다 한 판을 위에서 본 그림(지도 만들기는 지도 탭) */
 export const REAL_RGB = '실기 영상 준비 중(미연결)';
 export const REAL_DEPTH = '뎁스 영상 없음 · 기능 준비 중';
 export const REAL_MAP = '지도·라이다 자료 없음 · 기능 준비 중';
-function Video({ depth, small }: { depth?: boolean; small?: boolean }) {
+type Fs = Record<'rgb' | 'lidar' | 'depth', DriveFeed>;
+function Video({ fs, depth, small }: { fs: Fs | null; depth?: boolean; small?: boolean }) {
+  if (fs) return <DriveView f={depth ? fs.depth : fs.rgb} ch={depth ? 'depth' : 'rgb'} big={!small} />;
   return <div className="dv-video" role="img" aria-label={depth ? '뎁스 영상' : 'RGB 영상'}>
     {!small && <span>{depth ? REAL_DEPTH : REAL_RGB}</span>}</div>;
 }
-function MapView({ big }: { big?: boolean }) {
+function MapView({ fs, big }: { fs: Fs | null; big?: boolean }) {
+  if (fs) return <LidarMap feed={fs.lidar} empty={driveFeedText(fs.lidar, 'lidar')} small={!big} start="top" bare />;
   return <div className="dv-video" role="img" aria-label="지도·라이다 없음" data-map-none>{big ? <span>{REAL_MAP}</span> : <span>지도 없음</span>}</div>;
 }
 

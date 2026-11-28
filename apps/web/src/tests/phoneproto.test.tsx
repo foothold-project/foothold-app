@@ -1,5 +1,6 @@
 // 폰 화면 시안 꼴(u13_1 로그인 · u13_4 로봇 없음 · u13_5 조종권 요청 창): 시안 DOM(.proto.pv + 시안 class)이 나오고 옛 부품(lv-card · fh-empty · .btn · dv-ask)이 없는지,
 // 동작(로그인 요청 본문 · 칸 표시 · 로봇 연결 입구 · 넘기기 / 계속 조종)은 그대로인지. 가짜 서버(fetch 가짜 · /api/v1 만) · FakeWS · 실기 없음.
+import { PW_RULE } from '../loginform';
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -87,6 +88,8 @@ describe('폰 로그인 = 시안 u13_1', () => {
     expect([...dlg.querySelectorAll('.lab')].map((x) => x.textContent)).toEqual(['아이디', '현재 비밀번호', '새 비밀번호', '새 비밀번호 확인']);
     expect([...dlg.querySelectorAll('button.sec, button.prim')].map((x) => x.textContent)).toEqual(['취소', '바꾸기']);
     expect(box.querySelector('.lg-modal')).toBeNull();
+    // 안내 글 = 규칙 + 시안 「바꾸면 모든 기기에서 로그아웃됩니다」(서버 /me/password 는 그 사용자의 모든 세션을 끊는다 · revoke_user_sessions)
+    expect(dlg.querySelector('[data-pw-rule]')!.textContent).toBe(`${PW_RULE} 바꾸면 모든 기기에서 로그아웃됩니다.`);
     const set = (n: string, v: string) => type(dlg.querySelector<HTMLInputElement>(`input[name="${n}"]`)!, v);
     set('pw-id', 'op-a'); set('pw-cur', 'old-pass-1'); set('pw-new', 'new-pass-1'); set('pw-again', 'new-pass-1');
     act(() => { (dlg as HTMLFormElement).requestSubmit(); }); await flush();
