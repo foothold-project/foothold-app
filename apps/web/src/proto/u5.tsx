@@ -437,7 +437,7 @@ function Alarm({ f, stop, open }: { f: TileFacts; stop?: (id: string) => void; o
 }
 
 // ── 화면 ──────────────────────────────────────────────────
-/** 데모 표시 스위치 기억: 서버에 화면 설정 저장 API 가 없어 이 브라우저에만(localStorage). 못 읽으면 켬 */
+/** 데모 표시 스위치 기억(서버 조직 설정을 못 받을 때 · 운영자가 이 화면에서만 끌 때). 못 읽으면 켬 */
 const DEMO_KEY = 'fh-control-demo';
 const demoShown = () => { try { return localStorage.getItem(DEMO_KEY) !== '0'; } catch { return true; } };
 const keepDemo = (on: boolean) => { try { localStorage.setItem(DEMO_KEY, on ? '1' : '0'); } catch { /* 저장 불가 */ } };
@@ -448,7 +448,9 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
   const [from, setFrom] = useState<DOMRect | null>(null), [focus, setFocus] = useState(''), [home, setHome] = useState(0);
   const toHome = () => { setFrom(null); setFocus(''); setHome((k) => k + 1); setView('map'); };   // 첫 화면으로 = 지도 보기 첫 시점(무리 가운데)
   const [view, setView] = useState<'tiles' | 'map'>('tiles'), [scope, setScope] = useState<'all' | 'mine'>(admin ? 'all' : 'mine'), [front, setFront] = useState(false), [demo, setDemoNow] = useState(demoShown);
-  const setDemo = (on: boolean) => { setDemoNow(on); keepDemo(on); };
+  // 데모 표시 = 조직 설정 show_demo_label(서버 값이 앞섬 · 못 받으면 이 브라우저 기억). 총괄이 바꾸면 PATCH, 실패하면 되돌림
+  useEffect(() => { let live = true; api.settings(c.cancel).then((o) => { if (live && typeof o.show_demo_label === 'boolean') setDemoNow(o.show_demo_label); }, () => {}); return () => { live = false; }; }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+  const setDemo = (on: boolean) => { setDemoNow(on); keepDemo(on); if (admin) api.saveSettings({ show_demo_label: on }, c.cancel).catch(() => { setDemoNow(!on); keepDemo(!on); }); };
   const sel = useControlPick();
   useEffect(() => () => controlPick.set(''), []);
   const t = useTree(c.cancel), av = useAvail(c.cancel);

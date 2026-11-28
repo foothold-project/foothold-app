@@ -1338,6 +1338,22 @@ describe('관제 탭', () => {
       expect(tile('k1')).not.toBeNull(); expect(localStorage.getItem('fh-control-demo')).toBe('1');
     } finally { av.mockRestore(); localStorage.setItem('fh-control-demo', '1'); }
   });
+  it('데모 표시 = 조직 설정 show_demo_label(서버 값이 이 브라우저 기억보다 먼저) · 총괄이 바꾸면 PATCH show_demo_label', async () => {
+    const item = (id: string, demo: boolean) => ({ robot_id: id, robot_name: id, state: 'FREE', busy_until: null, busy_slot_id: null, busy_label: null, battery_pct: 70, demo, sim: false, location_label: null });
+    const av = vi.spyOn(api, 'availability').mockResolvedValue({ items: [item('k1', true), item('k3', false)] } as never);
+    const get = vi.spyOn(api, 'settings').mockResolvedValue({ battery_low_pct: 20, show_demo_label: false } as never);
+    const put = vi.spyOn(api, 'saveSettings').mockImplementation((p) => Promise.resolve({ battery_low_pct: 20, ...p }) as never);
+    try {
+      localStorage.setItem('fh-control-demo', '1');
+      mount('u-kim', EIGHT); feed(EIGHT);
+      await act(async () => {}); await act(async () => {});
+      const sw = () => $('[data-demo-show]') as HTMLElement;
+      expect(sw().getAttribute('aria-checked')).toBe('false'); expect(tile('k1')).toBeNull();
+      await act(async () => { sw().click(); });
+      expect(put.mock.calls.map((c) => c[0])).toEqual([{ show_demo_label: true }]);
+      expect(sw().getAttribute('aria-checked')).toBe('true'); expect(tile('k1')).not.toBeNull();
+    } finally { av.mockRestore(); get.mockRestore(); put.mockRestore(); localStorage.setItem('fh-control-demo', '1'); }
+  });
   it('첫 화면으로(대조표 u5_1): 지도 보기 첫 시점으로 새로 엶(다가가기 없음 · 작은 지도에서 자라기 없음)', () => {
     mount('u-kim', TWENTY); feed(TWENTY);
     const home = $('[data-home]') as HTMLElement;

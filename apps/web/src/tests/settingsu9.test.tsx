@@ -199,3 +199,85 @@ describe('시안 공통 css 를 앱 판이 덮지 않음', () => {
     expect(uiCss).toContain('.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.9');
   });
 });
+
+// 조직 설정 네 칸(c7bc8e60 · GET/PATCH /org/settings): 혼잡 시간 busy_hours · 중복 점검 dup_inspect_min · 데모 표시 show_demo_label · 클립 보관 clip_retention_days
+describe('조직 설정 네 칸 = 서버 값 읽고 쓰기', () => {
+  const ORG = { battery_low_pct: 25, busy_hours: [{ day: 'mon', start: '08:30', end: '09:15', label: '출근' }, { day: 'wed', start: '14:00', end: '15:00', label: '설비 반입' }],
+    dup_inspect_min: 240, show_demo_label: false, clip_retention_days: 30 };
+  const r = (org: object = ORG) => ({ 'GET /me': { status: 200, body: U('u-lead', 'lead01', '나', 'ORG_ADMIN') }, 'GET /events': list([]), 'GET /org/settings': { status: 200, body: org },
+    'PATCH /org/settings': (_u: URL, init?: RequestInit) => ({ status: 200, body: { ...org, ...JSON.parse(String(init!.body)) } }) } as typeof routes);
+  const patches = () => calls.filter((c) => c.method === 'PATCH').map((c) => c.body);
+  const row = (d: string) => [...box.querySelectorAll('.tl2')].find((x) => x.parentElement!.firstElementChild!.textContent === d)!;
+
+  it('혼잡 시간: 요일 줄에 서버 막대(06:00 = 0 · 시간당 87.5 px) · 이름', async () => {
+    serve(r()); await open(ADMIN, 'crowd');
+    const b = row('월').querySelectorAll('b');
+    expect(b).toHaveLength(1);
+    expect(b[0].textContent).toContain('출근');
+    expect((b[0] as HTMLElement).style.left).toBe('218.75px'); expect((b[0] as HTMLElement).style.width).toBe('65.625px');
+    expect(row('수').querySelector('b')!.textContent).toContain('설비 반입');
+    expect(row('화').querySelectorAll('b')).toHaveLength(0);
+    expect(pane('혼잡 시간').textContent).not.toContain(NO);
+  });
+  it('혼잡 시간 추가 · 지우기 = PATCH busy_hours 목록 전체', async () => {
+    serve(r()); await open(ADMIN, 'crowd');
+    await click(pane('혼잡 시간').querySelector('[data-u9-crowd-add-open]')!);
+    const f = $('[data-u9-crowd-add]');
+    const set = async (sel: string, v: string) => { await act(async () => { const el = f.querySelector<HTMLInputElement | HTMLSelectElement>(sel)!; const proto = Object.getPrototypeOf(el); Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(el, v); el.dispatchEvent(new Event(el.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true })); }); };
+    await set('select[name="day"]', 'fri'); await set('input[name="start"]', '12:00'); await set('input[name="end"]', '13:00'); await set('input[name="label"]', '점심');
+    await click(f.querySelector('button[type="submit"]')!);
+    expect(patches()).toEqual([{ busy_hours: [...ORG.busy_hours, { day: 'fri', start: '12:00', end: '13:00', label: '점심' }] }]);
+    expect(row('금').querySelector('b')!.textContent).toContain('점심');
+    await click(row('월').querySelector('button[aria-label="출근 지우기"]')!);
+    expect(patches()[1]).toEqual({ busy_hours: [ORG.busy_hours[1], { day: 'fri', start: '12:00', end: '13:00', label: '점심' }] });
+  });
+  it('혼잡 시간 추가: 끝이 시작보다 이르면 보내지 않고 까닭', async () => {
+    serve(r()); await open(ADMIN, 'crowd');
+    await click(pane('혼잡 시간').querySelector('[data-u9-crowd-add-open]')!);
+    const f = $('[data-u9-crowd-add]');
+    await act(async () => { const el = f.querySelector<HTMLInputElement>('input[name="end"]')!; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, '07:00'); el.dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => { const el = f.querySelector<HTMLInputElement>('input[name="label"]')!; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, 'x'); el.dispatchEvent(new Event('input', { bubbles: true })); });
+    await click(f.querySelector('button[type="submit"]')!);
+    expect(patches()).toEqual([]);
+    expect(f.textContent).toContain('끝은 시작보다 늦어야 합니다');
+  });
+  it('중복 점검 기준: 서버 분을 시간으로(240 = 4 시간) · + 는 30 분 더해 PATCH dup_inspect_min', async () => {
+    serve(r()); await open(ADMIN, 'crowd');
+    expect($('[data-u9-dup]').textContent).toBe('4 시간');
+    await click($('[data-u9-dup-up]'));
+    expect(patches()).toEqual([{ dup_inspect_min: 270 }]);
+    expect($('[data-u9-dup]').textContent).toBe('4 시간 30 분');
+    await click($('[data-u9-dup-down]'));
+    expect(patches()[1]).toEqual({ dup_inspect_min: 240 });
+  });
+  it('운영자: 혼잡 시간 · 중복 기준은 보이기만(추가 · 지우기 · ± 막힘)', async () => {
+    serve(r()); await open(OP, 'crowd');
+    expect(row('월').querySelector('b')!.textContent).toContain('출근');
+    expect(row('월').querySelector('button')).toBeNull();
+    expect(pane('혼잡 시간').querySelector<HTMLButtonElement>('[data-u9-crowd-add-open]')!.disabled).toBe(true);
+    expect(($('[data-u9-dup-up]') as HTMLButtonElement).disabled).toBe(true);
+    expect($('[data-u9-dup]').textContent).toBe('4 시간');
+  });
+  it('데모 로봇 표시: 서버 값(끔) · 총괄이 누르면 PATCH show_demo_label', async () => {
+    serve(r()); await open(ADMIN, 'display');
+    const sw = pane('데모 로봇 표시').querySelector('[role="switch"]')!;
+    expect(sw.getAttribute('aria-checked')).toBe('false');
+    expect(sw.getAttribute('aria-disabled')).toBeNull();
+    await click(sw);
+    expect(patches()).toEqual([{ show_demo_label: true }]);
+    expect(pane('데모 로봇 표시').querySelector('[role="switch"]')!.getAttribute('aria-checked')).toBe('true');
+  });
+  it('클립 보관 기간: 서버 값(30 일) · 고쳐 저장하면 PATCH clip_retention_days', async () => {
+    serve(r()); await open(ADMIN, 'clip');
+    const inp = box.querySelector<HTMLInputElement>('input[name="clip_retention_days"]')!;
+    expect(inp.value).toBe('30');
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(inp, '60'); inp.dispatchEvent(new Event('input', { bubbles: true })); });
+    await click(inp.closest('form')!.querySelector('button[type="submit"]')!);
+    expect(patches()).toEqual([{ clip_retention_days: 60 }]);
+  });
+  it('옛 서버(네 칸 없음): 지어내지 않고 「서버에 값 없음」 그대로', async () => {
+    serve(r({ battery_low_pct: 25 })); await open(ADMIN, 'crowd');
+    expect(box.querySelectorAll('.tl2 b')).toHaveLength(0);
+    expect($('[data-u9-dup]').textContent).toBe(NO);
+  });
+});
