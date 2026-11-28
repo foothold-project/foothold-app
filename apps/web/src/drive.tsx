@@ -2,7 +2,7 @@
 // 조종권·잠금·STOP 은 실시간 연결(rt.ts → 관제 서버)만 부른다 — 판정은 서버 중재기. 시뮬 로봇은 폰 ↔ 에이전트 직결(phone.ts·simdrive.tsx).
 // 영상·지도·시나리오 제어는 자리만(가짜). 키보드(d5 한 배치): W·↑ 전진, A·← / D·→ 회전, Q / E 옆걸음(조직 옆 상한이 허락할 때), S·↓ 후진 막음. Space = STOP 은 App 공통 층(모든 화면).
 import { useEffect, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
-import { ADMIN_REAL, ROLE_NAME, driveBlock, robotStatus, type Holder, type Robot, type Role, type Tone } from './fake';
+import { ADMIN_LATER, ROLE_NAME, driveBlock, robotStatus, type Holder, type Robot, type Role, type Tone } from './fake';
 import { CMD_MS, inputGen, metaCut, rt, useLive, useRt, type Live } from './rt';
 import { PHONE_SHEETS, type SheetId } from './menu';
 import { FallChip } from './go2status';
@@ -82,30 +82,32 @@ export function Drive(c: Ctx) {
 /** 로봇 연결(ADR-002 §3.2): 위 = 내 로봇 목록 → [연결](조종 화면), 못 하면 [보기만] + 이유. 아래 = 시뮬 로봇 띄우기(simdrive.tsx — 직결)
  *  «+ 로봇 연결하기»: 연결된 실기가 없으면 목록 위에 크게, 있으면 목록 아래 작게 → 앱 안은 고르기: «새 로봇 추가»(운영 관리자 — pairing.tsx, ROBOT-PAIRING) · «주변 로봇 찾기»(nearby.tsx).
  *  앱 밖은 고를 것이 «새 로봇 추가»뿐(단추도 운영 관리자만)이라 메뉴 없이 바로 새 로봇 추가(RB-EASY-PAIR).
- *  총괄은 실기를 연결하지 않아 앱 안에서 주변 찾기만. 내 실기 카드에는 «관리» */
+ *  총괄도 로봇을 붙인다(11/28 · 서버 #544). 내가 담당인 실기 카드에는 «관리», 총괄이 보는 남 담당 실기는 2 차 전이라 까닭 한 줄 */
 export function Connect(c: Pick<Ctx, 'user' | 'robots' | 'go'> & Partial<Pick<Ctx, 'refresh' | 'cancel'>>) {
   useRt();
   const s = useSim();
-  const [view, setView] = useState<'menu' | 'pair' | 'nearby' | null>(null), app = inApp(), op = c.user.role !== 'ORG_ADMIN';
+  const [view, setView] = useState<'menu' | 'pair' | 'nearby' | null>(null), app = inApp();   // 운영 관리자 · 총괄 모두 붙임(11/28)
   const live = c.robots.some((r) => !r.sim && (r.online || !!r.unknown));   // 상태 모름(실시간 끊김·첫 상태 전)은 «연결 없음»으로 단정하지 않는다 — 깜빡임 방지
   const add = (pri: boolean) => <button type="button" className={`btn${pri ? ' pri' : ''}`} onClick={() => setView(app ? 'menu' : 'pair')} data-robot-connect>+ 로봇 연결하기</button>;
-  const refresh = c.refresh ?? (() => {}), can = op || app;
+  const refresh = c.refresh ?? (() => {});
   return <>
     {view === 'nearby' || (s.real && s.step !== 'drive') ? <Nearby robots={c.robots} close={() => setView(null)} />
       : view === 'pair' ? <AddRobot user={c.user} mine={c.robots.map((r) => r.id)} close={() => setView(null)} refresh={refresh} cancel={c.cancel} />
       : view === 'menu' ? <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="로봇 연결하기">
         <div className="fh-row"><h2 className="fh-grow">로봇 연결하기</h2><button type="button" className="btn" onClick={() => setView(null)}>닫기</button></div>
-        {op && <><button type="button" className="btn pri" onClick={() => setView('pair')} data-pair-start>새 로봇 추가</button>
-          <span className="lbl">노트북 화면의 QR 또는 6자리 코드로 등록합니다. 다시 설치한 로봇도 여기서 다시 연결합니다.</span></>}
+        <button type="button" className="btn pri" onClick={() => setView('pair')} data-pair-start>새 로봇 추가</button>
+        <span className="lbl">노트북 화면의 QR 또는 6자리 코드로 등록합니다. 다시 설치한 로봇도 여기서 다시 연결합니다.</span>
         {app ? <button type="button" className="btn" onClick={() => setView('nearby')}>주변 로봇 찾기</button>
           : <p className="lv-note" data-robot-connect-note>주변 로봇 찾기(Wi-Fi·블루투스)는 FOOTHOLD Android 앱에서만 됩니다 — 브라우저는 블루투스·같은 망 기기를 찾을 수 없습니다.</p>}
       </section>
       : <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="내 로봇">
       <h2>내 로봇</h2>
-      {can && !live && add(true)}
+      {/* 한 사실은 한 곳: 남 담당 실기 관리(2 차) 까닭은 카드마다가 아니라 목록 머리 아래 한 번 */}
+      {c.user.role === 'ORG_ADMIN' && c.robots.some((r) => !r.sim && r.owner !== c.user.id) && <p className="lbl" data-admin-later>{ADMIN_LATER}</p>}
+      {!live && add(true)}
       {c.robots.length ? <ul className="dv-cards">{c.robots.map((r) => <Card key={r.id} c={c} r={r} refresh={refresh} />)}</ul>
-        : <p className="lv-note">{c.user.role === 'ORG_ADMIN' ? `${ADMIN_REAL} 시뮬 로봇은 아래 «시뮬 로봇 띄우기»에서 조종합니다.` : NO_ROBOT}</p>}
-      {can ? live && add(false) : <p className="lv-note" data-robot-connect-note>주변 로봇 찾기(Wi-Fi·블루투스)는 FOOTHOLD Android 앱에서만 됩니다 — 브라우저는 블루투스·같은 망 기기를 찾을 수 없습니다.</p>}
+        : <p className="lv-note">{c.user.role === 'ORG_ADMIN' ? '로봇이 없습니다. «+ 로봇 연결하기»로 노트북 화면의 코드를 넣어 로봇을 등록하세요.' : NO_ROBOT}</p>}
+      {live && add(false)}
     </section>}
     <SimLaunch me={c.user.id} />
   </>;
@@ -113,7 +115,7 @@ export function Connect(c: Pick<Ctx, 'user' | 'robots' | 'go'> & Partial<Pick<Ct
 /** 담당 로봇 0대 안내(운영 관리자) */
 export const NO_ROBOT = '담당 로봇이 없습니다. «+ 로봇 연결하기»로 노트북 화면의 코드를 넣어 로봇을 등록하세요.';
 function Card({ c, r, refresh }: { c: Pick<Ctx, 'user' | 'go' | 'cancel'>; r: Robot; refresh: () => void }) {
-  const why = driveBlock(c.user, r), id = `why-${r.id}`, l = rt.get(r.id), rel = l.releasing, own = !r.sim && r.owner === c.user.id && c.user.role !== 'ORG_ADMIN';
+  const why = driveBlock(c.user, r), id = `why-${r.id}`, l = rt.get(r.id), rel = l.releasing, own = !r.sim && r.owner === c.user.id;
   const [manage, setManage] = useState(false);
   return <li className="card dv-card">
     <div className="fh-row"><b>{r.name}</b>{r.sim && <Chip tone="off" text="시뮬" />}<Chip {...robotStatus(r)} /><FallChip x={r} /><span className="mono">{pct(r.battery)}</span></div>
@@ -123,7 +125,7 @@ function Card({ c, r, refresh }: { c: Pick<Ctx, 'user' | 'go' | 'cancel'>; r: Ro
     {r.sim ? <span className="lbl" data-sim-card>시뮬 로봇은 아래 «시뮬 로봇 띄우기»에서 로봇에 직접 연결합니다.</span>   // 서버 경유 조종 화면으로 보내지 않는다
       : <><button type="button" className={`btn${why ? '' : ' pri'}`} aria-describedby={why ? id : undefined} onClick={() => c.go('drive', r.id)}>{why ? '보기만' : '연결'}</button>
         {why && <span id={id} className="fh-why" data-why>{why}</span>}</>}
-    {/* 담당 실기의 관리 메뉴 */}
+    {/* 담당 실기의 관리 메뉴. 총괄이 보는 남 담당 실기는 서버 2 차 전이라 열지 않는다(까닭은 목록 머리 아래 한 번) */}
     {own && <>
       <details className="dv-fold" onToggle={(e) => setManage(e.currentTarget.open)}><summary className="btn">관리</summary>{manage && <ManageRobot r={r} refresh={refresh} cancel={c.cancel} />}</details></>}
   </li>;

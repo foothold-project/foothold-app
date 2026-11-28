@@ -12,7 +12,6 @@ import { check, type BtNode } from '../screens/btedit';
 import { TERRAIN_REASON } from '../simstart';
 import mapscenCss from '../screens/mapscen.css?raw';
 import { FakeWS } from './fakeWs';
-import { adminNoStop } from './adminStop';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -238,7 +237,6 @@ const ptr = async (type: string, x: number, y: number, on: Element = map()) => {
 const tap = async (x: number, y: number, on?: Element) => { sized(); await ptr('pointerdown', x, y, on); await ptr('pointerup', x, y, on); };
 /** STOP 이 머리줄 맨 끝에 있고 누를 수 있다 + 실제로 눌러 정지 요청이 실시간 연결로 나간다 */
 const stopSends = async () => {
-  if (adminNoStop(box)) return;
   const s = $<HTMLButtonElement>('[data-stop]')!;
   expect(s.disabled).toBe(false);
   expect($('header')!.lastElementChild).toBe(s);
