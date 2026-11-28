@@ -143,7 +143,9 @@ function RouteMap({ x, places, cancel, est }: { x?: Scenario; places: Place[]; c
 }
 
 /** 고른 임무의 첫 층 · 지금 승인 판 · 접근 금지 칸 · 미리 확인(POST /scenarios/preview) · 경로 조각과 겹침 판정. 폰 판(RouteMap)과 시안 u6 판이 같이 쓴다 */
-export function useRoute(x: Scenario | undefined, places: Place[], cancel?: AbortSignal) {
+/** key = 미리 확인을 다시 낼 때(기본: 저장된 판 id:version · 시안 편집기는 초안 내용) */
+export function useRoute(x: Scenario | undefined, places: Place[], cancel?: AbortSignal, key?: string) {
+  const pk = key ?? `${x?.id}:${x?.version}`;
   const floor = x?.floor_ids?.[0] ?? x?.waypoints[0]?.floor_id ?? '', place = places.find((p) => p.floor.id === floor), vid = place?.floor.approved_version_id ?? null;
   const [maps, setMaps] = useState<Record<string, MapVersion>>({}), [mapErr, setMapErr] = useState(''), [mn, setMn] = useState(0);
   useEffect(() => {
@@ -169,11 +171,11 @@ export function useRoute(x: Scenario | undefined, places: Place[], cancel?: Abor
   useEffect(() => {
     if (!x || !x.waypoints.length) return;
     let live = true;
-    api.preview(bodyOf(x) as ScenarioWrite, cancel).then((r) => { if (live) setPv({ id: `${x.id}:${x.version}`, r, err: '' }); },
-      (e: ApiFail) => { if (live && e.code !== 'CANCELED') setPv({ id: `${x.id}:${x.version}`, r: null, err: e.message }); });
+    api.preview(bodyOf(x) as ScenarioWrite, cancel).then((r) => { if (live) setPv({ id: pk, r, err: '' }); },
+      (e: ApiFail) => { if (live && e.code !== 'CANCELED') setPv({ id: pk, r: null, err: e.message }); });
     return () => { live = false; };
-  }, [x?.id, x?.version]);
-  const pr = pv && x && pv.id === `${x.id}:${x.version}` ? pv : null;
+  }, [pk]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const pr = pv && x && pv.id === pk ? pv : null;
 
   const on = v && x ? x.waypoints.map((w, i) => ({ w, i })).filter(({ w }) => w.floor_id === floor) : [];
   const px = (w: { x: number; y: number }): P => toPixel(v!, w.x, w.y);

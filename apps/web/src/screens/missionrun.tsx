@@ -31,7 +31,7 @@ export function useAssign(robot: string, scen: string | undefined, cancel?: Abor
 }
 
 /** 배정의 판(효력 판)이 화면의 판과 다르면 그 판의 층 · 지도 판을 받는다 */
-function useRef0(scen: Scenario | null | undefined, a: Assignment | null | undefined) {
+export function useRef0(scen: Scenario | null | undefined, a: Assignment | null | undefined) {
   const v = a ? a.effective_scenario_version ?? a.scenario_version : null;
   const [x, setX] = useState<Scenario | null>(null);
   useEffect(() => {

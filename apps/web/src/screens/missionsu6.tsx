@@ -1,7 +1,8 @@
 /** 임무 탭 PC = 시안 u6 (proto/screens/u6_1 ~ u6_9). 화면 마크업은 시안 body 를 기계적으로 옮긴 것(태그 · class · 순서 · 글 그대로),
  *  시안 머리줄(.bar)은 앱 머리줄 몫이라 뺐다. 고정 글 자리만 서버 값으로 바꾸고, 서버에 값이 없는 자리는 비우거나 잠그고 까닭 한 줄.
- *  일정 · 가용 · 예상 · 배정 · 실행은 폰 판(missiontab.tsx)과 같은 훅(usePlan · useRoute · useMissionList · Runs)을 쓴다 */
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+ *  일정 · 가용 · 예상은 폰 판(missiontab.tsx)과 같은 훅(usePlan · useRoute · useMissionList), 배정 · 실행은 시안 u15_2 창(missionsu6pre.tsx).
+ *  탭 안의 모든 단추는 시안 화면 흐름(u6_1 ~ u6_9 · u15_1 · u15_2)으로만 간다 */
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import '../proto/ui.pv.css';
 import '../proto/pc.pv.css';
 import '../proto/dark.pv.css';
@@ -12,12 +13,14 @@ import type { Estimate, RobotAvailability, Scenario, ScheduleSlot } from '../../
 import { api, type ApiFail } from '../api';
 import { robotStatus, type Robot } from '../fake';
 import type { Ctx } from '../screens';
-import { MapFrame, MapImage } from '../mapframe';
+import { MapFrame, MapImage, toView } from '../mapframe';
+import { toMap } from './mapedit';
 import { floorName, floorsOf, useTree, type Place } from './maps';
 import { FINISH } from './missions';
-import { DAY_FROM, DAY_TO, Guess, KIND, MODES, Runs, STATE, hm, hourOf, isoAt, mins, two, useMissionList, usePlan, useRoute, type Plan, type Route } from './missiontab';
+import { DAY_FROM, DAY_TO, Guess, KIND, MODES, STATE, hm, hourOf, isoAt, mins, two, useMissionList, usePlan, useRoute, type Plan, type Route } from './missiontab';
 import { MissionPlan } from './missionsu6plan';
 import { Rehearse, Result } from './missionsu6run';
+import { Preflight } from './missionsu6pre';
 import { useTheme } from '../theme';
 
 /** 화면(시안 장): 목록 · 일정(u6_1 · u6_8 · u6_9) / 새 임무 고르기(u6_2) / 만들기(u6_3 · 4 · 5) / 모의 실행(u6_6) / 보고서(u6_7) */
@@ -29,16 +32,20 @@ export function MissionsU6(c: Pick<Ctx, 'user' | 'robots' | 'cancel'> & { initia
   const m = useMissionList(c.cancel), plan = usePlan(m.cur, c.cancel), route = useRoute(m.cur, places, c.cancel);
   const [view, setView] = useState<View>(c.initial ?? { at: 'main' });
   const main = () => { setView({ at: 'main' }); m.again(); };
+  // 고장 재배정(u6_9): «이 배정으로 모의 실행» → u6_6 → u6_7 에서 통과하면 «이 배정으로 일정 바꾸기»(→ u6_8). 화면을 옮겨도 안이 남게 여기서 든다
+  const fix = useReassign(c.robots, plan, c.cancel), [fixOff, setFixOff] = useState(false), [pend, setPend] = useState(false);
   return <div className={`proto u6${light ? ' light' : ''}`} data-u6={view.at}>
-    {view.at === 'main' && <Main c={c} m={m} plan={plan} route={route} go={setView} />}
+    {view.at === 'main' && <Main c={c} m={m} plan={plan} route={route} go={setView} fix={fix} fixOff={fixOff} setFixOff={setFixOff}
+      rehearseFix={(sid) => { m.setSel(sid); setPend(true); setView({ at: 'rehearse' }); }} />}
     {view.at === 'setup' && <Setup robots={c.robots} places={places} cancel={c.cancel} p={plan} close={main}
       make={(floor, robot, gait) => setView({ at: 'plan', id: '', floor, robot, gait })} />}
-    {view.at === 'plan' && <MissionPlan id={view.id} floor={view.floor} robot={view.robot} gait={view.gait} user={c.user} robots={c.robots} cancel={c.cancel} places={places} treeAgain={tree.again}
-      p={plan} close={main} saved={(id) => { m.setSel(id); }} rehearse={() => setView({ at: 'rehearse' })} />}
+    {view.at === 'plan' && <MissionPlan id={view.id} floor={view.floor} robot={view.robot} gait={view.gait} user={c.user} robots={c.robots} cancel={c.cancel} places={places}
+      p={plan} jobs={m.jobs} close={main} saved={(id) => { m.setSel(id); m.again(); }} rehearse={() => setView({ at: 'rehearse' })} />}
     {view.at === 'rehearse' && m.cur && <Rehearse x={m.cur} route={route} robots={c.robots} user={c.user} cancel={c.cancel} p={plan} close={main}
       result={(run, robot) => setView({ at: 'result', run, robot })} />}
     {view.at === 'result' && m.cur && <Result x={m.cur} route={route} run={view.run} robot={c.robots.find((r) => r.id === view.robot)} cancel={c.cancel} close={main}
-      again={() => setView({ at: 'rehearse' })} edit={() => setView({ at: 'plan', id: m.cur!.id, floor: route.floor, robot: '', gait: '' })} />}
+      again={() => setView({ at: 'rehearse' })} edit={() => setView({ at: 'plan', id: m.cur!.id, floor: route.floor, robot: '', gait: '' })}
+      fix={pend && fix.items.length ? fix : null} applyFix={async () => { if (await fix.apply()) { setPend(false); main(); } }} />}
   </div>;
 }
 
@@ -84,14 +91,25 @@ export const Pager = ({ n, per, at, go, label }: { n: number; per: number; at: n
 export const dist = (m: number) => (m >= 1000 ? [(m / 1000).toFixed(2), 'km'] : [String(Math.round(m)), 'm']);
 
 /** 경로 지도(시안 .map 의 .stage 자리): 서버 승인 판 위에 경로 · 지점 번호 · 접근 금지 구역 · 겹침. 사진 그림 자리에 실제 지도를 그린다 */
-export function RouteStage({ x, route, rehearse, children }: { x?: Scenario; route: Route; rehearse?: boolean; children?: ReactNode }) {
+export function RouteStage({ x, route, rehearse, children, pick, pickAt, sel }: { x?: Scenario; route: Route; rehearse?: boolean; children?: ReactNode;
+  /** 지도 누름 → 지도 좌표(m) · 그 자리 화면 좌표(칸 안 px). 편집기(u6_3 · u6_5)만 */ pick?: (m: [number, number], at: [number, number], ctx: boolean) => void;
+  /** 지점 누름(번호) */ pickAt?: (i: number) => void; sel?: number | null }) {
   const { v, vid, look, mapErr, retry, on, segs, inNoGo, px, r, place, floor } = route;
+  const svg = useRef<SVGSVGElement | null>(null);
+  const hit = (e: React.MouseEvent, ctx: boolean) => {
+    if (!pick || !v || !svg.current) return;
+    if ((e.target as Element).closest('[data-pt]')) return;
+    if (ctx) e.preventDefault();
+    const [qx, qy] = toView(svg.current, e.clientX, e.clientY), b = svg.current.closest('.map, .stage, .pane')!.getBoundingClientRect();
+    pick(toMap(v, qx, qy), [e.clientX - b.left, e.clientY - b.top], ctx);
+  };
   const line = rehearse ? '#4c9bff' : '#00c389';
   if (!x) return <Why>임무를 고르면 지도에 경로가 보입니다.</Why>;
   if (!vid) return <Why>{floor ? '이 임무의 층에 승인된 지도가 없습니다.' : '이 임무에는 지점이 없습니다. 만들기에서 지도에 지점을 찍으세요.'}</Why>;
   if (!v) return mapErr ? <p className="lab u6-why" role="alert">지도를 받지 못했습니다. {mapErr} <button type="button" className="btns" onClick={retry}>다시 시도</button></p>
     : <Why>지도를 불러오는 중…</Why>;
-  return <MapFrame {...look} photo={v} at={{ right: 10, bottom: 10 }} role="img" aria-label={`${x.name} 경로 · ${floorName(place!.floor.name)}`} data-map data-mission-map className="u6-stage">
+  return <MapFrame ref={svg} {...look} photo={v} at={{ right: 10, bottom: 10 }} role={pick ? 'application' : 'img'} aria-label={`${x.name || '임무'} 경로 · ${floorName(place!.floor.name)}`} data-map data-mission-map className="u6-stage"
+    onClick={pick ? (e) => hit(e, false) : undefined} onContextMenu={pick ? (e) => hit(e, true) : undefined}>
     <MapImage id={v.id} width={v.width} height={v.height} tint="#8d9590" />
     {v.features.zones.filter((z) => z.type === 'NO_GO').map((z, i) => <polygon key={i} data-nogo points={z.polygon.map(([a, b]) => px({ x: a, y: b }).join(',')).join(' ')}
       style={{ fill: '#e04a2f', fillOpacity: 0.16, stroke: '#e04a2f', strokeWidth: 1.5, strokeDasharray: '4 3' }} vectorEffect="non-scaling-stroke"><title>{`접근 금지 구역 ${z.name}`}</title></polygon>)}
@@ -99,18 +117,22 @@ export function RouteStage({ x, route, rehearse, children }: { x?: Scenario; rou
       <line data-seg={i} data-hit={s.hit || undefined} x1={s.a[0]} y1={s.a[1]} x2={s.b[0]} y2={s.b[1]}
         style={{ stroke: s.hit ? '#ff4d4f' : line, strokeWidth: 4, strokeLinecap: 'round', strokeDasharray: s.hit || rehearse ? '6 5' : undefined }} vectorEffect="non-scaling-stroke" /></g>)}
     {on.map(({ w, i }) => { const [a, b] = px(w), bad = inNoGo(w);
-      return <g key={i} data-pt={i + 1} data-hit={bad || undefined}><circle cx={a} cy={b} r={r} style={{ fill: '#fff', stroke: bad ? '#ff4d4f' : line, strokeWidth: 3 }} vectorEffect="non-scaling-stroke" />
+      return <g key={i} data-pt={i + 1} data-hit={bad || undefined} aria-pressed={pickAt ? sel === i : undefined} onClick={pickAt ? () => pickAt(i) : undefined} style={pickAt ? { cursor: 'pointer' } : undefined}>
+        {sel === i && <circle cx={a} cy={b} r={r * 1.9} style={{ fill: 'rgba(0,195,137,.22)', stroke: '#00c389', strokeWidth: 2.5 }} vectorEffect="non-scaling-stroke" />}
+        <circle cx={a} cy={b} r={r} style={{ fill: '#fff', stroke: bad ? '#ff4d4f' : line, strokeWidth: 3 }} vectorEffect="non-scaling-stroke" />
         <text x={a} y={b + r * 0.38} fontSize={r * 1.05} fontWeight={800} textAnchor="middle" style={{ fill: '#1f2421', pointerEvents: 'none' }}>{i + 1}</text></g>; })}
     {children}
   </MapFrame>;
 }
 
 /** u6_1 · u6_8 · u6_9: 왼쪽 임무 목록 · 가운데 지도 · 오른쪽 일정에 추가(또는 배정 · 실행, 고장 재배정) · 아래 오늘 일정 */
-function Main({ c, m, plan: p, route, go }: { c: Pick<Ctx, 'user' | 'robots' | 'cancel'>; m: List; plan: Plan; route: Route; go: (v: View) => void }) {
-  const x = m.cur, [side, setSide] = useState<'add' | 'run'>('add'), [fixOff, setFixOff] = useState(false);
-  const fix = useReassign(c.robots, p, c.cancel);
+function Main({ c, m, plan: p, route, go, fix, fixOff, setFixOff, rehearseFix }: { c: Pick<Ctx, 'user' | 'robots' | 'cancel'>; m: List; plan: Plan; route: Route; go: (v: View) => void;
+  fix: Fix; fixOff: boolean; setFixOff: (v: boolean) => void; rehearseFix: (scenario: string) => void }) {
+  const x = m.cur, [pick, setPick] = useState<string | null>(null), [pre, setPre] = useState(false);
   const showFix = !fixOff && fix.items.length > 0;
-  const made = p.msg?.ok ? p.made : null;
+  // u6_8: 방금 넣은 칸, 또는 오늘 일정에서 누른 칸 → «실제 로봇 시작 전 점검»(u15_2)
+  const made = pick ?? (p.msg?.ok ? p.made : null), slot = made ? p.slots?.find((y) => y.id === made) : undefined;
+  const sx = slot?.scenario_id ? m.all?.find((y) => y.id === slot.scenario_id) : undefined, sr = slot ? c.robots.find((r) => r.id === slot.robot_id) : undefined;
   return <>
     <List x={x} m={m} p={p} edit={(id) => go({ at: 'plan', id, floor: route.floor, robot: p.rid, gait: p.gait })} add={() => go({ at: 'setup' })} />
     <div className="map" style={{ left: '388px', top: '88px', width: '1112px', height: '600px' }} aria-label="임무 지도">
@@ -122,14 +144,11 @@ function Main({ c, m, plan: p, route, go }: { c: Pick<Ctx, 'user' | 'robots' | '
       {fix.running && <div className="g dk rrun u6-rrun" data-live-run><Ic d={IC.robot} s={16} />실제 로봇 실행 중 <span className="lab">{fix.running}</span></div>}
       {x && <Stat x={x} route={route} est={p.est} />}
     </div>
-    {showFix ? <Fix f={fix} close={() => setFixOff(true)} names={(id) => m.list.find((y) => y.id === id)?.name} />
-      : side === 'run' ? <div className="pane" style={{ left: '1524px', top: '88px', width: '372px', height: '600px', padding: '20px' }} aria-label="배정 · 실행">
-        <div className="row" style={{ justifyContent: 'space-between' }}><div className="lab">배정 · 실행</div><button type="button" className="lab u6-link" data-open-add onClick={() => setSide('add')}>‹ 일정에 추가</button></div>
-        <div className="ttl" style={{ marginTop: '4px' }}>{x?.name ?? '임무를 고르세요'}</div>
-        <div className="u6-legacy u6-runs"><Runs x={x} robots={c.robots} user={c.user} cancel={c.cancel} /></div>
-      </div>
-      : <Side x={x} robots={c.robots} p={p} openRun={() => setSide('run')} rehearse={() => go({ at: 'rehearse' })} made={!!made} />}
-    <Day robots={c.robots} p={p} names={(id) => m.list.find((y) => y.id === id)?.name} fix={showFix ? fix : null} made={made} />
+    {showFix ? <Fix f={fix} close={() => setFixOff(true)} names={(id) => m.list.find((y) => y.id === id)?.name} rehearse={rehearseFix} />
+      : <Side x={slot && sx ? sx : x} robots={c.robots} p={p} slot={slot} rehearse={() => go({ at: 'rehearse' })} made={!!slot} preflight={() => setPre(true)} unpick={() => setPick(null)} />}
+    <Day robots={c.robots} p={p} names={(id) => m.list.find((y) => y.id === id)?.name} fix={showFix ? fix : null} made={made} pick={(id) => { setPick(id); setPre(false); }} />
+    {pre && slot && sr && sx && <Preflight robot={sr} scen={sx} user={c.user} cancel={c.cancel} close={() => setPre(false)}
+      sub={`${sx.name} · ${route.place && sx.floor_ids[0] === route.place.floor.id ? floorName(route.place.floor.name) : '층'} · ${hm(slot.start)} ~ ${hm(slot.end)}`} />}
     {p.msg?.ok && x && <div className="g toast" role="status" data-add-msg>
       <Ic d={IC.check} s={20} style={{ color: '#00c389' }} />{p.msg.text}</div>}
   </>;
@@ -200,7 +219,7 @@ export function stateText(a: RobotAvailability, robots: Robot[]) {
 const ROBOTS_PER = 4;
 
 /** 오른쪽 일정에 추가(u6_1 · u6_8): 시작 · 마감 · 쓸 수 있는 로봇 · 걷기 모드 · 예상 끝 · 여유 · 끝 배터리 · 모의 실행 · 일정에 추가 */
-function Side({ x, robots, p, openRun, rehearse, made }: { x?: Scenario; robots: Robot[]; p: Plan; openRun: () => void; rehearse: () => void; made: boolean }) {
+function Side({ x, robots, p, slot, rehearse, made, preflight, unpick }: { x?: Scenario; robots: Robot[]; p: Plan; slot?: ScheduleSlot; rehearse: () => void; made: boolean; preflight: () => void; unpick: () => void }) {
   const [page, setPage] = useState(0);
   const can = !!x && !x.archived_at && !!p.rid && !!p.gait && p.ok && !!p.est && !p.late && !p.busy;
   const e = p.est, avail = p.avail ?? [], sims = robots.filter((r) => r.sim);
@@ -214,7 +233,7 @@ function Side({ x, robots, p, openRun, rehearse, made }: { x?: Scenario; robots:
     : !can && !p.busy ? <Why data-add-why>임무 · 시각 · 로봇 · 걷기 모드를 고르면 일정에 넣을 수 있습니다.</Why> : null;
   return <div className="pane" style={{ left: '1524px', top: '88px', width: '372px', height: '600px', padding: '20px' }} aria-label="일정에 추가">
     <div className="row" style={{ justifyContent: 'space-between' }}><div className="lab">일정에 추가</div>
-      {x && <button type="button" className="lab u6-link" data-open-run onClick={openRun}>배정 · 실행 ›</button>}</div>
+      {slot && <button type="button" className="lab u6-link" data-unpick onClick={unpick}>새로 넣기 ›</button>}</div>
     <div className="ttl" style={{ marginTop: '4px' }} data-side-name>{x ? x.name : '임무를 고르세요'}</div>
     <div className="row" style={{ gap: '8px', marginTop: '14px' }}>
       <label className="fld"><div className="lab">시작</div><b className="num">{time('start')}</b></label>
@@ -238,7 +257,7 @@ function Side({ x, robots, p, openRun, rehearse, made }: { x?: Scenario; robots:
     <div className="mseg" role="group" aria-label="걷기 모드">{MODES.map(([t, g]) => g === 'ame2'
       ? <button key={g} type="button" disabled data-mode={t} title="AME-2 는 아직 일정에 넣을 수 없습니다">{t}<small className="u6-soon">준비 중</small></button>
       : <button key={g} type="button" className={p.gait === g ? 'on' : ''} aria-pressed={p.gait === g} data-mode={t} onClick={() => p.setGait(p.gait === g ? '' : g)}>{t}</button>)}</div>
-    <div className="row" style={{ marginTop: '12px', justifyContent: 'space-between' }} aria-label="예상">
+    <div className={`row u6-est${e ? '' : ' none'}`} style={{ marginTop: '12px', justifyContent: 'space-between' }} aria-label="예상">
       <div><div className="lab">예상 끝</div><b className="num" style={{ fontSize: '22px' }} data-est="eta">{e ? hm(e.eta) : '—'}</b>{e && <Guess e={e} />}</div>
       <div><div className="lab" title="다음 일정까지 여유">여유</div><b className={`num${e?.margin_s != null && e.margin_s < 0 ? ' bad mt-bad' : ''}`} style={{ fontSize: e && (e.margin_s == null || e.margin_s < 0) ? '15px' : '22px' }} data-est="margin">
         {!e ? '—' : e.margin_s == null ? '다음 일정 없음' : e.margin_s < 0 ? '겹침' : <>{mins(e.margin_s)}<small className="mu2"> 분</small></>}</b>{e && e.margin_s != null && e.margin_s >= 0 && <Guess e={e} />}</div>
@@ -247,7 +266,7 @@ function Side({ x, robots, p, openRun, rehearse, made }: { x?: Scenario; robots:
     </div>
     <div className="u6-whyslot">{why}</div>
     <div className="row" style={{ position: 'absolute', left: '20px', right: '20px', bottom: '20px', gap: '8px' }}>
-      {made ? <button type="button" className="btnp preflight" style={{ flex: '1', height: '52px', fontSize: '15.5px' }} data-preflight onClick={openRun}><Ic d={IC.check} s={17} />실제 로봇 시작 전 점검</button> : <>
+      {made ? <button type="button" className="btnp preflight" style={{ flex: '1', height: '52px', fontSize: '15.5px' }} data-preflight onClick={preflight}><Ic d={IC.check} s={17} />실제 로봇 시작 전 점검</button> : <>
         <button type="button" className="btns rehearse" style={{ flex: 'none', width: '118px', height: '52px', fontSize: '14.5px' }} data-rehearse disabled={!x || !sims.length}
           title={!sims.length ? '모의 실행은 시뮬 로봇으로 돌립니다. 이 조직에 시뮬 로봇이 없습니다.' : undefined} onClick={rehearse}><Ic d={IC.play} />모의 실행</button>
         <button type="button" className="btnp put" style={{ flex: '1', height: '52px', fontSize: '15.5px' }} disabled={!can} data-schedule-add onClick={p.add}>{p.busy ? '넣는 중…' : '일정에 추가'}</button></>}
@@ -270,7 +289,7 @@ const LEGEND: [string, React.CSSProperties][] = [['끝남', { border: '1px solid
 const ROWS = 5;
 
 /** 아래 오늘 일정(GET /schedule): 로봇 줄 · 시각 눈금(08~20, 밖 일정이 있으면 넓힘) · 지금 선 · 막대 · 겹침 · 방금 넣은 칸 · 재배정안 */
-function Day({ robots, p, names, fix, made }: { robots: Robot[]; p: Plan; names: (id: string) => string | undefined; fix: Fix | null; made: string | null }) {
+function Day({ robots, p, names, fix, made, pick }: { robots: Robot[]; p: Plan; names: (id: string) => string | undefined; fix: Fix | null; made: string | null; pick: (id: string) => void }) {
   const [now, setNow] = useState(() => new Date()), [page, setPage] = useState(0);
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 60_000); return () => clearInterval(t); }, []);
   const slots = p.slots ?? [];
@@ -284,7 +303,8 @@ function Day({ robots, p, names, fix, made }: { robots: Robot[]; p: Plan; names:
   const bar = (x: ScheduleSlot, top: number) => { const a = f(x.start), b = Math.max(a, f(x.end)), clash = p.clash.includes(x.id) || !!fix?.items.some((i) => i.slot.id === x.id);
     const label = x.kind === 'BATTERY_SWAP' ? KIND.BATTERY_SWAP : (x.scenario_id && names(x.scenario_id)) || '임무';
     return <div key={x.id} className={`bk ${clash ? 'kx' : look(x, now.getTime())}${made === x.id ? ' u6-made' : ''}`} data-slot={x.id} data-kind={x.kind} data-conflict={clash || undefined} data-x={a} data-w={b - a}
-      style={{ left: X(a), width: W(b - a), top: `${top}px` }} title={`${label} · ${hm(x.start)}~${hm(x.end)} · ${KIND[x.kind]}`}>{label}</div>; };
+      style={{ left: X(a), width: W(b - a), top: `${top}px`, ...(x.scenario_id ? { cursor: 'pointer' } : {}) }} title={`${label} · ${hm(x.start)}~${hm(x.end)} · ${KIND[x.kind]}`}
+      {...(x.scenario_id ? { role: 'button', tabIndex: 0, onClick: () => pick(x.id), onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(x.id); } } } : {})}>{label}</div>; };
   const plans = fix?.items.flatMap((i) => (i.to ? [{ ...i.slot, id: `fix-${i.slot.id}`, robot_id: i.to }] : [])) ?? [];
   return <div className="pane tl" aria-label="오늘 일정">
     <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -313,7 +333,7 @@ function Day({ robots, p, names, fix, made }: { robots: Robot[]; p: Plan; names:
 /** 고장 로봇의 남은 일 다시 배정(u6_9). 고장 = 서버 상태 ERROR 인 로봇. 남은 일 = 오늘 일정에서 아직 끝나지 않은 그 로봇 칸(배터리 교체 · 실행 중 칸 뺌).
  *  받을 로봇 = 그 칸 시간에 GET /robots/availability 가 FREE 로 준 다른 로봇(처음 것, 직접 고르기로 바꿈). 바꾸기 = 새 칸 POST /schedule/slots 뒤 옛 칸 DELETE */
 type FixItem = { slot: ScheduleSlot; free: RobotAvailability[]; to: string; battery: number | null };
-type Fix = ReturnType<typeof useReassign>;
+export type Fix = ReturnType<typeof useReassign>;
 function useReassign(robots: Robot[], p: Plan, cancel?: AbortSignal) {
   const bad = robots.filter((r) => r.status === 'ERROR'), badIds = bad.map((r) => r.id).join(',');
   const left = (p.slots ?? []).filter((s) => bad.some((r) => r.id === s.robot_id) && Date.parse(s.end) > Date.now() && s.kind !== 'BATTERY_SWAP' && s.scenario_id && !s.run_id);
@@ -348,16 +368,16 @@ function useReassign(robots: Robot[], p: Plan, cancel?: AbortSignal) {
       try {
         await api.addSlot({ robot_id: i.to, scenario_id: s.scenario_id, scenario_version: s.scenario_version, gait: s.gait, start: s.start, end: s.end, kind: s.kind }, crypto.randomUUID(), cancel);
         await api.dropSlot(s.id, cancel); done += 1;
-      } catch (e) { setMsg({ ok: false, text: `${done ? `${done} 건은 바꿨고, ` : ''}${hm(s.start)} 칸을 바꾸지 못했습니다. ${(e as ApiFail).message}` }); setBusy(false); p.again(); return; }
+      } catch (e) { setMsg({ ok: false, text: `${done ? `${done} 건은 바꿨고, ` : ''}${hm(s.start)} 칸을 바꾸지 못했습니다. ${(e as ApiFail).message}` }); setBusy(false); p.again(); return false; }
     }
-    setBusy(false); setMsg({ ok: true, text: `남은 일 ${done} 건을 다시 배정했습니다.` }); p.again();
+    setBusy(false); setMsg({ ok: true, text: `남은 일 ${done} 건을 다시 배정했습니다.` }); p.again(); return true;
   };
   const running = robots.find((r) => !r.sim && r.status === 'RUNNING')?.name ?? '';
   return { bad, items, pick, apply, busy, msg, running };
 }
 
 /** 오른쪽 고장 칸(u6_9): 고장 로봇 · 남은 일 · 받을 로봇 · 끝 배터리 · 직접 고르기 · 바꾸기 */
-function Fix({ f, close, names }: { f: Fix; close: () => void; names: (id: string) => string | undefined }) {
+function Fix({ f, close, names, rehearse }: { f: Fix; close: () => void; names: (id: string) => string | undefined; rehearse: (scenario: string) => void }) {
   const [hand, setHand] = useState(false);
   const r = f.bad.find((b) => f.items.some((i) => i.slot.robot_id === b.id)) ?? f.bad[0];
   return <div className="pane" style={{ left: '1524px', top: '88px', width: '372px', height: '600px', padding: '20px' }} aria-label="남은 일 다시 배정" data-fix>
@@ -376,9 +396,10 @@ function Fix({ f, close, names }: { f: Fix; close: () => void; names: (id: strin
     {f.msg && <Why alert={!f.msg.ok} data-fix-msg>{f.msg.text}</Why>}
     <div className="row" style={{ position: 'absolute', left: '20px', right: '20px', bottom: '20px', gap: '8px' }}>
       <button type="button" className="btns" style={{ width: '118px', height: '52px', fontSize: '14.5px' }} aria-pressed={hand} onClick={() => setHand((h) => !h)} data-fix-hand>직접 고르기</button>
-      <button type="button" className="btnp" style={{ flex: '1', height: '52px', fontSize: '15px' }} disabled={f.busy || !f.items.some((i) => i.to)} onClick={f.apply} data-fix-apply><Ic d={IC.check} />{f.busy ? '바꾸는 중…' : '이 배정으로 일정 바꾸기'}</button>
+      <button type="button" className="btnp" style={{ flex: '1', height: '52px', fontSize: '15px' }} disabled={f.busy || !f.items.some((i) => i.to)} onClick={() => rehearse(f.items.find((i) => i.to)!.slot.scenario_id!)} data-fix-apply><Ic d={IC.play} />이 배정으로 모의 실행</button>
     </div>
-    <button type="button" className="lab u6-link u6-later" onClick={close}>나중에 · 일정에 추가로</button>
+    <div className="lab" style={{ position: 'absolute', left: '20px', right: '20px', bottom: '80px' }}>모의 실행이 통과해야 일정에 들어갑니다.</div>
+    <button type="button" className="lab u6-link" style={{ position: 'absolute', right: '20px', top: '20px' }} onClick={close} data-fix-later>나중에</button>
   </div>;
 }
 

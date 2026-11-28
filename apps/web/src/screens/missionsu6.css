@@ -60,3 +60,19 @@
 .u6 .toast{position:absolute;left:50%;top:84px;transform:translateX(-50%);z-index:8;height:52px;padding:0 20px;border-radius:16px;display:flex;align-items:center;gap:10px;font-size:15px;font-weight:700;white-space:nowrap}
 .u6 .stop{right:24px;bottom:24px;width:120px;height:96px;font-size:16px;z-index:9}
 .u6 [data-go]{cursor:pointer}
+/* 시안 u15_1 · u15_2 화면 안 <style> (창 · 점검 줄 · 노란 알림) 값 그대로 · .u6 한 겹. .kp(u15_3 기록 보고서 칸)는 일정 막대 .bk.kp 와 이름이 겹치고 임무 탭에 쓰지 않아 뺐다 */
+.u6 .dim{position:absolute;inset:64px 0 0 0;background:rgba(6,8,11,.62);z-index:20}
+.u6 .md{position:absolute;z-index:21;border-radius:24px;background:linear-gradient(180deg,#1b2027,#14181e);border:1px solid rgba(255,255,255,.12);box-shadow:0 30px 80px rgba(0,0,0,.55);color:#fff}
+.u6 .md h2{font-size:24px;font-weight:800;letter-spacing:-.02em;margin:0}
+.u6 .md .sb{font-size:14px;font-weight:600;color:var(--mu2);margin-top:6px}
+.u6 .ck{display:flex;align-items:center;gap:14px;height:54px;border-bottom:1px solid rgba(255,255,255,.07);font-size:15px;font-weight:700}
+.u6 .ck .o{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none;background:rgba(0,195,137,.16);color:#00c389}
+.u6 .ck .w{background:rgba(242,183,5,.18);color:#f2b705}
+.u6 .ck em{margin-left:auto;font-style:normal;font-size:13.5px;font-weight:600;color:var(--mu2)}
+.u6 .toastw{position:absolute;z-index:21;border-radius:18px;background:linear-gradient(180deg,#2a2412,#211c0f);border:1px solid rgba(242,183,5,.45);box-shadow:0 18px 44px rgba(0,0,0,.45);color:#fff;padding:16px 18px}
+.u6 .chipb{height:40px;padding:0 14px;border-radius:12px;display:inline-flex;align-items:center;gap:6px;font-size:13.5px;font-weight:700;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14)}
+.u6 .tbl{width:100%;border-collapse:collapse;font-size:14px}
+.u6 .tbl th{font-size:12.5px;font-weight:700;color:var(--mu2);text-align:left;padding:0 10px 10px;border-bottom:1px solid rgba(255,255,255,.1)}
+.u6 .tbl td{padding:12px 10px;border-bottom:1px solid rgba(255,255,255,.06);font-weight:600}
+.u6 .tbl td.n,.u6 .tbl th.n{text-align:right;font-variant-numeric:tabular-nums}
+.u6 .up{color:#f2b705}.u6 .ok{color:#00c389}
