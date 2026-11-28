@@ -145,6 +145,10 @@ class MujocoLauncher:
                         'FOOTHOLD_RUN_OUTBOX_PATH': str(folder / 'run-outbox.sqlite')})
             if credentials.get('spawn_floor_id'):
                 env['FH_SIM_SPAWN_FLOOR'] = credentials['spawn_floor_id']
+            elif len(bindings) == 1 and bindings[0].get('ros_floor_id'):
+                # One-floor world (factory_site/f1): no spawn floor is chosen; the agent default 'l1' would match
+                # no binding and send no pose, so name the one bound floor.
+                env['FH_SIM_SPAWN_FLOOR'] = bindings[0]['ros_floor_id']
         with open(folder / 'agent.log', 'ab') as log:
             child = subprocess.Popen(self.command, cwd=str(ROOT), env=env, stdin=subprocess.DEVNULL,
                                      stdout=log, stderr=log, start_new_session=True)

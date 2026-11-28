@@ -432,3 +432,30 @@ def test_spawn_world_without_a_repository_map_is_refused(tmp_path, monkeypatch):
                 await manager.close()
         asyncio.run(run())
     assert '시작 자리' in str(caught.value)
+
+
+def test_factory_site_bindings_and_single_floor_reach_the_mujoco_agent(tmp_path, monkeypatch):
+    """factory_site/f1 on the local MuJoCo backend (11/28 15:35, location null after the move): the server's
+    approved SIMULATION binding reaches the agent env, and with no spawn_floor_id (one-floor world) the one
+    binding's ros_floor_id becomes FH_SIM_SPAWN_FLOOR (the agent default 'l1' would match nothing)."""
+    async def run():
+        cfg, launch = launcher(tmp_path, 'ready')
+        cfg = replace(cfg, worlds={'factory_site/f1': World('factory_site/f1', Path('/p/a'), Path('/p/b'))})
+        launch.settings = cfg
+        manager = Manager(cfg, launch)
+        slot = next(iter(cfg.slots.values()))
+        bindings = [dict(world_id='factory_site', ros_floor_id='f1', floor_id=str(uuid4()), map_version_id=str(uuid4()),
+                         image_sha256='a' * 64, source_pgm_sha256='b' * 64)]
+        seen = {}
+        original = subprocess.Popen
+        def spy(cmd, **kw):
+            seen.update(kw['env'])
+            return original(cmd, **kw)
+        monkeypatch.setattr('apps.simmgr.mujoco_launcher.subprocess.Popen', spy)
+        try:
+            await manager.add('factory_site/f1', slot.robot_id, str(uuid4()), slot.org_id, 'x' * 32, 1, None, bindings)
+        finally:
+            await manager.close()
+        assert json.loads(seen['FH_SIM_MAP_BINDINGS']) == bindings
+        assert seen['FH_SIM_SPAWN_FLOOR'] == 'f1'
+    asyncio.run(run())
