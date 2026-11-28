@@ -216,7 +216,9 @@ class Scheduler:
         if peer.state.get('safety_reason') is not None:
             return [(slot_id, 'SKIPPED', 'SAFETY_STOP')]
         rt.apply(rt.arbiter.begin(rid, None, op=None, cause='scheduled_run'))  # lease null first, then STOP
-        rt.scheduled_runs[rid] = {'run_id': str(item['run_id']), 'slot_id': str(slot_id)}
+        # stop_ref: this run's own start STOP. Only if run_finished is the next server STOP may its end latch be
+        # pre-unlocked (#630 H1: any person · screen STOP in between moves stop_ref past it).
+        rt.scheduled_runs[rid] = {'run_id': str(item['run_id']), 'slot_id': str(slot_id), 'stop_ref': r.stop_ref}
         self.pending[slot_id] = dict(item, phase='GRANT', lease=None, ref=r.stop_ref,  # our own STOP's ref
                                      deadline=at + timedelta(seconds=START_TIMEOUT_S))
         return [(slot_id, 'STARTING', None)] + ([(slot_id, 'PRE_UNLOCK', str(item['user_id']))] if pre_unlock else [])
@@ -314,9 +316,10 @@ class Scheduler:
         code = None if state == 'DONE' else str(run.get('fail_code') or run['status'])[:64]
         holder = rt.arbiter.robot(rid).holder
         if holder and holder.holder_type == 'RUN' and holder.actor is None:
+            start = rt.scheduled_runs.get(rid) or {}
             rt.apply(rt.arbiter.revoke(rid, op=None, cause='run_finished'))
-            if run['status'] == 'COMPLETED':
-                rt.note_run_end_latch(rid, item['run_id'])  # the agent's own run-end latch (#630)
+            if run['status'] == 'COMPLETED' and start.get('run_id') == item['run_id']:
+                rt.note_run_end_latch(rid, item['run_id'], start.get('stop_ref'))  # the agent's own run-end latch (#630)
         rt.scheduled_runs.pop(rid, None)
         self.reported.pop(item['slot_id'], None)
         return [(item['slot_id'], state, code)]

@@ -931,3 +931,132 @@ def test_state_sent_between_lease_null_and_release_stop_keeps_the_pre_unlock(dem
         assert run_ticks(client, sched, agent, 40, until=lambda: slot_row(seeded, slot_id)['state'] in ('STARTED', 'SKIPPED'))
         assert slot_row(seeded, slot_id)['state'] == 'STARTED', slot_row(seeded, slot_id)
     assert len(events(seeded, 'SCHEDULE_PRE_UNLOCK')) == 1
+
+
+# -- #633 review H1: a person's STOP around the run end is never pre-unlocked, reported by the agent or not --
+
+def _read_stops(agent):
+    """The agent reads the server STOPs waiting for it and reports once (latched, their stop_ref, stop_gen +1 each)."""
+    for f in frames(agent.ws):
+        agent.seen.append(f)
+        if f.get('t') == 'stop':
+            agent.latched, agent.stop_ref, agent.gen = True, f['stop_ref'], agent.gen + 1
+    agent.state()
+
+
+@pytest.mark.parametrize('when', ['before_end', 'window_unreported', 'window_reported', 'after_run_finished',
+                                  'phone_in_window', 'window_never_applied'])
+def test_stop_around_the_run_end_is_never_pre_unlocked(demo, seeded, when):
+    """1 the run ends COMPLETED and the agent latches itself; 2 a person presses STOP; 3 the scheduler handles the
+    end (run_finished STOP). Wherever the person's STOP falls (before 1, between 1 and 3 reported or not, after 3)
+    or a phone STOP on the Hub in the window, the next slot is SKIPPED STOP_LATCHED. window_never_applied: the agent
+    never shows the person's STOP at all; the server's own STOP record (run_finished is not the only STOP since the
+    run's start) still says no."""
+    import time
+    client, sched, clock = demo
+    rid = seeded['robots']['mine']
+    one = app_token(client)
+    def person_stop():
+        stopped = client.post(f'/api/v1/robots/{rid}/stop', headers=one, json={})
+        assert stopped.status_code == 202, stopped.text
+    with agent_ws(client, seeded) as ws:
+        ws.send_json(hello())
+        agent = FakeAgent(ws)
+        agent.pump()
+        good = synthetic_assignment(seeded)
+        first = add_slot(seeded, good)
+        second = add_slot(seeded, good, start=T0 + timedelta(minutes=32))
+        clock[0] = T0 + timedelta(minutes=2, seconds=1)
+        assert run_ticks(client, sched, agent, 40, until=lambda: slot_row(seeded, first)['state'] == 'STARTED')
+        if when == 'before_end':
+            person_stop()
+            _read_stops(agent)
+            time.sleep(.05)
+        agent.end('COMPLETED')
+        agent.state()  # the server holds: latched, COMPLETED, run_end_latch
+        time.sleep(.05)
+        if when in ('window_unreported', 'window_reported'):
+            person_stop()  # in the ~0.34 s before the scheduler handles the end
+            if when == 'window_reported':
+                _read_stops(agent)
+                time.sleep(.05)
+        elif when == 'window_never_applied':
+            person_stop()
+            agent.seen += frames(agent.ws)  # read, but the person's STOP never shows in any report
+        elif when == 'phone_in_window':
+            agent.latched, agent.gen = True, agent.gen + 1  # a phone STOP on the Hub; not reported yet
+        client.portal.call(sched.tick)  # COMPLETED: run_finished STOP, note_run_end_latch
+        if when == 'after_run_finished':
+            person_stop()
+        for _ in range(20):
+            agent.pump(); client.portal.call(sched.tick); agent.pump()
+            if slot_row(seeded, first)['state'] not in (None, 'STARTED'):
+                break
+        clock[0] = T0 + timedelta(minutes=32, seconds=1)
+        run_ticks(client, sched, agent, 40, until=lambda: slot_row(seeded, second)['state'] in ('STARTED', 'SKIPPED'))
+        row = slot_row(seeded, second)
+        assert (row['state'], row['code']) == ('SKIPPED', 'STOP_LATCHED'), row
+        assert len(sent(agent, 'run.start')) == 1 and agent.latched
+    assert events(seeded, 'SCHEDULE_PRE_UNLOCK') == []
+
+
+def test_safety_latch_at_the_run_end_is_never_pre_unlocked_even_once_cleared(demo, seeded):
+    """A safety latch reported with the run's end makes it no run-end latch, even if safety_reason clears later."""
+    client, sched, clock = demo
+    with agent_ws(client, seeded) as ws:
+        ws.send_json(hello())
+        agent = FakeAgent(ws)
+        agent.pump()
+        def end(a):
+            a.end('COMPLETED')
+            a.extra = {'safety_reason': 'OUTPUT_STALLED'}
+        good = synthetic_assignment(seeded)
+        first = add_slot(seeded, good)
+        second = add_slot(seeded, good, start=T0 + timedelta(minutes=32))
+        clock[0] = T0 + timedelta(minutes=2, seconds=1)
+        assert run_ticks(client, sched, agent, 40, until=lambda: slot_row(seeded, first)['state'] == 'STARTED')
+        end(agent)
+        assert run_ticks(client, sched, agent, 20, until=lambda: slot_row(seeded, first)['state'] == 'DONE')
+        agent.extra = {}  # the safety reason clears; the latch stays
+        run_ticks(client, sched, agent, 3)
+        clock[0] = T0 + timedelta(minutes=32, seconds=1)
+        run_ticks(client, sched, agent, 40, until=lambda: slot_row(seeded, second)['state'] in ('STARTED', 'SKIPPED'))
+        assert (slot_row(seeded, second)['state'], slot_row(seeded, second)['code']) == ('SKIPPED', 'STOP_LATCHED')
+    assert events(seeded, 'SCHEDULE_PRE_UNLOCK') == []
+
+
+def test_person_stop_then_release_before_the_agent_reports_is_never_pre_unlocked(demo, seeded):
+    """The K-03 skip never drops a frame that carries a person's STOP: STOP then release, both unreported."""
+    client, sched, clock = demo
+    rid = str(seeded['robots']['mine'])
+    slot_id = add_slot(seeded, synthetic_assignment(seeded))
+    with agent_ws(client, seeded) as ws:
+        ws.send_json(hello())
+        agent = FakeAgent(ws, latched=True)
+        agent.pump()
+        rt = client.app.state.realtime
+        with screen(client, app_token(client)) as sc:
+            assert reply(sc, send(sc, 'lease.take', rid))['ok']
+            for _ in range(10):
+                agent.pump()
+                if rt.arbiter.robot(rid).holder:
+                    break
+            lease = rt.arbiter.robot(rid).holder.lease_id
+            assert reply(sc, send(sc, 'unlock', rid, lease_id=lease, stop_gen=agent.gen))['ok']
+            agent.pump(); agent.pump()
+            assert not agent.latched
+            assert reply(sc, send(sc, 'stop', rid))['ok']      # a person's STOP ...
+            assert reply(sc, send(sc, 'lease.release', rid))['ok']  # ... then release, before the agent reports
+            frames_in = frames(agent.ws)
+            agent.seen += frames_in
+            stops = [f for f in frames_in if f.get('t') == 'stop']
+            assert [f['cause'] for f in stops][-2:] == ['user_stop', 'lease_release']
+            agent.latched, agent.stop_ref, agent.gen = True, stops[-2]['stop_ref'], agent.gen + 1
+            agent.state()  # the person's STOP, older than the release STOP
+            agent.stop_ref, agent.gen = stops[-1]['stop_ref'], agent.gen + 1
+            agent.state()
+        run_ticks(client, sched, agent, 3)
+        clock[0] = T0 + timedelta(minutes=3)
+        run_ticks(client, sched, agent, 10)
+        assert (slot_row(seeded, slot_id)['state'], slot_row(seeded, slot_id)['code']) == ('SKIPPED', 'STOP_LATCHED')
+    assert events(seeded, 'SCHEDULE_PRE_UNLOCK') == []
