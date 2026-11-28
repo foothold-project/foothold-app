@@ -154,7 +154,7 @@ const DRIVE_BLOCKED: Record<NonNullable<Robot['serverDriveBlocked']>[number], st
 };
 
 /** 조종 준비: 서버 연결 → 로봇 연결 → 조종 가능(허용 판단은 server_drive_allowed 만, 이유 목록은 표시만). 허용되면 조종은 세 칸 조종 화면(«조종 화면 열기»)에서 */
-function Prepare({ c, r, guide }: { c: Ctx; r: Robot; guide: () => void }) {
+export function Prepare({ c, r, guide }: { c: Ctx; r: Robot; guide: () => void }) {
   const k = kindOf(r), net = rt.link().at === 'open', on = k === 'on', ok = canDrive(c, r);
   const ready = ok && on;   // 서버 허용 값이 남아 있어도 로봇이 끊기면 완료로 보이지 않는다(목록 갱신 전). 패널(STOP 포함)은 ok 면 그대로 둔다
   const pill = k === 'lost' || k === 'server' ? { tone: 'bad' as const, text: '재연결 필요' } : ready ? { tone: 'ok' as const, text: '조종 가능' } : on ? { tone: 'warn' as const, text: '서버 허용 대기' } : { tone: 'off' as const, text: '연결 대기' };
@@ -189,7 +189,7 @@ function Sheet({ title, open, close, children }: { title: string; open: boolean;
     <div className="fl-sheet-body">{children}</div>
   </div>;
 }
-const Guide = ({ r }: { r: Robot }) => <ol className="fl-guide">
+export const Guide = ({ r }: { r: Robot }) => <ol className="fl-guide">
   <li><b>로봇과 노트북 연결</b><span className="lv-note">현장에서 쓰는 연결 방식(유선·현장 네트워크)으로 Go2 와 노트북을 잇습니다.</span></li>
   <li><b>노트북 연결 프로그램 켜기</b><span className="lv-note">«Go2 기체번호 찾음»에 보이는 번호가 이 로봇{r.serial ? <> (<span className="mono">{r.serial}</span>)</> : ''}과 같은지 확인합니다.</span></li>
   <li><b>로봇 상태 받기 확인</b><span className="lv-note">연결 프로그램에 «연결됨»이 뜨고 이 화면의 «로봇»이 «연결», «마지막 보고»가 초 단위로 바뀌면 됩니다.</span></li>
@@ -310,17 +310,20 @@ const NoReal = () => <section className="lv-card" style={{ flexBasis: '100%' }} 
   <div className="fh-row"><a className="btn" href="#/sim">시뮬 탭 열기</a></div></section>;
 
 /** 로봇 탭: PC 는 시안 u4 화면(robotu4.tsx · 실기 · 시뮬 함께), 폰은 아래 옛 배치 그대로 */
+/** 옛 PC 관제 부품(관제 요약 KPI · 운영 관리자 표 · 상세 서랍 · 조종 준비 · 다른 로봇). PC 로봇 탭은 시안 u4(RobotTab)이고,
+ *  이 부품은 W1 u5(관제)로 옮겨 갈 때까지 그대로 export 해 둔다. on = 앱 맥락 안에서 PC 에도 이 부품을 그린다(부품 시험용) */
+export const pcBoard = { on: false };
 export function OperatorRobot(c0: Ctx) {
-  return c0.phone ? <OperatorPhone {...c0} /> : <RobotTab c={c0} user={c0.user} refresh={c0.refresh} cancel={c0.cancel} />;
+  return c0.phone || pcBoard.on ? <OperatorBoard {...c0} /> : <RobotTab c={c0} user={c0.user} refresh={c0.refresh} cancel={c0.cancel} />;
 }
-function OperatorPhone(c0: Ctx) {
+export function OperatorBoard(c0: Ctx) {
   const c = useReal(c0);
   return c ? <Operator {...c} /> : <Pair user={c0.user} mine={[]} refresh={c0.refresh} cancel={c0.cancel}><NoReal /></Pair>;
 }
 export function AdminFleet(c0: Ctx) {
-  return c0.phone ? <AdminPhone {...c0} /> : <RobotTab c={c0} user={c0.user} refresh={c0.refresh} cancel={c0.cancel} />;
+  return c0.phone || pcBoard.on ? <AdminBoard {...c0} /> : <RobotTab c={c0} user={c0.user} refresh={c0.refresh} cancel={c0.cancel} />;
 }
-function AdminPhone(c0: Ctx) {
+export function AdminBoard(c0: Ctx) {
   const c = useReal(c0);
   const d = realDash(c0.dash.d, c0.robots);
   return c ? <Admin {...c} d={d} /> : <><Kpi user={c0.user} d={d} err={c0.dash.err} /><NoReal /><Operators user={c0.user} d={d} /></>;

@@ -2,13 +2,14 @@
 // fetch 는 가짜 서버, WebSocket 은 FakeWS. 401·403·404·409·503·네트워크 실패, 두 revoke 이유, 모르는 t, null 표시, STOP 상시 표시를 본다.
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Dashboard, RobotSummary, User } from '../../../contracts/ts';
 import { now, rt } from '../rt';
 import { Root } from '../session';
 import { ROBOT_BUSY, ROBOT_GONE } from '../screens/settings';
 import { FakeWS, fail, lease, state, type Msg } from './fakeWs';
 import { fleetNames, fleetRow } from './fleetRow';
+import { pcBoard } from '../screens/fleet';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -66,7 +67,9 @@ async function open(hash: string, phone = false) {
   act(() => { root = createRoot(box); root.render(<Root />); });
   await flush();
 }
-afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+// 이 파일 = 옛 PC 관제 부품(관제 요약 KPI · 운영 관리자 표 · 상세 서랍 · 목록) 시험. PC 로봇 탭은 시안 u4 라 부품을 앱 맥락 안에 직접 그린다 → W1 u5
+beforeEach(() => { pcBoard.on = true; });
+afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.unstubAllGlobals(); vi.useRealTimers(); pcBoard.on = false; });
 
 const $ = <T extends Element = HTMLElement>(s: string, from: ParentNode = box) => from.querySelector<T>(s);
 const btn = (t: string, from: ParentNode = box) => [...from.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;

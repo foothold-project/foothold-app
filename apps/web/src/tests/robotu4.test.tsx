@@ -101,8 +101,8 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
     expect($$('.views .vsel span').map(text)).toEqual(['지도', '카메라', '라이다', '깊이']);
     expect(text($('.views .small .cl'))).toBe('앞 카메라');
     expect(text($('.views .vstop'))).toBe('정지Space');
-    expect($('.ctl .keys')!.textContent).toBe('↑앞으로←→돌기↓뒤로는 막힘Space정지Shift1~4모드');
-    expect($$('.ctl .keys kbd').map(text)).toEqual(['↑', '←', '→', '↓', 'Space', 'Shift', '1', '4']);
+    expect($('.ctl .keys')!.textContent).toBe('↑앞으로←→돌기↓뒤로QE옆걸음Space정지Shift1~4모드');
+    expect($$('.ctl .keys kbd').map(text)).toEqual(['↑', '←', '→', '↓', 'Q', 'E', 'Space', 'Shift', '1', '4']);
     expect($$('.deck .stick').length).toBe(2);
     expect($$('.deck .act > div').map((d) => d.childNodes[1].textContent)).toEqual(['앉기', '일어서기', '엎드리기', '기지개', '악수', '하트', '인사']);
     expect($$('.deck .act > div em').map(text)).toEqual(['R1+B', 'L2+A', 'L2+A', 'R2+A', 'R2+B', 'R2+Y', '순정 확인 전']);

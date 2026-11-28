@@ -8,7 +8,7 @@ import type { MapVersion, ScreenAction } from '../../../../contracts/ts';
 import { api } from '../../api';
 import { rt, useLive, useRt } from '../../rt';
 import { useStopPress } from '../../App';
-import type { Robot } from '../../fake';
+import { ADMIN_LATER, ownerName, type Robot } from '../../fake';
 import { driveFeedText, useDriveFeed } from '../../drivemedia';
 import { DriveView, canDrive, keepDrive, useServerDrive, type Tok } from '../../serverdrive';
 import { GAITS } from '../../gait';
@@ -17,7 +17,8 @@ import { REPORT_STALE_MS, go2Pose, go2Temps, JOINTS, jointName } from '../../go2
 import { ACTION_NAMES, FACTORY_OFF, LOWLEVEL, actionResultText } from '../actiontrial';
 import { floorsOf, isVersion, shape, toPixel, useTree } from '../maps';
 import type { Ctx } from '../../screens';
-import { AddRobot } from '../../pairing';
+import { AddRobot, AssignOwner, ManageRobot } from '../../pairing';
+import { Guide, Prepare } from '../fleet';
 import { mount, type Go2Api } from './go2view';
 import '../../proto/ui.pv.css';
 import '../../proto/pc.pv.css';
@@ -162,9 +163,21 @@ function Robot1({ c, r }: { c: Ctx; r: Robot }) {
 /** 조종 못 하는 까닭(서버 허용 · 담당 · 총괄 실기) */
 const noDrive = (c: Ctx, r: Robot) => r.owner !== c.user.id && c.user.role !== 'ORG_ADMIN' ? '내 담당 로봇만 조종할 수 있습니다.'
   : '서버가 이 로봇의 웹 조종을 허용하지 않았습니다.';
+/** 로봇 설정 창(시안 u4_5): 내가 담당 = 이름 · 연결 끊기 · 지우기 · 담당 넘기기(pairing ManageRobot 그대로), 총괄 = 담당 없는 실기에 담당 지정 · 남 담당 실기는 까닭 한 줄 */
+function Settings({ c, r }: { c: Ctx; r: Robot }) {
+  const admin = c.user.role === 'ORG_ADMIN';
+  return <div className="u4set" data-u4-settings>
+    <div className="mrow"><span className="mu" style={{ fontWeight: 600 }}>담당</span><b>{ownerName(r)}</b>
+      {!r.sim && r.serial && <><span className="mu" style={{ fontWeight: 600 }}>기체번호</span><b className="mono">{r.serial}</b></>}</div>
+    {r.owner === c.user.id ? <ManageRobot key={`${r.id}-${r.owner}`} r={r} refresh={c.refresh} cancel={c.cancel} />
+      : admin && !r.sim && !r.owner ? <AssignOwner r={r} refresh={c.refresh} cancel={c.cancel} />
+      : admin && !r.sim ? <p className="mu" data-admin-later>{ADMIN_LATER}</p>
+      : <p className="mu">내 담당 로봇만 설정을 바꿀 수 있습니다.</p>}
+  </div>;
+}
 function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   const { l, s, mine } = d;
-  const [tab, setTab] = useState<Tab>('drive'), [view, setView] = useState<View>('map'), fs = useFeeds(r.id, view);
+  const [tab, setTab] = useState<Tab>('drive'), [guide, setGuide] = useState(false), [view, setView] = useState<View>('map'), fs = useFeeds(r.id, view);
   const [msg, setMsg] = useState(''), [pending, setPending] = useState<string | null>(null), tm = useRef(0);
   const say = (m: string) => { setMsg(m); clearTimeout(tm.current); tm.current = window.setTimeout(() => setMsg(''), 2600); };
   useEffect(() => { if (d.why) say(d.why); }, [d.why]);
@@ -220,7 +233,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
       <span className="g dk st" data-cell="holder"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>{who}<small>조종자</small></span>
       <div className="seg2" style={{ marginLeft: 'auto' }} role="tablist">
         {([['drive', '조종', ''], ['check', '점검', 'u4_4_check'], ['settings', '로봇 설정', 'u4_5_settings']] as const).map(([k, t, go]) =>
-          <span key={k} {...(go ? { 'data-go': go } : {})} className={tab === k ? 'on' : ''} data-seg={t} role="tab" aria-selected={tab === k} tabIndex={0} onClick={() => setTab(k)}>{t}</span>)}
+          <span key={k} {...(go ? { 'data-go': go } : {})} className={tab === k ? 'on' : ''} data-seg={t} role="tab" aria-selected={tab === k} tabIndex={0} onClick={() => { setTab(k); setGuide(false); }}>{t}</span>)}
       </div></div>
     <div className="stage3d" data-stale={pose ? undefined : ''}><Stage r={r} q={pose?.q ?? null} drive={drive} hot={hot} />
       <span className="g dk tag hint"><svg className="ic" viewBox="0 0 24 24" style={{ width: '14px', height: '14px' }}><path d="M16.466 7.5C15.643 4.237 13.952 2 12 2 9.239 2 7 6.477 7 12s2.239 10 5 10c.342 0 .677-.069 1-.2" /><path d="m15.194 13.707 3.814 1.86-1.86 3.814" /><path d="M19 15.57c-1.804.885-4.274 1.43-7 1.43-5.523 0-10-2.239-10-5s4.477-5 10-5c4.838 0 8.873 1.718 9.8 4" /></svg>끌어서 돌려 보기</span>
@@ -252,7 +265,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
           <svg className="ic" viewBox="0 0 24 24" style={{ width: '18px', height: '18px' }}><line x1="6" x2="10" y1="11" y2="11" /><line x1="8" x2="8" y1="9" y2="13" /><line x1="15" x2="15.01" y1="12" y2="12" /><line x1="18" x2="18.01" y1="10" y2="10" /><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z" /></svg>{mine ? '조종 중' : '조종 시작'}</div>
         <div data-go="u4_3_voice" className="g dk btn talk" role="button" tabIndex={0} onClick={() => say('말하기는 아직 서버에 없습니다')}>
           <svg className="ic" viewBox="0 0 24 24" style={{ width: '18px', height: '18px' }}><path d="M12 19v3" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><rect x="9" y="2" width="6" height="13" rx="3" /></svg>말하기</div>
-        <div className="g dk keys" data-u4-keys><span><kbd>↑</kbd>앞으로</span><span><kbd>←</kbd><kbd>→</kbd>돌기</span><span className="mu2"><kbd>↓</kbd>뒤로는 막힘</span><span><kbd>Space</kbd>정지</span><span><kbd>Shift</kbd><kbd>1</kbd>~<kbd>4</kbd>모드</span></div>
+        <div className="g dk keys" data-u4-keys><span><kbd>↑</kbd>앞으로</span><span><kbd>←</kbd><kbd>→</kbd>돌기</span><span><kbd>↓</kbd>뒤로</span><span><kbd>Q</kbd><kbd>E</kbd>옆걸음</span><span><kbd>Space</kbd>정지</span><span><kbd>Shift</kbd><kbd>1</kbd>~<kbd>4</kbd>모드</span></div>
       </div>
       <div className={`deck joybig${latched ? ' dim' : ''}`} data-u4-deck data-ready={ready || undefined}>
         <Stick side="L" put={d.stick} blocked={say} /><Stick side="R" put={d.stick} blocked={say} />
@@ -264,7 +277,12 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
         <div className={`why${msg ? ' on' : ''}`} role="status" data-u4-why>{msg}</div>
       </div>
     </div>
-    {tab !== 'drive' && <span hidden data-u4-tab={tab} />}
+    {tab !== 'drive' && <><div className="veil" onClick={() => setTab('drive')} />
+      <div className="g modal" role="dialog" aria-label={tab === 'settings' ? '로봇 설정' : '점검'} data-u4-tab={tab} style={tab === 'check' ? { width: '760px', maxHeight: '920px', overflow: 'hidden' } : undefined}>
+        <div className="row" style={{ justifyContent: 'space-between' }}><span className="ttl">{r.name} {tab === 'settings' ? '로봇 설정' : '점검'}</span>
+          <span className="xclose" role="button" tabIndex={0} aria-label="닫기" data-u4-close onClick={() => setTab('drive')}><svg className="ic" viewBox="0 0 24 24" style={{ width: '22px', height: '22px' }}><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg></span></div>
+        {tab === 'settings' ? <Settings c={c} r={r} /> : guide ? <Guide r={r} /> : <Prepare c={c} r={r} guide={() => setGuide(true)} />}
+      </div></>}
   </>;
 }
 
@@ -286,12 +304,10 @@ const light = () => typeof document !== 'undefined' && document.documentElement.
 
 /** 로봇 탭 PC 화면(App 의 로봇 탭 본문). c 가 null 이면 로봇 0대 */
 export function RobotTab({ c, user, refresh, cancel }: { c: Ctx | null; user: Ctx['user']; refresh: () => void; cancel?: AbortSignal }) {
-  const [adding, setAdding] = useState(false), [note, setNote] = useState('');
-  const add = () => { if (user.role === 'ORG_ADMIN') { setNote('로봇 추가는 운영 관리자가 자기 계정에서 합니다.'); return; } setAdding(true); };
+  const [adding, setAdding] = useState(false), add = () => setAdding(true);   // 총괄도 붙인다(11/28 · 서버 #544)
   return <div className={`proto${light() ? ' light' : ''} u4`} data-u4 aria-label="로봇">
     {c ? <><Rail c={c} sel={c.robot.id} add={add} /><Robot1 key={c.robot.id} c={c} r={c.robot} /></> : <Empty add={add} />}
-    {note && <div className="g dk" role="status" data-u4-note style={{ left: '24px', bottom: '24px', padding: '10px 14px' }} onClick={() => setNote('')}>{note}</div>}
     {adding && <><div className="veil" onClick={() => setAdding(false)} /><div className="g modal" role="dialog" aria-label="로봇 추가">
-      <AddRobot mine={(c?.robots ?? []).filter((x) => x.owner === user.id).map((x) => x.id)} close={() => setAdding(false)} refresh={refresh} cancel={cancel} /></div></>}
+      <AddRobot user={user} mine={(c?.robots ?? []).filter((x) => x.owner === user.id).map((x) => x.id)} close={() => setAdding(false)} refresh={refresh} cancel={cancel} /></div></>}
   </div>;
 }
