@@ -136,7 +136,8 @@ export function facts(x: Robot, me: string, places: Map<string, string>, av?: Av
   const byTemp = !!lvTemp && !!h && (lvTemp === 'crit' || !latched), lw = latched ? lockWhy(x, s) : '';
   const why = byTemp ? `${jointName(h!.j)} ${Math.round(h!.t)} °C` : latched ? (lw ? `${st.text} · ${lw}` : st.text) : flagNote(x) || st.text;
   const run = s?.run ?? null, paused = run?.status === 'PAUSED' ? (run.wait_reason === 'LINK_LOST' ? '일시정지 · 연결 끊김' : '일시정지') : null;
-  const m = missionOf(x.mission) ?? (run && run.progress.total ? { name: '', done: run.progress.done, total: run.progress.total } : null);
+  // 진행 막대: 목록 current_run(x.mission), 없으면 화면 state.run 이 아직 도는 임무일 때만(01:02 K-07: 끝난 run 이 state 에 남아 «할 일 34/36» 이 남던 것)
+  const m = missionOf(x.mission) ?? (run && runOn(x, s) && run.progress.total ? { name: '', done: run.progress.done, total: run.progress.total } : null);
   const loc = s?.location ?? (x.unknown === 'summary' ? null : x.location ?? null);
   const fl = loc?.floor_id ? places.get(loc.floor_id) : undefined;
   const at = av?.label ?? (loc ? fl ?? (loc.x != null && loc.y != null ? `위치 ${loc.x.toFixed(1)}, ${loc.y.toFixed(1)} m` : null) : null);
