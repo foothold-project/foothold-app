@@ -221,9 +221,10 @@ describe('지도 탭 — 장소 나무', () => {
       { id: 'b3', site_id: 's1', name: '작은 동', floors: [floor('f1', '1층', 1, 'v2', 'b3')] }] }], next_cursor: null };
     serve(signedIn(KIM, { 'GET /sites': { status: 200, body: t }, 'GET /floors/f3/map-versions': { status: 200, body: { items: [], next_cursor: null } }, 'GET /floors/f4/map-versions': { status: 200, body: { items: [], next_cursor: null } } }));
     await open('#/map');   // 시안 u7_1: 지도가 있는 건물(작은 동)이 위 묶음 · 지도 0 개 실제 현장(본동)은 「아직 스캔 전」 묶음이라 본동을 골라 연다
-    await click($('[data-to-chooser]')); await click($('[data-building="b1"]')); await click($('[data-open-map]'));
-    expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 지하');
-    await click($('[data-to-chooser]'));
+    await click($('[data-to-chooser]')); await click($('[data-building="b1"]'));
+    expect(card('미리 보기').querySelector('[data-prev-title]')!.textContent).toBe('본동 · 지하');   // 판 없는 층 = 빈 칸 부품 · 지도 열기 없음
+    expect(card('미리 보기').querySelector('[data-empty="pick-floor"]')).not.toBeNull(); expect($('[data-open-map]')).toBeNull();
+    expect($('[data-floor-row="f4"] [data-th-art] svg.art')).not.toBeNull(); expect($('[data-floor-row="f4"] .mx-thumb')).toBeNull();   // 썸네일 = ART
     expect($('[data-building="b2"]')).toBeNull();                                         // 층 없는 건물은 열 지도가 없어 카드 없음(«장소 고치기»에서 층을 만듦)
     await click($('[data-building="b3"]')); await click($('[data-open-map]'));
     expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 작은 동 1층');
@@ -241,8 +242,8 @@ describe('지도 탭 — 장소 나무', () => {
     expect($('[data-last]')).toBeNull();                                                   // 11-11 «마지막에 본 지도» 카드 뺌
     expect(pic('[data-floor-row="f1"]').querySelector('svg')!.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');   // 비율 유지(contain)
     await click($('[data-building="b3"]'));
-    expect(pic('[data-floor-row="f3"]').textContent).toBe('지도 없음');
-    expect(pic('[data-floor-row="f3"]').querySelector('image')).toBeNull();
+    expect($('[data-floor-row="f3"] [data-th-art]')).not.toBeNull();   // 판 없는 층 썸네일 = 빈 칸 그림(ART) 작게
+    expect($('[data-floor-row="f3"] [data-th-art] image')).toBeNull();
     await click($('[data-building="b1"]'));
     act(() => { pic('[data-floor-row="f1"]').querySelector('image')!.dispatchEvent(new Event('error')); });
     await flush();
@@ -2449,10 +2450,9 @@ describe('지도 탭 · 시안 u7', () => {
     for (const w of ['억 점', 'GLIM', '3DGS', '사진']) expect(box.textContent, w).not.toContain(w);
     await click(rows[1]);
     expect(card('미리 보기').querySelector('[data-prev-title]')!.textContent).toBe('본동 · 2층');
-    expect(card('미리 보기').querySelector('[data-empty="floor"] h2')!.textContent).toBe('지도 없음');   // 판 없는 층 = 시안 u11_7 꼴 빈 칸 · 숫자 없음
+    expect(card('미리 보기').querySelector('[data-empty="pick-floor"] h2')!.textContent).toBe('지도 없음');   // 판 없는 층 = 지도 0 개 칸과 같은 부품 · 숫자 없음
     expect(card('미리 보기').querySelector('[data-clay]')).toBeNull();
-    await click($('[data-open-map]'));
-    expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 2층');
+    expect($('[data-open-map]')).toBeNull(); expect($('[data-open-history]')).toBeNull(); expect($('[data-pv-fade]')).toBeNull();   // 지도 없음에서 지도 열기 = 거짓 단추라 없음
   });
 
   // 팀장 11/28 22:37 「시뮬 월드 하지 말고」(조정 23:01): 지도 탭 = purpose REAL 현장만. 서버 demo 칸이 있는 SIM 현장도 지도 탭에는 없음(demo 칸은 다른 화면이 씀) · 머리 수 = REAL 판 수

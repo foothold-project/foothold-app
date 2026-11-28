@@ -1,7 +1,7 @@
 // 지도 탭 첫 화면 = 시안 u7_1(고르기) · u7_2(관리). 시안 body 를 JSX 로 옮김(태그 · class · 순서 · 글 그대로, 시안 머리줄 .bar 는 앱 머리줄 몫).
 // 고정 글 자리는 서버 나무(장소 · 건물 · 층) · 지도 판 값으로만. 서버에 없는 값(점 개수 · 내려받기)은 칸을 비우거나 그 칸을 뺀다.
 // 「새 지도 만들기」 = 시안 u7_6(로봇으로 그리기). 파일 · 3D 지도 올리기는 관리(u7_2) 「3D 지도 올리기」 칸 → 올리기 화면.
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import type { MapFloor, MapSite, MapVersion, TrashItem } from '../../../../contracts/ts';
 import { ApiFail, api } from '../../api';
 import { inApp } from '../../screens';
@@ -62,6 +62,20 @@ function useInk(id?: string | null) {
 const Th = ({ children, id }: { children: ReactNode; id?: string | null }) => <div className="th" data-ink={useInk(id)}>{children}</div>;
 const LineDefs = () => <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true" data-u7-linedefs dangerouslySetInnerHTML={{ __html: `<defs>${LINE_DEFS}</defs>` }} />;
 
+/** 지도 빈 칸 하나(시안 u11_7 · .empty 짜임): 그림 · 제목 · 한 줄 · 칠한 「로봇 탭으로」 + 보조 「지도 만들기」(담당 실기 있음) / 「파일 올리기」.
+ *  지도 0 개 칸(data-empty="map" · 보조 단추 = 「어느 층에?」)과 지도 탭 미리 보기의 판 없는 층(data-empty="pick-floor" · 보조 단추 = 이 층에서 바로)이 같이 씀. acts 없으면 단추 없음 */
+export function MapEmpty({ kind, className, style, title, why, acts }: { kind: string; className: string; style: CSSProperties; title: string; why: string; acts?: { maker: boolean; go: () => void } }) {
+  const go = () => acts?.go();
+  return <div className={className} style={style} aria-label={title} data-empty={kind}>
+    <svg className="art" data-empty-icon viewBox="0 0 560 340" aria-hidden="true" dangerouslySetInnerHTML={{ __html: ART.map }} />
+    <h2>{title}</h2><p>{why}</p>
+    {acts && <><a className="btnp" href="#/fleet" data-empty-go>{ic(18, DOG)}로봇 탭으로</a>
+      <div className="btns" role="button" tabIndex={0} style={{ height: '44px', padding: '0 18px', fontSize: '13.5px', marginTop: '12px' }} data-empty-act data-off-proto
+        onClick={go} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } }}>{ic(16, PLUS)}{acts.maker ? '지도 만들기' : '파일 올리기'}</div></>}</div>;
+}
+/** 판 없는 층 썸네일 = 같은 ART.map 작게(.empty .art 밝은 판 색 규칙을 그대로 받음) */
+const ThArt = () => <div className="th empty" data-th-art><svg className="art" viewBox="0 0 560 340" aria-hidden="true" dangerouslySetInnerHTML={{ __html: ART.map }} /></div>;
+
 /** 층 겹친 그림(시안 u7_1 가운데 아래 svg 값 그대로): 위층이 위, 고른 층만 민트. 누르면 그 층 */
 function Stack({ floors, sel, pick }: { floors: MapFloor[]; sel?: string; pick: (id: string) => void }) {
   const l = byLevel(floors), top = 250 - (l.length - 1) * 78;
@@ -103,7 +117,7 @@ export function railGroups(sites: MapSite[], blds: { site: Place['site']; buildi
 }
 
 export function PickU7({ maker, t, places, vers, choose, make, note, manage, setManage, ed, children }: { maker: boolean; t: ReturnType<typeof useTree>; places: Place[]; vers: Record<string, MapVersion>;
-  choose: (id: string, then?: 'history') => void; make: (k: 'robot' | 'file') => void; note: Msg; manage: boolean; setManage: (m: boolean) => void; ed: Ed; children: ReactNode }) {
+  choose: (id: string, then?: 'history' | 'robot' | 'file') => void; make: (k: 'robot' | 'file') => void; note: Msg; manage: boolean; setManage: (m: boolean) => void; ed: Ed; children: ReactNode }) {
   const blds = places.reduce<{ site: Place['site']; building: Place['building'] }[]>((a, p) => (a.some((x) => x.building.id === p.building.id) ? a : [...a, { site: p.site, building: p.building }]), []);
   // 처음 고른 건물 = 왼쪽 목록 첫 줄(지도 있는 현장 먼저 · 시안 u7_1 첫 줄 on). 서버 /sites 는 이름순이라 blds[0] 은 스캔 전 현장일 수 있음
   const rail = railGroups(t.tree?.items ?? [], blds), first = rail[0]?.rows[0]?.building.id;
@@ -139,18 +153,14 @@ export function PickU7({ maker, t, places, vers, choose, make, note, manage, set
     {!t.tree && !t.err && <p className="mu2" role="status" style={{ position: 'absolute', left: '372px', top: '176px', fontSize: '14px' }}>장소 목록을 불러오는 중…</p>}
     {/* 지도 0 개 = 시안 u11_7 그림 · 제목 · 글 · 칠한 단추 「로봇 탭으로」 하나(.pane.empty · 자리는 고르기 칸 그대로라 머리줄을 덮지 않음).
         아래 보조 단추(지도 만들기 · 파일 올리기)는 시안 밖 · 새로 그림: 지도 0 개 조직이 지도를 시작할 길(조정 22:27) */}
-    {none && !manage && <div className="pane empty" style={{ left: '348px', top: '160px', right: '24px', bottom: '24px' }} aria-label="아직 지도가 없습니다" data-empty="map">
-      <svg className="art" data-empty-icon viewBox="0 0 560 340" aria-hidden="true" dangerouslySetInnerHTML={{ __html: ART.map }} />
-      <h2>아직 지도가 없습니다</h2><p>로봇을 조종해 한 바퀴 걸으면 지도가 만들어집니다.</p>
-      <a className="btnp" href="#/fleet" data-empty-go>{ic(18, DOG)}로봇 탭으로</a>
-      <div className="btns" role="button" tabIndex={0} style={{ height: '44px', padding: '0 18px', fontSize: '13.5px', marginTop: '12px' }} data-empty-act data-off-proto
-        onClick={() => make(maker ? 'robot' : 'file')} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); make(maker ? 'robot' : 'file'); } }}>{ic(16, PLUS)}{maker ? '지도 만들기' : '파일 올리기'}</div></div>}
+    {none && !manage && <MapEmpty kind="map" className="pane empty" style={{ left: '348px', top: '160px', right: '24px', bottom: '24px' }} title="아직 지도가 없습니다"
+      why="로봇을 조종해 한 바퀴 걸으면 지도가 만들어집니다." acts={{ maker, go: () => make(maker ? 'robot' : 'file') }} />}
     {manage ? <Manage t={t} vers={vers} ed={ed} make={make} />
       : cur && <><div className="pane" style={{ left: '348px', top: '160px', width: '620px', bottom: '24px', padding: '22px 18px' }} aria-label="층 목록">
         <div className="row" style={{ justifyContent: 'space-between', padding: '0 6px 12px' }}><span className="ttl">{cur.building.name} · 층</span><span className="mu2" style={{ fontSize: '12.5px', fontWeight: 600 }}>층마다 지도 하나</span></div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>{floors.map((f) => { const x = f.approved_version_id ? vers[f.approved_version_id] : undefined, [tc, tt] = x ? tagOf(x) : ['', ''];
           return <div key={f.id} className={`frow${f.id === fl?.id ? ' on' : ''}`} role="button" tabIndex={0} aria-pressed={f.id === fl?.id} data-floor-row={f.id} onClick={() => setFid(f.id)}>
-            <Th id={f.approved_version_id}><Thumb id={f.approved_version_id} v={x} demo={demo} /></Th>
+            {f.approved_version_id ? <Th id={f.approved_version_id}><Thumb id={f.approved_version_id} v={x} demo={demo} /></Th> : <ThArt />}
             <div style={{ flex: 1, minWidth: 0 }}><div className="row" style={{ gap: '10px' }}><b>{f.name}</b>{x ? <span className={tc}>{tt}</span> : !f.approved_version_id && <span className="tag">지도 없음</span>}
               {x && voxelOf(x) && <span className="tag m" style={{ marginLeft: '8px' }} data-voxel-chip>3D</span>}</div>
               {x && <div className="meta"><span>{meters(x).area} ({meters(x).wh})</span><span>{md(x.created_at)} · v{x.number}</span></div>}</div>
@@ -164,9 +174,9 @@ export function PickU7({ maker, t, places, vers, choose, make, note, manage, set
         <div style={{ position: 'absolute', inset: 0 }} data-u7-preview>{v && modelOf(v) && no3 !== v.id ? <Map3D key={v.id} v={v} robots={[]} still missing={() => setNo3(v.id)} />
           : v ? <ClayMap key={v.id} v={v} light={light()} />
           : fl.approved_version_id ? <p className="mu2" role="status" style={{ position: 'absolute', left: '28px', top: '90px', right: '28px', fontSize: '14px' }}>지도를 불러오는 중…</p>
-          : <div className="empty" style={{ top: '60px', bottom: '210px' }} data-empty="floor"><svg className="art" viewBox="0 0 560 340" aria-hidden="true" style={{ width: '100%', maxWidth: '460px', height: 'auto' }} dangerouslySetInnerHTML={{ __html: ART.map }} />
-            <h2>지도 없음</h2><p>이 층은 아직 스캔하지 않았습니다.</p></div>}</div>
-        <div className="pv-fade" data-pv-fade />
+          : <MapEmpty kind="pick-floor" className="empty" style={{ top: '40px', bottom: '110px' }} title="지도 없음" why="이 층은 아직 스캔하지 않았습니다."
+            acts={purposeOf(cur.site) === 'REAL' ? { maker, go: () => choose(fl.id, maker ? 'robot' : 'file') } : undefined} />}</div>
+        {v && <div className="pv-fade" data-pv-fade />}
         {v && <div className="g dk" style={{ left: '20px', top: '20px', height: '38px', padding: '0 14px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 700 }} data-tag3d>
           {ic(16, CUBE)}3D 보기 · 미리 보기</div>}
         <div style={{ position: 'absolute', left: '28px', right: '28px', bottom: '26px' }}>
@@ -174,9 +184,8 @@ export function PickU7({ maker, t, places, vers, choose, make, note, manage, set
           {v && <div className="row pv-meta" style={{ gap: '22px', marginTop: '12px', fontSize: '13.5px', fontWeight: 600 }}>
             <span className="row" style={{ gap: '6px' }}>{ic(16, LAYERS)}{meters(v).area}</span><span className="row" style={{ gap: '6px' }}>{ic(16, CLOCK)}{md(v.created_at)} {howMade(v)} · v{v.number}</span>
             <span className="row" style={{ gap: '6px' }}>{ic(16, BAN)}금지 구역 {nogo(v)}</span></div>}
-          <div className="row" style={{ gap: '10px', marginTop: '20px' }}><div className="btnp" role="button" tabIndex={0} style={{ height: '52px', flex: 1, fontSize: '15px' }} data-open-map onClick={() => choose(fl.id)}>지도 열기</div>
-            <div className="btns pv-hist" role="button" tabIndex={0} style={{ height: '52px', width: '170px', fontSize: '14px' }} aria-disabled={!fl.approved_version_id || undefined}
-              title={fl.approved_version_id ? undefined : '이 층에 저장된 지도가 없습니다.'} data-open-history onClick={() => { if (fl.approved_version_id) choose(fl.id, 'history'); }}>{ic(17, HIST)}버전 기록</div></div></div>
+          {fl.approved_version_id && <div className="row" style={{ gap: '10px', marginTop: '20px' }}><div className="btnp" role="button" tabIndex={0} style={{ height: '52px', flex: 1, fontSize: '15px' }} data-open-map onClick={() => choose(fl.id)}>지도 열기</div>
+            <div className="btns pv-hist" role="button" tabIndex={0} style={{ height: '52px', width: '170px', fontSize: '14px' }} data-open-history onClick={() => choose(fl.id, 'history')}>{ic(17, HIST)}버전 기록</div></div>}</div>
       </div>}</>}
     {children}
   </div>;

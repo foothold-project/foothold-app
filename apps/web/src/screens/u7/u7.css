@@ -117,3 +117,6 @@
 .proto.light .u7 .frow .th .mx-thumb image{filter:url(#u7-line-l)}
 .u7 .frow .th[data-ink=dark] .mx-thumb image{filter:url(#u7-line-d-i)}
 .proto.light .u7 .frow .th[data-ink=dark] .mx-thumb image{filter:url(#u7-line-l-i)}
+/* u7_1 판 없는 층 썸네일: .empty 를 빌려 ART 밝은 판 색 규칙(u11.css)을 받되 자리 · 크기는 칸 그대로 */
+.u7 .frow .th.empty{position:static;display:flex;align-items:center;justify-content:center;text-align:initial}
+.u7 .frow .th.empty .art{width:100%;height:100%}
