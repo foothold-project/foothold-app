@@ -101,7 +101,7 @@
 
 | 메서드 | 경로 | 설명 | 권한 |
 |---|---|---|---|
-| GET | `/robots` | 목록 + 최신 상태 요약 `?scope=mine|all` (기본 `mine`). `all` = 조직의 전체 로봇 | 로그인 |
+| GET | `/robots` | 목록 + 최신 상태 요약 `?scope=mine|all` (기본: 운영자 `mine` · 총괄 `all`, 팀장 11/28). `all` = 조직의 전체 로봇 | 로그인 |
 | POST | `/robots` | 실기 직접 등록 폐지 →403 `PAIRING_REQUIRED`; §3.1 사용 | 없음 |
 | GET | `/robots/{id}` | 상세(장치 목록·담당자·현재 실행·현재 층). 담당 밖 운영 관리자에게는 로봇 요약 객체만 200 | 로그인 |
 | GET | `/robots/{id}/owner-candidates` | 넘길 수 있는 같은 조직의 활성(잠금·보관 제외) OPERATOR, 본인 제외. `{items:[{user_id,display_name}],next_cursor}`, 이름순(동명은 user_id순), 기존 `limit/cursor`. 시뮬은 기존 ROBOT_WRITE 판정 후409 `SIM_ROBOT_MANAGED`, 없는 로봇404 | 실기 O(내), 담당 밖·총괄403 |
@@ -161,7 +161,7 @@
 - 현장 안전 확인 없음 — 담당·연결·전체 스위치로 관문. 사람의 세 항목 체크와 승인·해제는 사용하지 않는다. 이전 POST/DELETE는 담당 권한 확인 뒤410이며 상태를 바꾸지 않는다.
 - `RobotSummary.robot_serial`은 총괄도 읽는다. 호환 필드 `field_approval_expires_at`은 항상 null이며 DB의 옛 값은 권한으로 쓰지 않는다. DB 열을 지우거나 이관하지 않는다.
 - 서버 경유 실기 수동 조종은 전체 스위치 AND 담당 있음 AND 페어링 기체번호 있음 AND 인증된 실기 agent 연결이 모두 필요하다. `FH_SERVER_DRIVE_ENABLED=1`은 전체 스위치이며, env가 없을 때만 옛 `FH_SERVER_DRIVE_ROBOTS` UUID 목록을 대신 쓴다. 명시0·다른 값은 닫힘이며 wildcard는 거부한다. 목록의 `server_drive_allowed`도 이 조건으로 정한다.
-- 전체 스위치가 닫히면 운영은 `PHONE_DIRECT_REQUIRED`; 연결·담당 확인 중에는 호환 코드 `FIELD_APPROVAL_REQUIRED`를 사용한다. 총괄은 항상 `ADMIN_NO_REAL_CONTROL`. 시뮬·폰 출입증·명령표·속도 제한·0.30초 감시는 유지한다.
+- 전체 스위치가 닫히면 운영은 `PHONE_DIRECT_REQUIRED`; 연결·담당 확인 중에는 호환 코드 `FIELD_APPROVAL_REQUIRED`를 사용한다. 총괄도 운영자와 같은 관문을 받는다(팀장 11/28 「총괄은 모든 권한」으로 `ADMIN_NO_REAL_CONTROL` 폐지). 시뮬·폰 출입증·명령표·속도 제한·0.30초 감시는 유지한다.
 - 연결 중 서버는 `{t:"field_approval",expires_at:UTC|null}` 표식을 자동 발급하고60초마다 갱신한다. 한 표식은30분 이하이며, 연결이 살아 있는 동안 자동 관문에 총 시간 제한은 없다. 최종 발신 때 현재 peer·담당·전체 스위치·500ms 이내 인증 확인·연결 생존을 다시 검사한다. 연결이 끊기거나 확인이 오래되면 갱신하지 않는다. `FIELD_APPROVAL_EXPIRED` 사건은 더 만들지 않으며 옛 기록은 읽을 수 있다.
 - 노트북은 기존 nic·serial·최대1800초·벽시계/단조시계 만료 검사를 유지한다. 같은 유효 연결의 정상 표식 갱신은 조종권·잠금 상태를 유지하며, 끊김·만료·검사 실패는 STOP·잠금·조종권 회수다. 연결 끊기·담당 변경·재연결도 진행 중 조종을 끝내며, 재연결 뒤 자동 표식을 받아도 조종권·잠금 해제는 복원하지 않는다. 다시 취득·STOP 확인·명시 잠금 해제가 필요하다. 안전 STOP·lease-null 경로는 그대로다.
 - 배포 담당이 할 일: 기존0022 DB 이관 적용 확인(이번 추가 이관 없음), 서버·새 연결 프로그램의 호환 및 비밀 전달 경로 확인, 필요한 경우 전체 스위치 설정, 별도 승인된 절차로 재시작·통합 검증. 이 구현 작업은 운영 env·서버·실기·시뮬을 건드리지 않는다.
@@ -402,6 +402,37 @@ purge 이후 NULL 기록이 생겼거나 파일 대기열이 남으면
   "message": "14:02 Go2-3이 계획 경로에서 1.8 m 벗어났습니다.",
   "robot_id": "…"|null, "user_id": "…"|null, "run_id": "…"|null, "data": { "distance_m": 1.8 } }
 ```
+
+**사건 등급 하한** (2026-11-28, #552 기록 탭)
+- 등급은 `INFO` < `WARN` < `ERROR` 셋뿐이다(DB 제약 `event_severity`). 따로 `DANGER`·`CRITICAL` 은 두지 않는다.
+- 코드가 `_(FAILED|REJECTED|DENIED|TIMEOUT)$` 에 맞으면 저장 등급은 최소 `WARN` 이다. 보낸 쪽이 `INFO` 로 보냈거나 등급을 비웠으면 서버가 `WARN` 으로 올린다. 이미 `WARN`·`ERROR` 면 그대로 둔다. 내리는 일은 없다.
+- `STOP_CONFIRM_FAILED` 는 최소 `ERROR` 다. 정지를 요청했는데 2 s 안에 확인이 오지 않아 로봇이 멈췄는지 증명되지 않은 상태이기 때문이다([02 F-TO-04](02-FUNCTIONAL-SPEC.md#f-to-04-조종권-요청-sf-05sf-08--확정--제안-보완) 넘김 순서 4).
+- 서버는 사건 행을 넣는 모든 경로에서 이 하한을 한 곳(`fh_server/models.py` 의 `severity_floor`)으로 건다. 에이전트도 보낼 때 같은 규칙을 쓴다(폰 허브 `PHONE_LEASE_TIMEOUT` 등은 `warn`).
+- 서버 조종권 요청 시간 초과의 코드 `TIMEOUT` 은 밑줄이 없어 위 정규식에 맞지 않지만, 따로 지정해 최소 `WARN` 이다(2026-11-28 결정).
+
+### 8.1 사건 영상 · 관절 기록 재생 · 지금 남기기 (u07, IMPL-GAP U8-03~U8-12)
+
+정본 타입은 `apps/contracts/models.py` 의 `EventClip` · `EventClipList` · `JointLogFrame` · `JointLogReplay` · `RecordMarkRequest` · `RecordMarkResult` 다.
+
+**영상 규칙**
+- 영상은 서버가 만든다. 시뮬과 실기는 같은 기록 · 알림 · 영상을 남긴다.
+- 길이: 사건 10 초 전부터 5 초 뒤까지 (`CLIP_PRE_S` · `CLIP_POST_S`). 넘어짐은 다시 설 때까지라 서기 전에는 `end_at` 이 null 이다.
+- 등급: 위험(`ERROR`)은 늘 영상을 남긴다. 주의(`WARN`)는 고른 때만 남긴다. 정보(`INFO`)는 기록만 하고 영상이 없다.
+- 상태 `status`: `PENDING`(만드는 중) · `READY`(`url` 있음) · `FAILED`(`reason` 있음) · `NOT_BUILT`(만드는 장치가 아직 없음, `clip_id` null, `reason` 있음). `url` 은 `READY` 일 때만 값이 있다.
+
+**관절 기록 재생**: `JointLogReplay { event_id, robot_id, start_at, joint_names[12], rate_hz, frames[] }`, 프레임은 `JointLogFrame { t, q[12], base { xyz[3], wxyz[4] }, gait|null }`. `t` 는 `start_at` 부터 초이고 프레임은 시간 순으로 늘어난다. `q` 는 `joint_names` 순서의 rad. 재생 빠르기 0.25 · 0.5 · 1 · 2 배와 반복은 웹이 프레임을 다시 그려서 한다. 서버는 빠르기를 받지 않는다.
+
+| 메서드 | 경로 | 설명 | 권한 | 지금 |
+|---|---|---|---|---|
+| POST | `/robots/{id}/records/mark-now` | 「지금 남기기」. 본문 `{severity?: INFO\|WARN\|ERROR (기본 WARN), note?: ≤200자, clip?: bool\|null}`. 201 `{event, clip}` | 그 로봇 보기 권한 (`ROBOT_READ`: 담당 운영자 · 총괄) | 사건은 실제로 `events` 에 남는다 (`category RUN`, `code RECORD_MARKED`). 영상은 `NOT_BUILT`, INFO · `clip:false` 면 `clip: null` |
+| GET | `/robots/{id}/records/clips` | 그 로봇의 사건 영상 목록 `EventClipList` | 같음 | **501** `CLIP_PIPELINE_NOT_BUILT` |
+| GET | `/robots/{id}/records/clips/{clip_id}` | 영상 하나 `EventClip` | 같음 | **501** `CLIP_PIPELINE_NOT_BUILT` |
+| GET | `/robots/{id}/records/events/{event_id}/joint-log` | 사건 둘레 관절 기록 `JointLogReplay` | 같음 | **501** `JOINT_LOG_NOT_BUILT` |
+
+- 권한 판정을 먼저 한다. 볼 수 없는 로봇은 501 이 아니라 404 다 (있다는 사실도 숨김).
+- 501 본문은 보통 오류 모양 `{error: {code, message, detail: {}}}` 이고 `message` 는 한 줄이다. 웹은 그대로 보여 준다. 까닭 코드 목록은 `RecordsNotBuiltCode`.
+- 규칙에 어긋난 고르기 (`ERROR` + `clip:false`, `INFO` + `clip:true`) 는 조용히 고치지 않고 400 `VALIDATION`.
+- 이번 범위 밖: 실제 영상 만들기 · 관절 기록 저장 (실기 · Jetson 쪽 일 없음), 「지금 남기기」 알림 발송.
 
 ---
 
@@ -890,7 +921,7 @@ URL·쿠키·로그·감사 사건·DB에 토큰/서명을 넣지 않는다. 화
 - `surface` 기본값은 `phone`이다. PC 시뮬 화면은 반드시 `pc`를 요청한다.
   `pc`는 로봇의 서버 `simulation` 값이 정확히 `True`가 아니면 control·view 모두
   403 `WEB_SIM_ONLY`다. PR #95 총괄 실기 출입증 403 `ADMIN_NO_REAL_CONTROL`은
-  기존 권한 검사에서 그대로 유지한다. 서버가 허용해도 에이전트는 서명된 `surface`와
+  팀장 11/28 결정으로 폐지했다(총괄도 실기 출입증 발급, `WEB_SIM_ONLY`는 총괄에게도 적용). 서버가 허용해도 에이전트는 서명된 `surface`와
   **자기 기동 때 명시한 simulation 설정**을 다시 확인한다. PC는 hello·조종권·조종을
   거부하며 STOP·조종권 반납은 이 관문으로 막지 않는다. 직결 `run.*`는 아직 지원하지
   않아 실행되지 않는다(ADR-003 ⑤ 후속). PC도 같은 Session·deadman 0.3 s를 쓴다.
@@ -1476,8 +1507,8 @@ F-MS-06의 우선순위(STOP_LATCHED 등)를 유지한다.
   `run_cancel=true`를 검증한다. 서버는 발급 때 현재 조직·로봇 담당/총괄 권한을 확인한다.
   원 실행 화면은 기존 권한으로도 취소할 수 있다. 이 안전 축소 요청에는 lease 취득,
   screen_id·resume_token·unlock·중립을 요구하지 않으며 RUN_ACTIVE로 막지 않는다.
-  다른 화면의 pause/resume·조종권 획득은 허용하지 않는다. 실기의 PC 연결 금지와
-  총괄의 실기 조종 금지는 유지한다(실기 취소는 phone의 view+취소 권한으로만).
+  다른 화면의 pause/resume·조종권 획득은 허용하지 않는다. 실기의 PC 연결 금지는
+  유지한다(실기 취소는 phone의 view+취소 권한으로만). 총괄의 실기 조종 금지는 11/28 폐지.
   에이전트 적용 뒤 `CANCELED`, `fail_code=OPERATOR_ABORT`와 0·목표 취소·잠금 유지,
   RUN holder/활성 실행 해제·서버 기록을 한 종료 전이로 처리한다. 종료 후에는 RUN_ACTIVE로
   새 run_id를 막지 않지만 STOP 확인·명시 해제·중립 등 새 실행의 안전 관문은 필요하다.
@@ -1583,8 +1614,8 @@ F-MS-06의 우선순위(STOP_LATCHED 등)를 유지한다.
 ### 13.11 총괄 정지 요청과 상태 요약 (ADR-002, FIX-1029)
 
 전체 스위치가 꺼진 실기(`simulation != true`)의 서버 WS 조종권·명령·잠금 해제·STOP 및 REST
-`POST /robots/{id}/stop` 중계는 거부한다. §3.1의 전체 스위치·담당·연결을 갖춘 실기 수동 조종은 그 절의 예외를 따른다. 운영자는 `PHONE_DIRECT_REQUIRED`, 총괄은
-기존 `ADMIN_NO_REAL_CONTROL`을 받는다. 서버의 시작·끊김·기록 장애에 따른 내부 제어
+`POST /robots/{id}/stop` 중계는 거부한다. §3.1의 전체 스위치·담당·연결을 갖춘 실기 수동 조종은 그 절의 예외를 따른다. 운영자와 총괄 모두
+`PHONE_DIRECT_REQUIRED`를 받는다(팀장 11/28, `ADMIN_NO_REAL_CONTROL` 폐지). 서버의 시작·끊김·기록 장애에 따른 내부 제어
 발신도 전체 스위치가 꺼진 실기로 보내지 않는다. 시뮬의 기존 중계 경로와 에이전트의 구형 수신 STOP 방어는 유지한다.
 
 총괄은 `POST /api/v1/robots/{robot_id}/stop-requests`에 `{request_id: UUID}`를 보낸다.

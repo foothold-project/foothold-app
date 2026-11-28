@@ -80,8 +80,9 @@ def install(app, DB, Identity, fail, authorize, settings, find_robot, robot_even
 
     def operator(auth):
         user = auth[0]
-        if user.role != 'OPERATOR':
-            fail(403, 'FORBIDDEN', '담당 운영자만 로봇을 연결할 수 있습니다.')
+        # 팀장 11/28: 총괄도 로봇을 붙인다 (끊기 · 관리는 뒤의 ROBOT_WRITE 관문).
+        if user.role not in ('OPERATOR', 'ORG_ADMIN'):
+            fail(403, 'FORBIDDEN', '담당 운영자나 총괄만 로봇을 연결할 수 있습니다.')
         return user
 
     def rate(db, request, lane, user=None):
@@ -169,8 +170,8 @@ def install(app, DB, Identity, fail, authorize, settings, find_robot, robot_even
         mac_placeholder = 0xFFFF0000 <= int(row.robot_serial.split('-')[0]) <= 0xFFFFFFFF
         existing = None if mac_placeholder else await asyncio.to_thread(existing_robot)
         if existing is not None:
-            if (existing.org_id != user.org_id or existing.owner_user_id != user.id
-                    or existing.simulation):
+            if (existing.org_id != user.org_id or existing.simulation
+                    or (user.role != 'ORG_ADMIN' and existing.owner_user_id != user.id)):
                 fail(409, 'ROBOT_ALREADY_PAIRED', '담당 운영에게 넘겨받기 또는 삭제를 요청하세요.')
             rt, rid = app.state.realtime, str(existing.id)
             rt.begin_robot_change(rid)

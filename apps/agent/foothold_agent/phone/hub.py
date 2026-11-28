@@ -3,6 +3,7 @@ from collections import deque
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import re
 import time
 from uuid import uuid4
 
@@ -12,6 +13,9 @@ from foothold_agent.policy_ranges import velocity_input
 from .protocol import (PROTO, LIMITS, SIMULATION_LIMITS, MAX_SEQ, frame,
                        project_velocity, simulation_velocity)
 from .tickets import TicketError
+
+# Same rule as the server's Event floor (apps/server/fh_server/models.py).
+FAILURE_CODE = re.compile(r'_(FAILED|REJECTED|DENIED|TIMEOUT)$')
 
 
 class PhoneError(ValueError):
@@ -124,7 +128,9 @@ class Hub:
                 raise
 
     def _audit(self, code, **data):
-        self.session.retain([{'t': 'event', 'code': code, 'severity': 'info', 'robot_at': None,
+        # #552: failure results (PHONE_LEASE_TIMEOUT ...) are warnings; the server floors them too.
+        severity = 'warn' if FAILURE_CODE.search(code) else 'info'
+        self.session.retain([{'t': 'event', 'code': code, 'severity': severity, 'robot_at': None,
                               'data': data}])
         effects = (self.session.tick() if self.session.connected else
                    Effects((), tuple(self.session.pop_history(MAX_BUFFER - 1))))

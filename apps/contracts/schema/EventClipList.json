@@ -1,0 +1,126 @@
+{
+  "$defs": {
+    "EventClip": {
+      "additionalProperties": false,
+      "properties": {
+        "clip_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "만든 영상 번호. 만들기 전(NOT_BUILT)에는 null",
+          "title": "Clip Id"
+        },
+        "end_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "사건 5 초 뒤. 넘어짐은 다시 설 때까지라 서기 전에는 null",
+          "title": "End At"
+        },
+        "event_id": {
+          "pattern": "^[1-9][0-9]{0,18}$",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "NOT_BUILT · FAILED 의 까닭 코드 (예: CLIP_PIPELINE_NOT_BUILT)",
+          "title": "Reason"
+        },
+        "robot_id": {
+          "format": "uuid",
+          "title": "Robot Id",
+          "type": "string"
+        },
+        "start_at": {
+          "description": "사건 10 초 전",
+          "format": "date-time",
+          "title": "Start At",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "PENDING",
+            "READY",
+            "FAILED",
+            "NOT_BUILT"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "READY 일 때만 값",
+          "title": "Url"
+        }
+      },
+      "required": [
+        "clip_id",
+        "event_id",
+        "robot_id",
+        "start_at",
+        "end_at",
+        "status",
+        "url",
+        "reason"
+      ],
+      "title": "EventClip",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/EventClipList",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/EventClip"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    }
+  },
+  "required": [
+    "items",
+    "next_cursor"
+  ],
+  "title": "EventClipList",
+  "type": "object"
+}

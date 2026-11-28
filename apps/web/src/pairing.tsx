@@ -1,5 +1,5 @@
 // 실기 로봇 연결(ROBOT-PAIRING, 05 §3.1). 운영 관리자: 새 로봇 추가(QR·6자리 → 이름(기본값·기체번호 작게) → 끝, RB-EASY-PAIR) → 내 로봇 관리(이름·연결 끊기·지우기).
-// 총괄은 실기 로봇에 쓰기가 없다 — 담당 없는 실기의 담당 지정만(AssignOwner). 연결 키는 화면에 오지 않는다(노트북 연결 프로그램이 poll 로 한 번 받음).
+// 총괄도 로봇을 붙인다(11/28 · 서버 #544) · 담당 없는 실기의 담당 지정(AssignOwner). 남 담당 실기의 관리는 서버 2 차 전. 연결 키는 화면에 오지 않는다(노트북 연결 프로그램이 poll 로 한 번 받음).
 // 담당 넘기기(TransferOwner): 내 로봇 관리 안 — 넘길 대상 목록(owner-candidates) → 같은 화면 확인 → PATCH owner_user_id.
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { PairingClaimed, RobotInstallerInfo, RobotOwnerCandidate, User as ApiUser } from '../../contracts/ts';
@@ -295,7 +295,7 @@ export function AssignOwner({ r, refresh, cancel }: { r: Robot; refresh: () => v
   return <div className="fh-form" role="group" aria-label="담당 지정" data-assign-owner>
     <OwnerSelect ops={ops} value={owner} onChange={(v) => { setOwner(v); setAsk(false); }} />
     <div className="fh-row"><button type="button" className="btn pri" disabled={busy || !owner} onClick={() => setAsk(true)}>담당 지정</button>
-      <span className="lbl">담당 없는 실기 로봇만 지정할 수 있습니다. 연결·조종은 담당 운영 관리자가 합니다.</span></div>
+      <span className="lbl">담당 없는 실기 로봇만 지정할 수 있습니다.</span></div>
     {ask && <div className="fh-row" role="group" aria-label="확인">
       <span>{`${r.name} 담당을 ${who}(으)로 지정할까요? 지정한 뒤에는 담당 운영 관리자만 바꿀 수 있습니다.`}</span>
       <button type="button" className="btn pri" onClick={save}>지정</button><button type="button" className="btn" onClick={() => setAsk(false)}>취소</button></div>}

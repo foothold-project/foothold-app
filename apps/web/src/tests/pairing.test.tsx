@@ -215,11 +215,11 @@ describe('폰 운영 관리자 — 새 로봇 추가', () => {
     expect($('[data-pair-code]')).not.toBeNull();
   });
 
-  it('총괄 폰: «새 로봇 추가» 없음(실기 연결은 운영 관리자)', async () => {
+  it('총괄 폰: «새 로봇 추가» 있음(11/28 · 서버 #544 총괄도 붙임)', async () => {
     serve(signedIn(KIM, [RA]));
     await open('#/drive', true);
-    expect(btn('+ 로봇 연결하기')).toBeUndefined();
-    expect(btn('새 로봇 추가')).toBeUndefined();
+    await click(btn('+ 로봇 연결하기'));
+    expect($('[aria-label="새 로봇 추가"]')).not.toBeNull();
   });
 });
 
@@ -265,13 +265,12 @@ describe('폰 운영 관리자 — 내 로봇 관리', () => {
   });
 });
 
-describe('PC 총괄 — 로봇 탭 읽기 전용 대시보드', () => {
+describe('PC 총괄 · 로봇 탭 대시보드(남 담당 실기 관리는 2 차)', () => {
   const RB = robot('r-b', 'Go2-B', null, { robot_serial: '9-1', attention: ['OFFLINE'] });   // status 없어도(다시 로그인 등) 서버 OFFLINE 경보는 «연결 끊김» 그대로(#327 검토 P1 회귀)
   const RAX = { ...RA, field_approval_expires_at: inMin(20), attention: ['BATTERY_LOW'], battery: { soc: 12, updated_at: '2026-11-02T00:00:00Z' } };
-  it('목록: 담당·연결·주의. 상세: 기체번호 읽기만, 실기 쓰기·현장 확인 화면 없음', async () => {
+  it('목록: 담당·연결·주의. 상세: 남 담당 실기는 기체번호 읽기 · 관리는 2 차 까닭 한 줄, 현장 확인 화면 없음 · 새 로봇 추가 · STOP 있음(11/28)', async () => {
     serve(signedIn(KIM, [RAX, RB]));
     await open('#/fleet', false);
-    expect($('[aria-label="로봇 상세"]')).toBeNull();   // 총괄 상세는 행을 눌러 여는 서랍(#216)
     const list = card('로봇 목록').textContent!;
     expect(list).toMatch(/Go2-A.*이운영/);
     expect(list).not.toContain('현장 승인');
@@ -283,8 +282,9 @@ describe('PC 총괄 — 로봇 탭 읽기 전용 대시보드', () => {
     expect($('[data-field-check]')).toBeNull();
     expect($('[data-manage]')).toBeNull();
     expect($('[data-assign-owner]')).toBeNull();   // 담당 있는 실기는 지정 없음
-    expect(btn('+ 새 로봇 추가')).toBeUndefined();
-    expect($('[data-stop]')).toBeNull();   // 총괄 실기 STOP 없음
+    expect(d.querySelector('[data-admin-later]')).not.toBeNull();   // 남 담당 실기 관리 = 서버 2 차
+    expect(btn('+ 새 로봇 추가')).not.toBeUndefined();   // 총괄도 붙임(11/28)
+    expect($('[data-stop]')).not.toBeNull();   // 총괄도 실기 STOP(11/28)
   });
 
   it('담당 없는 실기만 «담당 지정»: 잠기지 않은 운영 관리자 → 확인 → PATCH {owner_user_id} 한 필드', async () => {

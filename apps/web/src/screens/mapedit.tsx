@@ -37,7 +37,7 @@ export const SPEED = { min: 0.3, max: 1.5, dflt: 0.3 } as const;
 /** 저장에 보낼 모양: 접근 금지 구역에는 속도 키를 보내지 않고, 감속 구역의 빈 값(null)도 키 없이(= 값 없음) */
 export const clean = (f: MapFeatures): MapFeatures => ({ ...f, zones: f.zones.map((z) => { if (z.type === 'SLOW' && z.max_speed_mps != null) return z; const { max_speed_mps: _, ...x } = z; return x; }) });
 /** 겹침 한 줄: 시나리오 이름 — 지점이 구역 안 · 길이 구역을 지남 */
-export const overlapText = (x: ZoneOverlaps['scenarios'][number]) => `${x.scenario_name} — ${[x.hits.some((h) => h.kind === 'POINT') && '지점이 구역 안', x.hits.some((h) => h.kind === 'SEGMENT') && '길이 구역을 지남'].filter(Boolean).join(' · ')}`;
+export const overlapText = (x: ZoneOverlaps['scenarios'][number]) => `${x.scenario_name}, ${[x.hits.some((h) => h.kind === 'POINT') && '지점이 구역 안', x.hits.some((h) => h.kind === 'SEGMENT') && '길이 구역을 지남'].filter(Boolean).join(' · ')}`;
 const CAP = { zones: 256, waypoints: 1000, connectors: 256, edits: 256 } as const;   // 계약(apps/contracts MapFeatures) 상한
 const WHAT = { zones: '구역', waypoints: '지점', connectors: '연결점', edits: '지우개·벽 선' } as const;
 type Group = keyof typeof CAP;
@@ -341,12 +341,12 @@ export function Editor({ v, p, cancel, saved, toScen, quit, recheck, moved, slot
   };
 
   const hint = zone && !dots ? '지도에서 누른 채 끌면 사각형 구역이 생깁니다. 연달아 여러 개 그릴 수 있고, 그린 구역을 누르고 끌면 옮깁니다. 다른 모양은 «점으로 그리기»를 누르세요.'
-    : zone ? `점 ${pts.length}개 — 지도를 눌러 구역 둘레를 차례로 찍고, 3개 이상이면 «닫기»를 누르세요.`
-    : line ? `점 ${pts.length}개 — 지도를 눌러 선을 찍고, 2개 이상이면 «끝내기»를 누르세요.`
+    : zone ? `점 ${pts.length}개. 지도를 눌러 구역 둘레를 차례로 찍고, 3개 이상이면 «닫기»를 누르세요.`
+    : line ? `점 ${pts.length}개. 지도를 눌러 선을 찍고, 2개 이상이면 «끝내기»를 누르세요.`
     : tool === 'connector' ? (others.length ? '지도를 누르면 계단·엘리베이터 연결점을 놓습니다. 놓은 뒤 짝 층을 고르세요.' : '같은 건물에 다른 층이 없어 연결점을 놓을 수 없습니다. «장소 고치기»에서 층을 먼저 만드세요.')
     : '요소를 눌러 고르고, 끌어서 옮기세요(구역은 통째로). 고른 구역은 오른쪽 위 X 로 지웁니다.';
   // 지도 왼쪽 아래 한 줄(긴 설명은 ⓘ 툴팁 — Hint)
-  const short = zone && !dots ? '끌어서 사각형 구역 그리기' : zone ? `점 ${pts.length}개 — 3개 이상이면 «닫기»` : line ? `점 ${pts.length}개 — 2개 이상이면 «끝내기»`
+  const short = zone && !dots ? '끌어서 사각형 구역 그리기' : zone ? `점 ${pts.length}개 · 3개 이상이면 «닫기»` : line ? `점 ${pts.length}개 · 2개 이상이면 «끝내기»`
     : tool === 'connector' ? (others.length ? '지도를 누르면 연결점을 놓습니다' : '다른 층이 없어 연결점을 놓을 수 없습니다') : '끌어서 옮기기 · 빨간 X 로 지우기';
   const color = zone ? fillOf(f.zones.length) : line ? EDIT[tool as 'WALL'].color : 'var(--accent)';
   const num = (s: string) => (s.trim() === '' ? NaN : Number(s));
@@ -467,7 +467,7 @@ export function Editor({ v, p, cancel, saved, toScen, quit, recheck, moved, slot
         {over && (over.list ? <div className="fh-form" role="group" aria-label="겹침 확인" data-overlap>
             <p className="fh-msg" role="alert">시나리오 동선과 겹칩니다. 시나리오를 수정하시겠습니까?</p>
             <ul className="fh-list" aria-label="겹치는 시나리오">{over.list.map((x) => <li key={x.scenario_id} className="lbl">{overlapText(x)}</li>)}</ul>
-            <p className="lv-note">예 = 지도를 저장하고 «{over.list[0].scenario_name}» 편집으로 갑니다{over.list.length > 1 ? ' — 나머지는 시나리오 목록에 «수정 필요»로 보입니다' : ''}. 아니요 = 저장하지 않고 지도 편집을 계속합니다.</p>
+            <p className="lv-note">예 = 지도를 저장하고 «{over.list[0].scenario_name}» 편집으로 갑니다{over.list.length > 1 ? '. 나머지는 시나리오 목록에 «수정 필요»로 보입니다' : ''}. 아니요 = 저장하지 않고 지도 편집을 계속합니다.</p>
             <div className="fh-row"><button type="button" className="btn pri" data-overlap-yes onClick={() => send(over.list![0].scenario_id)}>예</button>
               <button type="button" className="btn" data-overlap-no onClick={() => { setOver(null); setSaving(false); }}>아니요</button></div></div>
           : <div className="fh-form" role="group" aria-label="겹침 확인" data-overlap="fail">

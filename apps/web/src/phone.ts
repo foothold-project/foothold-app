@@ -2,7 +2,7 @@
 // 띄우기·정리·출입증은 관제 서버 REST(api.ts), 조종·STOP·영상은 그 로봇 에이전트 폰 포트에 직접 WS — 서버 실시간(rt.ts) 조종 경로를 쓰지 않는다.
 // 조종권·잠금·deadman 판정은 에이전트. 폰은 요청만 보내고 state 로 확인한다: 자동 취득·자동 해제·자동 재연결 없음.
 import { useSyncExternalStore } from 'react';
-import type { OrgSettings, PhoneReply, PhoneState, PhoneWelcome, RunSnapshot, Scenario, SimCatalog, SimCleanupSlot, SimFailureDetail, SimRobot, SimRobotList, SimWorldFloor } from '../../contracts/ts';
+import type { OrgSettings, PhoneReply, PhoneState, PhoneWelcome, RunSnapshot, Scenario, SimCatalog, SimCleanupSlot, SimFailureDetail, SimProvision, SimRobot, SimRobotList, SimWorldFloor } from '../../contracts/ts';
 import { ApiFail, api, authMark } from './api';
 import { media } from './media';
 import { phoneUrl } from './phoneTransport';
@@ -395,6 +395,15 @@ function openCamera(token: string | null) {
 const message = (e: unknown) => (e instanceof ApiFail ? e.message : '요청을 처리하지 못했습니다.');
 const notCreated = (e: ApiFail) => e.status === 503 && e.code === 'SIM_UNAVAILABLE'
   && e.detail?.reason === 'resources_low' && e.detail.start_not_created === true;
+/** 목록 받기 실패 한 줄. «서버 연결을 확인» 은 서버에 닿지 못했을 때만(fetch TypeError · api 가 status 0 으로 바꾼 것).
+ *  닿았는데 거절 · 오류면 코드 + 까닭 한 줄(401 로그인 · 403 권한 · 5xx 서버 오류). 서버 본문은 붙이지 않는다 */
+function listFail(what: string, e: unknown) {
+  const status = e instanceof ApiFail ? e.status : 0;
+  if (e instanceof TypeError || status === 0) return `${what}을 받지 못했습니다 · 서버 연결을 확인한 뒤 다시 여세요.`;
+  const why = status === 401 ? '로그인이 끝났습니다. 다시 로그인하세요.' : status === 403 ? '이 목록을 볼 권한이 없습니다.'
+    : status >= 500 ? '서버 오류입니다. 잠시 뒤 다시 여세요.' : '요청을 처리하지 못했습니다. 다시 여세요.';
+  return `${what}을 받지 못했습니다 (${status}) · ${why}`;
+}
 /** 서버가 증명한 시작 전 거부만 다시 띄우기 안내를 준다. */
 function simulationMessage(e: unknown): string | undefined {
   if (!(e instanceof ApiFail)) return;
@@ -430,8 +439,8 @@ export const sim = {
       return true;
     }
     const managerError = r.status === 'fulfilled' ? r.value.manager_error ?? null : 'SIM_UNAVAILABLE';
-    const e = c.status === 'rejected' ? simulationMessage(c.reason) ?? `시뮬 월드 목록을 받지 못했습니다. ${message(c.reason)}`
-      : r.status === 'rejected' ? simulationMessage(r.reason) ?? `내 시뮬 로봇 목록을 받지 못했습니다. ${message(r.reason)}`
+    const e = c.status === 'rejected' ? simulationMessage(c.reason) ?? listFail('시뮬 월드 목록', c.reason)
+      : r.status === 'rejected' ? simulationMessage(r.reason) ?? listFail('내 시뮬 로봇 목록', r.reason)
       : managerError === 'SIM_DISABLED' ? '시뮬 관리자 연결 설정이 없습니다. 관리자에게 설정을 요청하세요.'
       : managerError ? '시뮬 관리자에 연결하지 못했습니다. 관리자가 켜져 있는지와 연결을 확인한 뒤 정리하세요.' : '';
     // 목록 오류만 지운다 — 띄우기 거부·정리 확인 실패 문구는 남김
@@ -456,7 +465,7 @@ export const sim = {
    *  201 = ACTIVE → 바로 연결. §13.9 확실한 거부 목록 = 고르기로. SIM_SLOT_BUSY = «확인 중» + 목록으로 내 것인지(recheck).
    *  그 밖(답 없음·5xx·목록 밖 4xx) = 불확실(서버 STARTING 일 수 있음 — «확인 중», 정리는 DELETE).
    *  답 전에 화면 세션이 끝났으면(clear) 연결하지 않고, 같은 로그인 세션이면 생긴(또는 불확실한) 로봇만 DELETE 로 정리한다 */
-  async start(world: string, user = me, spawn_floor_id?: 'l1' | 'l2') {
+  async start(world: string, user = me, spawn_floor_id?: SimProvision['spawn_floor_id']) {
     const slots = S.catalog?.slots ?? [], slot = slots.find((x) => !S.taken.includes(x)) ?? slots[0];
     if (!slot) return set({ err: '띄울 수 있는 시뮬 슬롯이 없습니다.' });
     me = user; cancel = false;
@@ -520,7 +529,7 @@ export const sim = {
       if (ra > 0) S.retryAt = now() + ra * 1000;
       // 403 WEB_SIM_ONLY = 서버가 이 로봇에 웹 시뮬 출입증을 주지 않음(simulation 꺼짐). 서버 문구 그대로, 화면은 «다시 연결»을 내지 않는다(code 403)
       if (e instanceof ApiFail && e.status === 403 && e.code === 'WEB_SIM_ONLY') return setLink({ at: 'closed', code: 403, why: e.message });
-      const plain = S.real && e instanceof ApiFail ? e.code === 'ADMIN_NO_REAL_CONTROL' ? e.message : ra > 0 ? `요청이 많습니다 — ${Math.ceil(ra)}초 뒤 다시 연결하세요.` : REAL_PASS[e.code] : undefined;
+      const plain = S.real && e instanceof ApiFail ? ra > 0 ? `요청이 많습니다. ${Math.ceil(ra)}초 뒤 다시 연결하세요.` : REAL_PASS[e.code] : undefined;
       setLink({ at: 'closed', why: plain ?? `출입증을 받지 못했습니다. ${message(e)}` });
       return;
     }

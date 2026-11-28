@@ -72,6 +72,8 @@ def fail(status, code, message, detail=None):
     raise APIError(status, code, message, detail)
 
 
+# 팀장 11/28: 총괄(ORG_ADMIN)은 가장 상위 계정이라 실기 조종·정지도 된다. authorize 는 더는
+# 이 코드를 내지 않는다. 옛 클라이언트·realtime 의 분기 이름으로만 남긴다.
 ADMIN_NO_REAL_CONTROL = '총괄 계정은 실기 로봇을 조종하거나 정지할 수 없습니다. 담당 운영자 폰에서 하세요.'
 
 
@@ -83,9 +85,8 @@ def authorize(user: User, permission: str, robot: Robot | None = None):
     owns = user.role == 'ORG_ADMIN' or (robot is not None and robot.owner_user_id == user.id)
     # A/ROBOT_READ manage/view the full fleet. O_OWN is motion authority only;
     # assignments and robot configuration must not use it as a management gate.
-    if (permission in ('O_OWN', 'ROBOT_STOP') and robot is not None
-            and user.role == 'ORG_ADMIN' and robot.simulation is not True):
-        fail(403, 'ADMIN_NO_REAL_CONTROL', ADMIN_NO_REAL_CONTROL)
+    # ORG_ADMIN holds O_OWN/ROBOT_STOP on real robots too (팀장 11/28). Safety
+    # gates (drive setting, field approval, STOP latch, single lease) stay elsewhere.
     if permission == 'ROBOT_READ' and not owns:
         fail(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
     if permission == 'O_OWN' and not owns:
@@ -95,7 +96,8 @@ def authorize(user: User, permission: str, robot: Robot | None = None):
         'A': user.role == 'ORG_ADMIN',
         'O': valid_role,
         'ROBOT_WRITE': (user.role == 'ORG_ADMIN' if robot is not None and getattr(robot, 'simulation', False) is True
-                        else user.role == 'OPERATOR' and robot is not None and robot.owner_user_id == user.id),
+                        # 총괄이 붙인 실기는 총괄 담당이라 그 로봇은 총괄도 관리한다 (11/28).
+                        else valid_role and robot is not None and robot.owner_user_id == user.id),
         'ROBOT_ASSIGN_UNOWNED': (user.role == 'ORG_ADMIN' and robot is not None
                                 and getattr(robot, 'simulation', False) is not True
                                 and robot.owner_user_id is None),
@@ -231,7 +233,8 @@ def create_app(settings: Settings | None = None):
                     AND has_column_privilege(current_user, 'approvals', column_name, 'UPDATE'))
                 OR has_table_privilege(current_user, 'map_versions', 'UPDATE')
                 OR EXISTS (SELECT 1 FROM information_schema.columns
-                    WHERE table_schema = 'public' AND table_name = 'map_versions' AND column_name <> 'status'
+                    WHERE table_schema = 'public' AND table_name = 'map_versions'
+                    AND column_name NOT IN ('status', 'model_path', 'model_sha256')
                     AND has_column_privilege(current_user, 'map_versions', column_name, 'UPDATE'))
                 OR has_table_privilege(current_user, 'map_versions', 'DELETE')
                 OR has_table_privilege(current_user, 'map_versions', 'TRUNCATE')
@@ -640,10 +643,12 @@ def create_app(settings: Settings | None = None):
                   {'session_id': str(session_id)})
 
     @app.get(prefix + '/robots', response_model=C.RobotList)
-    def robots(auth: Identity, db: DB, scope: Literal['mine', 'all'] = 'mine',
+    def robots(auth: Identity, db: DB, scope: Literal['mine', 'all'] | None = None,
                limit: Limit = 50, cursor: str | None = None):
         user = auth[0]
         authorize(user, 'O')
+        if scope is None:  # 팀장 11/28: 총괄 기본은 조직 전체, 운영자는 mine.
+            scope = 'all' if user.role == 'ORG_ADMIN' else 'mine'
         query = select(Robot).where(Robot.org_id == user.org_id, Robot.archived_at.is_(None))
         if scope == 'mine':
             query = query.where(Robot.owner_user_id == user.id)
@@ -689,7 +694,6 @@ def create_app(settings: Settings | None = None):
             # Full live viewing has the same scope as existing ROBOT_READ.
             # Check it first so inaccessible robot existence stays hidden.
             authorize(user, 'ROBOT_READ', row)
-            # Real admin access stays disabled for the simulation-only first release.
             authorize(user, 'ROBOT_STOP', row)
             authorize(user, 'O_OWN' if body.purpose == 'control' else 'ROBOT_READ', row)
         except APIError as exc:
@@ -894,6 +898,8 @@ def create_app(settings: Settings | None = None):
     assignments.install(app, DB, Identity, fail, page)
     approvals.install(app, DB, Identity, fail, authorize, page)
     events_api.install(app, DB, Identity, fail)
+    from . import records
+    records.install(app, DB, Identity, fail, authorize)
     notifications.install(app, DB, Identity, fail)
     maps.install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity, upload_write)
     from . import terrains

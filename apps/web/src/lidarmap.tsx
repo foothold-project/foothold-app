@@ -20,7 +20,7 @@ const LUT = Uint32Array.from({ length: N }, (_, i) => { const [r, g, b] = rgbOf(
 export function LidarMap({ feed, empty, small = false, start = '3d', tag = true, look = 'points', pick = false, go2 = null }: { feed: DriveFeed; empty: string; small?: boolean; start?: '3d' | 'top'; tag?: boolean; look?: Look; pick?: boolean; go2?: Pose }) {
   const [mode, setMode] = useState<'3d' | 'box' | 'top'>(start), [no3d, setNo3d] = useState(false), is3d = mode !== 'top' && !no3d;
   return <div style={{ position: 'absolute', inset: 0 }} data-lidar-map={feed.n} data-lm-mode={is3d ? '3d' : 'top'}>
-    {is3d ? <Lidar3D feed={feed} small={small} look={mode === 'box' ? 'boxes' : look} go2={go2} onFail={() => setNo3d(true)} /> : <TopView feed={feed} small={small} />}
+    {is3d ? <Lidar3D feed={feed} small={small} look={mode === 'box' ? 'boxes' : look} go2={go2} views={false} onFail={() => setNo3d(true)} /> : <TopView feed={feed} small={small} />}
     {!small && <div className="fh-row" style={{ position: 'absolute', left: 8, top: 8, flexWrap: 'wrap' }}>
       {!no3d && <div className="fh-row" role="group" aria-label="보기">{(pick ? ['3d', 'box', 'top'] as const : ['3d', 'top'] as const).map((m) =>
         <button key={m} type="button" className="btn" aria-pressed={mode === m} data-lm-view={m} onClick={() => setMode(m)}>{m === '3d' ? '3D' : m === 'box' ? '상자' : '위에서'}</button>)}</div>}
@@ -103,7 +103,7 @@ function TopView({ feed, small }: { feed: DriveFeed; small: boolean }) {
   }, []);
   const back = () => { view.current.follow = true; setFree(false); redraw.current(); };
   return <>
-    <canvas ref={cv} style={{ width: '100%', height: '100%', display: 'block', touchAction: small ? 'auto' : 'none', cursor: small ? undefined : 'grab' }} aria-label={`라이다로 그린 지도 — 위에서 본 그림${small ? '' : '(끌어서 옮기고 휠로 확대)'}`} />
+    <canvas ref={cv} style={{ width: '100%', height: '100%', display: 'block', touchAction: small ? 'auto' : 'none', cursor: small ? undefined : 'grab' }} aria-label={`라이다로 그린 지도 · 위에서 본 그림${small ? '' : '(끌어서 옮기고 휠로 확대)'}`} />
     {free && !small && <button type="button" className="btn" data-lm-back style={{ position: 'absolute', left: 8, bottom: 8 }} onClick={back}>로봇 위치로</button>}
   </>;
 }

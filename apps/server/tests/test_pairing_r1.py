@@ -106,7 +106,8 @@ def test_admin_can_only_assign_unowned_real_robot(client, seeded):
     with screen(client, admin) as ws:
         for kind in ('lease.take', 'stop'):
             result = reply(ws, send(ws, kind, rid))
-            assert (result.get('error') or {}).get('code') == 'ADMIN_NO_REAL_CONTROL'
+            # 팀장 11/28: 총괄도 소유 관문은 지나고, 서버 조종 꺼진 실기는 현장 폰 관문에 걸린다.
+            assert (result.get('error') or {}).get('code') == 'PHONE_DIRECT_REQUIRED'
     response = client.patch(path, headers=admin, json=assigned)
     assert response.status_code == 200, response.text
     assert response.json()['owner']['id'] == assigned['owner_user_id']
