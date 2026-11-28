@@ -123,21 +123,28 @@ describe('지도 만들기 — 보이는 조건', () => {
     expect(btn('새 지도 올리기…')).toBeTruthy();
   });
 
-  it('고르기 화면 «+ 지도 만들기»(담당 운영자만) → «어느 층에?» → 층을 고르면 그 층에서 로봇으로 지도 만들기 창', async () => {
+  it('고르기 화면 «+ 지도 만들기»(담당 운영자만) → 바로 시안 u7_6(옛 «어느 층에?» 창 없음) · 층 칩에서 고르기 전에는 스캔 시작 막힘 · 고르면 그 층의 u7_6', async () => {
     for (const me of [KIM, PARK]) {
       serve(signedIn(me, true, () => null)); await open(); await click($('[data-to-chooser]'));
       expect($('[data-make-robot]')).toBeNull(); expect($('[data-make-file]')).toBeTruthy();
       act(() => root?.unmount()); box.remove();
     }
-    serve(signedIn(LEE, true, () => null)); await open(); await click($('[data-to-chooser]'));
+    serve(signedIn(LEE, true, () => null)); await open(); await live(true); await click($('[data-to-chooser]'));
     await click($('[data-make-robot]'));
-    const pop = () => $('dialog[open][aria-labelledby]')!;
-    expect(pop().textContent).toContain('지도 만들기 — 어느 층에?');
-    expect(btn('이름 바꾸기', pop())).toBeUndefined();
-    await click(pop().querySelector('ul[aria-label] button'));
-    expect(dlg().getAttribute('data-u7')).toBe('u7_6_scan');   // 그 층의 시안 지도 만들기 화면(옛 창 없음)
-    expect(dlg().querySelector('select')).toBeTruthy();
     expect(box.querySelectorAll('dialog[open]')).toHaveLength(0);
+    expect(dlg().getAttribute('data-u7')).toBe('u7_6_scan');
+    expect(dlg().querySelector('.head .ttl')!.textContent).toBe('새 지도');
+    const sel = dlg().querySelector<HTMLSelectElement>('[data-chip="floor"] select')!;
+    expect([...sel.options].map((o) => o.textContent)).toEqual(['층 고르기', '본관 본동 1층', '본관 본동 2층']);
+    expect(off(btn('스캔 시작', dlg()))).toBe(true);
+    expect($('[data-nofloor]')!.textContent).toBe('머리줄에서 지도 만들 층을 고르세요.');
+    act(() => { sel.value = 'f2'; sel.dispatchEvent(new Event('change', { bubbles: true })); }); await flush();
+    expect(dlg().getAttribute('data-u7')).toBe('u7_6_scan');
+    expect(dlg().querySelector('.head .ttl')!.textContent).toBe('새 지도 · 본동 2층');
+    expect($('[data-chip="floor"]')).toBeNull();
+    expect(dlg().querySelector('[data-chip="robot"] select')).toBeTruthy();
+    expect(off(btn('스캔 시작', dlg()))).toBe(false);
+    expect(posts()).toEqual([]);
   });
 
   it('연결 안 된 로봇은 고를 수 있되 이유를 보이고 시작을 막는다', async () => {

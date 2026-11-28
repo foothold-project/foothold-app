@@ -341,11 +341,11 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   if (madmin && sim) return <MissionAdmin user={c.user} robots={robots} cancel={c.cancel} back={() => setMadmin(false)} />;
   if (whole && cur) return <AllFloors key={cur.building.id} b={cur.building} top={top} cancel={c.cancel} />;
   const shut0 = () => { setMake(''); setForm(null); setAsk(null); };
-  const title = make === 'robot' ? '지도 만들기 — 어느 층에?' : make === 'file' ? '파일 올리기 — 어느 층에?' : sim ? '장소 고치기' : '이름 바꾸기·삭제';
+  const title = make === 'file' ? '파일 올리기 — 어느 층에?' : sim ? '장소 고치기' : '이름 바꾸기·삭제';
   const pop = <Pop open={!!make} close={shut0} label={make ? title : '장소'}>
     {make === 'fix' && !sim ? <><p className="lv-note mx-lead">이 지도의 장소·건물·층 이름을 바꾸거나 휴지통으로 옮깁니다.</p>{fixBody}</>
       : make && <><p className="lv-note mx-lead">{sim ? '시뮬 장소의 이름을 바꾸거나 지웁니다. 새 시뮬 지도는 지도 탭의 «+ 지형 만들기»로 만듭니다.'
-        : `${make === 'robot' ? '로봇으로 지도를 그릴' : '지도 파일을 올릴'} 층을 고르세요. 없으면 «+ 장소»·«+ 건물»·«+ 층»으로 만듭니다.`}</p>{placeBody}</>}
+        : `지도 파일을 올릴 층을 고르세요. 없으면 «+ 장소»·«+ 건물»·«+ 층»으로 만듭니다.`}</p>{placeBody}</>}
   </Pop>;
   if (cur) return <>{sim ? <Floor key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} told={() => c.dash?.again()} top={top} name={label} user={c.user} robots={robots} open0={intent}
       places={places} sel={sel} setSel={setSel} toAdmin={() => setMadmin(true)} run={(x) => scenRun(x, places, vers)} />
@@ -353,6 +353,10 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
       fix={() => { setForm(null); setAsk(null); setMsg(null); setMake('fix'); }} toScen={(id) => { keptPlan.floor = cur.floor.id; location.hash = id ? `#/mission/${encodeURIComponent(id)}` : '#/missions'; }} />}   {/* 겹침 «예» = 임무 탭에서 그 임무 · u7_3 «이 지도로 모의 실행» = 시안 u6_6 (임무 탭, 그 층) */}
     {pop}</>;
   const mk = (k: Make) => { setForm(null); setAsk(null); setMsg(null); setMake(k); };
+  // u7_1 「+ 지도 만들기」 = 바로 시안 u7_6 (옛 «어느 층에?» 창 없음) · 층은 u7_6 머리줄 칩에서 고르면 그 층 화면의 u7_6 으로 이어진다
+  if (!sim && make === 'robot') return <ScanScreen place={null} back={shut0} toList={shut0} pick={(id) => choose(id, 'robot')}
+    floors={places.filter((x) => purposeOf(x.site) === 'REAL' && x.floor.provenance !== 'SIMULATION')}
+    a={{ floor: '', approved: null, list: null, user: c.user, robots, places, cancel: c.cancel, made: () => {} }} />;
   if (!sim) return <Pick maker={maker} t={t} places={places} vers={vers} choose={choose} make={mk} note={found} manage={manage} setManage={setManage} edit={!make && placeBody}>
     {pop}
   </Pick>;
