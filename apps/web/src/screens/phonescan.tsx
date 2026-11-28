@@ -1,6 +1,7 @@
 // 폰 지도 스캔 본체(u14_2): 담당 운영자가 폰으로 로봇을 움직이며 층 지도를 모은다. 입구는 scanentry.tsx(붙이기 끝 · ⋯ «지도 스캔»).
 // 꼴 = 시안 u14_2 (proto/screens/u14_2_phone_scan.html): 왼쪽 위 로봇 칩(.tl) · 작은 지도(.sm) · 아래 진행 줄(.sp). 마크업은 시안 그대로, 단추 span 은 button.
 // 시안의 조종 판(카메라 · 조이스틱 · 동작 단추 · 걸음 · 말하기 · 정지)은 이 칸이 아니라 폰 조종 화면 몫이라 그리지 않는다(정지는 폰 머리줄 STOP 그대로).
+// 조종 중 ⋯ «지도 스캔» 은 over 로 조종 화면 영상 칸 위에 얹는다(시안 배치 · 조종 화면 동작은 그대로).
 // 요청은 PC 지도 탭 «지도 만들기»(mapmake.tsx)와 같은 길: 시작 · 끝내기(저장) · 취소 = api.slamDo start · save · cancel, 진행 = 1초마다 api.slam. 시작은 고른 층 + source=point_lio.
 // 진행 값(스캔 시간 · 걸은 거리 · 모은 점)은 서버 MappingProgress 그대로이고 이상한 값은 칸째 뺀다. 서버에 멈춤(pause) 길이 없어 시안의 멈춤 단추는 두지 않는다.
 // 위치 인식은 서버 location.confidence 수 그대로(시안 「좋음」 같은 말로 나눌 기준이 아직 없다). 이 파일은 주행 명령을 만들지 않는다.
@@ -34,10 +35,11 @@ const Ic = ({ s, children }: { s: number; children: ReactNode }) => <svg classNa
 const X = <><path d="M18 6 6 18" /><path d="m6 6 12 12" /></>, BACK = <path d="m15 18-6-6 6-6" />;
 
 /** 화면 틀(시안 u14_2 바탕 + 왼쪽 위 로봇 칩 + 오른쪽 단추 줄). robot 이 없으면 칩 없이 */
-export function ScanFrame({ robot, live, side, children }: { robot?: Robot; live?: boolean; side?: ReactNode; children?: ReactNode }) {
+/** over = 조종 화면 영상 칸 위 겹(시안 u14_2 그대로 조종 판 위): 바탕 · 로봇 칩 없이(칩 자리는 조종 화면 상태 줄), 제 칸만 손가락을 받는다 */
+export function ScanFrame({ robot, live, side, over, children }: { robot?: Robot; live?: boolean; side?: ReactNode; over?: boolean; children?: ReactNode }) {
   const light = useTheme()[1];
-  return <section className={`proto pv u142${light ? ' light' : ''}`} aria-label="지도 스캔" data-scan={robot ? '' : undefined} data-scan-panel>
-    {robot && <div className="tl">
+  return <section className={`proto pv u142${over ? ' u142-over' : ''}${light ? ' light' : ''}`} aria-label="지도 스캔" data-scan={robot ? '' : undefined} data-scan-panel>
+    {robot && !over && <div className="tl">
       <div className="g dk row" style={{ left: '12px', top: '12px', height: '44px', padding: '0 12px 0 7px', gap: '9px' }}>
         <span style={{ width: '30px', height: '30px', borderRadius: '10px', background: 'var(--pr)', position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
           <Ic s={17}><path d="M4 13h11l3-3h2v4l-2 1H5z" /><path d="M6 15l-1 4M10 15v4M14 15v4M17 15l1 4" /></Ic>
@@ -65,7 +67,7 @@ function MiniMap({ robot, p, conf }: { robot: string; p: MappingProgress; conf?:
   </div>;
 }
 
-export function PhoneScan({ user, robot, places, cancel, close, pick }: { user: User; robot: Robot; places: Place[]; cancel?: AbortSignal; close?: () => void; pick?: ReactNode }) {
+export function PhoneScan({ user, robot, places, cancel, close, pick, over }: { user: User; robot: Robot; places: Place[]; cancel?: AbortSignal; close?: () => void; pick?: ReactNode; over?: boolean }) {
   const mine = makers(user, [robot]).length > 0;
   const [prog, setProg] = useState<MappingProgress | null | undefined>(), [n, setN] = useState(0), [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(''), [ask, setAsk] = useState(false);
@@ -101,24 +103,27 @@ export function PhoneScan({ user, robot, places, cancel, close, pick }: { user: 
   };
 
   const p = mine && prog && OPEN.has(prog.status) ? prog : null, conf = robot.location?.confidence;
-  const side = <>{pick}{p && !ask && <SideBtn ic={X} text="취소" disabled={busy} onClick={() => setAsk(true)} data-scan-cancel />}
+  // over(조종 화면 위): 층 이름 · «스캔 중» 한 줄은 빼고(가운데 영상 안내와 겹침 · 진행 줄이 스캔 중을 보임) 다른 상태 · 오류만. 취소는 아래 진행 줄의 시안 멈춤 자리(.p1 · 서버에 멈춤이 없어 그 자리), 닫기는 시작 칸 안(오른쪽 위는 조종 화면 보기 단추 자리)
+  const side = over ? null : <>{pick}{p && !ask && <SideBtn ic={X} text="취소" disabled={busy} onClick={() => setAsk(true)} data-scan-cancel />}
     {close && <SideBtn ic={BACK} text="닫기" onClick={close} data-scan-close />}</>;
-  if (!mine) return <ScanFrame robot={robot} side={side}>
-    <div className="g dlg"><div className="h">지도 스캔 · {robot.name}</div><div className="s">지도 스캔은 로봇의 담당 운영자만 할 수 있습니다.</div></div></ScanFrame>;
+  if (!mine) return <ScanFrame robot={robot} side={side} over={over}>
+    <div className="g dlg"><div className="h">지도 스캔 · {robot.name}</div><div className="s">지도 스캔은 로봇의 담당 운영자만 할 수 있습니다.</div>
+      {over && close && <div className="bts"><button type="button" className="dsec" onClick={close} data-scan-close>닫기</button></div>}</div></ScanFrame>;
   const walk = p ? WALK.filter(([k]) => ok(p[k])) : [];
   const said = prog ? (prog.status === 'FAILED' ? failText(prog) : prog.status === 'UNKNOWN' ? prog.reason || '로봇 상태를 확인하지 못했습니다. 끝내거나 취소하세요.' : STATE_TEXT[prog.status]) : null;
   const end = p && (p.status === 'RUNNING' || p.status === 'UNKNOWN' || p.status === 'FAILED');
-  return <ScanFrame robot={robot} live={!!p} side={side}>
+  return <ScanFrame robot={robot} live={!!p} side={side} over={over}>
     {p && <MiniMap robot={robot.id} p={p} conf={conf} />}
     <div className="u142-says">
-      {p && <span className="u142-say" data-scan-floor-name>{placeName(places.find((x) => x.floor.id === p.floor_id))}</span>}
+      {p && !over && <span className="u142-say" data-scan-floor-name>{placeName(places.find((x) => x.floor.id === p.floor_id))}</span>}
       {prog === undefined && !msg && <p className="u142-say" role="status">진행 상황을 확인하는 중…</p>}
-      {said && <p className={`u142-say${prog!.status === 'FAILED' || prog!.status === 'UNKNOWN' ? ' bad' : ''}`} role="status" data-scan-state>{said}</p>}
+      {said && !(over && prog!.status === 'RUNNING') && <p className={`u142-say${prog!.status === 'FAILED' || prog!.status === 'UNKNOWN' ? ' bad' : ''}`} role="status" data-scan-state>{said}</p>}
       {msg && <p className="u142-say bad" role="alert">{msg}</p>}
     </div>
     {p && <div className="sp" aria-label="스캔 진행">
       {walk.map(([k, key, name, f]) => <div className="k" key={k} data-walk={key}>{f(p[k] as number)}<small>{name}</small></div>)}
-      <div className="bb">{end && <button type="button" className="p2" id="go-end" disabled={busy} onClick={() => act('save')}><Ic s={15}><path d="M20 6 9 17l-5-5" /></Ic>스캔 끝내기</button>}</div>
+      <div className="bb">{over && !ask && <button type="button" className="p1" disabled={busy} onClick={() => setAsk(true)} aria-label="스캔 취소" data-scan-cancel><Ic s={15}>{X}</Ic></button>}
+        {end && <button type="button" className="p2" id="go-end" disabled={busy} onClick={() => act('save')}><Ic s={15}><path d="M20 6 9 17l-5-5" /></Ic>스캔 끝내기</button>}</div>
     </div>}
     {p && ask && <><div className="scrim" />
       <div className="g dlg" role="group" aria-label="확인" data-scan-ask>
@@ -127,12 +132,13 @@ export function PhoneScan({ user, robot, places, cancel, close, pick }: { user: 
           <button type="button" className="dpri" disabled={busy} onClick={() => act('cancel')}>취소하기</button></div></div></>}
     {prog !== undefined && !p && <div className="g dlg" aria-label="스캔 시작">
       <div className="h">지도 스캔 · {robot.name}</div>
-      <div className="s">{SCAN_HINT}</div>
+      {!over && <div className="s">{SCAN_HINT}</div>}
       <label className="u142-field"><span>층</span>
         <select data-scan-floor value={floor} disabled={busy} onChange={(e) => setFloor(e.target.value)}>
           {places.map((x) => <option key={x.floor.id} value={x.floor.id}>{placeName(x)}</option>)}</select></label>
       {!robot.online && <p className="u142-line" role="alert">로봇이 연결되어 있지 않습니다.</p>}
-      <div className="bts"><button type="button" className="dpri" disabled={busy || !robot.online || !floor} onClick={() => act('start')}>스캔 시작</button></div>
+      <div className="bts">{over && close && <button type="button" className="dsec" onClick={close} data-scan-close>닫기</button>}
+        <button type="button" className="dpri" disabled={busy || !robot.online || !floor} onClick={() => act('start')}>스캔 시작</button></div>
     </div>}
   </ScanFrame>;
 }

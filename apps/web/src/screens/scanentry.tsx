@@ -1,4 +1,5 @@
-// 폰 지도 스캔 입구(u2_3 · u14_2): 붙이기 끝 화면(pairing.tsx) «이 현장 지도 스캔하기», 폰 로봇 연결 화면 ⋯ «지도 스캔»(App). 둘 다 PhoneScan(시안 u14_2 틀)을 연다.
+// 폰 지도 스캔 입구(u2_3 · u14_2): 붙이기 끝 화면(pairing.tsx) «이 현장 지도 스캔하기», 폰 로봇 연결 화면 ⋯ «지도 스캔»(App) = 스캔 칸,
+// 실기 조종 화면 ⋯ «지도 스캔»(App) = 조종 화면 영상 칸 위 겹(ScanOver · 시안 u14_2 배치). 모두 PhoneScan(시안 u14_2 틀)을 연다.
 // 권한은 PhoneScan 과 같은 makers()(운영자 · 자기 담당 실기, 서버도 403 MAPPING_OWNER_ONLY). 없으면 단추 대신 까닭 한 줄.
 // 층은 실기 현장(REAL)만 고른다. 이 파일은 주행 명령을 만들지 않는다(조종 · STOP 은 폰 조종 화면).
 import { useState } from 'react';
@@ -25,4 +26,13 @@ export function ScanPanel({ user, robots, close, cancel }: { user: User; robots:
   if (r && t.tree) return <PhoneScan key={r.id} user={user} robot={r} places={places} cancel={cancel} close={close} pick={picker} />;
   return <ScanFrame side={<>{picker}{shut}</>}><div className="u142-says">
     {!r ? <p className="u142-say" data-scan-no>{SCAN_NO}</p> : <p className={`u142-say${t.err ? ' bad' : ''}`} role={t.err ? 'alert' : 'status'}>{t.err || '층 목록을 받는 중…'}</p>}</div></ScanFrame>;
+}
+
+/** 조종 화면 위 스캔 겹(시안 u14_2): 조종 중인 그 로봇 하나. 조종 화면 · 머리줄 STOP · 조이스틱은 그대로 살아 있고 겹은 제 칸만 손가락을 받는다(u142.app.css) */
+export function ScanOver({ user, robot, close, cancel }: { user: User; robot: Robot; close: () => void; cancel?: AbortSignal }) {
+  const t = useTree(cancel), places = floorsOf(t.tree).filter((p) => purposeOf(p.site) === 'REAL');
+  if (t.tree) return <PhoneScan user={user} robot={robot} places={places} cancel={cancel} close={close} over />;
+  return <ScanFrame over><div className="g dlg" aria-label="스캔 시작"><div className="h">지도 스캔 · {robot.name}</div>
+    <p className={`s${t.err ? ' u142-line' : ''}`} role={t.err ? 'alert' : 'status'}>{t.err || '층 목록을 받는 중…'}</p>
+    <div className="bts"><button type="button" className="dsec" onClick={close} data-scan-close>닫기</button></div></div></ScanFrame>;
 }

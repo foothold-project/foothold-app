@@ -29,3 +29,18 @@
 .u142 .u142-pick select{width:100%;background:none;border:0;color:inherit;font:inherit;font-size:12px;font-weight:800;text-align:center}
 .u142 .u142-pick select option{color:#1f2421}
 @media (max-width:600px){.u142 .u142-says{left:12px;top:188px}.u142 .sp{left:12px;right:12px}.u142 .dlg{width:calc(100% - 24px)}}
+
+/* 조종 화면 위 겹(ScanOver · 시안 u14_2 는 조종 판 위 스캔): 영상 칸(.dv-stage)을 덮되 바탕 없이, 손가락은 제 칸만 받고 조이스틱 · 보기 단추 · 아래 단추 줄은 그대로.
+   자리는 조종 화면 것을 피한다: 작은 지도 = 왼쪽 조이스틱 위, 진행 줄 = 시안 좌우 값 그대로 · 아래 단추 줄(.dv-sheets 44 + 12) 위, 상태 한 줄 = 진행 줄 위,
+   시작 · 취소 확인 칸 = 진행 줄 자리에 낮게(위 상태 줄 · 보기 단추를 덮지 않게) */
+.proto.pv.u142.u142-over{position:absolute;inset:0;width:auto;height:auto;flex:none;background:transparent;pointer-events:none;z-index:1}
+.u142-over :is(.sm,.sp,.dlg){pointer-events:auto}
+.u142-over .scrim{pointer-events:none}
+.u142-over .sm{top:auto;bottom:104px;width:140px;height:96px}
+.u142-over .sp{bottom:64px}
+.u142-over .u142-says{top:auto;bottom:134px;left:150px;right:238px}
+.u142-over .sp .bb button.p1{width:42px;padding:0;justify-content:center;color:#fff}
+.u142-over .dlg{top:auto;bottom:64px;transform:translateX(-50%);padding:12px 14px}
+.u142-over .dlg .h{font-size:15px}
+.u142-over .dlg .bts{margin-top:10px}
+.u142-over .u142-field{margin-top:8px}
