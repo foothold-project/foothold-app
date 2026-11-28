@@ -212,6 +212,7 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
 
   it('5195 사진에서 찾은 두 가지(11/28 20:1x): 밝은 판 보기 고르기 글자(흰 글자라 안 보였음) · 라이다 높이 범례는 정지 단추 뒤가 아니라 왼쪽 위', () => {
     expect(u4css).toContain('.proto.light .u4 .views .vsel span{color:#5E6662}');
+    expect(u4css).toContain('.proto.light .u4 .views .vsel span.on{background:#1F2421;color:#FFFFFF}');   // 고른 칸 = 시안 밝은 판 seg2 고른 칸(light.pv.css)과 같음
     expect(u4css).toContain('.u4 .mapv[data-u4-big="lidar"] [data-height-legend]{right:auto;bottom:auto;left:16px;top:96px}');
   });
 });
