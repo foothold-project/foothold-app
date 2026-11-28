@@ -16,6 +16,7 @@ import { api } from './api';
 import { STALLED, SimLaunch, field } from './simdrive';
 import { GAIT_KEYS, gaitKey, useGait } from './gait';
 import './drive.css';
+import { askShown } from './proto/u11';
 
 type Axes = [number, number];   // [전후, 회전] 각 -1..1. 회전 + = 왼쪽
 /** 남은 시간을 그리려고 on 인 동안 0.2 s 마다 다시 그림. 시각은 단조 시계 */
@@ -175,6 +176,7 @@ function Screen(c: Ctx) {
   const neutral = () => { gen.bump(); setBack(false); setSide(false); send(); };
   const pick = (s: SheetId | null) => { neutral(); setSheet(s); };
   const now = useNow(!!l.incoming || !!l.outgoing || l.cooldown > rt.now());
+  useEffect(() => { askShown.add(r.id); return () => { askShown.delete(r.id); }; }, [r.id]);   // 이 화면이 요청 창을 그린다(PC 시안 틀의 PcAsk 는 비켜 줌)
   /** 지금 세대 입력만. 앞 세대 입력이 남아 있으면 null(→ 0) */
   const axes = (): Axes | null => {
     const { keys: k, stick, sg } = input.current, n = sync();

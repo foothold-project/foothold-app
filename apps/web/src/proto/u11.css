@@ -1,0 +1,49 @@
+/* 시안 u11 겹 · 빈 화면 (screens/u11_*.html <style> 값 그대로, .proto 아래) */
+.proto .line1{display:flex;align-items:center;gap:12px;height:56px;padding:0 10px 0 18px;border-radius:16px;font-size:15px;font-weight:700;color:#fff;box-sizing:border-box}
+.proto .line1.err{background:linear-gradient(180deg,rgba(255,77,79,.22),rgba(255,77,79,.14));border:1px solid rgba(255,77,79,.5);box-shadow:0 10px 26px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.12)}
+.proto .line1.amb{background:linear-gradient(180deg,rgba(242,183,5,.22),rgba(242,183,5,.13));border:1px solid rgba(242,183,5,.5);box-shadow:0 10px 26px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.12)}
+.proto .line1.ok{background:linear-gradient(180deg,rgba(0,195,137,.22),rgba(0,195,137,.12));border:1px solid rgba(0,195,137,.5);box-shadow:0 10px 26px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.12)}
+.proto .line1 small{font-size:13px;font-weight:600;color:rgba(232,235,240,.75)}
+.proto .over{position:absolute;left:678px;top:180px;transform:translateX(-50%);z-index:8;width:720px}
+.proto .over small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.proto .veil{position:absolute;inset:64px 0 0 0;background:rgba(8,10,14,.45);backdrop-filter:blur(10px);z-index:5}
+.proto .tbar{height:6px;border-radius:3px;background:rgba(0,0,0,.08);overflow:hidden;margin-top:18px}
+.proto .tbar i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#00c389,#00c389)}
+.proto .modal{left:50%;top:50%;transform:translate(-50%,-50%);width:600px;padding:30px;border-radius:24px;z-index:6}
+.proto .modal .ttl{color:#1f2421}
+.proto .mbtn{height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;gap:7px;font:inherit;font-weight:800;font-size:15px;cursor:pointer;border:0}
+.proto .mbtn.sec{background:rgba(255,255,255,.75);border:1px solid rgba(0,0,0,.08);color:#1f2421}
+.proto .empty{position:absolute;left:24px;right:24px;top:88px;bottom:24px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.proto .empty .art{width:560px;height:340px}
+.proto .empty h2{font-size:26px;font-weight:800;letter-spacing:-.02em;margin-top:18px}
+.proto .empty p{font-size:15px;font-weight:600;color:var(--mu2);margin-top:10px;line-height:1.6}
+.proto .empty .btnp{height:52px;padding:0 24px;font-size:15px;margin-top:26px;text-decoration:none}
+/* u4 조종 화면에 한 줄이 떠 있으면(data-line) 그 자리의 옛 글을 한 줄로 모음: 끌기 안내는 숨기고, 리모컨 줄과 같은 에이전트 글(data-drive-input)은 한 번만 */
+.proto .stage3d[data-line] .hint{display:none}
+.proto .stage3d[data-line="remote"] [data-drive-input]{display:none}
+/* 밝은 판(.proto.light) · 정본 DESIGN.md 「밝음 1」: 어두운 판 민트 · 흰 글자를 밝은 바탕에 맞춤(창 .modal 은 두 판 모두 밝은 유리라 글자색 그대로) */
+.proto{--u11-ok:#00c389;--u11-ok-bg:rgba(0,195,137,.14)}
+.proto.light{--u11-ok:#0E7F63;--u11-ok-bg:rgba(24,160,126,.12)}
+.proto.light .tbar i{background:#18A07E}
+.proto.light .line1{color:#1F2421}
+.proto.light .line1 small{color:#5E6662}
+.proto.light .line1.err{background:rgba(224,74,47,.12);border-color:#E04A2F;box-shadow:0 10px 26px rgba(31,36,33,.12)}
+.proto.light .line1.amb{background:rgba(217,162,31,.12);border-color:#D9A21F;box-shadow:0 10px 26px rgba(31,36,33,.12)}
+.proto.light .line1.ok{background:rgba(24,160,126,.12);border-color:#18A07E;box-shadow:0 10px 26px rgba(31,36,33,.12)}
+.proto.light .line1.err .ic{color:#B8361F}
+.proto.light .line1.ok .ic{color:#0E7F63}
+.proto.light .empty h2{color:#1F2421}
+.proto.light .empty p{color:#5E6662}
+/* 빈 화면 그림(u11_6 ~ u11_8): 어두운 판의 흰 선 · 흰 채움은 밝은 바탕에서 안 보여 흐린 글자 #5E6662 계열로, 민트는 밝음 강조 #18A07E 로 */
+.proto.light .empty .art [stroke="rgba(255,255,255,.07)"]{stroke:rgba(94,102,98,.16)}
+.proto.light .empty .art [stroke="rgba(255,255,255,.16)"]{stroke:rgba(94,102,98,.30)}
+.proto.light .empty .art [stroke="rgba(255,255,255,.25)"]{stroke:rgba(94,102,98,.45)}
+.proto.light .empty .art [stroke="rgba(255,255,255,.30)"]{stroke:rgba(94,102,98,.55)}
+.proto.light .empty .art [fill="rgba(255,255,255,.03)"]{fill:rgba(94,102,98,.05)}
+.proto.light .empty .art [fill="rgba(255,255,255,.04)"]{fill:rgba(94,102,98,.06)}
+.proto.light .empty .art [stroke="#00c389"]{stroke:#18A07E}
+.proto.light .empty .art [fill="#00c389"]{fill:#18A07E}
+.proto.light .empty .art [stroke="rgba(0,195,137,.35)"]{stroke:rgba(24,160,126,.35)}
+.proto.light .empty .art [stroke="rgba(0,195,137,.6)"]{stroke:rgba(24,160,126,.6)}
+.proto.light .empty .art [fill="rgba(0,195,137,.08)"]{fill:rgba(24,160,126,.08)}
+.proto.light .empty .art [fill="rgba(0,195,137,.10)"]{fill:rgba(24,160,126,.10)}

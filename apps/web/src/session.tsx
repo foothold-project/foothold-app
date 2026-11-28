@@ -2,15 +2,15 @@
 // 로그인되면 역할은 /me, 로봇 목록은 /robots?scope=<listScope>(운영 관리자는 내게 배정된 로봇만, 총괄은 전체 — ADR-003 결정 2) → App.
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { User as ApiUser } from '../../contracts/ts';
-import { App } from './App';
-import { BrandLogo } from './BrandLogo';
+import { App, STAGE_H, STAGE_W, usePhone, useStage } from './App';
+import './login.css';
 import { api, onAuthLost, type ApiFail } from './api';
 import { clearServerData, listScope, setServerData, toRobots, type Robot, type User } from './fake';
 import { now } from './rt';
 import { kept } from './screens/mapedit';
 import { clearPlans } from './screens/missions';
 import { useTheme } from './theme';
-import { LoginFields, LoginFoot, type LoginBad } from './loginform';
+import { LoginFields, LoginFoot, PW_DONE, type LoginBad } from './loginform';
 
 const ENDED = '로그인이 끝났습니다. 다시 로그인하세요.';
 /** 운영 관리자의 로봇 목록(새로 배정된 로봇·목록 요약)을 다시 받는 간격 */
@@ -85,24 +85,32 @@ export function Root() {
 }
 
 function Login({ note, failed, enter }: { note?: string; failed?: boolean; enter: () => Promise<void> }) {
-  const [msg, setMsg] = useState(note), [busy, setBusy] = useState(false), fh = useTheme()[1] ? 'fh light' : 'fh', [bad, setBad] = useState<LoginBad>(null), [tick, setTick] = useState(0);
+  const [msg, setMsg] = useState(note), [busy, setBusy] = useState(false), [changed, setChanged] = useState(false), fh = useTheme()[1] ? 'fh light' : 'fh', [bad, setBad] = useState<LoginBad>(null), [tick, setTick] = useState(0);
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (busy) return;
     const f = new FormData(e.currentTarget), id = String(f.get('username')).trim(), pw = String(f.get('password'));
     setTick((n) => n + 1);
     if (!id || !pw) { setBad(!id ? 'username' : 'password'); return setMsg('계정과 비밀번호를 입력하세요.'); }
-    setBusy(true); setMsg(undefined); setBad(null);
+    setBusy(true); setMsg(undefined); setBad(null); setChanged(false);
     try { await api.login(id, pw); await enter(); }
     catch (err) { setBad((err as ApiFail).status === 401 ? 'both' : null); setMsg((err as ApiFail).message); setBusy(false); }   // 서버 401 은 계정 · 비밀번호를 가르지 않는다(api.py login)
   };
-  return <div className={fh}><main className="fh-login" aria-label="로그인">
-    <form onSubmit={submit} noValidate>
-      <BrandLogo kind="primary" h={40} />
-      <div className="fh-field"><h2>로그인</h2><span className="lbl">현장 서버에 연결해 로봇을 보고 조종합니다</span></div>
-      <LoginFields msg={msg} bad={bad} tick={tick} busy={busy} note={tick === 0 && !failed} />
-      <span className="lbl">5분 안에 5번 틀리면 잠시 로그인할 수 없습니다.</span>
-      <LoginFoot />
+  // 시안 로그인 카드(u10_1 · u10_3): 유리 카드 · FOOTHOLD 글자 · 제목 · 「총괄 · 운영자 계정으로 로그인합니다」. 칸 · 오류 · 비밀번호 바꾸기 안내는 loginform 그대로
+  // PC = 시안 u10_1 무대(1920 × 1080)를 창에 맞춤(팀장 «어떤 모니터도 fit» · 앱 틀과 같은 useStage). 폰은 기존 흐름 그대로
+  const phone = usePhone(), stage = useStage();
+  const page = <div className={`${fh} lg`} data-scale={phone ? undefined : stage.s.toFixed(4)}
+    style={phone ? undefined : { position: 'absolute', left: 0, top: 0, width: STAGE_W, height: STAGE_H, minHeight: 0, transformOrigin: '0 0', transform: `translate(${stage.x}px,${stage.y}px) scale(${stage.s})` }}>
+    <div className="lg-bg" aria-hidden="true" /><main className="fh-login" aria-label="로그인">
+    <form className="lg-card" onSubmit={submit} noValidate>
+      <div className="lg-logo">FOOTHOLD</div>
+      <h2>로그인</h2>
+      <p className="lg-sub">총괄 · 운영자 계정으로 로그인합니다</p>
+      <div className="lg-fields">{changed && !msg && <p className="lg-ok" role="status" data-pw-changed><svg className="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="m9 12 2 2 4-4" /></svg>{PW_DONE}</p>}
+        <LoginFields msg={msg} bad={bad} tick={tick} busy={busy} note={tick === 0 && !failed} /></div>
+      <LoginFoot done={() => { setMsg(undefined); setBad(null); setChanged(true); }} />
+      <span className="lg-note">5분 안에 5번 틀리면 잠시 로그인할 수 없습니다.</span>
     </form>
   </main></div>;
+  return phone ? page : <div className="fit" data-fit style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: fh.includes('light') ? '#F6F7F6' : '#000000' }}>{page}</div>;
 }

@@ -1,0 +1,87 @@
+/* 시안 로그인(proto screens/u10_1 · u10_3). 값은 시안 ui.css .g.dk · u10 화면 <style> 그대로.
+   카드 .card(480 폭 · 둥글기 28 · 안 여백 40/40/34) · 입력 .inp(52 높이 · 둥글기 12) · 오류 줄 .line1.err · 로그인 단추 .btnp(56 높이).
+   칸 · 오류 · 초점 · 보기 단추의 동작은 loginform.tsx 그대로이고, 여기서는 모양만 바꾼다(loginform 의 인라인 모양은 이 카드 안에서만 덮는다).
+   바탕: 시안은 공장 조감 사진 위 왼쪽 어둠 그러데이션. 사진은 저장소에 넣지 않아(사진 커밋 금지) 같은 그러데이션 + 옅은 격자.
+   밝은 판: 같은 구조에 공식 토큰(foothold.tokens.css, 값 수정 없음). */
+.fh.lg { position: relative; min-height: 100vh; overflow: hidden; background: #0c0f14; }
+.fh.lg .lg-bg { position: absolute; inset: 0; background:
+  linear-gradient(90deg, rgba(12,15,20,.94) 0%, rgba(12,15,20,.82) 34%, rgba(12,15,20,.25) 62%, rgba(12,15,20,.05) 100%),
+  url(/proto-assets/shared/map_large_factory_iso.jpg?v=1128042956) 58% 46% / cover,
+  radial-gradient(900px 600px at 72% 46%, #2a3a36, #121820 70%); }   /* 시안 u10_1 .bg 공장 그림(저장소 밖 자산 · FH_ASSET_DIR → /proto-assets/). 그림이 없으면 아래 바탕 */
+.fh.lg .fh-login { position: relative; z-index: 2; justify-content: flex-start; padding: 48px 16px 48px clamp(16px, 9.4vw, 180px); }
+.fh.lg .lg-card { width: 100%; max-width: 480px; box-sizing: border-box; padding: 40px 40px 34px; border-radius: 28px; display: flex; flex-direction: column; gap: 0; color: #fff;
+  background: linear-gradient(180deg, rgba(28,32,40,.52), rgba(18,20,26,.38)); border: 1px solid rgba(255,255,255,.22);
+  box-shadow: 0 10px 28px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.28); backdrop-filter: blur(22px) saturate(1.8); -webkit-backdrop-filter: blur(22px) saturate(1.8); }
+.fh.lg .lg-logo { font-weight: 900; letter-spacing: .08em; font-size: 18px; }
+.fh.lg .lg-card h2 { margin: 26px 0 0; font-size: 28px; font-weight: 800; letter-spacing: -.02em; }
+.fh.lg .lg-sub { margin: 6px 0 0; font-size: 14.5px; font-weight: 600; color: #9aa19d; }
+.fh.lg .lg-fields { display: flex; flex-direction: column; gap: 16px; margin-top: 24px; }
+.fh.lg .lg-fields .fh-field { display: block; }
+.fh.lg .lg-fields .fh-field .lbl { display: block; font-size: 13px; font-weight: 700; color: #9aa19d; margin-bottom: 8px; }
+.fh.lg .lg-fields .inp { width: 100%; box-sizing: border-box; height: 52px; border-radius: 12px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); padding: 0 14px;
+  font: inherit; font-size: 15.5px; font-weight: 600; color: #fff; box-shadow: inset 0 1px 2px rgba(0,0,0,.25); outline: none; }
+.fh.lg .lg-fields .inp:focus { border-color: rgba(0,195,137,.7); box-shadow: 0 0 0 3px rgba(0,195,137,.18); }
+.fh.lg .lg-fields .inp[aria-invalid="true"] { border-color: rgba(255,77,79,.8); box-shadow: 0 0 0 3px rgba(255,77,79,.16); }
+.fh.lg .lg-fields [data-pw-eye] { color: #9aa19d !important; min-width: 44px !important; min-height: 44px !important; }
+/* 오류 줄 = 시안 .line1.err · 안내 줄(세션 끝남 등) = 같은 꼴 중립 */
+.fh.lg .lg-fields [data-login-err], .fh.lg .lg-fields [data-login-note] { margin: 0; display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 18px !important; border-radius: 16px !important; font-size: 14px; font-weight: 700; box-sizing: border-box; color: #fff !important; }
+.fh.lg .lg-fields [data-login-err] { background: linear-gradient(180deg, rgba(255,77,79,.22), rgba(255,77,79,.14)) !important; border: 1px solid rgba(255,77,79,.5) !important; box-shadow: 0 10px 26px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.12); }
+.fh.lg .lg-fields [data-login-note] { background: rgba(255,255,255,.07) !important; border: 1px solid rgba(255,255,255,.14) !important; }
+.fh.lg .lg-fields .btn.pri { height: 56px; margin-top: 10px; border: 0; border-radius: 14px; font: inherit; font-weight: 800; font-size: 16px; cursor: pointer;
+  background: linear-gradient(180deg, #00c389, #00c389); color: #1f2421; box-shadow: 0 10px 24px rgba(0,195,137,.35), inset 0 1px 0 rgba(255,255,255,.4); }
+.fh.lg .lg-fields .btn.pri:disabled { opacity: .6; cursor: default; }
+.fh.lg .lg-card > div:has(> [data-pw-link]) { margin-top: 22px; }
+.fh.lg [data-pw-link] { color: #00c389 !important; font-weight: 700 !important; font-size: 14px; min-height: 44px !important; }
+.fh.lg [data-account-ask] { font-size: 13px; font-weight: 600; color: #9aa19d; }
+.fh.lg [data-pw-hint] { margin-top: 10px !important; border-radius: 12px !important; background: rgba(255,255,255,.07) !important; border-color: rgba(255,255,255,.14) !important; color: #fff !important; }
+.fh.lg .lg-note { margin-top: 12px; font-size: 12px; font-weight: 600; color: #7d8581; }
+@media (max-width: 600px) { .fh.lg .fh-login { justify-content: center; padding: 24px 16px; } .fh.lg .lg-card { padding: 28px 22px 24px; } }
+
+.fh.lg.light { background: #F6F7F6; }
+.fh.lg.light .lg-bg { background: linear-gradient(90deg, rgba(246,247,246,.96) 0%, rgba(246,247,246,.80) 40%, transparent 75%),
+  url(/proto-assets/shared/map_large_factory_iso.jpg?v=1128042956) 58% 46% / cover, #F6F7F6; }
+.fh.lg.light .lg-card { color: #1F2421; background: rgba(255,255,255,.92); border-color: #DCE0DE; box-shadow: 0 8px 24px rgba(31,36,33,.10); }
+.fh.lg.light .lg-sub, .fh.lg.light .lg-fields .fh-field .lbl, .fh.lg.light [data-account-ask], .fh.lg.light .lg-note, .fh.lg.light .lg-fields [data-pw-eye] { color: #5E6662 !important; }
+.fh.lg.light .lg-fields .inp { background: #FFFFFF; border-color: #DCE0DE; color: #1F2421; box-shadow: inset 0 1px 2px rgba(31,36,33,.05); }
+.fh.lg.light .lg-fields .btn.pri { background: #18A07E; color: #1F2421; box-shadow: 0 6px 16px rgba(24,160,126,.25); }   /* 민트 단추 글자는 그라파이트(흰 글자 3.3 모자람 · DESIGN.md) */
+.fh.lg.light [data-pw-link] { color: #0E7F63 !important; }
+.fh.lg.light .lg-fields [data-login-err], .fh.lg.light .lg-fields [data-login-note], .fh.lg.light [data-pw-hint] { color: #1F2421 !important; }
+.fh.lg.light .lg-fields [data-login-err] { background: rgba(224,74,47,.12) !important; border-color: #E04A2F !important; }
+.fh.lg.light .lg-fields [data-login-note], .fh.lg.light [data-pw-hint] { background: #F6F7F6 !important; border-color: #DCE0DE !important; }
+
+/* 시안 u10_2 비밀번호 바꾸기 창(.scrim · .g.modal 560 · .mbtn) · u10_4 초록 줄(.line1.ok). 값은 시안 ui.css · u10 화면 <style> 그대로 */
+.fh.lg .lg-scrim { position: fixed; inset: 0; background: rgba(8,10,14,.55); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); z-index: 5; }
+.fh.lg .lg-modal { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 6; width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; box-sizing: border-box; padding: 30px; border-radius: 24px; color: #1f2421;
+  background: linear-gradient(180deg, rgba(255,255,255,.72), rgba(255,255,255,.48)); backdrop-filter: blur(22px) saturate(1.8); -webkit-backdrop-filter: blur(22px) saturate(1.8);
+  border: 1px solid rgba(255,255,255,.85); box-shadow: 0 8px 24px rgba(20,30,50,.14), inset 0 1px 0 rgba(255,255,255,.95), inset 0 -1px 0 rgba(0,0,0,.04); }
+.fh.lg .lg-row { display: flex; align-items: center; justify-content: space-between; }
+.fh.lg .lg-modal .ttl { font-size: 20px; font-weight: 800; letter-spacing: -.02em; color: #1f2421; }
+.fh.lg .lg-x { border: 0; background: transparent; color: #1f2421; min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; margin-right: -10px; }
+.fh.lg .lg-mfields { display: flex; flex-direction: column; gap: 14px; margin-top: 20px; }
+.fh.lg .lg-mfields .fh-field { display: block; }
+.fh.lg .lg-modal .lab { display: block; font-size: 13px; font-weight: 700; color: #5e6662; margin-bottom: 8px; }
+.fh.lg .lg-modal .inp { width: 100%; box-sizing: border-box; height: 48px; border-radius: 12px; background: rgba(255,255,255,.8); border: 1px solid rgba(0,0,0,.08); padding: 0 14px;
+  font: inherit; font-size: 15px; font-weight: 600; color: #1f2421; box-shadow: inset 0 1px 2px rgba(0,0,0,.06); outline: none; }
+.fh.lg .lg-modal .inp:focus { border-color: #00c389; box-shadow: 0 0 0 3px rgba(0,195,137,.2); }
+.fh.lg .lg-modal .inp[aria-invalid="true"] { border-color: #ff4d4f; box-shadow: 0 0 0 3px rgba(255,77,79,.14); }
+.fh.lg .lg-mnote { font-size: 13px; color: #5e6662; font-weight: 600; margin: 14px 0 0; line-height: 1.6; }
+.fh.lg .lg-merr { margin: 14px 0 0; font-size: 13.5px; font-weight: 700; color: #c0392b; }
+.fh.lg .lg-mbtns { display: flex; gap: 10px; margin-top: 20px; }
+.fh.lg .mbtn { flex: 1; height: 52px; border-radius: 14px; display: flex; align-items: center; justify-content: center; gap: 7px; font: inherit; font-weight: 800; font-size: 15px; cursor: pointer; }
+.fh.lg .mbtn.sec { background: rgba(255,255,255,.75); border: 1px solid rgba(0,0,0,.08); color: #1f2421; }
+.fh.lg .mbtn.pri { border: 0; background: linear-gradient(180deg, #00c389, #00c389); color: #fff; box-shadow: 0 10px 24px rgba(0,195,137,.35), inset 0 1px 0 rgba(255,255,255,.4); }
+.fh.lg .mbtn:disabled { opacity: .6; cursor: default; }
+.fh.lg .lg-ok { margin: 0; display: flex; align-items: center; gap: 12px; height: 48px; padding: 0 18px; border-radius: 16px; font-size: 14px; font-weight: 700; box-sizing: border-box; color: #fff;
+  background: linear-gradient(180deg, rgba(0,195,137,.22), rgba(0,195,137,.12)); border: 1px solid rgba(0,195,137,.5); box-shadow: 0 10px 26px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.12); }
+.fh.lg.light .lg-ok { color: #1F2421; box-shadow: none; }
+
+/* 밝은 판 값 = 정본 foothold-brand app-tone-1126 DESIGN.md 「밝음 1」(바탕 #F6F7F6 · 칸 #FFFFFF · 글자 #1F2421 · 흐린 #5E6662 · 선 #DCE0DE · 강조 #18A07E · 강조 글자 #0E7F63 · 경고 #E04A2F) */
+/* PC 무대(1920 × 1080 · data-scale): 시안 u10_1 .card 자리 · 크기 그대로(left 180 · top 252 · 폭 480) */
+.fh.lg[data-scale] .fh-login { position: absolute; inset: 0; display: block; padding: 252px 0 0 180px; }
+.fh.lg[data-scale] .lg-card { width: 480px; }
+/* 비밀번호 바꾸기 창(u10_2) 밝은 판: 초점 · 주 단추 · 오류를 밝음 1 값으로(창 바탕은 두 판 모두 밝은 유리) */
+.fh.lg.light .lg-modal .inp:focus { border-color: #18A07E; box-shadow: 0 0 0 3px rgba(24,160,126,.2); }
+.fh.lg.light .lg-modal .inp[aria-invalid="true"] { border-color: #E04A2F; box-shadow: 0 0 0 3px rgba(224,74,47,.14); }
+.fh.lg.light .lg-merr { color: #B8361F; }
+.fh.lg.light .mbtn.pri { background: #18A07E; color: #1F2421; box-shadow: 0 10px 24px rgba(24,160,126,.3); }
+.fh.lg.light .lg-ok { background: rgba(24,160,126,.12); border-color: #18A07E; }
