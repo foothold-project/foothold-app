@@ -2044,6 +2044,7 @@ class MapBuilding(Contract):
     site_id: UUID
     name: str
     floors: list[MapFloor] = Field(default_factory=list)
+    demo: bool = False  # this building's sim world has a demo robot; REAL buildings stay false
 
 
 class MapSite(Contract):

@@ -172,3 +172,24 @@ def test_factory_version_frame_matches_design_transform(maps, seeded, factory_fo
         expect_col, expect_row = (px - t['origin_px'][0]) / t['px_per_m'] / res, (py - t['origin_px'][1]) / t['px_per_m'] / res
         assert abs(col - expect_col) < 1 and abs(row - expect_row) < 1, (px, py, col, row)
         assert 0 <= col <= version['width'] and 0 <= row <= version['height']
+
+
+def test_buildings_demo_true_only_for_the_world_with_a_demo_robot(maps, seeded, factory_folder):
+    """건물 (세계) 단위 demo (app-design-lx 14:52 B): 한 SIM 현장에 세계가 모두 있으므로 건물마다 따로."""
+    http, admin, files = maps
+    for relative in ('warehouse/scenarios.json', 'warehouse/maps/f1.png', 'warehouse/maps/f1.yaml', 'warehouse/maps/metadata.json'):
+        (factory_folder / relative).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(SOURCE / relative, factory_folder / relative)
+    catalog = json.loads((factory_folder / 'worlds.json').read_text())
+    catalog['worlds']['warehouse/f1'] = json.loads((SOURCE / 'worlds.json').read_text())['worlds']['warehouse/f1']
+    (factory_folder / 'worlds.json').write_text(json.dumps(catalog))
+    seed(http, seeded, factory_folder, files)
+    real = http.post(P + '/sites', headers=admin, json={'name': '실제 현장', 'purpose': 'REAL'}).json()
+    building = http.post(P + '/sites/' + real['id'] + '/buildings', headers=admin, json={'name': '실제 건물'})
+    assert building.status_code == 201, building.text
+    assert building.json()['demo'] is False
+    demo = lambda: {b['sim_world_id'] or b['name']: b['demo'] for s in http.get(P + '/sites', headers=admin).json()['items']
+                    for b in s['buildings']}
+    assert demo() == {'factory_site': False, 'warehouse': False, '실제 건물': False}
+    set_robot(seeded, 'mine', simulation=True, demo=True, sim_world_id='factory_site')
+    assert demo() == {'factory_site': True, 'warehouse': False, '실제 건물': False}

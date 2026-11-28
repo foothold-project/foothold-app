@@ -871,6 +871,7 @@ export interface MapBuilding {
   site_id: string;
   name: string;
   floors: MapFloor[];
+  demo: boolean;
 }
 
 export interface MapConnector {
