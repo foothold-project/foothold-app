@@ -92,7 +92,9 @@ def test_legacy_input_envelope_and_additive_policy_range(h):
     legacy = dict(vx_mode='continuous', vx_min_moving=.2, vx_min=-.3, vx_max=1.,
                   vy_min=-.3, vy_max=.3, wz_min=-.5, wz_max=.5, commands=[],
                   experimental=['reverse', 'lateral', 'turn_in_place'])
-    assert {key: limits[key] for key in legacy} == {**legacy, 'vx_max': 1.5}
+    # 11/28 envelope opened to the org-settings ceiling (apps/contracts/teleop.py SIM_CEILING)
+    assert {key: limits[key] for key in legacy} == {**legacy, 'vx_min': -1.5, 'vx_max': 1.5,
+        'vy_min': -.5, 'vy_max': .5, 'wz_min': -1.2, 'wz_max': 1.2}
     parsed = PhoneLimits.model_validate(limits)
     assert parsed.policy_velocity_range is None  # no claim that experiments were trained
     assert parsed.requires_forward_motion is False

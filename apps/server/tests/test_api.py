@@ -320,3 +320,15 @@ def test_central_policy_never_allows_cross_org_robot():
     with pytest.raises(APIError) as failure:
         authorize(user, 'O_OWN', robot)
     assert failure.value.status == 404
+
+
+def test_me_returns_own_notify_prefs_but_user_list_does_not(client):
+    headers = csrf(client, 'one')
+    assert client.get(P + '/me').json()['notify_prefs'] == {}
+    prefs = {'APPROVAL_DECIDED': False, 'LINK_LOST': True}
+    patched = client.patch(P + '/me', headers=headers, json={'notify_prefs': prefs})
+    assert patched.status_code == 200 and patched.json()['notify_prefs'] == prefs
+    assert client.get(P + '/me').json()['notify_prefs'] == prefs
+    csrf(client, 'admin')
+    assert client.get(P + '/me').json()['notify_prefs'] == {}
+    assert all('notify_prefs' not in item for item in client.get(P + '/users').json()['items'])

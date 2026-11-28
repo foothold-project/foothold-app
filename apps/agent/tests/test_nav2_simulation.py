@@ -40,8 +40,8 @@ def test_simulation_output_preserves_si(r, velocity):
     assert not r.runs.nav.intent(Binding('old', 'old', 0, 0, '', '', ''), (.6, 0, 0))
 
 
-@pytest.mark.parametrize('velocity', [(-.300001, 0, 0), (0, 0, .51), (.6, .300001, 0), (0, -.300001, 0),
-    (1.500001, 0, 0), (.6, 0, .6), (float('nan'), 0, 0), (float('inf'), 0, 0),
+@pytest.mark.parametrize('velocity', [(-1.500001, 0, 0), (0, 0, 1.21), (.6, .500001, 0), (0, -.500001, 0),
+    (1.500001, 0, 0), (.6, 0, -1.21), (float('nan'), 0, 0), (float('inf'), 0, 0),
     (True, 0, 0), None, (.6,), 'bad'])
 def test_first_invalid_input_fails_latched_with_one_original_diagnostic(r, velocity, caplog):
     binding = enable(r)

@@ -1,4 +1,49 @@
 {
+  "$defs": {
+    "BusyHour": {
+      "additionalProperties": false,
+      "properties": {
+        "day": {
+          "enum": [
+            "mon",
+            "tue",
+            "wed",
+            "thu",
+            "fri",
+            "sat",
+            "sun"
+          ],
+          "title": "Day",
+          "type": "string"
+        },
+        "end": {
+          "description": "같은 날 start 보다 늦은 HH:MM. 자정을 넘는 구간은 두 줄로 나눈다.",
+          "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+          "title": "End",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "start": {
+          "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+          "title": "Start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "day",
+        "start",
+        "end",
+        "label"
+      ],
+      "title": "BusyHour",
+      "type": "object"
+    }
+  },
   "$id": "fh-app/1/OrgSettingsPatch",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
@@ -9,11 +54,29 @@
       "title": "Battery Low Pct",
       "type": "integer"
     },
+    "busy_hours": {
+      "items": {
+        "$ref": "#/$defs/BusyHour"
+      },
+      "maxItems": 64,
+      "title": "Busy Hours",
+      "type": "array"
+    },
+    "clip_retention_days": {
+      "title": "Clip Retention Days",
+      "type": "integer"
+    },
     "deviation_m": {
       "maximum": 5,
       "minimum": 0.5,
       "title": "Deviation M",
       "type": "number"
+    },
+    "dup_inspect_min": {
+      "maximum": 1440,
+      "minimum": 30,
+      "title": "Dup Inspect Min",
+      "type": "integer"
     },
     "lease_request_timeout_s": {
       "maximum": 30,
@@ -89,6 +152,10 @@
       "minimum": 10,
       "title": "Run Min Battery Pct",
       "type": "integer"
+    },
+    "show_demo_label": {
+      "title": "Show Demo Label",
+      "type": "boolean"
     },
     "sim_key_vx": {
       "maximum": 1.5,

@@ -297,3 +297,96 @@ def test_real_caps_only_admin_patch_persist_zero_and_reject_overflow(client, fie
     assert client.get(P).json()[field] == 0
     assert client.patch(P, headers=csrf(client, 'admin'), json={field: BOUNDS[field][1] + .01}).status_code == 400
     assert client.get(P).json()[field] == 0
+
+
+# u9_6 데모 표시 · u9_8 혼잡 시간 · 중복 점검 기준 (팀장 11/28 20:23)
+BUSY = [{'day': 'mon', 'start': '08:30', 'end': '09:12', 'label': '출근'},
+        {'day': 'wed', 'start': '14:00', 'end': '15:00', 'label': '설비 반입'}]
+
+
+def test_site_settings_defaults_admin_write_operator_read_and_audit(client, seeded):
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+    from apps.server.fh_server.models import Event
+    operator = csrf(client, 'one')
+    got = client.get(P).json()
+    assert (got['show_demo_label'], got['busy_hours'], got['dup_inspect_min']) == (True, [], 240)
+    change = {'show_demo_label': False, 'busy_hours': BUSY, 'dup_inspect_min': 180}
+    for key, value in change.items():
+        assert client.patch(P, headers=operator, json={key: value}).status_code == 403
+    assert client.get(P).json() == got
+    admin = csrf(client, 'admin')
+    result = client.patch(P, headers=admin, json=change)
+    assert result.status_code == 200, result.text
+    assert {k: result.json()[k] for k in change} == change
+    csrf(client, 'one')
+    assert {k: client.get(P).json()[k] for k in change} == change
+    with Session(client.app.state.engine) as db:
+        row = db.scalars(select(Event).where(Event.code == 'ORG_SETTINGS_UPDATED')).one()
+        assert row.data == change and row.user_id == seeded['users']['admin'] and row.at
+
+
+@pytest.mark.parametrize('patch', [
+    {'show_demo_label': 1}, {'show_demo_label': None}, {'show_demo_label': 'false'},
+    {'dup_inspect_min': 29}, {'dup_inspect_min': 1441}, {'dup_inspect_min': 240.0}, {'dup_inspect_min': True},
+    {'busy_hours': None},
+    {'busy_hours': [{**BUSY[0], 'day': 'MON'}]},
+    {'busy_hours': [{**BUSY[0], 'start': '8:30'}]},
+    {'busy_hours': [{**BUSY[0], 'end': '24:00'}]},
+    {'busy_hours': [{**BUSY[0], 'start': '09:12', 'end': '09:12'}]},
+    {'busy_hours': [{**BUSY[0], 'start': '10:00', 'end': '09:00'}]},
+    {'busy_hours': [{**BUSY[0], 'label': ''}]},
+    {'busy_hours': [{**BUSY[0], 'label': 'x' * 33}]},
+    {'busy_hours': [{**BUSY[0], 'extra': 1}]},
+    {'busy_hours': [BUSY[0]] * 65},
+])
+def test_site_settings_reject_bad_values_without_saving(client, patch):
+    headers = csrf(client)
+    before = client.get(P).json()
+    assert client.patch(P, headers=headers, json=patch).status_code in (400, 422)
+    assert client.get(P).json() == before
+
+
+def test_busy_hours_patch_replaces_whole_list(client):
+    headers = csrf(client)
+    assert client.patch(P, headers=headers, json={'busy_hours': BUSY}).status_code == 200
+    assert client.patch(P, headers=headers, json={'busy_hours': BUSY[1:]}).json()['busy_hours'] == BUSY[1:]
+    assert client.patch(P, headers=headers, json={'busy_hours': []}).json()['busy_hours'] == []
+
+
+def test_seed_script_patches_through_app_login_bearer(client, seeded):
+    from tools import seed_org_settings as seed
+    PASSWORD = 'fake-test-password'
+    def send(method, path, body, token):
+        response = client.request(method, path, json=body,
+                                  headers={'Authorization': 'Bearer ' + token} if token else {})
+        return response.status_code, response.json() if response.content else None
+    payload = {'show_demo_label': False, 'busy_hours': BUSY, 'dup_inspect_min': 240}
+    assert seed.seed(send, 'admin', PASSWORD, payload) == payload
+    csrf(client, 'one')
+    assert {k: client.get(P).json()[k] for k in payload} == payload
+    with pytest.raises(SystemExit):
+        seed.seed(send, 'one', PASSWORD, payload)
+
+
+# app-lx 11/28 20:47: 클립 보관 일수 (지우기는 범위 밖)
+def test_clip_retention_default_admin_only_range_422_and_audit(client, seeded):
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+    from apps.server.fh_server.models import Event
+    operator = csrf(client, 'one')
+    assert client.get(P).json()['clip_retention_days'] == 30
+    assert client.patch(P, headers=operator, json={'clip_retention_days': 60}).status_code == 403
+    admin = csrf(client, 'admin')
+    for bad in (0, 366, -1):
+        assert client.patch(P, headers=admin, json={'clip_retention_days': bad}).status_code == 422
+    assert client.patch(P, headers=admin, json={'clip_retention_days': 1.5}).status_code in (400, 422)
+    assert client.get(P).json()['clip_retention_days'] == 30
+    for good in (1, 365, 60):
+        assert client.patch(P, headers=admin, json={'clip_retention_days': good}).json()['clip_retention_days'] == good
+    csrf(client, 'one')
+    assert client.get(P).json()['clip_retention_days'] == 60
+    with Session(client.app.state.engine) as db:
+        rows = list(db.scalars(select(Event).where(Event.code == 'ORG_SETTINGS_UPDATED').order_by(Event.id)))
+        assert [row.data for row in rows] == [{'clip_retention_days': v} for v in (1, 365, 60)]
+        assert all(row.user_id == seeded['users']['admin'] for row in rows)

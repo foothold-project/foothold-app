@@ -131,10 +131,12 @@ LIMITS = {'vx_min': 0.0, 'vx_max': 1.5, 'vy_min': 0.0, 'vy_max': 0.0,
           'commands': [[0.0, 0.0, 0.0]] + [[step / 10, 0.0, wz]
               for step in range(3, 16) for wz in (0., -.5, .5, -MAX_TURN_RATE, MAX_TURN_RATE)]}
 
-# Explicit simulation input envelope; the learned policy ranges remain unchanged.
-# These experimental commands are accepted, not validated walking capabilities.
+# Explicit simulation input envelope = organization setting ceilings (apps/contracts/teleop.py
+# SIM_CEILING: back -sim_max_vx, side ±sim_max_vy, turn ±sim_max_wz; test_teleop_sim checks it).
+# 팀장 11/28 23:08: reverse/side/turn are open; a policy that never learned a direction is the
+# policy's limit, not the app's. 'experimental' is a display mark only and gates nothing here.
 SIMULATION_LIMITS = {**LIMITS, 'vx_mode': 'continuous', 'vx_min_moving': .2,
-                     'vx_min': -.3, 'vx_max': 1.5, 'vy_min': -.3, 'vy_max': .3,
-                     'wz_min': -.5, 'wz_max': .5, 'commands': [], 'experimental': ['reverse', 'lateral', 'turn_in_place'],
+                     'vx_min': -1.5, 'vx_max': 1.5, 'vy_min': -.5, 'vy_max': .5,
+                     'wz_min': -1.2, 'wz_max': 1.2, 'commands': [], 'experimental': ['reverse', 'lateral', 'turn_in_place'],
                      'policy_adapter_id': 'simulation-experimental-si/1',
                      'requires_forward_motion': False}

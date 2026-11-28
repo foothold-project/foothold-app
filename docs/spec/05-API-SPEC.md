@@ -70,7 +70,7 @@
 | POST | `/auth/logout` | 이 기기 세션 끝 + 웹 쿠키 지움. 열린 WS 는 4401 로 닫힘 | 로그인 |
 | POST | `/auth/refresh` | 앱 토큰 갱신 `{refresh_token}` → `{access_token, refresh_token}` | 앱 |
 | GET | `/auth/session` | 지금 세션 확인 → `{client:"web"|"app", csrf_token}`. 웹은 새 `csrf_token`, 앱은 `null`. 새로고침 뒤 CSRF 재획득용 | 로그인 |
-| GET | `/me` | 내 정보·역할·담당 로봇 ID 목록 | 로그인 |
+| GET | `/me` | 내 정보·역할·담당 로봇 ID 목록·알림 설정 (`Me` = `User` + `notify_prefs`). 사용자 목록 (`User`) 에는 `notify_prefs` 가 없다 | 로그인 |
 | PATCH | `/me` | 표시 이름·알림 설정 `{display_name?, notify_prefs?}` | 로그인 |
 | POST | `/me/password` | 비밀번호 변경 `{current_password, new_password}`. 성공하면 이 사용자의 모든 세션(지금 기기 포함)을 끝낸다. 현재 비밀번호가 틀리면 403, 5회/5분 넘으면 429 | 로그인 |
 | GET | `/users` | 사용자 목록 | A |
@@ -426,7 +426,7 @@ purge 이후 NULL 기록이 생겼거나 파일 대기열이 남으면
 | POST | `/notifications/read` | `{ids}` 또는 `{all:true}` | 로그인 |
 | POST | `/push/subscribe` | Web Push 구독 등록 | 로그인 |
 | GET | `/org/settings` | 조직 기준값 ([06 organizations.settings](06-DB-DESIGN.md#31-조직사람)) | 로그인 |
-| PATCH | `/org/settings` | 기준값 고치기. 범위: `battery_low_pct` 5~50, `run_min_battery_pct` 10~90, `deviation_m` 0.5~5, `lease_request_timeout_s` 5~30, `link_loss_wait_s` 0~30. 바꾼 값은 다음 실행부터 적용하고, 실행 중인 것은 `run.start` 때 받은 값을 쓴다 | A |
+| PATCH | `/org/settings` | 기준값 고치기. 범위: `battery_low_pct` 5~50, `run_min_battery_pct` 10~90, `deviation_m` 0.5~5, `lease_request_timeout_s` 5~30, `link_loss_wait_s` 0~30. 바꾼 값은 다음 실행부터 적용하고, 실행 중인 것은 `run.start` 때 받은 값을 쓴다. 현장 칸 (11/28): `show_demo_label` bool (기본 true, 데모 로봇에 「데모」 표시) · `busy_hours` `BusyHour[]` 최대 64 (`{day: mon~sun, start: "HH:MM", end: "HH:MM", label: 1~32자}`, end 는 같은 날 start 보다 늦어야 함, PATCH 는 목록 전체를 바꿈) · `dup_inspect_min` 30~1440 정수 (기본 240). `clip_retention_days` 1~365 정수 (기본 30, 범위 밖은 422, 값만 두고 지우기는 아직 없음). 바꾼 기록은 사건 `ORG_SETTINGS_UPDATED` (category ACCOUNT, user_id · at · data=PATCH 한 칸 그대로) | A |
 | GET | `/media/{id}` | 사진 파일 | 로그인(그 사진이 붙은 실행·사건과 같은 범위 판정) |
 
 - 범위 판정은 서버가 요청마다 한다. 목록에서 안 보이는 실행·사건·사진을 ID 로 직접 요청하면 **404**(있다는 사실도 숨김). 운영 관리자가 남의 로봇에 대해 볼 수 있는 것은 관제의 로봇 요약 객체뿐이다.

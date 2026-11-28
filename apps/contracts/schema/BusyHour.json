@@ -1,0 +1,45 @@
+{
+  "$id": "fh-app/1/BusyHour",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "day": {
+      "enum": [
+        "mon",
+        "tue",
+        "wed",
+        "thu",
+        "fri",
+        "sat",
+        "sun"
+      ],
+      "title": "Day",
+      "type": "string"
+    },
+    "end": {
+      "description": "같은 날 start 보다 늦은 HH:MM. 자정을 넘는 구간은 두 줄로 나눈다.",
+      "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+      "title": "End",
+      "type": "string"
+    },
+    "label": {
+      "maxLength": 32,
+      "minLength": 1,
+      "title": "Label",
+      "type": "string"
+    },
+    "start": {
+      "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+      "title": "Start",
+      "type": "string"
+    }
+  },
+  "required": [
+    "day",
+    "start",
+    "end",
+    "label"
+  ],
+  "title": "BusyHour",
+  "type": "object"
+}

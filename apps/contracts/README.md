@@ -589,3 +589,13 @@ Upload/MapVersion 경로와 옛 판 관리 방식을 쓴다. 해상도 0.05 m·�
   걷기 속도와 배터리 %/분은 `apps/server/fh_server/schedule.py` 의 미실측 추정 표 한 곳에 있고, 그래서 `estimate_source` 는 지금 항상 `TABLE_UNMEASURED` 다.
   `task_s` 는 임무의 WAIT (지점 `wait_s` 가 덮음) · SENSOR_LOG 초, PHOTO · OPERATOR_CONFIRM 은 고정 표. `margin_s` 는 그 로봇에서 `start` 에 진행 중이거나 뒤에 오는 첫 칸 (`end > start`) 의 시작 빼기 `eta`, 없으면 null. 진행 중인 칸이 있으면 음수다. 이미 넣은 칸을 다시 예상할 때는 `exclude_slot_id` 로 그 칸을 뺀다.
   `end_battery_pct` 는 지금 배터리를 볼 수 있을 때만 값이 있다.
+
+## 손 조종 한 식 (teleop · 11/28)
+
+`teleop.py` 가 정본, `teleop.ts` 가 같은 연산 순서의 TS 짝이다 (생성물 아님 · `tests/test_teleop.py` 가 node 로 불러 같은 표를 대조).
+키보드 · 화면 조이스틱 · 폰 손잡이 · 실기 START 리모컨이 같은 막대 값에 같은 속도를 낸다.
+
+- 막대 `[전후, 옆, 돌기]` -1..1 (+ = 전진 · 왼쪽 · 왼쪽으로 돌기). `|s| < stick_deadzone` 이면 0, 문턱 밖 값은 늘리지 않는다.
+- 전후 `s·|s| × 상한` (제곱 · 실기 `policy/lowlevel.py` · `runner_cpp/src/core.cpp` `remote_want` 와 같음), 옆 · 돌기 `s × 상한` (직선).
+- 상한 `teleopCaps(settings, simulation)`: 시뮬 전진 · 후진 `sim_max_vx`, 옆 `sim_max_vy`, 돌기 `sim_max_wz`. 실기 `real_max_vx` · `real_max_vx_back` · `real_max_vy` · `real_max_wz`.
+- 키보드 `keyStick(keys, caps, sim_key_vx)` → 막대 위치 (화면 조이스틱이 그 위치를 그린다) → `stickVelocity`. 키 배치 `KEYMAP`.
