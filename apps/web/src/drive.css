@@ -85,7 +85,10 @@ html:has(.dv.ph),.fh:has(.dv.ph){background:#05080A}
 .dv-act:not([data-bare]){box-sizing:border-box;padding:6px 6px 8px 8px;border:1px solid rgba(230,235,239,.45);border-radius:12px;background:rgba(8,11,14,.8)}
 .dv-act-head{display:flex;align-items:flex-start;gap:4px;max-width:100%}
 .dv-act-t{flex:1;min-width:0;max-height:30vh;overflow-y:auto}
-.dv-act-t>.dv-note:first-child{font-weight:600}
+.dv-act-t>.dv-note:first-child,.dv-act-t>.dv-note-row:first-child>.dv-note{font-weight:600}
+/* 알림 칸 «+N» (PHONE-CLUTTER 11-28): 접힌 등급 3~5 수 · 손가락 크기 44px · 색은 안내 줄 글 색 그대로 */
+.dv-note-row{display:flex;align-items:center;gap:4px}.dv-note-row>.dv-note{flex:1;min-width:0}
+.dv-more{flex:none;min-height:44px;min-width:44px;padding:0 12px;border:1px solid rgba(230,235,239,.35);border-radius:22px;background:rgba(8,11,14,.5);color:#E6EBEF;font:inherit;font-size:13px;white-space:nowrap;cursor:pointer}
 .dv-x{flex:none;width:44px;height:44px;display:grid;place-items:center;padding:0;border:0;background:none;color:#E6EBEF;cursor:pointer}
 .dv-act .fh-row{justify-content:center}
 /* 시뮬 시험용 표시(limits.experimental): 10-26 영상 위에서 빼고 메뉴 맨 위 한 줄. 긴 문장은 설정 시트·aria-label */
