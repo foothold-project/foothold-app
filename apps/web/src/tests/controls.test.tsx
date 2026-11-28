@@ -60,7 +60,7 @@ describe('설정 › 조작 설명 칸 (u9_7)', () => {
     expect(PHONE_BASIS).not.toContain('—');
     // 실기 폰 조종(drive.tsx)이 PC 와 같은 손잡이 규칙 · 상한 검사를 쓰는 동안만 참
     expect(driveSrc).toContain("stickTok('L', -x, -y)");
-    expect(driveSrc).toContain('(demo ? demoPermitted : permitted)(a, settingsRef.current)');   // 실기 = PC 와 같은 permitted · 데모만 웹 상한(시뮬 값)
+    expect(driveSrc).toContain('(demo ? allowedAxes(a, settingsRef.current, true) : permitted(a, settingsRef.current))');   // 실기 = PC 와 같은 permitted · 데모 = 로봇 탭과 같은 allowedAxes(시뮬)
     expect(driveSrc).toContain('allow(cmd) ? cmd : TABLE[\'\']');
   });
 

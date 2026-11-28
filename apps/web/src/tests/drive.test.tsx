@@ -14,12 +14,13 @@ import { COOLDOWN_S, FAIL_TEXT, FREE_TEXT, REQUEST_S, STOP_HTTP_MS, STOP_WS_MS, 
 import { FakeWS, fail, lease, state } from './fakeWs';
 import { STALLED } from '../simdrive';
 import { driveBlock } from '../fake';
-import { COMBO_BLOCK, MAX_TURN_RATE, SIDE_BLOCK, stopLine } from '../serverdrive';
+import { COMBO_BLOCK, MAX_TURN_RATE, SIDE_BLOCK, axesOf, stopLine } from '../serverdrive';
 import { simTune } from '../phone';
-import { CAP_BLOCK, DEMO_RULE, REAL_STICK, REAL_WAIT, REAL_WAIT_PILL, demoAxes } from '../drive';
+import { CAP_BLOCK, DEMO_RULE, REAL_STICK, REAL_WAIT, REAL_WAIT_PILL } from '../drive';
 import { deadzone, stickVelocity, teleopCaps } from '../../../contracts/teleop';
 import { shape } from '../robotact';
 import { ACTS, STANDUP_WHY, actWhy } from '../robotact';
+import driveSrc from '../drive.tsx?raw';
 import driveCss from '../drive.css?raw';
 import frameCss from '../frame.css?raw';
 import u1AppCss from '../screens/u1.app.css?raw';
@@ -2801,14 +2802,30 @@ describe('폰 데모 로봇 = 서버 경유 u1 조종 화면', () => {
     expect(lstick(fwd, 0.25)[0]).toBeCloseTo(0.25 * 0.25 * 1.5, 6);
   });
 
-  it('데모 명령 = teleop stickVelocity(손잡이 + keyStick, teleopCaps(설정, 시뮬), deadzone(설정)) 그대로', () => {
+  it('데모 명령 = 로봇 탭과 같은 serverdrive axesOf 하나 (teleop stickVelocity(손잡이 + keyStick, teleopCaps(설정, 시뮬), deadzone(설정)))', () => {
     const o = { ...ORG, sim_max_vx: 1.2, sim_max_vy: 0.4, sim_max_wz: 0.9, sim_key_vx: 0.6, stick_deadzone: 0.15 } as never;
     const caps = teleopCaps(o, true), dz = deadzone(o);
-    for (const an of [{ f: 0.3, s: -0.2, t: 0.7 }, { f: -0.9, s: 0.1, t: -0.16 }, { f: 1, s: 1, t: 1 }, { f: 0.14, s: 0, t: 0 }]) {
-      const want = stickVelocity([an.f, an.s, an.t], caps, dz).map((v) => Math.round(v * 1e6) / 1e6 || 0);
-      expect(demoAxes([], an, o)).toEqual(want);
+    for (const an of [[0.3, -0.2, 0.7], [-0.9, 0.1, -0.16], [1, 1, 1], [0.14, 0, 0]] as [number, number, number][]) {
+      const want = stickVelocity(an, caps, dz).map((v) => Math.round(v * 1e6) / 1e6 || 0);
+      expect(axesOf([], o, true, an)).toEqual(want);
     }
-    expect(demoAxes(['up'], { f: 0, s: 0, t: 0 }, o)).toEqual([0.6, 0, 0]);
+    expect(axesOf(['up'], o, true)).toEqual([0.6, 0, 0]);
+    expect(driveSrc).not.toMatch(/export function demoAxes|demoPermitted|demoKeyStick/);   // 폰 데모 전용 식 없음
+    expect(driveSrc).toContain('axesOf(keyToks(input.current.keys), settingsRef.current, true');
+  });
+
+  it('데모는 표에 없는 키 조합(옆 + 돌기 · 앞 + 옆)도 막지 않음 · 까닭 줄 없음 (fe299a01 규칙 · 로봇 탭과 같음)', () => {
+    open(true);
+    ready();
+    key('keydown', 'ArrowLeft'); key('keydown', 'KeyA'); tick(100);
+    const o = { ...ORG } as never;
+    expect(lastAxes()).toEqual(axesOf(['left', 'rotl'], o, true));
+    const [, vy, wz] = lastAxes() as number[]; expect(vy).not.toBe(0); expect(wz).not.toBe(0);
+    expect(text()).not.toContain(COMBO_BLOCK);
+    key('keyup', 'KeyA'); key('keyup', 'ArrowLeft');
+    key('keydown', 'KeyW'); key('keydown', 'ArrowRight'); tick(100);
+    expect(lastAxes()).toEqual(axesOf(['up', 'right'], o, true));
+    expect(text()).not.toContain(COMBO_BLOCK);
   });
 
   it('키를 누르면 손잡이는 keyStick 자리(sim_key_vx 1.5 의 1/4 이면 앞 반) · 떼면 가운데', () => {

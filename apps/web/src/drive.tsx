@@ -15,13 +15,12 @@ import { NoRobot } from './screens/norobot';
 import { TakeoverAsk } from './screens/takeover';
 import { useTheme } from './theme';
 import { simTune, useSim, useTuneSettings } from './phone';
-import { COMBO_BLOCK, DriveView, command, isSettings, permitted, REAL_WAIT, SIDE_BLOCK, TABLE, unknownCombo, type Tok } from './serverdrive';
+import { COMBO_BLOCK, DriveView, allowedAxes, axesOf, command, isSettings, permitted, REAL_WAIT, SIDE_BLOCK, TABLE, tokStick, unknownCombo, type Tok } from './serverdrive';
 import { driveFeedText, useDriveFeed, type DriveFeed } from './drivemedia';
 import { LidarMap } from './lidarmap';
 import type { GaitName, OrgSettings } from '../../contracts/ts';
 import { MissionCards, MissionMap, missionChip, missionOn, useMission, type MapSight } from './screens/u1mission';
 import { ACTS, RESTART_ASK, RESTART_TEXT, actOff, actWhy, stickTok, useRestartAsk } from './robotact';
-import { deadzone, keyStick, stickVelocity, teleopCaps, type TeleopKey } from '../../contracts/teleop';
 import { actionResultText } from './screens/actiontrial';
 import { api } from './api';
 import { STALLED, SimLaunch, field } from './simdrive';
@@ -105,33 +104,13 @@ export function endDrive(id: string, go: Ctx['go']) {
   if (l.lease) rt.release(id); else go('drive');
 }
 /** 실기 조종 안내: 비례가 아니라 켜짐/꺼짐 */
-/** 데모(목록 sim · demo true) 손 조종 = 공용 식 apps/contracts/teleop.ts(app-lx · 에이전트 · 리모컨과 같은 식).
- *  상한 teleopCaps(설정, 시뮬) = 축마다 min(조직 sim_*, 시뮬 천장 vx ±1.5 · vy ±0.5 · wz ±1.2) · 뒤 = sim_max_vx · 문턱 deadzone(설정) ·
- *  전후 s·|s| · 옆 · 돌기 직선 · 키는 keyStick(전후 = sim_key_vx 가 되는 자리). 실기 고정 명령표(command · permitted)는 그대로 */
+/** 데모(목록 sim · demo true) 손 조종 = 로봇 탭과 같은 serverdrive axesOf(시뮬) 하나: 공용 식 apps/contracts/teleop.ts ·
+ *  표에 없는 조합도 막지 않음(fe299a01 · 조합은 정책 몫) · 상한 검사 allowedAxes. 실기 고정 명령표(command · permitted)는 그대로 */
 export const DEMO_RULE: { mark: boolean } = { mark: true };   // 후진 · 옆걸음 「시험 기능」 표시 — 팀장 확인 대기(app-lead 11-28 23:12)
-type Org = Partial<OrgSettings> | null;
-const asSettings = (o: Org) => o as Record<string, unknown> | null;
 /** 키 → 손잡이와 같은 입력 부호: 앞 +1 · 뒤 -1 · 왼 옆 +1 · 오른 옆 -1 · 왼 돌기 +1(실기 화면 손잡이 표시용) */
 export const keyInput = (keys: Tok[]) => { const [vx, vy, wz] = command(keys); return { f: Math.sign(vx), s: Math.sign(vy), t: Math.sign(wz) }; };
-/** 키 → 공용 식 손잡이 자리(teleop keyStick · 화면 손잡이도 이 자리) */
-export function demoKeyStick(keys: Tok[], o: Org) {
-  const k = keyInput(keys), on: TeleopKey[] = [];
-  if (k.f) on.push(k.f > 0 ? 'forward' : 'back');
-  if (k.s) on.push(k.s > 0 ? 'left' : 'right');
-  if (k.t) on.push(k.t > 0 ? 'turn_left' : 'turn_right');
-  const [f, s, t] = keyStick(on, teleopCaps(asSettings(o), true), o?.sim_key_vx as number);
-  return { f, s, t };
-}
-/** 데모 명령: 손잡이가 0 인 축은 키 자리. 표에 없는 키 조합이면 null(→ 0 + 까닭) */
-export function demoAxes(keys: Tok[], an: { f: number; s: number; t: number }, o: Org): [number, number, number] | null {
-  if (unknownCombo(keys)) return null;
-  const k = demoKeyStick(keys, o);
-  return stickVelocity([an.f || k.f, an.s || k.s, an.t || k.t], teleopCaps(asSettings(o), true), deadzone(asSettings(o))).map((v) => Math.round(v * 1e6) / 1e6 || 0) as [number, number, number];
-}
-const demoPermitted = ([vx, vy, wz]: [number, number, number], o: Org) => {
-  const c = teleopCaps(asSettings(o), true);
-  return vx <= c.max_vx && vx >= -c.max_vx_back && Math.abs(vy) <= c.max_vy && Math.abs(wz) <= c.max_wz;
-};
+/** 데모 키 → 화면 손잡이 자리(axesOf 가 보내는 것과 같은 tokStick) */
+const demoKin = (keys: Tok[], o: Partial<OrgSettings> | null) => { const [f, s, t] = tokStick(keys, o, true); return { f, s, t }; };
 /** 데모 후진 · 옆걸음 표시(app-lx 11-28 22:59 · DEMO_RULE.mark) */
 export const DEMO_EXP = '시험 기능 · 후진과 옆걸음은 시뮬에서 시험 중입니다.';
 export const REAL_STICK = '실기는 손잡이를 30 % 넘게 밀면 정해진 속도로 움직입니다. 한 손잡이는 큰 쪽 한 방향만 보냅니다.';
@@ -265,12 +244,12 @@ function Screen(c: Ctx) {
   /** 손잡이 까닭 한 줄(PC 로봇 탭 useServerDrive stick 과 같은 순서): 표 밖 조합 · 옆 상한 · 그 밖 상한 */
   const [padWhy, setPadWhy] = useState('');
   const [exp, setExp] = useState(false), [kin, setKin] = useState({ f: 0, s: 0, t: 0 });   // kin = 누른 키의 손잡이 입력(화면 손잡이에 보이기만)   // 데모 후진 · 옆걸음을 보내는 중(시험 기능 표시)
-  const cmdOf = (t: Tok[]) => (demo ? demoAxes(t, { f: 0, s: 0, t: 0 }, settingsRef.current) ?? TABLE[''] : command(t)), allow = (a: [number, number, number]) => (demo ? demoPermitted : permitted)(a, settingsRef.current);
+  const cmdOf = (t: Tok[]) => (demo ? axesOf(t, settingsRef.current, true) : command(t)), allow = (a: [number, number, number]) => (demo ? allowedAxes(a, settingsRef.current, true) : permitted(a, settingsRef.current));
   const [zero, setZero] = useState(false), [long, setLong] = useState(false);   // zero = 누르는데 설정을 몰라 0 을 보냄 · long = 10 초 넘게 모름
   const stickSay = () => {
     const t = toks();
     setPadWhy(!readyRef.current || !t || !(input.current.st[0].length || input.current.st[1].length) ? ''
-      : unknownCombo(t) ? COMBO_BLOCK : demo ? '' : !allow(cmdOf(t)) ? (cmdOf(t)[1] ? SIDE_BLOCK : CAP_BLOCK) : '');
+      : demo ? '' : unknownCombo(t) ? COMBO_BLOCK : !allow(cmdOf(t)) ? (cmdOf(t)[1] ? SIDE_BLOCK : CAP_BLOCK) : '');
   };
 
   /** 틱과 즉시 전송(놓음·blur·시트)이 같이 쓰는 한 길: 명령 공백(GAP_MS) 검사로 세대를 맞춘 뒤 보낸다(RV-426 ③⑨).
@@ -278,7 +257,7 @@ function Screen(c: Ctx) {
   const send = () => {
     if (!rt.get(r.id).lease) return;
     gen.tick(r.id);
-    const t = toks(), known = real && gotRef.current && isSettings(settingsRef.current), cmd = t && known ? (demo ? demoAxes(keyToks(input.current.keys), input.current.an, settingsRef.current) ?? TABLE[''] : command(t)) : TABLE[''];
+    const t = toks(), known = real && gotRef.current && isSettings(settingsRef.current), cmd = t && known ? (demo ? axesOf(keyToks(input.current.keys), settingsRef.current, true, [input.current.an.f, input.current.an.s, input.current.an.t]) : command(t)) : TABLE[''];
     setZero(!known && !!t && t.length > 0);
     const [vx, vy, wz] = allow(cmd) ? cmd : TABLE[''];   // 표 밖 · 조직 상한 밖이면 0
     setExp(demo && DEMO_RULE.mark && (vx < 0 || vy !== 0));
@@ -311,11 +290,11 @@ function Screen(c: Ctx) {
       else if (!keys.has(e.code)) keys.set(e.code, -1);   // 반복은 새 누름이 아니다 — 모르는 키면 앞 세대로 적어 뗄 때까지 0
       if (k === 'b') setBack(true);
       if (k === 'sl' || k === 'sr') setSide(true);
-      setCombo(unknownCombo(keyToks(keys))); setKin(demo ? demoKeyStick(keyToks(keys), settingsRef.current) : keyInput(keyToks(keys)));
+      setCombo(!demo && unknownCombo(keyToks(keys))); setKin(demo ? demoKin(keyToks(keys), settingsRef.current) : keyInput(keyToks(keys)));
     };
     const up = (e: KeyboardEvent) => {
       if (metaCut(e)) { if (keys.size) blur(); return; }
-      const k = KEY[keyCode(e.code)]; if (k && keys.delete(e.code)) { if (k === 'b') setBack(held(keys, 'b')); setSide(held(keys, 'sl') || held(keys, 'sr')); setCombo(unknownCombo(keyToks(keys))); setKin(demo ? demoKeyStick(keyToks(keys), settingsRef.current) : keyInput(keyToks(keys))); sendRef.current(); }   // 뗀 그 자리에서 한 번 보냄(RV-426 ⑨)
+      const k = KEY[keyCode(e.code)]; if (k && keys.delete(e.code)) { if (k === 'b') setBack(held(keys, 'b')); setSide(held(keys, 'sl') || held(keys, 'sr')); setCombo(!demo && unknownCombo(keyToks(keys))); setKin(demo ? demoKin(keyToks(keys), settingsRef.current) : keyInput(keyToks(keys))); sendRef.current(); }   // 뗀 그 자리에서 한 번 보냄(RV-426 ⑨)
     };
     // 창 밖에서 뗀 키는 keyup 이 안 온다 — 적은 키를 모두 지우고 세대 +1, 바로 0(앞 세대는 이미 무시되므로 지워도 안전, RV-426 ⑦⑨)
     const blur = () => { keys.clear(); setBack(false); setSide(false); setCombo(false); setKin({ f: 0, s: 0, t: 0 }); gen.bump(); sendRef.current(); };
