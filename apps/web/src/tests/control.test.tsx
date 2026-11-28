@@ -11,6 +11,7 @@ import { api } from '../api';
 import { sim } from '../phone';
 import { rt } from '../rt';
 import { oldScenario } from '../menu';
+import { stopLine } from '../serverdrive';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -47,9 +48,9 @@ const TWENTY: Robot[] = Array.from({ length: 20 }, (_, i) => ({
   mission: i % 3 && i !== 15 ? `순찰 ${i % 4}/4` : undefined, sim: i === 2,
   serverDrive: i !== 2,   // 실기는 서버 경유 정지가 켜진 로봇(H1: 꺼진 실기는 따로 시험)
 }));
-/** 시안 이름 그대로 8 대(K-01 ~ K-08 · K-08 = 시뮬) */
+/** 시안 이름 그대로 8 대(K-01 ~ K-08 · K-07 = 끊김 · K-08 = 시뮬) */
 const EIGHT: Robot[] = Array.from({ length: 8 }, (_, i) => ({ id: `k${i + 1}`, name: `K-0${i + 1}`, owner: i < 4 ? 'u-lee' : 'u-park', ownerName: i < 4 ? '이OO' : '박OO',
-  battery: 70, online: i !== 7, seenAt: '14:02:00', status: i === 7 ? null : 'RUNNING', mission: i === 7 ? undefined : '공정 순찰 A 2/4', sim: i === 7, serverDrive: i !== 7 }));
+  battery: 70, online: i !== 7 && i !== 6, seenAt: '14:02:00', status: i === 7 ? null : 'RUNNING', mission: i === 7 ? undefined : '공정 순찰 A 2/4', sim: i === 7, serverDrive: i !== 7 }));
 const temp = (joints: (number | null)[]) => ({ robot_info: { source: 'GO2_DDS', attitude: { roll: 0, pitch: 0 }, error_code: 0, fallen: false, fallen_source: 'imu_tilt_estimate',
   temperature: { joints, battery: [], imu: null, body: [], age_s: 0.1 } } });
 
@@ -286,6 +287,7 @@ describe('관제 탭', () => {
     expect(tiles()).toHaveLength(2);
     expect(tiles().every((t) => t.dataset.tone === undefined && !t.querySelector('[data-warn-flag]'))).toBe(true);
     expect($('[data-sum="경고"] b').textContent).toBe('0');
+    expect($$('.u5 .tb .cnt').map((e) => e.dataset.sum)).toEqual(['임무 중', '충전', '점검', '경고']);   // 시안 u5_6: 0 인 연결 중 · 시뮬 대기는 칸째 뺌
     expect($('[data-alarm]')).toBeNull();
     expect($$('[aria-label="최근 경고"] [data-alert]')).toHaveLength(0);
     expect($('main').textContent).not.toContain('연결 끊김');
@@ -501,6 +503,19 @@ describe('관제 탭', () => {
     const sent = FakeWS.last.of('stop').map((m) => m.robot);
     expect(sent).not.toContain('g6');
     expect(sent).toContain('g8');
+  });
+  it('정지 한 줄: 타일 상태 표지 · 선택 칸에 serverdrive stopLine 과 같은 판정 · 정지 전에는 없음', () => {
+    mount('u-lee', TWENTY); feed(TWENTY);
+    expect(tile('g6').querySelector('[data-stop-line]')).toBeNull();
+    act(() => { tile('g6').click(); });
+    press(stopBtn());
+    const want = stopLine(rt.get('g6'))!;
+    expect(want).not.toBeNull();
+    expect(tile('g6').querySelector('.stb[data-stop-line]')!.textContent).toBe(want.text);
+    expect(tile('g6').querySelector<HTMLElement>('.stb[data-stop-line]')!.dataset.stopLine).toBe(want.tone);
+    expect($('[data-picked] [data-stop-line]').textContent).toBe(want.text);
+    act(() => { FakeWS.last.recv(state('g6', { status: 'STOP_LATCHED', latched: true, stop_gen: 2, applied: [0, 0, 0], speed: 0 })); });
+    expect(tile('g6').querySelector('.stb[data-stop-line]')!.textContent).toBe(stopLine(rt.get('g6'))!.text);
   });
   it('R3: «모두»에서 남의 로봇을 고른 뒤 «내 로봇»으로 되돌리면 고름이 비고, STOP 한 번은 숨은 로봇이 아니라 고르기', () => {
     mount('u-lee', TWENTY); feed(TWENTY);
