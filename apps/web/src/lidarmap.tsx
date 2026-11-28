@@ -9,6 +9,7 @@ import { FLOOR_DZ, HeightLegend, Lidar3D, rgbOf, ringOf, type Look } from './lid
 import { inBase } from './lidarmount';
 import type { Pose } from './go2model';
 import { QEmpty } from './quad';
+import { sx, sy } from './stage';
 
 /** 처음 보이는 범위(로봇 둘레 ±m) · 확대 한계(화면 px / m) */
 const SPAN_M = 6, K_MIN = 4, K_MAX = 400;
@@ -84,11 +85,10 @@ function TopView({ feed, small }: { feed: DriveFeed; small: boolean }) {
     const t = setInterval(() => { if (cur.current.ver !== v.ver || el.clientWidth !== v.w || el.clientHeight !== v.h) draw(); }, 500);
     let d: null | { id: number; x: number; y: number; vx: number; vy: number } = null, raf = 0;
     const soon = () => { raf ||= requestAnimationFrame(() => { raf = 0; draw(); }); };
-    const down = (e: PointerEvent) => { if (sm.current || d || !v.k) return; d = { id: e.pointerId, x: e.clientX, y: e.clientY, vx: v.x, vy: v.y }; try { el.setPointerCapture(e.pointerId); } catch { /* 없음 */ } };
+    const down = (e: PointerEvent) => { if (sm.current || d || !v.k) return; d = { id: e.pointerId, x: sx(e), y: sy(e), vx: v.x, vy: v.y }; try { el.setPointerCapture(e.pointerId); } catch { /* 없음 */ } };
     const move = (e: PointerEvent) => {
       if (!d || e.pointerId !== d.id) return;
-      const z = el.getBoundingClientRect().width / (el.clientWidth || 1) || 1;   // 화면 맞춤 scale: 보이는 px → css px
-      v.x = d.vx - (e.clientX - d.x) / z / v.k; v.y = d.vy + (e.clientY - d.y) / z / v.k;
+      v.x = d.vx - (sx(e) - d.x) / v.k; v.y = d.vy + (sy(e) - d.y) / v.k;   // 무대 px(stage.ts) = 칸 css px
       if (v.follow) { v.follow = false; setFree(true); }
       soon();
     };

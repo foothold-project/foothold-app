@@ -5,6 +5,7 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import * as THREE from 'three';
 import type { Go2RobotInfo } from '../../contracts/ts';
 import type { Live } from './rt';
+import { stageRect, sx, sy } from './stage';
 
 /** Go2 관절 이름 순서(mobile/sim/go2-replay.js GO2_JOINTS 와 같음) · 서 있는 기본 자세(보고 없을 때 그림) */
 export const JOINTS = ['FR', 'FL', 'RR', 'RL'].flatMap((leg) => ['hip', 'thigh', 'calf'].map((part) => `${leg}_${part}_joint`));
@@ -326,7 +327,7 @@ export function Go2Figure({ pose, motion = NONE, showJoints = true, temps = null
   useLayoutEffect(() => {
     const e = tipEl.current, v = box.current;
     if (!e || !v) { setCover(null); return; }
-    const a = e.getBoundingClientRect(), o = v.getBoundingClientRect();
+    const a = stageRect(e), o = stageRect(v);   // 무대 px(화면 맞춤 scale 아래에서도 칸 안 css px 와 같게)
     setCover({ x: a.left - o.left, y: a.top - o.top, w: a.width, h: a.height });
   }, [tip, at]);
   const under = (b: Box) => !!cover && b.x < cover.x + cover.w && cover.x < b.x + b.w && b.y < cover.y + cover.h && cover.y < b.y + b.h;
@@ -337,10 +338,10 @@ export function Go2Figure({ pose, motion = NONE, showJoints = true, temps = null
     <div ref={box} className="pd-go2-view" role="img" aria-label={pose ? 'Go2 · 로봇이 보낸 관절·자세 (끌어서 돌려 보기)' : 'Go2 · 기본 자세(로봇 보고 없음)'}
       data-go2-orbit={moved ? 'moved' : 'home'} style={{ touchAction: 'none', cursor: 'grab' }}
       onMouseDown={(e) => e.preventDefault()} onDoubleClick={() => setView(HOME)}
-      onPointerDown={(e) => { if (e.button) return; drag.current = { x: e.clientX, y: e.clientY }; e.currentTarget.setPointerCapture?.(e.pointerId); }}
+      onPointerDown={(e) => { if (e.button) return; drag.current = { x: sx(e), y: sy(e) }; e.currentTarget.setPointerCapture?.(e.pointerId); }}
       onPointerMove={(e) => {
         const d = drag.current; if (!d) return;
-        const dx = e.clientX - d.x, dy = e.clientY - d.y; d.x = e.clientX; d.y = e.clientY;
+        const dx = sx(e) - d.x, dy = sy(e) - d.y; d.x = sx(e); d.y = sy(e);
         if (dx || dy) setView((v) => ({ ...v, az: v.az - dx * DRAG, el: clamp(v.el + dy * DRAG, EL) }));
       }} onPointerUp={end} onPointerCancel={end} onLostPointerCapture={end}>
       {fail && <svg className="pd-go2-sketch" data-go2-sketch viewBox={`0 0 ${size.w} ${size.h}`} aria-hidden="true">
