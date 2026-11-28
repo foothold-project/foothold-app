@@ -136,7 +136,7 @@ const $$ = <T extends Element = HTMLElement>(s: string, from: ParentNode = box) 
 const stopSends = async () => {
   const s = $<HTMLButtonElement>('[data-stop]')!;
   expect(s.disabled).toBe(false);
-  expect($('header')!.lastElementChild).toBe(s);
+  expect($('header, .bar .rt')!.lastElementChild).toBe(s);
   act(() => FakeWS.last.open());
   await click(s);
   const pick = $<HTMLSelectElement>('[aria-label="정지할 로봇"]');
@@ -1363,7 +1363,7 @@ describe('지도 편집 — 나가기 확인·STOP', () => {
     expect(unload()).toBe(false);                                       // 바꾼 것 없으면 묻지 않음
     await tool('연결점'); await tap(1, 1);
     expect(unload()).toBe(true);
-    await click($('nav a[href="#/fleet"]'));
+    await click($('[aria-label="주 메뉴"] [data-href="#/fleet"]'));
     await hashed();
     expect(location.hash).toBe('#/map');
     expect(card('확인').textContent).toContain('저장하지 않은 편집이 있습니다. 나가면 편집 내용을 잃습니다.');
@@ -1425,9 +1425,9 @@ describe('지도 편집 — 나가기 확인·STOP', () => {
   it('STOP: 편집 중·확인창이 떠 있을 때 늘 보이고 실제로 정지 요청', async () => {
     serve(editSrv());
     await startEdit();
-    await click($('nav a[href="#/fleet"]')); await hashed();         // 바꾼 것 없으면 바로 떠남 — 다시 들어옴
+    await click($('[aria-label="주 메뉴"] [data-href="#/fleet"]')); await hashed();         // 바꾼 것 없으면 바로 떠남 — 다시 들어옴
     expect($('main')!.getAttribute('aria-label')).toBe('로봇');
-    await click($('nav a[href="#/map"]')); await hashed();
+    await click($('[aria-label="주 메뉴"] [data-href="#/map"]')); await hashed();
     await click(btn('편집', card('보기·편집')));
     canvas().getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 320, right: 400, bottom: 320, x: 0, y: 0, toJSON() {} }) as DOMRect;
     await tool('연결점'); await tap(1, 1);
@@ -1501,7 +1501,7 @@ describe('지도 편집 — PR #30 검토(B1~B4)', () => {
     expect(dots()).toBe(1); expect(pressed('벽')).toBe('true');
     expect(field('바꾼 이유', card('지도 저장')).value).toBe('지점 추가');
     expect(alertText()).not.toContain('다른 사람이 먼저');
-    await click($('nav a[href="#/fleet"]')); await hashed();
+    await click($('[aria-label="주 메뉴"] [data-href="#/fleet"]')); await hashed();
     expect(card('확인').textContent).toContain('저장하지 않은 편집이 있습니다.');
     await click(btn('나가기', card('확인'))); await hashed();
     expect($('main')!.getAttribute('aria-label')).toBe('로봇');
@@ -1605,7 +1605,7 @@ describe('지도 편집 — PR #30 검토(B1~B4)', () => {
     await tool('벽'); expect(dots()).toBe(2); expect(pressed('벽')).toBe('true');
     await click(btn('끝내기'));
     expect(canvas().querySelectorAll('[data-edit]')).toHaveLength(2);                 // 지금 판 벽 1 + 그린 벽 1
-    await click($('nav a[href="#/fleet"]')); await hashed();
+    await click($('[aria-label="주 메뉴"] [data-href="#/fleet"]')); await hashed();
     expect(card('확인').textContent).toContain('저장하지 않은 편집이 있습니다.');   // 도구 바꾸기 확인이 나가기 확인을 지우지 않음
   });
 });

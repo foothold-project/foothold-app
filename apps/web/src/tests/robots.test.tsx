@@ -433,7 +433,7 @@ describe('subscription.revoked(05 §9)', () => {
     const w = live(LEE);
     act(() => { w.recv({ t: 'subscription.revoked', robot: 'r-a', reason: 'ROBOT_DELETED' }); });
     await flush();
-    expect($('header')!.lastElementChild).toBe($('[data-stop]'));
+    expect($('header, .bar .rt')!.lastElementChild).toBe($('[data-stop]'));
     stopOk();
   });
 });
@@ -458,7 +458,7 @@ describe('sub 404(apps/server README «S0» — 등록·담당 변경 직후 서
     expect($('[aria-label="로봇 없음"]')).toBeNull();
     expect($('[data-missed]')!.textContent).toContain('실시간 상태를 받을 수 없는 로봇이 있습니다');
     expect($('[data-missed]')!.textContent).toContain('다음 목록 갱신 때 다시 확인합니다.');
-    expect($('header [data-link]')).toBeNull();            // 연결은 그대로
+    expect($('header [data-link], .bar [data-link]')).toBeNull();            // 연결은 그대로
     act(() => w.recv(state('r-a', { battery: { soc: 33, updated_at: AT } })));
     expect(big('battery')).toBe('33%');                     // 고른 내 로봇(Go2-A) «로봇 상태»
     expect(row('Go2-B').textContent).toContain('확인 안 됨');
