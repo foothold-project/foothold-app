@@ -11,6 +11,8 @@
 .fh-head[data-u1] .fh-stop{box-sizing:border-box;pointer-events:auto;position:absolute;right:calc(12px + env(safe-area-inset-right,0px));bottom:calc(12px + env(safe-area-inset-bottom,0px));width:92px;height:68px;min-width:0;margin:0;padding:0;border-radius:18px;border:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
  background:linear-gradient(180deg,#f2575a,#d62f33);color:#fff;font-weight:800;font-size:14px;box-shadow:0 10px 24px rgba(214,47,51,.42),inset 0 1px 0 rgba(255,255,255,.35)}
 .fh-head[data-u1] .fh-stop svg{width:20px;height:20px}
+/* 시안 u1_3: 정지 잠금 중에는 조이스틱 · 동작 줄을 숨김(보이지도 눌리지도 않음 · 부품은 붙어 있어 손가락 세대 판정은 그대로) */
+.u1d[data-stop-held] :is(.stick,.act){visibility:hidden}
 /* 시안 u1_7: 정지를 보냈는데 잠금 보고가 없으면 흰 테 + 「다시 누르기」 */
 .fh-head[data-u1] .fh-stop[data-again]{box-shadow:0 0 0 3px #fff,0 10px 24px rgba(214,47,51,.42)}
 .fh-head[data-u1] .fh-stop[data-again] small{display:block;font-size:9.5px;font-weight:600;opacity:.85}

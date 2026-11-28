@@ -60,7 +60,7 @@ function lockChip(l: Live, r: Robot): { tone: Tone; text: string } {
   if (l.failed) return { tone: 'bad', text: '정지 확인 실패' };
   if (l.busy) return { tone: 'warn', text: '정지 확인 중' };
   if (!l.state || l.state.connection !== 'ONLINE') return { tone: 'off', text: '상태 모름' };
-  if (l.state.latched !== false) return { tone: 'bad', text: '정지 잠금' };
+  if (l.state.latched !== false) return { tone: 'bad', text: l.state.latched ? '정지됨' : '정지 잠금' };   // 「정지됨」 은 로봇이 잠금을 알렸을 때만(시안 u1_3 · 모르면 정지 잠금)
   if (!l.lease) return { tone: 'off', text: '보는 중' };
   return l.neutral ? { tone: 'ok', text: '조종 중' } : { tone: 'warn', text: '중립 확인 중' };   // 「조종 중」 = 시안 u1_2
 }
@@ -279,7 +279,7 @@ function Screen(c: Ctx) {
     : l.cooldown > now ? `${secs(l.cooldown, now)}초 뒤 다시 요청할 수 있습니다.` : '';
   const q = mine && l.incoming && l.incoming.until > now ? l.incoming : null;
   // ready 에는 «중립 확인 중»도 넣는다 — 중립은 이번 세대 입력으로 정해지므로 세대 키(sync)에 넣으면 그 입력이 앞 세대가 된다(RV-426 ⑧)
-  const lock = lockChip(l, r), ready = mine && (lock.text === '조종 중' || lock.text === '중립 확인 중'), speed = l.state?.speed, ok = got && isSettings(settings);
+  const lock = lockChip(l, r), ready = mine && (lock.text === '조종 중' || lock.text === '중립 확인 중'), stopHeld = !!l.state && l.state.latched !== false, speed = l.state?.speed, ok = got && isSettings(settings);   // stopHeld: 정지 잠금 중 = 조이스틱 · 동작 줄 숨김(시안 u1_3)
   readyRef.current = ready; sync();   // 그릴 때도 세대를 맞춘다(조이스틱 누름이 새 세대를 보게)
   // 잠금 사유 OUTPUT_STALLED(에이전트 출력 지연 → 0·STOP·잠금) — 폰 시뮬 조종(simdrive.tsx)과 같은 문구. 잠금 해제·STOP 동작은 그대로
   const stalled = l.state?.connection === 'ONLINE' && !!l.state.latched && l.state.safety_reason === 'OUTPUT_STALLED';
@@ -301,7 +301,8 @@ function Screen(c: Ctx) {
       <button key={v} type="button" aria-pressed={view === v} onClick={() => setView(v)}>{t}</button>)}
   </div>;
   const ban = (cls: string, x: ReactNode, p: Record<string, string | boolean> = {}) => <p className={`ban ${cls}`} role="status" {...p}>{x}</p>;
-  const u1 = <div className={`proto pv u1d${light ? ' light' : ''}`} data-u1d>
+  // 정지 잠금 중(시안 u1_3): 조이스틱 · 동작 줄은 숨긴다(visibility · u1.app.css). 지우지 않는 까닭: 누른 손가락 · 세대(RV-425)는 부품이 붙어 있어야 그대로 판정
+  const u1 = <div className={`proto pv u1d${light ? ' light' : ''}`} data-u1d data-stop-held={stopHeld ? '' : undefined}>
     {!light && <div className="vig" />}
     <div className="tl">
       <button type="button" className="g dk row u1-chip" aria-expanded={chip} aria-controls="u1-pane" onClick={() => setChip(!chip)} style={{ left: '12px', top: '12px', height: '44px', padding: '0 12px 0 7px', gap: '9px' }}>

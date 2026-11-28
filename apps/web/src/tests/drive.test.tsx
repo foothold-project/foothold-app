@@ -144,7 +144,7 @@ describe('조종 화면', () => {
     click(btn('조종'));
     expect(w.of('lease.take')).toMatchObject([{ robot: 'r7', proto: 'fh-rt/1' }]);
     expect(text()).toContain('조종 중(나)');
-    expect(text()).toContain('정지 잠금');
+    expect($('.u1-chip .u1-st')!.textContent).toBe('정지됨');   // 로봇이 잠금을 알림 = 시안 u1_3 「정지됨」
     expect(text()).toContain('조종권을 받았습니다');   // 내 take 의 ACCEPTED 를 «넘겼습니다»로 읽지 않음
     expect(text()).not.toContain('넘겼습니다');
     tick(200);
@@ -439,7 +439,7 @@ describe('조종 화면', () => {
     recv(lease('r7', KIM, 'L-kim'));
     recv({ t: 'lease.result', robot: 'r7', request_id: 'q1', result: 'ACCEPTED' });
     expect(text()).toContain('조종권을 받았습니다. 잠금 해제 후 조종하세요.');
-    expect($('.u1d .u1-chip .u1-st').textContent).toContain('정지 잠금');
+    expect($('.u1d .u1-chip .u1-st').textContent).toBe('정지됨');
     unlock();
     expect(w.of('unlock')).toMatchObject([{ lease_id: 'L-kim', stop_gen: 2 }]);
   });
@@ -3040,5 +3040,32 @@ describe('시안 u1_2 조종 중 글 · 꼴 (21:48 결정 2)', () => {
     expect(u1AppCss).toMatch(/\.fh-head\[data-u1\] \.fh-stop\[data-again\] small\{[^}]*font-size:9\.5px/);
     expect(u1AppCss).toMatch(/\.u1d \.act button\{[^}]*position:relative/);
     expect(u1AppCss).toMatch(/\.u1d \.act em\{position:absolute;top:100%/);
+  });
+});
+
+describe('시안 u1_3 정지됨 (21:48 결정 3 · Damping 은 따로)', () => {
+  it('로봇이 잠금을 알리면 상태 칩 「정지됨」 · 조이스틱 · 동작 줄 숨김 · 키 · 손가락 · 동작으로 0 아닌 명령이 나가지 않음', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    ready();
+    expect($('[data-u1d]')!.hasAttribute('data-stop-held')).toBe(false);
+    act(() => push('r7', { latched: true, stop_gen: 2 }));
+    expect($('.u1-chip .u1-st')!.textContent).toBe('정지됨');
+    // 숨김은 css(visibility) · 부품은 붙어 있음(누른 손가락 세대 판정 RV-425 그대로)
+    expect($('[data-u1d]')!.hasAttribute('data-stop-held')).toBe(true);
+    expect(u1AppCss).toMatch(/\.u1d\[data-stop-held\] :is\(\.stick,\.act\)\{visibility:hidden\}/);
+    const moves = () => w.of('cmd').filter((m) => (m.axes as number[]).some((v) => v !== 0)).length;
+    const n = moves(), acts = w.of('action').length;
+    key('keydown', 'KeyW'); tick(300); key('keyup', 'KeyW'); tick(100);
+    expect(moves()).toBe(n);
+    expect(w.of('action').length).toBe(acts);
+  });
+
+  it('잠금을 모르면(latched null) 「정지됨」 이라 쓰지 않음(확인 안 된 정지됨 금지) · 「정지 잠금」', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    ready();
+    act(() => push('r7', { latched: null }));
+    expect($('.u1-chip .u1-st')!.textContent).toBe('정지 잠금');
   });
 });
