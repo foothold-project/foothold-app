@@ -17,6 +17,9 @@ export const FACTORY_GLB = '/proto-assets/assets/maps_large/3d/factory_site.glb'
 /** 시안 공장 터 지도 그림(3200 × 2000 px · 3.5 px/m · 그림 원점 (25, 20) px · 900 m × 560 m) */
 export const FACTORY_PNG = '/proto-assets/shared/map_large_factory.png';
 const K = 3.5, OX = 25, OY = 20, FW = 3200, FH = 2000;
+/** 서버 판 m(x 동 · y 북) → 시안 공장 그림 px. 시안 design 변환 그대로(px = 25 + 3.5 x, py = 20 − 3.5 y) · 데모 현장 판에만 쓴다 */
+export const factoryPx = (x: number, y: number) => [OX + K * x, OY - K * y] as const;
+export const FACTORY_W = FW, FACTORY_H = FH;
 
 /** 이 판이 시안 공장 터와 같은 좌표계인가. 시안 site3d.js: x = (px − 25) / 3.5, 남쪽 = (py − 20) / 3.5 m.
  *  서버 판(toPixel: 원점 왼쪽 아래 · y 북)으로 같으려면 3200 × 2000 px · 해상도 1/3.5 m · 원점 (−25/3.5, (20 − 2000)/3.5) · 회전 0 */

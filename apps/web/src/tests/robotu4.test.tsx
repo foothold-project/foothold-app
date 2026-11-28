@@ -295,7 +295,7 @@ describe('데모 = 실기 꼴 · 서버 값(11-28)', () => {
     mount('u-park', [...ON, SIM]); serve('r7', 's9'); await flush();
     pickSim();
     expect($$('.rail .rcard.rehearse').length).toBe(0);
-    expect(text($('.rail .rcard.on [data-demo]'))).toBe('데모');
+    expect($('.rail [data-demo]')).toBeNull();   // 목록 줄은 작은 글 「데모 · …」 한 줄(칩을 겹쳐 얹지 않음)
     expect(text($('.rail .rcard.on small'))).toMatch(/^데모 · /);
     expect(text($('[data-robot-head] .ttl [data-demo]'))).toBe('데모');
     expect(text($('[data-cell="link"]'))).toMatch(/^연결/);
@@ -345,6 +345,40 @@ describe('데모 = 실기 꼴 · 서버 값(11-28)', () => {
     pickSim();
     click($('[data-seg="점검"]')!); click($('[data-u4-sub="detail"]')!);
     expect($('[data-robot-info]')!.textContent).toContain('넘어짐 의심');
+  });
+
+  it('데모가 늦게 와 시뮬 꼴 → 실기 꼴로 바뀌면 3D 는 새 캔버스(지난 렌더러가 맥락을 놓은 캔버스에 다시 붙이지 않음)', async () => {
+    const a = avail(true);
+    mount('u-park', [...ON, SIM]); serve('r7', 's9');
+    pickSim();
+    const before = $('[data-robot-3d]');
+    await flush();
+    expect($('[data-robot-3d]')).not.toBe(before);
+    expect(before!.isConnected).toBe(false);
+    a.mockRestore();
+  });
+
+  it('지도 칸: 데모 현장(sites demo) 층의 승인 판이면 시안 공장 그림 위에 시안 변환(25 + 3.5 x, 20 − 3.5 y) · 아니면 서버 판 그림', async () => {
+    const V = { id: 'v1', floor_id: 'f1', number: 1, upload_id: 'u', base_version_id: null, copied_from_id: null, status: 'APPROVED', image_sha256: 'x',
+      width: 1800, height: 1120, resolution: 0.5, origin: [0, -560, 0], features: { zones: [], waypoints: [], connectors: [], edits: [] },
+      reason: '', source: 'IMPORT', created_by: 'u', created_at: '2026-11-28T09:00:00Z' };
+    const tree = (demo: boolean) => ({ items: [{ id: 's1', name: '공장 터', purpose: 'SIM', demo, buildings: [{ id: 'b1', site_id: 's1', name: '초안 마당', floors: [
+      { id: 'f1', building_id: 'b1', name: '1층', level: 1, approved_version_id: 'v1', pending_count: 0 }] }] }], next_cursor: null });
+    const LOC = { floor_id: 'f1', map_version_id: 'v1', x: 100, y: -200, yaw: 0, confidence: 1, updated_at: '2026-11-28T00:00:00Z' };
+    for (const demo of [true, false]) {
+      const s = [vi.spyOn(api, 'version').mockResolvedValue(V as never), vi.spyOn(api, 'sites').mockResolvedValue(tree(demo) as never)];
+      mount('u-park'); serve('r7');
+      act(() => { push('r7', { location: LOC } as Partial<ScreenState>); });
+      await flush(); await flush();
+      const im = $('[data-u4-mapimg]')!;
+      if (demo) {
+        expect(im.getAttribute('data-u4-mapimg')).toBe('factory'); expect(im.getAttribute('src')).toBe('/proto-assets/shared/map_large_factory.png');
+        expect($('#me')!.getAttribute('transform')).toMatch(/^translate\(375\.0,720\.0\)/);
+      } else {
+        expect(im.getAttribute('data-u4-mapimg')).toBe('server'); expect(im.getAttribute('src')).toBe('/api/v1/map-versions/v1/image');
+      }
+      s.forEach((x) => x.mockRestore()); again();
+    }
   });
 });
 

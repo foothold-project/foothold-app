@@ -26,7 +26,7 @@ import { Guide, RealView, prepSteps } from '../fleet';
 import { Empty as EmptyCard } from '../../empty';
 import { mount, type Go2Api } from './go2view';
 import { Detail } from './detail';
-import { FACTORY_PNG, attach, factoryFrame, site, siteKey } from './simcam';
+import { FACTORY_H, FACTORY_PNG, FACTORY_W, attach, factoryFrame, factoryPx, site, siteKey } from './simcam';
 import { nextIdx, remaining, ro, runOf, useRoute, type Route, type Run } from './route';
 import { STATUS as RUN_STATUS } from '../missionrun';
 import '../../proto/ui.pv.css';
@@ -65,7 +65,7 @@ function useDemo(cancel?: AbortSignal) {
   }, []);
   return got;
 }
-const DEMO = <span className="tag" style={{ height: '24px', fontSize: '12px', marginLeft: '6px' }} data-demo>데모</span>;
+const DEMO = <span className="tag" style={{ position: 'static', display: 'inline-flex', verticalAlign: 'middle', marginLeft: '10px', fontSize: '12px', color: '#9aa4ae' }} data-demo>데모</span>;
 /** 남은 시간 = 서버 battery.minutes_left(정수 0 ~ 1440 · 실기는 null). 계약 타입이 base 에 오기 전이라 선택 칸으로 읽음. 없으면 null(지어내지 않음) */
 export const minutesLeft = (b: unknown) => { const m = (b as { minutes_left?: unknown } | null | undefined)?.minutes_left; return typeof m === 'number' && Number.isInteger(m) && m >= 0 && m <= 1440 ? m : null; };
 
@@ -94,7 +94,7 @@ function Rail({ c, sel, add }: { c: Ctx; sel: string; add: () => void }) {
       {c.robots.map((x) => <div key={x.id} className={`rcard ${x.id === sel ? 'on' : ''}${look(x) ? ' rehearse' : ''}`} data-r={x.name} data-robot-row={x.id} role="button" tabIndex={0}
         aria-current={x.id === sel || undefined} onClick={() => c.pick(x.id)}>
         <span className="av">{look(x) ? CUBE : DOG}</span>
-        <div style={{ flex: '1' }}>{x.name}{demo.has(x.id) && DEMO}<small>{railLine(x, c.user.id, demo.has(x.id))}</small></div>
+        <div style={{ flex: '1' }}>{x.name}<small>{railLine(x, c.user.id, demo.has(x.id))}</small></div>
         <span className="mu2" style={{ fontSize: '13px', whiteSpace: 'nowrap' }}>{look(x) ? '시뮬' : bat(x)}</span></div>)}
     </div></div>;
 }
@@ -116,14 +116,15 @@ const xy = (l: Board['loc']) => (l && l.x != null && l.y != null ? { x: l.x, y: 
 
 /** 지도 칸: 로봇이 있는 승인 지도 + 내 위치(가운데) + 임무 경로(끝낸 길 초록 · 남은 길 점선 · 지점 번호) + 같은 판의 다른 로봇. 시안처럼 3200 px 폭 그림 위에 그린다.
  *  그림 = 서버 판 그림(…/image). 그 그림을 못 받으면 판이 시안 공장 터와 같은 좌표계일 때만 시안 공장 지도, 아니면 그림 없이 점 · 경로만 */
-function MapView({ c, r, b, run, route }: { c: Ctx; r: Robot; b: Board; run: Run | null; route: Route | null }) {
+function MapView({ c, r, b, run, route, onFactory }: { c: Ctx; r: Robot; b: Board; run: Run | null; route: Route | null; onFactory: boolean }) {
   useRt();
   const { loc, v } = b, view = useRef<HTMLDivElement>(null), [box, setBox] = useState({ w: 816, h: 600 });
   const [miss, setMiss] = useState<string | null>(null);
   useEffect(() => { setMiss(null); }, [v?.id]);
   useEffect(() => { const el = view.current; if (el?.clientWidth) setBox({ w: el.clientWidth, h: el.clientHeight }); }, []);
-  const k = v ? 3200 / v.width : 1, W = 3200, H = v ? Math.round(v.height * k) : 2000;
-  const at = (x: number, y: number) => { const [px, py] = toPixel(v!, x, y); return [px * k, py * k] as const; };
+  // 데모 현장(/sites demo) 판 = 시안처럼 공장 그림(어두운 판) 위에 시안 변환으로. 그 밖은 서버 판 그림 · 판 좌표 그대로
+  const k = v ? 3200 / v.width : 1, W = onFactory ? FACTORY_W : 3200, H = onFactory ? FACTORY_H : v ? Math.round(v.height * k) : 2000;
+  const at = (x: number, y: number) => { if (onFactory) return factoryPx(x, y); const [px, py] = toPixel(v!, x, y); return [px * k, py * k] as const; };
   const here = xy(loc), me = v && here ? at(here.x, here.y) : null;
   const others = v ? c.robots.filter((x) => x.id !== r.id).flatMap((x) => {
     const l = rt.get(x.id).state?.location ?? x.location;
@@ -136,9 +137,9 @@ function MapView({ c, r, b, run, route }: { c: Ctx; r: Robot; b: Board; run: Run
   const pts = (l: (readonly [number, number])[]) => l.map((p) => `${p[0].toFixed(0)},${p[1].toFixed(0)}`).join(' ');
   const done = nx != null && me ? [...wps.filter(({ i }) => i < nx).map(({ w }) => at(w.x, w.y)), me] : [];
   const left = nx != null && me ? [me, ...wps.filter(({ i }) => i >= nx).map(({ w }) => at(w.x, w.y))] : wps.map(({ w }) => at(w.x, w.y));
-  const src = !v ? null : miss === 'server' ? (factoryFrame(v) ? FACTORY_PNG : null) : api.imageUrl(v.id);
+  const src = !v ? null : onFactory ? (miss ? null : FACTORY_PNG) : miss === 'server' ? (factoryFrame(v) ? FACTORY_PNG : null) : api.imageUrl(v.id);
   return <div className="mapv" ref={view} data-u4-map={v?.id ?? ''}><div className="mapin" style={{ transform: shift }}>
-    {src && <img src={src} alt="" style={{ width: `${W}px`, height: `${H}px` }} data-u4-mapimg={miss ? 'factory' : 'server'}
+    {src && <img src={src} alt="" style={{ width: `${W}px`, height: `${H}px` }} data-u4-mapimg={onFactory || miss ? 'factory' : 'server'}
       onError={() => setMiss((m) => (m ? 'none' : 'server'))} />}
     <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ position: 'absolute', left: '0', top: '0' }}>
       {left.length > 1 && <polyline points={pts(left)} fill="none" stroke="rgba(255,255,255,.75)" strokeWidth="4" strokeDasharray="2 12" strokeLinecap="round" data-u4-route="left" />}
@@ -156,9 +157,11 @@ function MapView({ c, r, b, run, route }: { c: Ctx; r: Robot; b: Board; run: Run
     </svg></div></div>;
 }
 /** 지도 이름(시안 「큰 공장 1 층 · 지도 2026-11-25」): 건물 층 · 지도 판 만든 날 */
+/** 그리고 이 판이 데모 현장(/sites 의 demo === true) 층의 승인 판인가(관제 작은 지도와 같은 기준 · 크기로 판별하지 않음) */
 function usePlace(c: Ctx, b: Board) {
   const t = useTree(c.cancel), p = floorsOf(t.tree).find((x) => x.floor.id === b.loc?.floor_id);
-  return p ? `${p.building.name} ${p.floor.name}` : '';
+  const demo = !!b.v && (t.tree?.items ?? []).some((s) => (s as { demo?: boolean }).demo === true && s.buildings.some((d) => d.floors.some((f) => f.approved_version_id === b.v!.id)));
+  return [p ? `${p.building.name} ${p.floor.name}` : '', demo] as const;
 }
 function MapName({ place, b }: { place: string; b: Board }) {
   const day = b.v?.created_at.slice(0, 10), text = [place, day ? `지도 ${day}` : ''].filter(Boolean).join(' · ');
@@ -219,12 +222,14 @@ function Stage({ r, q, drive, hot }: { r: Robot; q: number[] | null; drive: Go2A
   useEffect(() => {
     if (typeof WebGLRenderingContext === 'undefined' || !cv.current) return;
     const a = mount(cv.current, { pin: true, orbit: true, glow: true, cyber: sim }); g.current = a;
+    if (a.fallback) cv.current.style.visibility = 'hidden';   // WebGL 을 못 만든 캔버스는 숨겨 시안 어두운 바탕 그대로
     return () => { a.dispose(); g.current = null; };
   }, [r.id, sim]);
   useEffect(() => { if (g.current) { g.current.q = q; g.current.drive = drive; } });
   const key = JSON.stringify(hot);
   useEffect(() => { g.current?.setHot(hot); }, [key]);
-  return <canvas id="go2" ref={cv} data-robot-3d={r.id} />;
+  // 로봇 · 꼴(데모가 늦게 와 시뮬 → 실기 꼴)이 바뀌면 새 캔버스: 지난 렌더러가 forceContextLoss 한 캔버스에 다시 붙이면 맥락을 잃어 흰 판이 된다
+  return <canvas key={`${r.id}:${sim}`} id="go2" ref={cv} data-robot-3d={r.id} />;
 }
 
 /** 손잡이 하나(시안 .stick): 왼쪽 = 앞(세로만 · 뒤로는 막음) · 오른쪽 = 돌기(가로만). 처음 잡은 손가락 하나만 */
@@ -402,8 +407,8 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
     rt.action(r.id, name, {}, false, (why, id) => { if (why) say(`거부 · ${why}`); else { setPending(id ?? null); say('서버 접수 · 로봇의 결과를 기다리고 있습니다.'); } });
   };
   const offAct = (name: ScreenAction['action']) => name === 'StandUp' ? lowlevel : lowlevel ? !LOWLEVEL.has(name) : FACTORY_OFF.has(name);
-  const b = useBoard(c, r), place = usePlace(c, b), run = runOf(r, s?.run), route = useRoute(r.id, run?.name ?? null, c.cancel), job = jobLine(run, route, b);
-  const map = <MapView c={c} r={r} b={b} run={run} route={route} />;
+  const b = useBoard(c, r), [place, onFactory] = usePlace(c, b), run = runOf(r, s?.run), route = useRoute(r.id, run?.name ?? null, c.cancel), job = jobLine(run, route, b);
+  const map = <MapView c={c} r={r} b={b} run={run} route={route} onFactory={onFactory} />;
   const small = view === 'map' ? <Cam fs={fs} big={false} can={can} b={b} /> : map;
   return <>
     <div className="hdr" data-robot-head={r.id}><span className="ttl" style={{ fontSize: '26px', marginRight: '6px' }}>{r.name}{demo && DEMO}</span>
