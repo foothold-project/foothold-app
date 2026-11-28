@@ -55,6 +55,7 @@ class ScenarioRun:
         self.preparing = None
         self.outgoing = []
         self.storage_failed = False
+        self.end_latch = None  # {run_id, stop_gen} of the latch a COMPLETED run end made (#630)
         # Previous process runs are evidence only. Close them; never resume.
         if journal is not None:
             latest = deepcopy(journal.runs)
@@ -165,6 +166,7 @@ class ScenarioRun:
         if reason == 'NAV_GOAL_REJECTED' and self.nav is not None and self.nav.first_rejection is not None:
             self.current['failure_detail'] = deepcopy(self.nav.first_rejection)
         s = self.hub.session
+        was_latched = s.core.latch
         s.core.stop(reason or status)
         s.run = None
         binding, self.binding = self.binding, None
@@ -178,6 +180,10 @@ class ScenarioRun:
             if binding is not None:
                 self.cancel_binding = binding
                 self.nav.revoke(reason or status)
+        # #630: only this run's COMPLETED end, on a Hub nobody had latched, names the latch as the run's.
+        # The server may then let the next confirmed slot pre-unlock it (contracts «일정» ①, run 끝).
+        self.end_latch = (dict(run_id=self.current['run_id'], stop_gen=s.core.stop_gen)
+                          if status == 'COMPLETED' and not was_latched else None)
         if self.performer is not None:
             self.performer.interrupt()
         if report:

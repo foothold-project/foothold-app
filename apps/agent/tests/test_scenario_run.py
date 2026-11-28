@@ -599,3 +599,35 @@ def test_stop_emits_session_stop_when_action_cancel_raises(r, monkeypatch):
     assert any(c.kind == 'stop' for c in emitted)
     assert emitted[-1].velocity == Z and r.hub.session.core.latch
     assert r.hub.stop_ref == stop_ref + 1
+
+
+# -- #630: the run's own COMPLETED end names its latch so a confirmed next slot may pre-unlock it --
+
+def arrive(r, binding):
+    r.runs.arrival = lambda b, goal: dict(binding=b, received_at=r.clock(), body_still=True,
+        pose=dict(floor_id=r.start['floor_id'], map_version_id=r.start['map_version_id'], x=0., y=0., yaw=0., confidence=1.))
+    assert r.runs.nav.feedback(binding, 'SUCCEEDED')
+    r.hub.tick()
+
+
+def test_completed_run_names_its_own_end_latch(r):
+    arrive(r, start(r))
+    core = r.hub.session.core
+    assert r.runs.snapshot()['status'] == 'COMPLETED' and core.latch
+    assert r.runs.end_latch == {'run_id': r.start['run_id'], 'stop_gen': core.stop_gen}
+
+
+@pytest.mark.parametrize('case', ['person_stop', 'failed'])
+def test_other_latches_are_never_a_run_end_latch(r, case):
+    binding = start(r)
+    if case == 'person_stop':
+        r.hub.session.core.stop('phone STOP')  # latched before the run could end
+        arrive(r, binding)
+    else:
+        r.runs.nav.intent(binding, (.6, 0., 0.))
+        r.hub.tick()
+        r.clock.t = .300001
+        r.hub.tick()
+        assert r.runs.snapshot()['status'] == 'FAILED'
+    assert r.hub.session.core.latch
+    assert r.runs.end_latch is None

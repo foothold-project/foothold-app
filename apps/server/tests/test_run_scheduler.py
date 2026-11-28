@@ -48,6 +48,17 @@ class FakeAgent:
         self.latched, self.gen, self.stop_ref = latched, 1, stop_ref
         self.extra = extra or {}
         self.seen, self.run, self.run_result = [], None, None
+        self.end_latch = None
+        self.drop_reports = False
+
+    def end(self, status):
+        """Like the agent's ScenarioRun._halt: the run's own end latches the Hub (stop_gen +1, no server STOP).
+        Only a COMPLETED end of an unlatched Hub names that latch as the run's (run_end_latch, #630)."""
+        was_latched = self.latched
+        self.latched, self.gen = True, self.gen + 1
+        self.run = {**self.run, 'status': status, 'fail_code': None if status == 'COMPLETED' else 'NAV_TIMEOUT'}
+        self.end_latch = (dict(run_id=self.run['run_id'], stop_gen=self.gen)
+                          if status == 'COMPLETED' and not was_latched else None)
 
     def state(self):
         body = dict(t='state', pose={'floor_id': None, 'x': None, 'y': None, 'yaw': None, 'confidence': None},
@@ -56,6 +67,8 @@ class FakeAgent:
                     reported_run=self.run, **self.extra)
         if self.run_result is not None:
             body['run_result'] = self.run_result
+        if self.end_latch is not None:
+            body['run_end_latch'] = self.end_latch
         self.ws.send_json(body)
 
     def pump(self):
@@ -69,6 +82,11 @@ class FakeAgent:
                 self.gen += 1
             elif t == 'unlock' and self.answer:
                 self.latched = False
+            elif t == 'lease' and f.get('lease_id') is None and self.drop_reports and not self.latched:
+                # The real agent drops the Hub on lease null (lock, stop_gen +1) and may send a state before it
+                # reads the server STOP right behind it: latched, but still the old stop_ref (#630, K-03).
+                self.latched, self.gen = True, self.gen + 1
+                self.state()
             elif t == 'lease' and f.get('lease_id') is None and self.run and self.run['status'] == 'MOVING':
                 self.run = {**self.run, 'status': 'PAUSED', 'wait_reason': 'LINK_LOST'}  # relay lets go of the Hub
                 self.latched = True
@@ -826,3 +844,90 @@ def test_screen_closed_reason_only_while_that_latch_is_the_latest(demo, seeded):
         clock[0] = T0 + timedelta(minutes=3)
         run_ticks(client, sched, agent, 5)
         assert slot_row(seeded, slot_id)['code'] == 'STOP_LATCHED'
+
+
+# -- #630: the agent latches itself when a run ends; a COMPLETED end is the documented «run end» latch --
+
+def back_to_back(client, sched, clock, seeded, agent, end, *, stale=False):
+    """Two CONFIRMED slots, the second right after the first. The first run ends by `end(agent)`;
+    returns the second slot's row once it settled."""
+    good = synthetic_assignment(seeded)
+    first = add_slot(seeded, good)
+    second = add_slot(seeded, good, start=T0 + timedelta(minutes=32))
+    clock[0] = T0 + timedelta(minutes=2, seconds=1)
+    assert run_ticks(client, sched, agent, 40, until=lambda: slot_row(seeded, first)['state'] == 'STARTED')
+    end(agent)
+    for _ in range(20):
+        agent.pump()
+        client.portal.call(sched.tick)
+        if stale:
+            agent.state()  # a frame the agent sent before it read the server's run_finished STOP
+        agent.pump()
+        if slot_row(seeded, first)['state'] is not None and slot_row(seeded, first)['state'] != 'STARTED':
+            break
+    run_ticks(client, sched, agent, 3)
+    assert agent.latched  # the run end latched it; no one unlocked it
+    clock[0] = T0 + timedelta(minutes=32, seconds=1)
+    run_ticks(client, sched, agent, 40, until=lambda: slot_row(seeded, second)['state'] in ('STARTED', 'SKIPPED'))
+    return first, second
+
+
+@pytest.mark.parametrize('stale', [False, True])
+def test_second_slot_pre_unlocks_the_latch_of_a_completed_run(demo, seeded, stale):
+    client, sched, clock = demo
+    with agent_ws(client, seeded) as ws:
+        ws.send_json(hello())
+        agent = FakeAgent(ws)
+        agent.pump()
+        first, second = back_to_back(client, sched, clock, seeded, agent, lambda a: a.end('COMPLETED'), stale=stale)
+        assert slot_row(seeded, first)['state'] == 'DONE'
+        assert slot_row(seeded, second)['state'] == 'STARTED', slot_row(seeded, second)
+        assert len(sent(agent, 'run.start')) == 2
+    rows = events(seeded, 'SCHEDULE_PRE_UNLOCK')
+    assert [(str(u), d['slot_id']) for u, d in rows] == [(str(seeded['users']['one']), str(second))]
+
+
+def _person_stop_then_complete(agent):
+    agent.latched, agent.gen = True, agent.gen + 1  # a person's STOP on the Hub (phone): no server STOP
+    agent.end('COMPLETED')
+
+
+def _other_run(agent):
+    agent.end('COMPLETED')
+    agent.end_latch = {**agent.end_latch, 'run_id': str(uuid4())}  # names another run than the STOP's
+
+
+def _latched_again(agent):
+    agent.end('COMPLETED')
+    agent.gen += 1  # the Hub latched again by itself after the run end (phone STOP · sim stop)
+
+
+@pytest.mark.parametrize('end', [_person_stop_then_complete, lambda a: a.end('FAILED'), _other_run, _latched_again],
+                         ids=['person_stop_then_completed', 'failed', 'other_run_id', 'latched_again'])
+def test_run_end_latch_stays_for_a_person_unless_its_own_completed_run(demo, seeded, end):
+    client, sched, clock = demo
+    with agent_ws(client, seeded) as ws:
+        ws.send_json(hello())
+        agent = FakeAgent(ws)
+        agent.pump()
+        first, second = back_to_back(client, sched, clock, seeded, agent, end)
+        assert (slot_row(seeded, second)['state'], slot_row(seeded, second)['code']) == ('SKIPPED', 'STOP_LATCHED')
+        assert len(sent(agent, 'run.start')) == 1 and agent.latched
+    assert events(seeded, 'SCHEDULE_PRE_UNLOCK') == []
+
+
+def test_state_sent_between_lease_null_and_release_stop_keeps_the_pre_unlock(demo, seeded):
+    """K-03 (11/28): a person unlocked and let go; the agent's drop lock was reported before it read the
+    release STOP (old stop_ref). That frame says nothing about the STOP, so the next slot still pre-unlocks."""
+    client, sched, clock = demo
+    slot_id = add_slot(seeded, synthetic_assignment(seeded))
+    with agent_ws(client, seeded) as ws:
+        ws.send_json(hello())
+        agent = FakeAgent(ws, latched=True)
+        agent.pump()
+        agent.drop_reports = True
+        person_unlocks_then_releases(client, seeded, agent)
+        clock[0] = T0 + timedelta(minutes=3)
+        assert run_ticks(client, sched, agent, 40, until=lambda: slot_row(seeded, slot_id)['state'] in ('STARTED', 'SKIPPED'))
+        assert slot_row(seeded, slot_id)['state'] == 'STARTED', slot_row(seeded, slot_id)
+    assert len(events(seeded, 'SCHEDULE_PRE_UNLOCK')) == 1

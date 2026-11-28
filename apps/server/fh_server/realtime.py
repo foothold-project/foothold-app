@@ -1769,10 +1769,26 @@ class Realtime:
             'ref': body.get('stop_ref'), 'gen': None, 'cause': cause,
             'ok': peer is not None and peer.state.get('latched') is False}  # was unlocked just before
 
+    def note_run_end_latch(self, rid, run_id):
+        """#630: the agent latched itself first when run `run_id` COMPLETED, then the server's run_finished STOP
+        came. That latch is the documented «run end» one only if the agent names it as this run's COMPLETED end
+        (run_end_latch) and nothing latched it again since (same stop_gen). A person's STOP, a fall, a fault, a
+        lost link or a FAILED run never gets run_end_latch, so it stays for a person."""
+        peer, record = self.agents.get(rid), self.__dict__.get('release_latch', {}).get(rid)
+        if peer is None or record is None or record['gen'] is not None or record['ref'] != self.arbiter.robot(rid).stop_ref:
+            return
+        latch, run = peer.state.get('run_end_latch') or {}, peer.state.get('reported_run') or {}
+        if (str(latch.get('run_id')) == str(run_id) == str(run.get('run_id')) and run.get('status') == 'COMPLETED'
+                and peer.state.get('latched') is True and latch.get('stop_gen') == peer.state.get('stop_gen')
+                and peer.state.get('safety_reason') is None):
+            record['ok'] = True
+
     def note_latch(self, rid, msg):
         record = self.__dict__.get('release_latch', {}).get(rid)
         if record is None:
             return
+        if msg.latched and msg.stop_ref < record['ref']:
+            return  # a latched frame sent before the agent read this server STOP: says nothing about it
         if not msg.latched:
             self.release_latch.pop(rid, None)  # the latch is gone (a person unlocked)
         elif msg.stop_ref != record['ref']:
@@ -2489,6 +2505,7 @@ class Realtime:
         peer.state['posture'] = data.get('posture')
         peer.state['posture_result'] = data.get('posture_result')
         peer.state['run_result'] = data.get('run_result')
+        peer.state['run_end_latch'] = data.get('run_end_latch')
         peer.state['action_result'] = data.get('action_result')
         peer.state['control'] = data.get('control')
         peer.state['response_health'] = data.get('response_health')

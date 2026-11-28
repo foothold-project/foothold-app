@@ -1142,6 +1142,13 @@ class ActionResult(Contract):
     enabled: StrictBool | None
 
 
+class RunEndLatch(Contract):
+    """#630: the Hub latch this run's own COMPLETED end made (the agent was unlatched just before).
+    stop_gen is the generation right after that end; any later lock moves stop_gen past it."""
+    run_id: UUID
+    stop_gen: Sequence
+
+
 class AgentState(AgentInput):
     response_health: RobotResponseHealth | None = None
     posture: PostureState | None = None
@@ -1157,6 +1164,8 @@ class AgentState(AgentInput):
     controller_connected: bool = False
     controller_since: UTCDateTime | None = None
     reported_run: 'RunSnapshot | None' = None
+    # Only a COMPLETED run end of an unlatched Hub; null otherwise. Read only by the schedule pre-unlock (①).
+    run_end_latch: RunEndLatch | None = Field(default=None, exclude_if=lambda value: value is None)
     t: Literal['state']
     pose: AgentPose
     speed: float | None

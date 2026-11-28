@@ -532,6 +532,12 @@ Upload/MapVersion 경로와 옛 판 관리 방식을 쓴다. 해상도 0.05 m·�
   예외 (①, 시뮬만): 칸을 CONFIRMED 로 만든 사람 (`confirmed_by`) 이 잠금 해제를 미리 누른 것으로 본다. 단 그 잠금이
   «사람이 풀어 둔 로봇을 서버가 조종권을 놓으며 (lease 반납 · 만료 · run 끝) 잠근 것» 일 때만이다. 다시 붙음 · 재시작 ·
   사람 STOP · 에이전트 스스로 잠금 (stop_gen 이 서버 STOP 없이 바뀜) · safety 잠금은 그대로 `STOP_LATCHED`.
+  run 끝 (#630): 에이전트는 run 이 끝나면 서버 STOP 보다 먼저 스스로 잠근다. 그 잠금은 에이전트 state 의 선택 필드
+  `run_end_latch` (`run_id` · `stop_gen`) 가 «풀려 있던 Hub 를 그 run 의 `COMPLETED` 끝이 잠갔다» 고 밝히고, 서버
+  `run_finished` STOP 의 run id 와 같고, 그 뒤 `stop_gen` 이 그대로일 때만 run 끝 잠금으로 친다. 사람 STOP 뒤 끝난 run ·
+  `FAILED` · `CANCELED` · 넘어짐 · 고장 · 연결 끊김은 `run_end_latch` 가 없어 그대로 사람이 푼다.
+  서버 STOP 을 읽기 전에 에이전트가 보낸 잠긴 state (그 STOP 보다 작은 `stop_ref`, 예: lease null 로 먼저 잠근 직후) 는
+  그 STOP 판단에 쓰지 않는다 (#630, 풀고 놓은 뒤 둘째 칸이 `STOP_LATCHED` 로 넘어가던 경쟁).
   조종 화면이 닫혀 서버가 조종권을 거둔 잠금 (cause `screen_disconnected`) 도 미리 풀지 않는다. 탭이 닫혔다고 사람이 놓았다는
   확인은 아니기 때문이다. 이 잠금이 그대로면 칸은 `SKIPPED STOP_LATCHED_SCREEN_CLOSED` 이고 사건 `SCHEDULE_RUN_SKIPPED`
   의 reason 도 같다. 일정 화면은 «조종 화면이 닫혀 잠김 · 풀어야 시작» 으로 보인다 (화면 줄은 이식 쪽).

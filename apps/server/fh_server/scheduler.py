@@ -20,7 +20,9 @@
   그 사이 사람 STOP 이 오면 (stop_ref 가 바뀜) unlock · run.start 없이 SKIPPED STOP_LATCHED.
   예외 하나 (①, 시뮬만 · 실기는 위 설정 뒤): 칸을 CONFIRMED 로 만든 사람 (confirmed_by) 이 잠금 해제를 미리
   누른 것으로 본다. 단 그 잠금이 «사람이 풀어 둔 로봇을 서버가 조종권을 놓으며 잠근 것» 일 때만
-  (Realtime.release_latched_only). 다시 붙음 · 재시작 · 사람 STOP · 에이전트 스스로 잠금 · safety 잠금은 그대로
+  (Realtime.release_latched_only). run 끝은 에이전트가 먼저 스스로 잠그므로, 에이전트가 그 잠금을 그 run 의
+  COMPLETED 끝으로 밝힌 것 (state.run_end_latch, 같은 run id · 그 뒤 stop_gen 그대로) 만 run 끝 잠금으로 친다 (#630).
+  다시 붙음 · 재시작 · 사람 STOP · 그 밖의 에이전트 스스로 잠금 · FAILED · safety 잠금은 그대로
   STOP_LATCHED. 해제는 그 사람 권한으로 (지금도 담당 또는 총괄, 잠기지 않은 계정) 하고 사건
   SCHEDULE_PRE_UNLOCK 를 남긴다. 권한이 없으면 SKIPPED CONFIRMER_NOT_ALLOWED.
   PR #549 본문 «정한 것» 에 같은 규칙.
@@ -313,6 +315,8 @@ class Scheduler:
         holder = rt.arbiter.robot(rid).holder
         if holder and holder.holder_type == 'RUN' and holder.actor is None:
             rt.apply(rt.arbiter.revoke(rid, op=None, cause='run_finished'))
+            if run['status'] == 'COMPLETED':
+                rt.note_run_end_latch(rid, item['run_id'])  # the agent's own run-end latch (#630)
         rt.scheduled_runs.pop(rid, None)
         self.reported.pop(item['slot_id'], None)
         return [(item['slot_id'], state, code)]

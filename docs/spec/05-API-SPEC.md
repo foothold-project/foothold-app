@@ -611,6 +611,7 @@ P1-B의 `phone.revoke`/`phone.revoke.ack`는 현재 구현 프로토콜 `fh-agen
 ## 12. 변경 이력
 | 판 | 날짜 | 내용 |
 |---|---|---|
+| 0.28 | 2026-11-28 | #630: 예약 실행 미리 풀기 ① 의 «run 끝» 잠금은 에이전트 state `run_end_latch` (그 run 의 `COMPLETED` 끝 · run id · `stop_gen`) 로 가린다. 자세한 것은 `apps/contracts/README.md` «일정» |
 | 0.27 | 2026-11-28 | 조종 화면이 닫혀 잠긴 칸은 `SKIPPED STOP_LATCHED_SCREEN_CLOSED` (미리 해제 대상 아님) |
 | 0.26 | 2026-11-28 | 10:58: 실기 칸 예약 실행 안 함 (`REAL_ROBOT_SCHEDULE_DISABLED`, 설정 하나 기본 꺼짐), 시뮬은 확정한 사람이 잠금 해제를 미리 누른 것으로 봄 (조종권을 놓으며 생긴 잠금만, `SCHEDULE_PRE_UNLOCK`). 자세한 것은 `apps/contracts/README.md` «일정» |
 | 0.25 | 2026-11-28 | #542 R5: §6.5 일시정지 · RUN 이 쥔 run 은 담당 누구나 lease_id 없이 pause, USER 는 쥔 화면만, 모든 pause 사건 `RUN_PAUSE_REQUESTED`. 예약 실행은 잠긴 로봇을 풀지 않음 (`SKIPPED STOP_LATCHED`) |

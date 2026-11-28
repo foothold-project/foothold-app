@@ -68,7 +68,8 @@ class Observer:
                 'controller': identity[0], 'controller_device': identity[1],
                 'controller_connected': owner is not None,
                 'controller_since': self._controller_since,
-                'reported_run': self.phone.runs.snapshot(), 'run_result': self.run_result}
+                'reported_run': self.phone.runs.snapshot(), 'run_result': self.run_result,
+                'run_end_latch': self.phone.runs.end_latch}
 
     def _finish(self):
         messages = ()

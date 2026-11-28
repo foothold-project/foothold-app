@@ -277,6 +277,7 @@ export interface AgentState {
   controller_connected?: boolean;
   controller_since?: string | null;
   reported_run?: RunSnapshot | null;
+  run_end_latch?: RunEndLatch | null;
   t: "state";
   pose: AgentPose;
   speed: number | null;
@@ -1785,6 +1786,7 @@ export interface PhoneState {
   controller_connected: boolean;
   controller_since?: string | null;
   reported_run?: RunSnapshot | null;
+  run_end_latch?: RunEndLatch | null;
   t: "state";
   pose: AgentPose;
   speed: number | null;
@@ -2114,6 +2116,11 @@ export interface RunCopy {
 
 export interface RunDisplayResults {
   mode?: "DISPLAY_ONLY";
+}
+
+export interface RunEndLatch {
+  run_id: string;
+  stop_gen: number;
 }
 
 export interface RunExecutedResults {
