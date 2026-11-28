@@ -19,7 +19,8 @@ import { GAITS, NO_GAIT } from '../../gait';
 import { field } from '../../simdrive';
 import { LidarMap } from '../../lidarmap';
 import { REPORT_STALE_MS, go2Pose, go2Temps, JOINTS, jointName } from '../../go2model';
-import { ACTION_NAMES, FACTORY_OFF, LOWLEVEL, actionResultText } from '../actiontrial';
+import { actionResultText } from '../actiontrial';
+import { ACTS, STANDUP_WHY, actOff, actWhy, stickTok } from '../../robotact';
 import { floorsOf, isVersion, shape, toPixel, useTree } from '../maps';
 import type { Ctx } from '../../screens';
 import { AssignOwner, TransferOwner } from '../../pairing';
@@ -47,16 +48,6 @@ const DOG = <svg className="ic" viewBox="0 0 24 24" style={{ width: '19px', heig
 const CUBE = <svg className="ic" viewBox="0 0 24 24" style={{ width: '19px', height: '19px' }}><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /><path d="m3.3 7 8.7 5 8.7-5" /><path d="M12 22V12" /></svg>;
 const IC17: CSSProperties = { width: '17px', height: '17px' }, IC24: CSSProperties = { width: '24px', height: '24px' };
 
-/** 자세 · 동작 단추 일곱(시안 순서 · 글 · 리모컨 조합 글 그대로) → 계약 ScreenAction 이름 */
-const ACTS: [ScreenAction['action'], string, string, ReactNode][] = [
-  ['Sit', '앉기', 'R1+B', <><path d="M8 20v-6l-2-4 4-2 4 2v4h4v6" /><circle cx="10" cy="5" r="2" /></>],
-  ['StandUp', '일어서기', 'START 중 안 됨', <><circle cx="12" cy="4.5" r="2" /><path d="M12 7v7M8 10h8M9 21l3-7 3 7" /></>],
-  ['StandDown', '엎드리기', 'L2+A', <><path d="M3 18h18M6 14h12l-2-4H8z" /><path d="M12 3v5M9.5 6L12 8.5 14.5 6" /></>],
-  ['Stretch', '기지개', 'R2+A', <><path d="M3 16c3-6 6-6 9-3s6 3 9-3" /><path d="M4 20h4M16 20h4" /></>],
-  ['Hello', '악수', 'R2+B', <><path d="M7 11l3-3 4 1 3-2 3 3-6 6-3-2-2 1z" /><path d="M4 13l3-2" /></>],
-  ['Heart', '하트', 'R2+Y', <path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.5-7 10-7 10z" />],
-  ['Greet', '인사', 'L1+A', <path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11M11 10V4.5a1.5 1.5 0 0 1 3 0V11M14 10.5V6a1.5 1.5 0 0 1 3 0v8a6 6 0 0 1-6 6h-1a5 5 0 0 1-4-2l-2.5-3.5a1.5 1.5 0 0 1 2.4-1.8L8 14" />],
-];
 /** 데모 로봇(가용 RobotAvailability.demo = true)은 시뮬이어도 실기와 같은 꼴(개 그림 · 배터리 · 연결 ms · 걷기 · 위치 알약 · 실기 모형), 차이는 「데모」 칩 하나. 시뮬 꼴은 사용자 시뮬만 */
 const Demo = createContext<ReadonlySet<string>>(new Set());
 const useSimLook = () => { const d = useContext(Demo); return (x: Robot) => !!x.sim && !d.has(x.id); };
@@ -76,8 +67,6 @@ const DEMO = <span className="tag" style={{ position: 'static', display: 'inline
 /** 남은 시간 = 서버 battery.minutes_left(정수 0 ~ 1440 · 실기는 null). 계약 타입이 base 에 오기 전이라 선택 칸으로 읽음. 없으면 null(지어내지 않음) */
 export const minutesLeft = (b: unknown) => { const m = (b as { minutes_left?: unknown } | null | undefined)?.minutes_left; return typeof m === 'number' && Number.isInteger(m) && m >= 0 && m <= 1440 ? m : null; };
 
-/** 시안 일어서기 「START 중 안 됨」 까닭 글 그대로 */
-const STANDUP_WHY = 'START 에서는 일어서기를 보낼 수 없습니다 · 앉은 뒤 「앉기」 를 다시 누르면 일어납니다';
 
 /** 목록 한 줄의 작은 글: 실제/데모/시뮬 · 지금 하는 일 · 조종하는 사람 */
 export function railLine(x: Robot, me: string, demo = false) {
@@ -245,13 +234,6 @@ function Stage({ r, q, down, drive, hot }: { r: Robot; q: number[] | null; down:
 }
 
 /** 손잡이 하나(시안 .stick): 왼쪽 = 앞(세로만 · 뒤로는 막음) · 오른쪽 = 돌기(가로만). 처음 잡은 손가락 하나만 */
-/** 손잡이(팀장 11-28 17:33 · 키보드와 같은 배치): 왼쪽 = 이동(위 앞 · 아래 뒤 · 왼 · 오른 옆걸음), 오른쪽 = 돌기(왼 · 오른).
- *  한 손잡이는 큰 축 하나만 보낸다(대각은 더 크게 민 쪽). 문턱 0.3 아래는 0. 두 손잡이 조합 · 상한은 serverdrive 명령표가 판단 */
-export function stickTok(side: 'L' | 'R', x: number, y: number): Tok[] {
-  if (side === 'R') return x < -0.3 ? ['rotl'] : x > 0.3 ? ['rotr'] : [];
-  if (Math.abs(y) >= Math.abs(x)) return y < -0.3 ? ['up'] : y > 0.3 ? ['down'] : [];
-  return x < -0.3 ? ['left'] : x > 0.3 ? ['right'] : [];
-}
 function Stick({ side, put }: { side: 'L' | 'R'; put: (p: number, el: HTMLElement, t: Tok[]) => void }) {
   const own = useRef<number | null>(null), [xy, setXy] = useState([0, 0]);
   const move = (e: PEv<HTMLDivElement>) => {
@@ -465,13 +447,12 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   const act = (name: ScreenAction['action']) => {
     if (!can) return say(noDrive(c, r));
     if (!mine) return say('조종 시작 후 사용할 수 있습니다.');
-    if (name === 'StandUp' && lowlevel) return say(STANDUP_WHY);
-    if (lowlevel ? !LOWLEVEL.has(name) : FACTORY_OFF.has(name)) return say(`${ACTION_NAMES[name]}: ${lowlevel ? '저수준 제어 중에는 쓸 수 없음' : '순정 번호 확인 전'}`);
+    const no = actWhy(name, lowlevel); if (no) return say(no);
     if (!online) return say('로봇과 서버 연결을 확인하세요.');
     d.zero(); say('서버 접수를 기다리고 있습니다.');
     rt.action(r.id, name, {}, false, (why, id) => { if (why) say(`거부 · ${why}`); else { setPending(id ?? null); say('서버 접수 · 로봇의 결과를 기다리고 있습니다.'); } });
   };
-  const offAct = (name: ScreenAction['action']) => name === 'StandUp' ? lowlevel : lowlevel ? !LOWLEVEL.has(name) : FACTORY_OFF.has(name);
+  const offAct = (name: ScreenAction['action']) => actOff(name, lowlevel);
   const b = useBoard(c, r), [place, onFactory] = usePlace(c, b), run = runOf(r, s?.run), route = useRoute(r.id, run?.name ?? null, c.cancel), job = jobLine(run, route, b);
   const map = <MapView c={c} r={r} b={b} run={run} route={route} onFactory={onFactory} />;
   const small = view === 'map' ? <Cam fs={fs} big={false} can={can} b={b} /> : map;

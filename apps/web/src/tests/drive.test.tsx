@@ -19,15 +19,15 @@ import { simTune } from '../phone';
 import { REAL_STICK, REAL_WAIT } from '../drive';
 import driveCss from '../drive.css?raw';
 import frameCss from '../frame.css?raw';
-// 옛 PC 관제 부품(관제 요약 · 상세 서랍 · 연결 상태 · 조종 준비) 시험: PC 로봇 탭은 시안 u4 라 부품을 앱 맥락 안에 직접 그린다 → W1 u5
-beforeEach(() => { pcBoard.on = true; });
-afterEach(() => { pcBoard.on = false; });
 import u1AppCss from '../screens/u1.app.css?raw';
 import u1dCss from '../screens/u1d.css?raw';
 import u135Css from '../screens/u135.css?raw';
 import u135AppCss from '../screens/u135.app.css?raw';
 import u142Css from '../screens/u142.css?raw';
 import u142AppCss from '../screens/u142.app.css?raw';
+// 옛 PC 관제 부품(관제 요약 · 상세 서랍 · 연결 상태 · 조종 준비) 시험: PC 로봇 탭은 시안 u4 라 부품을 앱 맥락 안에 직접 그린다 → W1 u5
+beforeEach(() => { pcBoard.on = true; });
+afterEach(() => { pcBoard.on = false; });
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
