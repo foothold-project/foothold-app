@@ -630,6 +630,41 @@ describe('로봇 탭 · 다시 시작 확인 창', () => {
     expect($('[data-u4-restart-ask]')).toBeNull();
     expect(w.of('unlock').map((m) => m.robot)).toEqual(['r7']);
   });
+
+  // 검토 H1(11/28 20:25): 연 창은 그때의 STOP(stop_gen) 하나에만. 잠금이 다른 곳에서 풀리거나 세대가 바뀌면 창 자체를 닫는다
+  it('창을 연 뒤 다른 곳에서 풀림 → 새 STOP(stop_gen +1) 이 와도 창이 저절로 다시 뜨지 않고 unlock 0', () => {
+    mount('u-park'); serve('r7'); drive();
+    click($('.views .vstop')!);
+    click($('[data-u4-unlock]')!);
+    expect($('[data-u4-restart-ask]')).not.toBeNull();
+    const g = st.r7.stop_gen ?? 0;
+    act(() => push('r7', { latched: false }));   // 다른 화면에서 풀림
+    expect($('[data-u4-restart-ask]')).toBeNull();
+    act(() => push('r7', { latched: true, stop_gen: g + 1 }));   // 누군가의 새 STOP
+    expect($('[data-u4-restart-ask]')).toBeNull();
+    expect($('[data-u4-restart-go]')).toBeNull();
+    expect(w.of('unlock')).toEqual([]);
+  });
+
+  it('창이 열린 채 잠금은 그대로인데 세대만 바뀌면(새 STOP) 창을 닫음 · 다시 열어 누르면 새 세대로 1 회', () => {
+    mount('u-park'); serve('r7'); drive();
+    click($('.views .vstop')!);
+    click($('[data-u4-unlock]')!);
+    const g = st.r7.stop_gen ?? 0;
+    act(() => push('r7', { latched: true, stop_gen: g + 1 }));
+    expect($('[data-u4-restart-ask]')).toBeNull(); expect(w.of('unlock')).toEqual([]);
+    click($('[data-u4-unlock]')!); click($('[data-u4-restart-go]')!);
+    expect(w.of('unlock').map((m) => [m.robot, m.stop_gen])).toEqual([['r7', g + 1]]);
+  });
+
+  it('확인 창 단추는 진짜 <button> (키보드 Enter 로 누를 수 있음)', () => {
+    mount('u-park'); serve('r7'); drive();
+    click($('.views .vstop')!);
+    click($('[data-u4-unlock]')!);
+    expect($('[data-u4-restart-cancel]')!.tagName).toBe('BUTTON');
+    expect($('[data-u4-restart-go]')!.tagName).toBe('BUTTON');
+    expect($('[data-u4-restart-go]')!.getAttribute('type')).toBe('button');
+  });
 });
 
 // 3D 칸 말풍선 안 안내(조종권 받음 · 잠금 해제 후 등)는 폰 조종 화면의 어두운 칸(.dv-note) 이 아니라 말풍선 글자 그대로(5195 사진에서 어두운 칸 위 어두운 글자)

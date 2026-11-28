@@ -404,7 +404,8 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   }, []);
   const [msg, setMsg] = useState(''), [pending, setPending] = useState<string | null>(null), tm = useRef(0);
   const [modeAsk, setModeAsk] = useState<GaitName | null>(null);   // 시안 u4_7 「걷기 모드를 X 로 바꿀까요?」 창 · 고른 모드
-  const [restartAsk, setRestartAsk] = useState(false);   // 시안 u4_10 「K 을 일으킬까요?」 창 · 일어서기만 잠금 풀기(unlockAsk)를 보낸다
+  /** 시안 u4_10 「K 을 일으킬까요?」 창 · 일어서기만 잠금 풀기(unlockAsk)를 보낸다. 값 = 창을 연 때의 stop_gen(그 STOP 하나에만 · 검토 H1 11/28) */
+  const [restartAsk, setRestartAsk] = useState<{ gen: number | null } | null>(null);
   const say = (m: string) => { setMsg(m); clearTimeout(tm.current); tm.current = window.setTimeout(() => setMsg(''), 2600); };
   useEffect(() => { if (d.why) say(d.why); }, [d.why]);
   useEffect(() => { if (d.gait.msg) say(d.gait.msg); }, [d.gait.msg]);
@@ -433,6 +434,9 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   const ready = d.ready;
   // 시안 u4_9 정지됨 · u4_10 다시 시작 확인: 내 조종 중 로봇이 정지 잠김이면 정지 칸 자리에 「다시 시작」(잠금 해제) · Damping, 조종 줄 · 손잡이는 흐리게
   const latched = mine && online && s?.latched === true, lying = s?.posture?.state === 'LYING';
+  // 연 창은 그때의 STOP 에만: 잠금이 다른 곳에서 풀리거나 세대(stop_gen)가 바뀌면 창 자체를 닫는다(숨기기만 하면 새 STOP 때 저절로 다시 뜸 · 검토 H1)
+  const askNow = !!restartAsk && latched && (s?.stop_gen ?? null) === restartAsk.gen;
+  useEffect(() => { if (restartAsk && !askNow) setRestartAsk(null); }, [restartAsk, askNow]);
   const [arm, setArm] = useState(0);
   const damp = () => {
     if (rt.now() - arm > 3000) { setArm(rt.now()); return say('한 번 더 누르면 엎드려 힘을 뺍니다'); }
@@ -491,8 +495,8 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
       <div className="g dk job" data-u4-job><b>{job.name}</b><span>{job.line}</span><i><em style={{ width: `${job.pct}%` }} /></i></div>
       <MapName place={place} b={b} />
       {latched ? <div className="vslot" data-u4-restart>
-        {lying ? <div className="vgo big" role="button" tabIndex={0} onClick={() => setRestartAsk(true)} data-u4-unlock><svg className="ic" viewBox="0 0 24 24" style={{ width: '24px', height: '24px' }}><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></svg>다시 시작<small>일어섭니다</small></div>
-          : <><div className="vgo" role="button" tabIndex={0} onClick={() => setRestartAsk(true)} data-u4-unlock><svg className="ic" viewBox="0 0 24 24" style={{ width: '20px', height: '20px' }}><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></svg>다시 시작</div>
+        {lying ? <div className="vgo big" role="button" tabIndex={0} onClick={() => setRestartAsk({ gen: s?.stop_gen ?? null })} data-u4-unlock><svg className="ic" viewBox="0 0 24 24" style={{ width: '24px', height: '24px' }}><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></svg>다시 시작<small>일어섭니다</small></div>
+          : <><div className="vgo" role="button" tabIndex={0} onClick={() => setRestartAsk({ gen: s?.stop_gen ?? null })} data-u4-unlock><svg className="ic" viewBox="0 0 24 24" style={{ width: '20px', height: '20px' }}><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></svg>다시 시작</div>
             <div data-go="u4_10_restart" className="stop damp" role="button" tabIndex={0} onClick={damp} data-u4-damp><svg className="ic" viewBox="0 0 24 24" style={{ width: '22px', height: '22px' }}><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z" /><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" /></svg>Damping<small>엎드려 힘 빼기</small></div></>}
       </div>
         : <div data-go="u4_9_stopped" className="vstop stop" role="button" tabIndex={0} aria-label="비상 정지 · 이 로봇" data-sd-stop="u4" {...d.stopPress}>
@@ -533,14 +537,14 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
             onClick={() => { d.gait.press(modeAsk); setModeAsk(null); }}>{GAITS.find((x) => x.g === modeAsk)!.name} 로 바꾸기</div>
         </div>
       </div></>}
-    {restartAsk && latched && <><div className="veil" onClick={() => setRestartAsk(false)} />
+    {askNow && <><div className="veil" onClick={() => setRestartAsk(null)} />
       <div className="g modal" style={{ width: '560px' }} role="dialog" aria-label="다시 시작 확인" data-u4-restart-ask>
         <span className="ttl">{r.name} 을 일으킬까요?</span>
         <p className="mu" style={{ fontSize: '14px', marginTop: '10px', lineHeight: '1.55' }}>그 자리에서 일어선 뒤 조종과 동작이 다시 켜집니다. 주변에 사람이 없는지 보세요.</p>
         <div style={{ display: 'flex', gap: '10px', marginTop: '22px' }}>
-          <div className="fld xclose" role="button" tabIndex={0} style={{ flex: 'none', width: 'calc(50% - 5px)', boxSizing: 'border-box', justifyContent: 'center', height: '52px' }} data-u4-restart-cancel onClick={() => setRestartAsk(false)}>취소</div>
-          <div className="btnp" role="button" tabIndex={0} style={{ flex: 'none', width: 'calc(50% - 5px)', boxSizing: 'border-box', height: '52px', fontSize: '15px' }} data-u4-restart-go
-            onClick={() => { setRestartAsk(false); d.unlockAsk(); }}>일어서기</div>
+          <button type="button" className="fld xclose" style={{ flex: 'none', width: 'calc(50% - 5px)', boxSizing: 'border-box', justifyContent: 'center', height: '52px', fontFamily: 'inherit', fontSize: 'inherit', color: 'inherit', cursor: 'pointer' }} data-u4-restart-cancel onClick={() => setRestartAsk(null)}>취소</button>
+          <button type="button" className="btnp" style={{ flex: 'none', width: 'calc(50% - 5px)', boxSizing: 'border-box', height: '52px', fontSize: '15px', fontFamily: 'inherit', border: '0', cursor: 'pointer' }} data-u4-restart-go
+            onClick={() => { const same = askNow; setRestartAsk(null); if (same) d.unlockAsk(); }}>일어서기</button>
         </div>
       </div></>}
     {(tab === 'settings' || guide) && <><div className="veil" onClick={() => { setTab(tab === 'settings' ? 'drive' : tab); setGuide(false); }} />
