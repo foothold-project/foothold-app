@@ -3,7 +3,9 @@
 - 요청자는 서버 (칸을 만든 사람 이름으로). 관문은 사람 요청과 같다 (blocked_agent_control · 배정 확인).
 - 예약 실행의 조종권은 기존 RUN holder lease 다 (Arbiter.begin(actor=None) -> STOP 확인 뒤 'RUN:<run_id>').
   사람 USER lease · 요청 · 넘김이 있으면 기다리지 않고 SKIPPED LEASE_HELD.
-- 실기는 FORBIDDEN 그대로 (SKIPPED REAL_RUN_FORBIDDEN). 로봇이 끊겨 있으면 MISSED ROBOT_OFFLINE.
+- 실기 칸은 시작하지 않는다 (SKIPPED REAL_ROBOT_SCHEDULE_DISABLED, 11/28 10:58). 켜는 곳은 설정 하나
+  (Settings.schedule_real_robots · FH_SCHEDULE_REAL_ROBOTS, 기본 꺼짐) 이고 실기 STOP 확인 뒤에 연다.
+  로봇이 끊겨 있으면 MISSED ROBOT_OFFLINE.
 - 한 칸은 한 번만: run_state IS NULL 인 줄만 FOR UPDATE SKIP LOCKED 로 잡고 같은 트랜잭션에서 STARTING 으로
   바꾼다. run_id 는 칸에서 정해지는 uuid5 이고 유일 키다. 다시 켜져 STARTING 으로 남은 칸은 시작 시한
   (START_TIMEOUT_S + 10 초) 이 지나면 보내지 않고 MISSED SCHEDULER_RESTARTED.
@@ -16,6 +18,11 @@
   잠금이 남아 있는 동안 다음 칸도 건너뛰고, 사람이 풀면 그다음 칸부터 돈다.
   서버가 보내는 unlock 은 RUN lease 를 넘겨받을 때 서버가 스스로 낸 STOP (이미 풀려 있던 로봇) 만 푼다.
   그 사이 사람 STOP 이 오면 (stop_ref 가 바뀜) unlock · run.start 없이 SKIPPED STOP_LATCHED.
+  예외 하나 (①, 시뮬만 · 실기는 위 설정 뒤): 칸을 CONFIRMED 로 만든 사람 (confirmed_by) 이 잠금 해제를 미리
+  누른 것으로 본다. 단 그 잠금이 «사람이 풀어 둔 로봇을 서버가 조종권을 놓으며 잠근 것» 일 때만
+  (Realtime.release_latched_only). 다시 붙음 · 재시작 · 사람 STOP · 에이전트 스스로 잠금 · safety 잠금은 그대로
+  STOP_LATCHED. 해제는 그 사람 권한으로 (지금도 담당 또는 총괄, 잠기지 않은 계정) 하고 사건
+  SCHEDULE_PRE_UNLOCK 를 남긴다. 권한이 없으면 SKIPPED CONFIRMER_NOT_ALLOWED.
   PR #549 본문 «정한 것» 에 같은 규칙.
 """
 import asyncio
@@ -28,7 +35,7 @@ from sqlalchemy import select
 from apps.contracts import models as C
 from .event_messages import render
 from .leases import Effect
-from .models import Assignment, Event, Robot, ScenarioVersion, ScheduleSlot, now
+from .models import Assignment, Event, Robot, ScenarioVersion, ScheduleSlot, User, now
 
 log = logging.getLogger(__name__)
 NAMESPACE = UUID('5d7c4c8e-62a5-4f0e-9a51-1f0d2e8b7c11')
@@ -51,8 +58,8 @@ def request_id_for(slot_id):
     return 'schedule:' + str(slot_id)
 
 
-def note(db, org_id, row, code, **data):
-    db.add(render(db, Event(org_id=org_id, category='RUN', code=code, user_id=row.created_by,
+def note(db, org_id, row, code, *, user=None, **data):
+    db.add(render(db, Event(org_id=org_id, category='RUN', code=code, user_id=user or row.created_by,
         robot_id=row.robot_id, data={'slot_id': str(row.id), 'run_id': str(row.run_id) if row.run_id else None,
                                      'action': data.get('reason'), **data})))
 
@@ -64,7 +71,7 @@ def settle(db, org_id, row, state, code=None):
                            'MISSED': 'SCHEDULE_RUN_MISSED'}[state], reason=code)
 
 
-def claim_due(factory, org_id, at):
+def claim_due(factory, org_id, at, *, real_enabled=False):
     """Claim due CONFIRMED slots exactly once. Returns start requests for slots left STARTING."""
     claimed = []
     with factory() as db, db.begin():
@@ -85,8 +92,14 @@ def claim_due(factory, org_id, at):
             if robot is None or robot.archived_at is not None:
                 settle(db, org_id, row, 'MISSED', 'ROBOT_OFFLINE')
                 continue
-            if robot.simulation is not True:
-                settle(db, org_id, row, 'SKIPPED', 'REAL_RUN_FORBIDDEN')
+            if robot.simulation is not True and not real_enabled:
+                settle(db, org_id, row, 'SKIPPED', 'REAL_ROBOT_SCHEDULE_DISABLED')
+                continue
+            confirmer = row.confirmed_by and db.scalar(select(User).where(
+                User.org_id == org_id, User.id == row.confirmed_by))
+            if (not confirmer or confirmer.locked or confirmer.archived_at is not None
+                    or (confirmer.role != 'ORG_ADMIN' and robot.owner_user_id != confirmer.id)):
+                settle(db, org_id, row, 'SKIPPED', 'CONFIRMER_NOT_ALLOWED')  # the run goes in their name, now
                 continue
             if row.assignment_id is None:
                 settle(db, org_id, row, 'SKIPPED', 'NO_ASSIGNMENT')
@@ -105,7 +118,7 @@ def claim_due(factory, org_id, at):
                 continue
             row.run_state = 'STARTING'
             claimed.append(dict(slot_id=row.id, robot_id=str(row.robot_id), run_id=row.run_id,
-                user_id=row.created_by, assignment_id=row.assignment_id, scenario_id=row.scenario_id,
+                user_id=row.confirmed_by, assignment_id=row.assignment_id, scenario_id=row.scenario_id,
                 scenario_version=row.scenario_version, floor_id=version.floor_ids[0],
                 map_version_id=version.map_version_ids[0]))
     return claimed
@@ -117,6 +130,10 @@ def write(factory, org_id, outcomes):
         for slot_id, state, code in outcomes:
             row = db.scalar(select(ScheduleSlot).where(ScheduleSlot.org_id == org_id, ScheduleSlot.id == slot_id)
                             .with_for_update())
+            if state == 'PRE_UNLOCK':
+                if row is not None:  # who pre-pressed unlock: the confirmer (event user_id)
+                    note(db, org_id, row, 'SCHEDULE_PRE_UNLOCK', user=UUID(code), confirmer=code)
+                continue
             if state == 'LATE':
                 # A report after RUN_REPORT_LOST: record it once, never change the slot state again.
                 if row is not None and row.run_code == 'RUN_REPORT_LOST' and not any(
@@ -149,15 +166,16 @@ def started(factory, org_id, at):
 
 
 class Scheduler:
-    def __init__(self, realtime, factory, org_id, *, clock=None):
+    def __init__(self, realtime, factory, org_id, *, clock=None, real_enabled=False):
         self.rt, self.factory, self.org_id = realtime, factory, org_id
+        self.real_enabled = real_enabled  # the one switch for real robots (default off)
         self.clock = clock or (lambda: now().astimezone(timezone.utc))
         self.pending = {}   # slot_id -> start state machine (memory only; restart = MISSED)
         self.reported = {}  # slot_id -> last time a report (or, after a restart, the first look) was seen
 
     async def tick(self):
         at = self.clock()
-        claimed = await asyncio.to_thread(claim_due, self.factory, self.org_id, at)
+        claimed = await asyncio.to_thread(claim_due, self.factory, self.org_id, at, real_enabled=self.real_enabled)
         outcomes = []
         for item in claimed:
             outcomes += self.begin(item, at)
@@ -175,8 +193,8 @@ class Scheduler:
         peer = rt.agents.get(rid)
         if peer is None or peer.closing or rt.clock() - peer.auth_checked > .5:
             return [(slot_id, 'MISSED', 'ROBOT_OFFLINE')]
-        if not peer.simulation:
-            return [(slot_id, 'SKIPPED', 'REAL_RUN_FORBIDDEN')]
+        if not peer.simulation and not self.real_enabled:
+            return [(slot_id, 'SKIPPED', 'REAL_ROBOT_SCHEDULE_DISABLED')]
         if rt.owner_uncertain or getattr(rt, 'failed', False):
             return [(slot_id, 'MISSED', 'SERVER_BUSY')]
         r = rt.arbiter.robot(rid)
@@ -186,15 +204,18 @@ class Scheduler:
         if r.holder or (reported and reported.get('status') not in TERMINAL) or rid in rt.scheduled_runs:
             return [(slot_id, 'SKIPPED', 'RUN_ACTIVE')]
         fresh = 0 <= rt.clock() - peer.state_received_at <= .5
+        pre_unlock = False
         if not fresh or peer.state.get('latched') is not False:
-            return [(slot_id, 'SKIPPED', 'STOP_LATCHED')]  # only a person unlocks (SF-02); never auto-resume
+            if not (fresh and rt.release_latched_only(rid)):
+                return [(slot_id, 'SKIPPED', 'STOP_LATCHED')]  # only a person unlocks (SF-02); never auto-resume
+            pre_unlock = True  # the confirmer pre-pressed unlock (1); audited below
         if peer.state.get('safety_reason') is not None:
             return [(slot_id, 'SKIPPED', 'SAFETY_STOP')]
         rt.apply(rt.arbiter.begin(rid, None, op=None, cause='scheduled_run'))  # lease null first, then STOP
         rt.scheduled_runs[rid] = {'run_id': str(item['run_id']), 'slot_id': str(slot_id)}
         self.pending[slot_id] = dict(item, phase='GRANT', lease=None, ref=r.stop_ref,  # our own STOP's ref
                                      deadline=at + timedelta(seconds=START_TIMEOUT_S))
-        return [(slot_id, 'STARTING', None)]
+        return [(slot_id, 'STARTING', None)] + ([(slot_id, 'PRE_UNLOCK', str(item['user_id']))] if pre_unlock else [])
 
     def _end(self, slot_id, p, state, code):
         self.pending.pop(slot_id, None)

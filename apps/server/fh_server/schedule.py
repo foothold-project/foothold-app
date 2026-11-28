@@ -38,7 +38,7 @@ def slot_object(row):
         scenario_version=row.scenario_version, gait=row.gait, start=row.start_at, end=row.end_at,
         kind=row.kind, assignment_id=row.assignment_id, memo=row.memo,
         created_by=row.created_by, created_at=row.created_at,
-        run_state=row.run_state, run_id=row.run_id, run_code=row.run_code)
+        run_state=row.run_state, run_id=row.run_id, run_code=row.run_code, confirmed_by=row.confirmed_by)
 
 
 def require_not_run(row, fail):
@@ -165,7 +165,8 @@ def install(app, DB, Identity, fail):
         require_free(db, user.org_id, body.robot_id, body.start, body.end, fail)
         row = ScheduleSlot(org_id=user.org_id, robot_id=body.robot_id, scenario_id=body.scenario_id,
             scenario_version=body.scenario_version, gait=body.gait, start_at=body.start, end_at=body.end,
-            kind=body.kind, assignment_id=body.assignment_id, memo=body.memo, created_by=user.id)
+            kind=body.kind, assignment_id=body.assignment_id, memo=body.memo, created_by=user.id,
+            confirmed_by=user.id if body.kind == 'CONFIRMED' else None)
         db.add(row)
         db.flush()
         record(db, user, row, 'SCHEDULE_SLOT_CREATED')
@@ -203,6 +204,8 @@ def install(app, DB, Identity, fail):
             fail(400, 'VALIDATION', '시나리오 없는 일정은 배터리 교체만 됩니다.')
         require_gait_ready(kind, values.get('gait', row.gait), fail)
         require_free(db, user.org_id, target, start, end, fail, exclude=row.id)
+        if kind != row.kind:  # who confirmed is who pre-pressed unlock (simulation scheduled run)
+            row.confirmed_by = user.id if kind == 'CONFIRMED' else None
         row.robot_id, row.start_at, row.end_at, row.kind = target, start, end, kind
         if 'gait' in values:
             row.gait = values['gait']

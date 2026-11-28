@@ -18,6 +18,7 @@ from apps.server.fh_server.models import Event, Robot, ScheduleSlot
 from apps.server.fh_server.security import digest
 from .test_realtime import app_token, hello, receive, reply, screen, send
 from .test_run_relay import synthetic_assignment
+from .test_maps import maps  # noqa: F401  (fixture)
 
 T0 = datetime(2026, 11, 28, 6, 0, tzinfo=timezone.utc)
 
@@ -105,14 +106,15 @@ def demo(client, seeded):
 
 
 def add_slot(seeded, good=None, *, robot='mine', kind='CONFIRMED', start=T0 + timedelta(minutes=2),
-             minutes=30, assignment=True):
+             minutes=30, assignment=True, confirmer='one'):
     engine = create_engine(seeded['urls']['migrate'])
     with DBSession(engine) as db:
         row = ScheduleSlot(org_id=seeded['org'], robot_id=seeded['robots'][robot], kind=kind,
             scenario_id=UUID(good['scenario_id']) if good and kind != 'BATTERY_SWAP' else None,
             scenario_version=good['scenario_version'] if good and kind != 'BATTERY_SWAP' else None,
             assignment_id=UUID(good['assignment_id']) if good and assignment and kind != 'BATTERY_SWAP' else None,
-            start_at=start, end_at=start + timedelta(minutes=minutes), memo='', created_by=seeded['users']['one'])
+            start_at=start, end_at=start + timedelta(minutes=minutes), memo='', created_by=seeded['users']['one'],
+            confirmed_by=seeded['users'][confirmer] if kind == 'CONFIRMED' and confirmer else None)
         db.add(row); db.commit()
         slot_id = row.id
     engine.dispose()
@@ -258,8 +260,10 @@ def test_real_robot_stays_forbidden(demo, seeded):
         agent = FakeAgent(ws)
         run_ticks(client, sched, agent, 5)
         assert slot_row(seeded, slot_id)['state'] == 'SKIPPED'
-        assert slot_row(seeded, slot_id)['code'] == 'REAL_RUN_FORBIDDEN'
-        assert 'run.start' not in agent.kinds()
+        assert slot_row(seeded, slot_id)['code'] == 'REAL_ROBOT_SCHEDULE_DISABLED'  # off by default (10:58)
+        assert 'run.start' not in agent.kinds() and sent(agent, 'unlock', 'lease') == sent(agent, 'lease')[:1]
+    skipped = [d for _, d in events(seeded, 'SCHEDULE_RUN_SKIPPED')]
+    assert [(d['slot_id'], d['reason']) for d in skipped] == [(str(slot_id), 'REAL_ROBOT_SCHEDULE_DISABLED')]
 
 
 @pytest.mark.parametrize('case,state,code', [('passed', 'MISSED', 'WINDOW_PASSED'),
@@ -664,3 +668,117 @@ def test_user_lease_pause_only_by_holder_and_audited(demo, seeded):
             assert rt.arbiter.robot(rid).holder.holder_type == 'USER'  # the lease logic is unchanged
     rows = events(seeded, 'RUN_PAUSE_REQUESTED')
     assert [(str(u), d['run_id'], d['holder_type']) for u, d in rows] == [(str(seeded['users']['one']), run_id, 'USER')]
+
+
+# -- (1) confirming a slot counts as pressing unlock in advance: simulation only (10:58) --
+
+def person_unlocks_then_releases(client, seeded, agent):
+    """A person takes control, unlocks, then lets go: the server's release STOP latches the robot again."""
+    rt = client.app.state.realtime
+    rid = str(seeded['robots']['mine'])
+    with screen(client, app_token(client)) as sc:
+        assert reply(sc, send(sc, 'lease.take', rid))['ok']
+        for _ in range(10):
+            agent.pump()
+            if rt.arbiter.robot(rid).holder:
+                break
+        lease = rt.arbiter.robot(rid).holder.lease_id
+        assert reply(sc, send(sc, 'unlock', rid, lease_id=lease, stop_gen=agent.gen))['ok']
+        agent.pump(); agent.pump()
+        assert not agent.latched
+        assert reply(sc, send(sc, 'lease.release', rid))['ok']
+        agent.pump(); agent.pump()
+    assert agent.latched and rt.arbiter.robot(rid).holder is None
+
+
+def test_confirmed_slot_pre_unlocks_a_release_latch_on_the_demo_robot(demo, seeded):
+    client, sched, clock = demo
+    slot_id = add_slot(seeded, synthetic_assignment(seeded))
+    with agent_ws(client, seeded) as ws:
+        ws.send_json(hello())
+        agent = FakeAgent(ws, latched=True)  # the real connect STOP latches it
+        agent.pump()
+        person_unlocks_then_releases(client, seeded, agent)
+        clock[0] = T0 + timedelta(minutes=3)
+        assert run_ticks(client, sched, agent, 40, until=lambda: slot_row(seeded, slot_id)['state'] == 'STARTED')
+        start = sent(agent, 'run.start')[-1]
+        assert start['user_id'] == str(seeded['users']['one'])  # the confirmer
+    rows = events(seeded, 'SCHEDULE_PRE_UNLOCK')
+    assert [(str(u), d['slot_id']) for u, d in rows] == [(str(seeded['users']['one']), str(slot_id))]
+
+
+@pytest.mark.parametrize('case', ['connect_only', 'person_stop', 'agent_stop', 'safety'])
+def test_pre_unlock_never_clears_a_persons_or_restart_latch(demo, seeded, case):
+    """Only a latch made by the server releasing control (after a person had unlocked) is pre-unlocked.
+    Connect/restart latch (SF-02), a person's STOP, a STOP the agent took itself (phone · sim stop) or a
+    safety latch stay: SKIPPED STOP_LATCHED, no unlock, no run.start."""
+    client, sched, clock = demo
+    rid = str(seeded['robots']['mine'])
+    slot_id = add_slot(seeded, synthetic_assignment(seeded))
+    with agent_ws(client, seeded) as ws:
+        ws.send_json(hello())
+        agent = FakeAgent(ws, latched=True)
+        agent.pump()
+        if case != 'connect_only':
+            person_unlocks_then_releases(client, seeded, agent)
+        if case == 'person_stop':
+            with screen(client, app_token(client)) as sc:
+                assert reply(sc, send(sc, 'stop', rid))['ok']
+                agent.pump()
+        elif case == 'agent_stop':
+            agent.gen += 1  # the Hub latched again by itself (phone STOP / sim stop); the server sent nothing
+        elif case == 'safety':
+            agent.extra = {'safety_reason': 'OUTPUT_STALLED'}
+        before = len(sent(agent, 'unlock'))
+        clock[0] = T0 + timedelta(minutes=3)
+        run_ticks(client, sched, agent, 5)
+        assert (slot_row(seeded, slot_id)['state'], slot_row(seeded, slot_id)['code']) == ('SKIPPED', 'STOP_LATCHED')
+        assert len(sent(agent, 'unlock')) == before and sent(agent, 'run.start') == [] and agent.latched
+    assert events(seeded, 'SCHEDULE_PRE_UNLOCK') == []
+
+
+@pytest.mark.parametrize('case', ['no_confirmer', 'not_owner', 'locked'])
+def test_pre_unlock_needs_the_confirmers_authority_now(demo, seeded, case):
+    client, sched, clock = demo
+    confirmer = dict(no_confirmer=None, not_owner='two', locked='locked')[case]
+    slot_id = add_slot(seeded, synthetic_assignment(seeded), confirmer=confirmer)
+    with agent_ws(client, seeded) as ws:
+        ws.send_json(hello())
+        agent = FakeAgent(ws, latched=True)
+        agent.pump()
+        person_unlocks_then_releases(client, seeded, agent)
+        before = len(sent(agent, 'unlock'))
+        clock[0] = T0 + timedelta(minutes=3)
+        run_ticks(client, sched, agent, 5)
+        assert (slot_row(seeded, slot_id)['state'], slot_row(seeded, slot_id)['code']) == ('SKIPPED', 'CONFIRMER_NOT_ALLOWED')
+        assert len(sent(agent, 'unlock')) == before and sent(agent, 'run.start') == []
+
+
+def test_confirmed_by_follows_who_made_the_slot_confirmed(maps, seeded):
+    client, _, _ = maps
+    from .test_schedule import scenario
+    from .test_maps import auth
+    admin, one = auth(client, 'admin'), auth(client, 'one')
+    value = scenario(client, admin)
+    body = dict(robot_id=str(seeded['robots']['mine']), start='2030-01-01T00:00:00Z', end='2030-01-01T01:00:00Z',
+                scenario_id=value['id'], scenario_version=value['number'])
+    made = client.post('/api/v1/schedule/slots', headers=one, json={**body, 'kind': 'DRAFT'}).json()
+    assert made['confirmed_by'] is None
+    confirmed = client.patch(f"/api/v1/schedule/slots/{made['id']}", headers=admin, json={'kind': 'CONFIRMED'}).json()
+    assert confirmed['confirmed_by'] == str(seeded['users']['admin'])
+    direct = client.post('/api/v1/schedule/slots', headers=one, json={**body, 'kind': 'CONFIRMED',
+        'start': '2030-01-02T00:00:00Z', 'end': '2030-01-02T01:00:00Z'}).json()
+    assert direct['confirmed_by'] == str(seeded['users']['one'])
+    back = client.patch(f"/api/v1/schedule/slots/{made['id']}", headers=one, json={'kind': 'DRAFT'}).json()
+    assert back['confirmed_by'] is None
+
+
+def test_real_robot_flag_is_the_one_switch(demo, seeded):
+    """Real robots are off by default; one setting opens them later (after the real STOP check)."""
+    client, sched, clock = demo
+    from apps.server.fh_server.api import Settings
+    assert Settings('x', uuid4()).schedule_real_robots is False
+    slot_id = add_slot(seeded, synthetic_assignment(seeded, robot='theirs'), robot='theirs', confirmer='two')
+    factory = sessionmaker(client.app.state.engine, expire_on_commit=False)
+    claimed = S.claim_due(factory, seeded['org'], T0 + timedelta(minutes=3), real_enabled=True)
+    assert [c['slot_id'] for c in claimed] == [slot_id]

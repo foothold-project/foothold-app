@@ -1234,6 +1234,8 @@ class Realtime:
                                 body['display_name'] = record.holder.actor.display_name[:64]  # display only
                     if body['t'] == 'lease' and body.get('lease_id') is None:
                         self.__dict__.get('scheduled_runs', {}).pop(rid, None)  # a released RUN lease never comes back
+                    if body['t'] == 'stop':
+                        self.note_release_stop(rid, body, effect.cause)
                     peer = self.agents.get(rid)
                     if peer:
                         # DB provenance plus explicit per-robot manual trial only.
@@ -1733,6 +1735,37 @@ class Realtime:
             self.put(peer, body)
             if msg.t == 'run.control' and msg.op == 'pause':
                 self.apply([self.pause_audit(rid, actor, msg, 'USER')])
+
+    # -- release latch (11/28 10:58, schedule pre-unlock): which latch may a confirmed slot clear? --
+    # Only one the server made by letting go of control (lease release · expiry · run end) right after a
+    # person had unlocked. Not a connect/restart latch (SF-02), a person's STOP, a STOP the agent took by
+    # itself (phone · sim stop: stop_gen moves without a server STOP) or a safety latch.
+    RELEASE_CAUSES = frozenset({'lease_release', 'lease_expired', 'run_finished'})
+
+    def note_release_stop(self, rid, body, cause):
+        peer = self.agents.get(rid)
+        self.__dict__.setdefault('release_latch', {})[rid] = {
+            'ref': body.get('stop_ref'), 'gen': None,
+            'ok': cause in self.RELEASE_CAUSES and peer is not None and peer.state.get('latched') is False}
+
+    def note_latch(self, rid, msg):
+        record = self.__dict__.get('release_latch', {}).get(rid)
+        if record is None:
+            return
+        if not msg.latched:
+            self.release_latch.pop(rid, None)  # the latch is gone (a person unlocked)
+        elif msg.stop_ref != record['ref']:
+            record['ok'] = False
+        elif record['gen'] is None:
+            record['gen'] = msg.stop_gen  # the agent confirmed this server STOP
+        elif msg.stop_gen != record['gen']:
+            record['ok'] = False  # the agent latched again by itself
+
+    def release_latched_only(self, rid):
+        peer, record = self.agents.get(rid), self.__dict__.get('release_latch', {}).get(rid)
+        return (peer is not None and record is not None and record['ok'] and record['gen'] is not None
+                and record['ref'] == self.arbiter.robot(rid).stop_ref and peer.state.get('latched') is True
+                and peer.state.get('stop_gen') == record['gen'] and peer.state.get('safety_reason') is None)
 
     def schedule_pause(self, rid, actor, msg):
         """Pause of a schedule slot's run (11/28, web #542): release the RUN lease. The agent's relay lets
@@ -2417,6 +2450,7 @@ class Realtime:
             'controller_connected', 'controller_since', 'reported_run', 'mode')})
         peer.state['phone_reported'] = 'reported_run' in msg.model_fields_set
         peer.state_received_at = self.clock()
+        self.note_latch(rid, msg)
         self.last_state_received[rid] = now()
         pending = self.arbiter.robot(rid).transfer
         if pending and pending.actor:

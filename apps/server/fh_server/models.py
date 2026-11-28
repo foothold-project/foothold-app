@@ -556,6 +556,7 @@ class ScheduleSlot(Tenant, Base):
     run_id: Mapped[UUID | None] = mapped_column(PGUUID)
     run_code: Mapped[str | None] = mapped_column(Text)
     run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    confirmed_by: Mapped[UUID | None] = mapped_column(PGUUID)  # who made it CONFIRMED (pre-unlock authority)
 
 
 class IdempotencyReceipt(Tenant, Base):

@@ -2309,6 +2309,7 @@ export interface ScheduleSlot {
   run_state: "STARTING" | "STARTED" | "DONE" | "FAILED" | "SKIPPED" | "MISSED" | null;
   run_id: string | null;
   run_code: string | null;
+  confirmed_by: string | null;
 }
 
 export interface ScheduleSlotCreate {

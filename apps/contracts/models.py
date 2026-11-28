@@ -2702,8 +2702,9 @@ class AssignmentList(Contract):
 # 일정 · 가용 · 예상 (app-design-lx 11/28 합의). 구간은 [start, end) 반열린 구간이다.
 ScheduleKind = Literal['CONFIRMED', 'DRAFT', 'BATTERY_SWAP']
 # 예약 실행 상태. STARTING 은 서버가 칸을 잡고 시작 중 (다시 켜면 MISSED SCHEDULER_RESTARTED).
-# SKIPPED 까닭: LEASE_HELD · RUN_ACTIVE · REAL_RUN_FORBIDDEN · NO_ASSIGNMENT · ASSIGNMENT_INVALID ·
-#   MULTI_FLOOR · STOP_LATCHED (로봇이 잠겨 있음, 사람만 푼다) · SAFETY_STOP. MISSED 까닭: ROBOT_OFFLINE · WINDOW_PASSED · SCHEDULER_RESTARTED · SERVER_BUSY.
+# SKIPPED 까닭: LEASE_HELD · RUN_ACTIVE · NO_ASSIGNMENT · ASSIGNMENT_INVALID ·
+#   MULTI_FLOOR · STOP_LATCHED (로봇이 잠겨 있음, 사람만 푼다) · SAFETY_STOP · CONFIRMER_NOT_ALLOWED (확정한 사람이
+#   없거나 지금 그 로봇 권한이 없음) · REAL_ROBOT_SCHEDULE_DISABLED (실기는 아직 예약 실행 안 함, 설정 기본 꺼짐). MISSED 까닭: ROBOT_OFFLINE · WINDOW_PASSED · SCHEDULER_RESTARTED · SERVER_BUSY.
 # FAILED 코드: 에이전트 run_result 거절 코드 · 실행 fail_code · START_TIMEOUT · LEASE_LOST · STOP_CONFIRM_FAILED ·
 #   RUN_REPORT_LOST (end_at + 60 초 넘게 보고 없음, 늦은 보고는 SCHEDULE_RUN_LATE_REPORT 사건만).
 ScheduleRunState = Literal['STARTING', 'STARTED', 'DONE', 'FAILED', 'SKIPPED', 'MISSED']
@@ -2750,6 +2751,8 @@ class ScheduleSlot(Contract):
     run_state: ScheduleRunState | None = None
     run_id: UUID | None = None
     run_code: str | None = Field(default=None, max_length=64)
+    # 칸을 CONFIRMED 로 만든 사람 (11/28 10:58). 시뮬 예약 실행은 이 사람 권한으로 잠금 해제를 미리 누른 것으로 본다.
+    confirmed_by: UUID | None = None
 
 
 class ScheduleSlotPatch(Contract):

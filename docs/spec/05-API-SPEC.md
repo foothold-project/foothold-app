@@ -582,6 +582,7 @@ P1-B의 `phone.revoke`/`phone.revoke.ack`는 현재 구현 프로토콜 `fh-agen
 ## 12. 변경 이력
 | 판 | 날짜 | 내용 |
 |---|---|---|
+| 0.25 | 2026-11-28 | 10:58: 실기 칸 예약 실행 안 함 (`REAL_ROBOT_SCHEDULE_DISABLED`, 설정 하나 기본 꺼짐), 시뮬은 확정한 사람이 잠금 해제를 미리 누른 것으로 봄 (조종권을 놓으며 생긴 잠금만, `SCHEDULE_PRE_UNLOCK`). 자세한 것은 `apps/contracts/README.md` «일정» |
 | 0.24 | 2026-11-28 | #542 R5: §6.5 일시정지 · RUN 이 쥔 run 은 담당 누구나 lease_id 없이 pause, USER 는 쥔 화면만, 모든 pause 사건 `RUN_PAUSE_REQUESTED`. 예약 실행은 잠긴 로봇을 풀지 않음 (`SKIPPED STOP_LATCHED`) |
 | 0.23 | 2026-11-28 | 일정 칸 예약 실행: CONFIRMED 칸 시각에 서버가 §6.5 `run.start` 를 같은 관문으로 보냄 (RUN holder lease · 칸 run_state · 한 번만). 자세한 것은 `apps/contracts/README.md` «일정» |
 | 0.22 | 2026-11-28 | 웹 시뮬 탭 요청: §13 PhoneState · LEASE_HELD reply 에 `holder_type` · `holder_name`, PhoneHello 선택 `display_name`, 에이전트 `unlock.display_name` |
