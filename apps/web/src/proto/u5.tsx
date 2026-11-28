@@ -2,7 +2,7 @@
 // 고정 글 자리만 서버 값으로 바꿨다. 서버에 없는 값은 칸을 두고 그 글만 비운다. 명령은 기존 모듈(STOP = App 의 정지 처리, 고름 = controlPick)만 부른다.
 import { NO_SIGNAL, driveFeedText, useDriveFeed } from '../drivemedia';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { MapVersion, RobotAvailability, RobotSummary, ScreenState } from '../../../contracts/ts';
+import type { MapSite, RobotAvailability, RobotSummary, ScreenState, SiteTree } from '../../../contracts/ts';
 import { api, type ApiFail } from '../api';
 import { RUN } from '../screens';
 import { realDash } from '../screens/fleet';
@@ -13,7 +13,7 @@ import { JOINTS } from '../go2model';
 import { rt, useRt } from '../rt';
 import type { Ctx } from '../screens';
 import { actOf, controlPick, flagNote, isLost, lastly, needs, useControlPick } from '../screens/control';
-import { floorName, floorsOf, toPixel, useTree } from '../screens/maps';
+import { floorName, floorsOf, useTree } from '../screens/maps';
 import { sitePose, toMapPx } from './site';
 import { tiles as tileGl, type TileLook } from './tileview';
 import { SiteView } from './u5map';
@@ -199,28 +199,15 @@ function Tile({ f, sel, front, pick, open }: { f: TileFacts; sel: boolean; front
 }
 
 // ── 오른쪽 칸 ─────────────────────────────────────────────
-/** 작은 지도 = 시안 공장 터 그림(3200 × 2000 px 를 400 × 250 으로). 그 판으로 보는 서버 지도 판 = 같은 크기(3200 × 2000)인 판 */
-// 할 일: 공장 판 판별은 임시(크기로 봄 · 미확인). 재기동 뒤 /sites 에 demo 표시가 오면 데모 현장 층의 승인 판 id(approved_version_id)와 같은지로 바꾼다
-export const SITE_PX = [3200, 2000] as const;
-const VERS = new Map<string, MapVersion | null>(), verSubs = new Set<() => void>();
-/** 지도 판 메타(GET /map-versions/{id}) — 한 번 받아 두고 같이 씀. 실패면 null(점을 그리지 않음) */
-function useVersions(ids: string[]) {
-  const [, bump] = useState(0), key = [...new Set(ids)].sort().join(',');
-  useEffect(() => {
-    const on = () => bump((n) => n + 1); verSubs.add(on);
-    for (const id of key ? key.split(',') : []) if (!VERS.has(id)) { VERS.set(id, null); api.version(id).then((v) => { VERS.set(id, v); verSubs.forEach((f) => f()); }, () => { VERS.delete(id); }); }   // 실패면 다음에 판 목록이 바뀔 때 다시 받음 }
-    return () => { verSubs.delete(on); };
-  }, [key]);
-  return VERS;
-}
-function Mini({ all, sel }: { all: TileFacts[]; sel: string }) {
-  const locOf = (f: TileFacts) => stateOf(f.x)?.location ?? (f.x.unknown === 'summary' ? null : f.x.location);
-  const vers = useVersions(all.map((f) => locOf(f)?.map_version_id ?? '').filter(Boolean));
+/** 데모 현장(/sites 의 demo === true)의 층마다 승인 판 id. 작은 지도(시안 공장 그림)는 이 판의 위치만 그린다 */
+export const demoBoards = (tree: SiteTree | null | undefined) => new Set((tree?.items ?? []).filter((s) => (s as MapSite & { demo?: boolean }).demo === true)
+  .flatMap((s) => s.buildings.flatMap((b) => b.floors.map((f) => f.approved_version_id))).filter((v): v is string => !!v));
+function Mini({ all, sel, boards }: { all: TileFacts[]; sel: string; boards: Set<string> }) {
   const dots = [...all].sort((a, b) => a.x.name.localeCompare(b.x.name, 'ko', { numeric: true })).flatMap((f) => {
-    // 서버 위치를 그 판의 origin · resolution 으로 그림 px(큰 지도와 같은 toPixel). 판이 공장 판(3200 × 2000)이 아니거나 판 id 가 없으면 그리지 않음(엉뚱한 자리보다 뺌)
-    const l = locOf(f), v = l?.map_version_id ? vers.get(l.map_version_id) : null;
-    if (!l || !v || v.width !== SITE_PX[0] || v.height !== SITE_PX[1] || l.x == null || l.y == null || !Number.isFinite(l.x) || !Number.isFinite(l.y)) return [];
-    const [px, py] = toPixel(v, l.x!, l.y!), left = `calc(50% + ${Math.round(px * 0.125 - 200)}px)`, top = `${Math.round(py * 0.125)}px`;
+    // 데모 현장 승인 판의 위치만: 판 id 가 다르거나 없으면 그리지 않음(엉뚱한 자리보다 뺌). 서버 판 m → 시안 그림 px = design.json transform(25 + u·3.5, 20 + v·3.5 · v = -y)
+    const l = stateOf(f.x)?.location ?? (f.x.unknown === 'summary' ? null : f.x.location), p = l?.map_version_id && boards.has(l.map_version_id) ? sitePose(l) : null;
+    if (!p) return [];
+    const [px, py] = toMapPx(p.x, p.z), left = `calc(50% + ${Math.round(px * 0.125 - 200)}px)`, top = `${Math.round(py * 0.125)}px`;
     const kind = f.sim ? 'sim' : f.level === 'bad' || f.level === 'crit' ? 'r' : f.level === 'warn' || f.lostNow ? 'o' : '';
     const me = f.x.id === sel, label = sel ? me : kind === 'r' || (kind === 'o' && !f.lostNow);
     return [<i key={f.x.id} className={`dotm ${kind}${sel ? (me ? ' sel' : ' dim') : ''}`} style={{ left, top }} data-walk={f.walk ? '1' : undefined} data-dot={f.x.id}></i>,
@@ -284,6 +271,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
   const sel = useControlPick();
   useEffect(() => () => controlPick.set(''), []);
   const t = useTree(c.cancel), av = useAvail(c.cancel);
+  const boards = useMemo(() => demoBoards(t.tree), [t.tree]);
   const places = useMemo(() => new Map(floorsOf(t.tree).map((p) => [p.floor.id, `${p.building.name} ${floorName(p.floor.name)}`])), [t.tree]);
   const list = scope === 'mine' ? c.robots.filter((x) => x.owner === me) : c.robots;
   const all = order(list.map((x) => facts(x, me, places, av?.get(x.id))));
@@ -321,7 +309,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
       : <SiteView all={all} sel={sel} pick={(id) => controlPick.set(id)} open={open} />}
     <div className="side">
       {view === 'tiles' ? <>
-        <Mini all={all} sel={sel} />
+        <Mini all={all} sel={sel} boards={boards} />
         {picked && <Picked key={picked.x.id} f={picked} open={() => open(picked.x.id)} me={me} cancel={c.cancel} refresh={c.refresh} />}
         {crit && !picked && <Alarm f={crit} stop={c.mayStop?.(crit.x.id) ? c.stop : undefined} open={() => open(crit.x.id)} />}
         <Recent list={all.filter((f) => (f.alert || f.lostNow) && f.x.id !== crit?.x.id)} pick={(id) => controlPick.set(id)} open={open} /></>
