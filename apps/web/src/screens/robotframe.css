@@ -94,3 +94,5 @@
   .u4 .st{min-width:0!important;flex:1 1 40%}.u4 .seg2{margin-left:0;width:100%}.u4 .seg2 button{flex:1}.u4 .small{top:62px;width:150px;height:84px}.u4 .views .v-body{padding-top:160px}}
 .u4 .u4-more{padding:10px 16px}.u4 .u4-more-btn{background:none;border:0;padding:0;font-size:13px;font-weight:700;color:var(--u4-mu2)}.u4 .u4-more>div{margin-top:12px}
 .u4 .rc-seen{display:flex;gap:6px;flex-wrap:wrap}
+html .fh .u4 .rail-top [data-pair-start]{height:34px;padding:0 11px;font-size:12.5px;border-radius:14px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:var(--u4-ink);box-shadow:none;font-weight:700}
+html .fh.light .u4 .rail-top [data-pair-start],:root[data-theme="light"] .fh .u4 .rail-top [data-pair-start]{background:rgba(0,0,0,.04);border-color:rgba(0,0,0,.1);color:#1f2421}
