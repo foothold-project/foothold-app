@@ -14,6 +14,8 @@ import { sim } from '../phone';
 import { rt } from '../rt';
 import { oldScenario } from '../menu';
 import { stopLine } from '../serverdrive';
+import { toRobot } from '../fake';
+import { en } from '../lang';
 // 옛 PC 관제 부품(관제 요약 · 상세 서랍 · 연결 상태 · 조종 준비) 시험: PC 로봇 탭은 시안 u4 라 부품을 앱 맥락 안에 직접 그린다 → W1 u5
 beforeEach(() => { pcBoard.on = true; });
 afterEach(() => { pcBoard.on = false; });
@@ -161,6 +163,46 @@ describe('관제 탭', () => {
     expect([tempLevel(48), tempLevel(51), tempLevel(61), tempLevel(72), tempLevel(null)]).toEqual([null, 'warn', 'bad', 'crit', null]);
   });
 
+  // 팀장 21:26: Go2 X 처럼 정지 잠금과 높지 않은 관절 온도(41 °C)가 붙어 온도가 잠금 원인처럼 읽혔다 → 머리표 = 잠금 까닭(서버 값만), 온도 칩은 온도 문턱(tempLevel)을 넘을 때만 경고색
+  it('정지 잠금 + 보통 온도: 머리표 «경고 · 정지 잠금 · 까닭»(서버 latch_reason · 없으면 까닭 미상), 정면 온도 칩은 회색 «최고 관절 온도 41 °C», 최근 경고 제목도 잠금', () => {
+    mount('u-kim', TWENTY); feed(TWENTY, { g3: { status: 'STOP_LATCHED', ...temp([40, 41, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]) } });
+    const flag = () => tile('g3').querySelector('[data-warn-flag]')!.textContent;
+    expect(flag()).toBe('경고 · 정지 잠금 · 까닭 미상');   // 칸 없음
+    expect(tile('g3').dataset.tone).toBe('bad');
+    act(() => { $('.u5 .flipb').click(); });
+    const ov = tile('g3').querySelector<HTMLElement>('.cv .ov')!;
+    expect(ov.textContent).toBe('최고 관절 온도 41 °C'); expect(ov.style.color).toBe('');
+    expect(small('g3', 'temp')).toBe('보통');
+    const row = $('[aria-label="최근 경고"] [data-alert="g3"]');
+    expect([...row.querySelector('div')!.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join('')).toBe('K-04 정지 잠금 · 까닭 미상');
+    const T = temp([40, 41, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
+    const W = { BOOT: '기동 잠금', USER_STOP: '사람 정지', FALL: '넘어짐', LINK_LOST: '연결 끊김', DEVICE_FAULT: '장치 고장', POLICY: '권한 확인 늦음', LEASE_END: '조종권 끝남', OTHER: '기타' };
+    const E = { BOOT: 'boot latch', USER_STOP: 'stopped by a person', FALL: 'fall', LINK_LOST: 'link lost', DEVICE_FAULT: 'device fault', POLICY: 'permission check late', LEASE_END: 'control ended', OTHER: 'other' };
+    for (const [k, v] of Object.entries(W)) {
+      act(() => { FakeWS.last.recv(state('g3', { status: 'STOP_LATCHED', ...T, latch_reason: k, robot_info: { ...T.robot_info, fallen: k !== 'FALL' }, stop_applied: true } as never)); });
+      expect(flag()).toBe(`경고 · 정지 잠금 · ${v}`);   // latch_reason 하나만 · fallen · stop_applied 로 짐작해 붙이지 않음
+      expect(en(flag()!)).toBe(`Warning · Stop latched · ${E[k as keyof typeof E]}`);
+    }
+    act(() => { FakeWS.last.recv(state('g3', { status: 'STOP_LATCHED', ...T, latch_reason: null, safety_reason: 'OUTPUT_STALLED' } as never)); });
+    expect(flag()).toBe('경고 · 정지 잠금 · 까닭 미상');   // null
+    act(() => { FakeWS.last.recv(state('g3', { status: 'STOP_LATCHED', ...T, latch_reason: 'NEW_CODE' } as never)); });
+    expect(flag()).toBe('경고 · 정지 잠금 · 까닭 미상');   // 모르는 값
+    expect(en('정지 잠금 · 까닭 미상')).toBe('Stop latched · reason unknown');
+    // 로봇 목록(RobotSummary) 값: 소켓 state 가 칸을 주지 않을 때만
+    const S = (o: object) => toRobot({ id: 'x', name: 'X', model: 'Go2', owner: null, connection: 'ONLINE', status: 'STOP_LATCHED', battery: null, location: null, lease: null, current_run: null, devices: [], attention: [], simulation: false, server_drive_allowed: true, ...o } as never);
+    expect([S({ latch_reason: 'BOOT' }).latchReason, S({ latch_reason: null }).latchReason, S({}).latchReason]).toEqual(['BOOT', null, null]);
+  });
+  it('정지 잠금 + 문턱 넘은 온도(61 °C): 머리표는 잠금(위험 70 °C 전까지), 온도 칩만 경고색 · 관절 이름, 잠금 없으면 전처럼 온도가 머리표', () => {
+    mount('u-kim', TWENTY); feed(TWENTY, { g3: { status: 'STOP_LATCHED', ...temp([40, 41, 42, 43, 61, 44, 45, 46, 47, 48, 49, null]) }, g5: temp([40, 41, 42, 43, 52, 44, 45, 46, 47, 48, 49, null]) });
+    expect(tile('g3').querySelector('[data-warn-flag]')!.textContent).toBe('경고 · 정지 잠금 · 까닭 미상');
+    expect(tile('g3').querySelector('[data-fact="temp"]')!.className).toBe('s r');
+    expect(tile('g5').querySelector('[data-warn-flag]')!.textContent).toBe('주의 · 왼쪽 앞다리 허벅지 52 °C');
+    act(() => { $('.u5 .flipb').click(); });
+    const ov = tile('g3').querySelector<HTMLElement>('.cv .ov')!;
+    expect(ov.textContent).toBe('왼쪽 앞다리 허벅지 61 °C'); expect(ov.style.color).toBe('var(--u5-red)');
+    expect(tile('g5').querySelector<HTMLElement>('.cv .ov')!.style.color).toBe('var(--u5-amb)');   // 주의(50 °C ~) = 주황
+  });
+
   it('관절 위험(70 °C 이상) = 경보 칸(u5_5): 제목 · 그 로봇 정지 · 로봇 탭에서 보기, 정지는 기존 정지 길(rt.stop)로 그 로봇만', () => {
     mount('u-lee', TWENTY); feed(TWENTY, { g4: temp([40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 72]) });
     expect(tiles()[0].dataset.robot).toBe('g4');
@@ -250,6 +292,23 @@ describe('관제 탭', () => {
     expect(actOf({ ...TWENTY[3], status: 'STOP_LATCHED' }, false)).toBe('lie');
     expect(actOf({ ...TWENTY[3], status: 'ERROR' }, false)).toBe('lie');
     expect(actOf({ ...TWENTY[3], unknown: 'wait' }, false)).toBe('unknown');
+  });
+
+  // D1(조정 21:27): 요약만 받는 로봇(state 없음 = speed 칸 자체가 없음, 0 이 아님)은 임무 중 + 움직이는 상태(RUNNING)면 걷기. speed 가 있으면 speed 가 이김(0 = 서 있음)
+  it('speed 칸 없음 + 임무 중 → 걷기, speed 칸 없음 + 일시정지 → 서기, speed 0 + 임무 중 → 서기', () => {
+    const run = (status: string) => ({ run_id: 'r', status, scenario_name: '순찰', progress: { done: 1, total: 4 } }) as never;
+    const R: Robot[] = [
+      { ...TWENTY[1], id: 's1', name: 'S-1', owner: 'u-park', status: 'RUNNING', run: run('MOVING'), unknown: 'summary' },
+      { ...TWENTY[1], id: 's2', name: 'S-2', owner: 'u-park', status: 'PAUSED', run: run('PAUSED'), unknown: 'summary' },
+      { ...TWENTY[1], id: 's3', name: 'S-3', owner: 'u-park', status: 'RUNNING', run: null, unknown: 'summary' },
+      { ...TWENTY[0], id: 'm1', name: 'M-1', owner: 'u-lee', status: 'RUNNING' },
+    ];
+    mount('u-lee', R); feed(R.filter((r) => r.owner === 'u-lee'), { m1: { speed: 0, ...RUN() } });
+    act(() => { seg('범위', 0).click(); });
+    expect(tile('s1').dataset.live).toBe('1');
+    expect(tile('s2').dataset.live).toBeUndefined();
+    expect(tile('s3').dataset.live).toBeUndefined();   // 임무 없음 = 걷지 않음
+    expect(tile('m1').dataset.live).toBeUndefined();   // speed 0 = 서 있음
   });
 
   it('걷기 판정 문턱 0.05 m/s(rt 가 속도를 0.1 자리까지만 견주므로 그 반 · 가장 느린 시뮬 이동 0.2 보다 아래 · 로봇 탭 robotu4 «서 있음» 0.05 와 같음)', () => {
@@ -361,10 +420,38 @@ describe('관제 탭', () => {
     expect(al.map((e) => e.dataset.alert)).toEqual(['g9', 'g15']);
     expect([...al[1].querySelector('div')!.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join('')).toBe('K-16 연결 끊김');
     expect(al[1].querySelector('small')!.textContent).toBe('다시 연결 중');
-    const at = al[0].querySelector('[data-alert-at]')!;   // 연결 중인 로봇의 받은 시각 = 마지막 state 를 받은 때
-    expect(at.textContent).toMatch(/^\d\d:\d\d$/);
-    expect(at.getAttribute('title')).toBe(`받은 시각 ${at.textContent}`);
+    const at = al[0].querySelector('[data-alert-at]')!;   // 화면을 열 때 이미 경고였던 로봇 = 받은 시각이 아니라 «이어진 상태»(로그인 시각을 경고 시각처럼 보이지 않게)
+    expect(at.textContent).toBe('이어진 상태');
     expect(al[1].querySelector('[data-alert-at]')!.textContent).toBe('14:05');   // 끊긴 로봇 = 끊기기 전 마지막 받은 시각
+  });
+
+  // 팀장 21:24: 20:53:54 부터 이어진 Go2 X 잠금이 로그인 뒤 «21:22» 로 보였다 → 서버 잠금 시작 시각(status_since) > 열 때 이미 경고면 «이어진 상태» > 받는 동안 새로 생긴 경고만 그때 시각
+  it('최근 경고 시각: 정지 잠금은 서버 status_since(있음 = 그 시각 · null · 칸 없음 = 이어진 상태), 받는 동안 새로 잠긴 것은 그때 시각', () => {
+    const base = TWENTY[3];
+    const R: Robot[] = [
+      { ...base, id: 'a1', name: 'A-1', status: 'STOP_LATCHED', statusSince: { status: 'STOP_LATCHED', at: '2026-11-28T20:53:54' } },
+      { ...base, id: 'a2', name: 'A-2', status: 'STOP_LATCHED', statusSince: null },
+      { ...base, id: 'a3', name: 'A-3', status: 'STOP_LATCHED' },
+      { ...base, id: 'a4', name: 'A-4', status: 'IDLE' },
+    ];
+    mount('u-kim', R); feed(R);
+    const at = (id: string) => $(`[aria-label="최근 경고"] [data-alert="${id}"] [data-alert-at]`);
+    expect(at('a1').textContent).toBe('20:53'); expect(at('a1').getAttribute('title')).toBe('잠금 시작 20:53');
+    expect(at('a2').textContent).toBe('이어진 상태'); expect(at('a3').textContent).toBe('이어진 상태');
+    act(() => { FakeWS.last.recv(state('a4', { status: 'STOP_LATCHED' })); });   // 보는 동안 새로 잠김
+    expect(at('a4').textContent).toMatch(/^\d\d:\d\d$/); expect(at('a4').getAttribute('title')).toBe(`받은 시각 ${at('a4').textContent}`);
+    const t4 = at('a4').textContent;
+    act(() => { FakeWS.last.recv(state('a4', { status: 'STOP_LATCHED', battery: { soc: 50, updated_at: '' } })); });
+    expect(at('a4').textContent).toBe(t4);   // 같은 잠금이 이어지면 시각을 다시 쓰지 않음
+    // status_since 는 그 값이 붙은 status 에만(다른 상태로 바뀐 뒤엔 쓰지 않음)
+    act(() => { FakeWS.last.recv(state('a1', { status: 'ERROR' })); });
+    expect(at('a1').textContent).toBe('이어진 상태');
+  });
+  it('로봇 목록 status_since: 있음 = 그 status 와 함께 · null · 칸 없음 = null', () => {
+    const S = (o: object) => toRobot({ id: 'x', name: 'X', model: 'Go2', owner: null, connection: 'ONLINE', status: 'STOP_LATCHED', battery: null, location: null, lease: null, current_run: null, devices: [], attention: [], simulation: false, server_drive_allowed: true, ...o } as never);
+    expect(S({ status_since: '2026-11-28T20:53:54Z' }).statusSince).toEqual({ status: 'STOP_LATCHED', at: '2026-11-28T20:53:54Z' });
+    expect(S({ status_since: null }).statusSince).toBeNull();
+    expect(S({}).statusSince).toBeNull();
   });
 
   it('App: 로봇 0대면 관제 탭은 로봇 탭 빈 화면이 아니라 관제 빈 화면', () => {

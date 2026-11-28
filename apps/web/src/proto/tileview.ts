@@ -30,6 +30,10 @@ export const simLook = (light: boolean) => (light ? { blend: THREE.NormalBlendin
 /** 따라가기 카메라 가림(K-08 이 건물 옆이라 뒤 2.1 m 카메라가 벽 안에 들어감): 로봇 머리 → 카메라로 광선 한 번, 현장 물체에 맞으면
  *  맞은 자리 0.15 m 앞으로 당긴다(머리에서 최소 0.6 m). 투명한 것(금지 구역 빨강)은 막지 않음. 돌려주는 값 = 머리 → 카메라 선 위 비율(1 = 그대로) */
 const HEAD = new THREE.Vector3(0, 0.3, 0), ray = new THREE.Raycaster();
+/** 타일 카메라 거리(시안 go2view): 뒤 따라가기 2.1 m · 정면 1.25 m. 큰 무대 카메라도 이 값을 씀 */
+export const REAR_DIST = 2.1, FRONT_DIST = 1.25;
+/** 그릴 층: 현장(임무 중 · 자리 있음 · glb 받음)이면 현장만, 아니면 초록 점 바닥만(현장 바닥 위로 점이 비치지 않게 · 팀장 21:45) */
+export const layers = (pose: boolean, site: boolean) => ({ world: pose && site, dots: !(pose && site) });
 export function camPull(world: THREE.Object3D, cam: THREE.Vector3) {
   const to = cam.clone().sub(HEAD), len = to.length();
   ray.set(HEAD, to.clone().normalize()); ray.far = len;
@@ -157,13 +161,13 @@ class Tiles {
       }
       r.setPixelRatio(dpr); r.setSize(w, h, false);
       // 시점: 시안 go2view (뒤 = yaw π · 2.1 m · 높이 0.55, 정면 = yaw 0 · 1.25 m). 현장은 로봇 자리 · 방향의 반대로 옮겨 로봇이 늘 가운데
-      const yaw = look.front ? 0 : Math.PI, dist = look.front ? 1.25 : 2.1;
+      const yaw = look.front ? 0 : Math.PI, dist = look.front ? FRONT_DIST : REAR_DIST;
       this.cam.aspect = w / h; this.cam.updateProjectionMatrix();
       this.cam.position.set(Math.sin(yaw) * dist, 0.55, Math.cos(yaw) * dist); this.cam.lookAt(0, 0.17, 0);
       // 현장 = 그 로봇 지도 안 실제 자리 · 방향(서버 위치 · yaw 를 보간). 로봇은 늘 가운데 · 시점은 뒤쪽 위 그대로라 걷고 돌면 현장이 지나가고 돈다
       v.at = look.pose ? follow(v.at, look.pose, dt) : null;
       const p = v.at;
-      this.world.visible = !!(p && this.site);
+      const ly = layers(!!p, !!this.site); this.world.visible = ly.world; this.grid.visible = ly.dots;
       if (p) { this.world.rotation.set(0, -p.rot, 0); this.world.position.set(0, 0, 0); this.world.updateMatrix();
         const off = new THREE.Vector3(-p.x, 0, -p.z).applyAxisAngle(new THREE.Vector3(0, 1, 0), -p.rot); this.world.position.copy(off);
         // 가림 광선은 로봇이 0.2 m(또는 0.2 rad) 넘게 움직였거나 시점이 바뀌었을 때만 다시 쏜다(매 판 쏘지 않음)

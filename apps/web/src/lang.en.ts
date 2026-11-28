@@ -117,13 +117,17 @@ export const EN: Record<string, string> = {
   '서버에 실제 · 모의 실행 거르기가 없어 모두 보입니다.': 'The server has no real/simulated filter, so all are shown.', '모든 로봇': 'All robots', '클립 있는 것만': 'With clips only', '서버에 클립 거르기가 없습니다.': 'The server has no clip filter.',
   '서버에 값 없음. 클립을 며칠 보관할지 서버가 값을 주면 여기서 바꿉니다.': 'No value from server. Once the server gives a retention period, change it here.', '클립 보관 기간': 'Clip retention period', '클립 보관 기간 ·': 'Clip retention ·', '서버가 보관 일수를 주지 않아 비워 둡니다.': 'The server gives no retention days, so it is left blank.', '서버에 찾기 없음': 'No search on server', '오늘': 'Today', '7 일': '7 days', '30 일': '30 days',
   '지금 장면 저장': 'Save this moment', '내보내기': 'Export', '필터 없음': 'No filter', '클립': 'Clips', '사건': 'Events', '시각': 'Time', '클립 길이': 'Clip length', '정보 단계': 'Info level', '기록만': 'Record only',
-  '전체': 'All', '모드 전환': 'Mode switches', '서버에 없음': 'Not on server', '연결 · 시스템': 'Link · system', '사용자 작업': 'User actions',
+  '이어진 상태': 'Ongoing',
+  '실기 서버 경유: 앞뒤 · 옆 · 회전 모두 누르고 있으면 2 초에 걸쳐 최고 속도까지, 떼면 0.3 초 안에 멈춥니다.': 'Real robot via server: hold forward/back, sideways or turn and it speeds up to top speed over 2 s; release and it stops within 0.3 s.',
+  '임무 중 서버 연결이 끊기고 이 시간이 지나면 로봇을 정지 잠금하고 임무를 멈춥니다. 3 초보다 짧게 둬도 3 초 뒤에 판단합니다.': 'If the server link drops during a mission and this time passes, the robot is stop-latched and the mission stops. Values under 3 s are still judged after 3 s.', '전체': 'All', '모드 전환': 'Mode switches', '서버에 없음': 'Not on server', '연결 · 시스템': 'Link · system', '사용자 작업': 'User actions',
   '기록 거르기': 'History filters', '묶음': 'Group', '서버에 모드 전환 기록이 없습니다': 'The server has no mode-switch records', '찾기': 'Search', '사건 · 로봇 · 메모 찾기': 'Search events · robots · notes', '기간': 'Period',
 };
 
 const LV: Record<string, string> = { 위험: 'Danger', 경고: 'Warning', 주의: 'Caution' };
 const SIDE: Record<string, string> = { '왼쪽 앞다리': 'Front-left', '오른쪽 앞다리': 'Front-right', '왼쪽 뒷다리': 'Rear-left', '오른쪽 뒷다리': 'Rear-right', '앞 왼': 'Front-left', '앞 오른': 'Front-right', '뒤 왼': 'Rear-left', '뒤 오른': 'Rear-right' };
-const PART: Record<string, string> = { 엉덩이: 'hip', 허벅지: 'thigh', 무릎: 'knee', 종아리: 'calf' };
+/** 정지 잠금 까닭(서버 latch_reason 화면 글 · proto/u5 LATCH_WHY) */
+const LOCK_WHY: Record<string, string> = { '기동 잠금': 'boot latch', '사람 정지': 'stopped by a person', 넘어짐: 'fall', '연결 끊김': 'link lost', '장치 고장': 'device fault', '권한 확인 늦음': 'permission check late', '조종권 끝남': 'control ended', 기타: 'other', '까닭 미상': 'reason unknown' };
+const PART: Record<string, string> = { 고관절: 'hip', 허벅지: 'thigh', 무릎: 'knee', 종아리: 'calf' };
 /** 관절 이름(proto/u5 jointName «오른쪽 앞다리 무릎» · go2model jointName «앞 오른 종아리») → «Front-right knee». 모르면 그대로 */
 const joint = (s: string) => { const g = /^(.+) (\S+)$/.exec(s); return g && SIDE[g[1]] && PART[g[2]] ? `${SIDE[g[1]]} ${PART[g[2]]}` : s; };
 
@@ -154,10 +158,11 @@ export const EN_RULES: [RegExp, (m: RegExpExecArray) => string][] = [
   [/^약 (\d+) 분$/, (m) => `about ${m[1]} min`],
   [/^([^가-힣]+) 타일$/, (m) => `${m[1]} tile`],
   [/^([^가-힣]+) · 정지 잠금$/, (m) => `${m[1]} · stop latched`],
-  [/^받은 시각 (\d\d:\d\d)$/, (m) => `Received ${m[1]}`],
+  [/^받은 시각 (\d\d:\d\d)$/, (m) => `Received ${m[1]}`], [/^잠금 시작 (\d\d:\d\d)$/, (m) => `Latched ${m[1]}`],
   [/^알림 안 읽음 (\d+)건$/, (m) => `${m[1]} unread alerts`],
   [/^사건 (\d+) 건 이상$/, (m) => `${m[1]}+ events`],
   [/^오늘 · (\d+)월 (\d+)일$/, (m) => `Today · ${m[1]}/${m[2]}`],
+  [new RegExp(`^(?:(위험|경고|주의) · )?정지 잠금 · (${Object.keys(LOCK_WHY).join('|')})$`), (m) => `${m[1] ? `${LV[m[1]]} · ` : ''}Stop latched · ${LOCK_WHY[m[2]]}`],
   [/^(위험|경고|주의) · (.+) (\d+) °C$/, (m) => `${LV[m[1]]} · ${joint(m[2])} ${m[3]} °C`],
   [/^(.+) (\d+) °C · (위험|경고|주의)$/, (m) => `${joint(m[1])} ${m[2]} °C · ${LV[m[3]]}`],
   [/^(.+?)이? (\d+) °C 입니다\.$/, (m) => `${joint(m[1])} is ${m[2]} °C.`],
