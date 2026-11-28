@@ -658,6 +658,13 @@ describe('로봇 탭 · 다시 시작 확인 창', () => {
     expect(w.of('unlock').map((m) => [m.robot, m.stop_gen])).toEqual([['r7', g + 1]]);
   });
 
+  it('정지됨 칸 「다시 시작」 · Damping 도 진짜 <button type="button"> (검토 L3) · 모양은 css 초기화 한 줄로 그대로', () => {
+    mount('u-park'); serve('r7'); drive();
+    click($('.views .vstop')!);
+    for (const k of ['[data-u4-unlock]', '[data-u4-damp]']) { expect($(k)!.tagName).toBe('BUTTON'); expect($(k)!.getAttribute('type')).toBe('button'); }
+    expect(u4css).toContain(':where(.u4 .vslot) button{border:0;padding:0;font-family:inherit;cursor:pointer}');
+  });
+
   it('확인 창 단추는 진짜 <button> (키보드 Enter 로 누를 수 있음)', () => {
     mount('u-park'); serve('r7'); drive();
     click($('.views .vstop')!);

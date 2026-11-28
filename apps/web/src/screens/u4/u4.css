@@ -41,6 +41,8 @@
 .u4 .vslot{position:absolute;right:16px;bottom:16px;z-index:3;display:flex;flex-direction:column;gap:8px;width:132px}
 .u4 .vslot .stop{position:relative;height:96px;border-radius:20px;font-size:16px;flex-direction:column;gap:2px}
 .u4 .vslot .stop small,.u4 .vgo small{font-size:11px;font-weight:600;opacity:.85}
+/* 정지됨 칸 단추는 진짜 button(검토 L3): 브라우저 기본 테두리 · 안쪽 여백 · 글꼴만 지우고 모양은 위 class 그대로 */
+:where(.u4 .vslot) button{border:0;padding:0;font-family:inherit;cursor:pointer}
 .u4 .vgo{height:52px;border-radius:16px;display:flex;align-items:center;justify-content:center;gap:7px;font-size:14px;font-weight:800;color:#fff;background:linear-gradient(180deg,#00c389,#00a676);box-shadow:0 10px 24px rgba(0,195,137,.35),inset 0 1px 0 rgba(255,255,255,.35)}
 .u4 .vgo.big{height:96px;flex-direction:column;gap:3px;font-size:16px;border-radius:20px}
 .u4 .ctl{position:absolute;left:0;right:0;top:614px;height:54px;display:flex;align-items:center;gap:10px}
