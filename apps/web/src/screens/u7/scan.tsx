@@ -1,8 +1,12 @@
 // 지도 탭 지도 만들기 = 시안 u7_6_scan (걷는 중) · u7_7_lost (위치 잃음) · u7_8_process (저장 · GLIM 다듬는 중). 시안 body 틀 그대로, 값은 서버 지도 만들기 진행(GET /robots/{id}/slam)만.
-// 동작은 옛 창과 같은 useMakeMap: 시작 · 저장(= 스캔 끝내기) · 취소. 서버에 없는 값(모드 · 남은 시간 · 출발점까지 · 카메라 사진 · 3DGS · 닫은 바퀴 · 길 어긋남)은 「확인 안 됨」.
+// 모드 칩 = 로봇 실시간 state.gait(계약 GaitState) · 처리 화면 GLIM 칸 = 진행 glim_preview(0.25 m 칸).
+// 동작은 옛 창과 같은 useMakeMap: 시작 · 저장(= 스캔 끝내기) · 취소. 서버에 없는 값(남은 시간 · 출발점까지 · 카메라 사진 · 3DGS · 닫은 바퀴 · 길 어긋남)은 「확인 안 됨」.
+import { useMemo } from 'react';
 import type { MapVersion, MappingProgress } from '../../../../contracts/ts';
 import type { Robot, User } from '../../fake';
 import { ServerDrive } from '../../serverdrive';
+import { GAITS } from '../../gait';
+import { useLive } from '../../rt';
 import { BEFORE, GLIM_STAGE, MapBox, Sources, LIO_WHY, RECEIVED_TEXT, SLOW_TEXT, STALE_TEXT, clock, failText, meters, points, useMakeMap } from '../mapmake';
 import type { Place } from '../maps';
 import { SlamView, useSlamLive } from '../slammap';
@@ -45,11 +49,15 @@ type Args = { floor: string; user: User; robots: Robot[]; places: Place[]; cance
  *  place = null 이면(u7_1 「+ 지도 만들기」) 머리줄 층 칩에서 floors 중 하나를 고른다(pick) · 고르기 전에는 스캔 시작을 막는다 */
 export function ScanScreen({ a, place, back, toList, floors = [], pick }: { a: Args; place: Place | null; back: () => void; toList: () => void; floors?: Place[]; pick?: (floor: string) => void }) {
   const m = useMakeMap(a), { p, robot, busy, act, drive } = m;
-  const pic = useSlamLive(m.rid, p, m.link);
+  const pic = useSlamLive(m.rid, p, m.link), gait = useLive(m.rid).state?.gait?.gait ?? null;
+  const mode = GAITS.find((x) => x.g === gait)?.name ?? NOPE;
   const st = p?.status ?? null, saving = st === 'SAVING' || st === 'FINALIZING', lio = lioOf(p), lost = st === 'RUNNING' && lio === 'bad';
   const title = place ? `${place.building.name} ${place.floor.name}` : '';
   const at = place!;   // 처리 화면(u7_8)은 이 층 세션일 때만(p) = 층이 정해져 있음
   const code = (p?.sources?.point_lio as { reason_code?: string } | undefined)?.reason_code;
+  const gpv = p?.glim_preview ?? null;   // GLIM 칸만(로봇 화살표 · Point-LIO 조각은 기준이 달라 뺌) · 칸 검사 · 상한은 SlamView
+  const gp = useMemo(() => (gpv && Array.isArray(gpv.cells) ? { cells: gpv.cells, res: gpv.resolution ?? 0.25 } : null), [gpv]);
+  const glimPic = useMemo(() => ({ ...pic, pose: null }), [pic]);
   const g = (p?.sources?.glim ?? null) as { stage?: string; processed_chunks?: number; gpu?: boolean | null } | null;
   const step = (k: string, state: 'done' | 'now' | '', name: string, small: string) => <div key={k} className={`step ${state}`} data-step={k} data-state={state || 'wait'}>
     <i>{state === 'done' ? <Ic d={I.ok} s={15} /> : state === 'now' ? <Ic d={I.now} s={15} /> : null}</i><div>{name}<small>{small}</small></div></div>;
@@ -96,7 +104,8 @@ export function ScanScreen({ a, place, back, toList, floors = [], pick }: { a: A
       <SlamView pic={pic} empty="받은 지도 칸이 없습니다." />
       <div className="g dk tl" style={{ left: '20px', top: '20px', height: '38px', padding: '0 14px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '700' }}>보정 전 · Point-LIO 로 받은 것</div></div>
     <div className="pane" style={{ left: '978px', top: '282px', right: '24px', height: '580px', overflow: 'hidden', padding: '0' }}>
-      <p className="mu2" style={{ padding: '120px 24px', textAlign: 'center' }} data-glim-pic>GLIM 으로 다듬은 지도는 저장이 끝나면 보입니다</p>
+      {gp ? <div style={{ position: 'absolute', inset: '0' }} data-glim-pic="cells"><SlamView pic={glimPic} over={gp} hideBase empty="받은 GLIM 칸이 없습니다." /></div>
+        : <p className="mu2" style={{ padding: '120px 24px', textAlign: 'center' }} data-glim-pic="none">GLIM 미리보기를 아직 받지 못했습니다</p>}
       <div className="g dk tl" style={{ left: '20px', top: '20px', height: '38px', padding: '0 14px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '700' }}><Ic d={I.chip} s={16} />GLIM 으로 다듬은 것 · {GLIM_STAGE[g?.stage ?? ''] ?? NOPE}</div></div>
     <div className="pane" style={{ left: '24px', top: '886px', width: '930px', bottom: '24px', padding: '18px 20px', display: 'flex', gap: '18px' }}>
       <div style={{ width: '210px', flex: 'none' }}><div className="row" style={{ gap: '8px', fontSize: '14px', fontWeight: '700' }}><Ic d={I.cam} />카메라 사진</div>
@@ -143,7 +152,7 @@ export function ScanScreen({ a, place, back, toList, floors = [], pick }: { a: A
         {!(m.here && !m.stuck) ? <select value={m.rid} aria-label="지도 만드는 로봇" disabled={busy} style={{ background: 'transparent', color: 'inherit', border: 0, font: 'inherit' }}
           onChange={(e) => { m.setRid(e.target.value); m.setProg(undefined); m.setMsg(null); m.setStale(false); }}>{m.mine.map((r) => <option key={r.id} value={r.id}>{r.name}{r.online ? '' : ' (연결 안 됨)'}</option>)}</select> : robot?.name ?? NOPE}
         <small>지도 만드는 로봇</small></span>
-      {chip('mode', I.mode, NOPE, '모드')}
+      {chip('mode', I.mode, mode, '모드')}
       {chip('lio', I.pin, lio === 'ok' ? '위치 잡힘' : lio === 'bad' ? '위치 잃음' : NOPE, 'Point-LIO', lio === 'bad')}
       {chip('bat', I.bat, robot?.battery != null ? `${Math.round(robot.battery)} %` : NOPE, `남은 시간 ${NOPE}`)}</div>
     <div className="view nr" style={{ right: '584px' }} data-scan-view>

@@ -36,6 +36,8 @@
 @keyframes fill{0%{width:var(--b0)}85%,100%{width:calc(100% - 3px)}}
 .u5 .stb.chk i{display:block;width:6px;height:6px;border-radius:50%;background:currentColor;animation:blink 1.6s ease-in-out infinite}
 @keyframes blink{50%{opacity:.25}}
+/* 움직임 줄이기 설정: 배터리 채움 · 점검 점 깜빡임을 멈춘 그림으로(시안 값은 위 그대로) */
+@media (prefers-reduced-motion:reduce){.u5 .bt i{animation:none;width:var(--b0)}.u5 .stb.chk i{animation:none}}
 .u5 .ov{position:absolute;z-index:2;display:flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:8px;font-size:11.5px;font-weight:700}
 .u5 .ov.g{position:absolute}
 .u5 .lk{position:absolute;inset:0;z-index:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:rgba(12,15,20,.62);backdrop-filter:blur(3px);font-size:13px;font-weight:700;color:#ffffff}

@@ -513,6 +513,21 @@ describe('지도 만들기 — Point-LIO·GLIM 상태와 GLIM 미리보기(11-27
     expect(btn('지도 목록으로', dlg())).toBeTruthy();
   });
 
+  it('계약에 있는 값 붙임: 모드 칩 = 로봇 state.gait(없으면 «확인 안 됨») · 처리 화면 GLIM 칸 = glim_preview 칸(없으면 한 줄 안내)', async () => {
+    await shown(prog('RUNNING', src()));
+    act(() => FakeWS.last.recv(state('r-a', { connection: 'ONLINE', gait: { gait: 'classic', available: ['classic', 'sport'] } }))); await flush();
+    expect($('[data-chip="mode"]')!.textContent).toBe('Classic모드');
+    again();
+    await shown(prog('SAVING', { ...src({}, { stage: 'SAVING' }), ...GP('odom') }));
+    expect(dlg().dataset.u7).toBe('u7_8_process');
+    expect($('[data-glim-pic]')!.dataset.glimPic).toBe('cells');
+    expect($('[data-glim-pic] [data-over-cells]')!.getAttribute('data-over-cells')).toBe('3');
+    again();
+    await shown(prog('SAVING', src({}, { stage: 'SAVING' })));
+    expect($('[data-glim-pic]')!.dataset.glimPic).toBe('none');
+    expect($('[data-glim-pic]')!.textContent).toBe('GLIM 미리보기를 아직 받지 못했습니다');
+  });
+
   it('시작 전: 두 줄 모두 «스캔 시작을 누르면 켜집니다»(노랑)', async () => {
     serve(signedIn(LEE, true, () => null)); await open(); await live(true); await openMake();
     for (const k of ['point_lio', 'glim']) { expect(line(k).textContent).toContain(BEFORE); expect(line(k).dataset.lamp).toBe('warn'); }

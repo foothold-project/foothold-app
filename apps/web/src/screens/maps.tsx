@@ -690,7 +690,7 @@ function FloorView({ pickFloor, p, sim, admin, names, cancel, again, told, top, 
         <input type="checkbox" role="switch" className="u7-hide" checked={false} disabled aria-describedby="mp-trail-why" /><span className="sw" aria-hidden="true" /></label>
       <p className="mu2" id="mp-trail-why" style={{ fontSize: '11.5px', margin: '2px 8px 0' }} data-trail-why>{TRAIL_WHY}</p></div>}
     {v && <div aria-label="이 지도"><div className="h3" style={{ marginTop: '22px' }}>이 지도</div><div className="kv">{kv.map(([k, x]) => <Fragment key={k}><span>{k}</span><b className={x === NA ? 'mu2' : undefined}>{x}</b></Fragment>)}</div></div>}
-    {v && <div style={{ position: 'absolute', left: '20px', right: '20px', bottom: '84px', fontSize: '12.5px', lineHeight: '1.55', color: 'var(--mu2)' }}>{md(v.created_at)} {howMade(v)}로 만든 지도입니다. {real && toScen ? '모의 실행도 이 지도 위에서 합니다.' : SIM_SAVE}</div>}
+    {v && <div style={{ position: 'absolute', left: '20px', right: '20px', bottom: '84px', fontSize: '12.5px', lineHeight: '1.55', color: 'var(--mu2)' }}>{md(v.created_at)} · {howMade(v)} 지도입니다. {real ? (toScen ? '모의 실행도 이 지도 위에서 합니다.' : '') : <span data-demo-ro>{SIM_SAVE}</span>}</div>}
     {!!list?.length && now && <button type="button" className="btns" style={{ position: 'absolute', left: '20px', right: '20px', bottom: '20px', height: '46px', fontSize: '13.5px' }} data-open-u79 onClick={() => { setCmp(false); setH9(true); }}>{ic(17, HIST)}버전 기록 · 비교 · 되돌리기</button>}
   </div>;
   const tg = now && tagOf(now);
@@ -715,9 +715,9 @@ function FloorView({ pickFloor, p, sim, admin, names, cancel, again, told, top, 
     </Menu></div>;
   const lnote = left && (drop ? <div className="g dk u7-note" role="group" aria-label="확인" data-drop>다른 층에 저장하지 않은 지도 편집이 남아 있습니다. 이 지도를 편집하면 그 편집을 잃습니다(그 층을 열면 이어 씁니다).
       <button type="button" className="u7-link" onClick={() => { kept.d = null; setDrop(false); begin(); }}>버리고 편집</button><button type="button" className="u7-link" onClick={() => setDrop(false)}>취소</button></div>
-    : !real ? <p className="g dk u7-note" data-demo-ro>{SIM_SAVE}</p> : null);
+    : null);
   const vlabel = left && v && !cmp && <div className="g dk tl" style={{ left: '20px', top: '20px', height: '38px', padding: '0 14px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 700 }} data-view-label>
-    {show3 || on3d ? <>{ic(16, CUBE)}3D 보기 · 끌어서 회전 · 휠로 확대</> : <>{ic(16, LAYERS)}위에서 본 지도 · {meters(v).wh}</>}</div>;
+    {show3 || on3d ? <>{ic(16, CUBE)}3D 보기 · 현장 모형</> : <>{ic(16, LAYERS)}위에서 본 지도 · {meters(v).wh}</>}</div>;
   return <section className="mx" aria-label="지도 보기">
     <h2 className="mx-sr">{title}{editing ? ' · 편집 중' : ''}</h2>
     {/* 지도 만들기 = 시안 u7_6 · u7_7 · u7_8 (옛 창 없음) */}
