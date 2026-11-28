@@ -106,11 +106,11 @@ const LINE = { flexBasis: '100%' };   // 고르기 창 안 한 줄(줄바꿈 칸
 /** 끊긴 로봇 정지: 서버는 받아 두지만 로봇에는 아직 닿지 않음(R1) · 붙은 로봇의 «정지 요청됨»과 같게 보이지 않게 */
 /** 실시간 링크 끊김 · 첫 state 전 로봇 정지(A1): 닿았는지 화면이 모른다 */
 const unsureStop = (r: Robot) => `${r.name} 상태 모름 · 정지가 닿지 않을 수 있음 · 현장에서 확인하세요`;
-// #529 H2: 서버는 에이전트가 없으면 STOP 을 받아 두지 않는다 — 나중에 전달된다고 약속하지 않는다. 다시 붙으면 로봇은 잠긴 채 시작(연결 STOP · SF-02)
+// #529 H2: 서버는 에이전트가 없으면 STOP 을 받아 두지 않는다. 나중에 전달된다고 약속하지 않는다. 다시 붙으면 로봇은 잠긴 채 시작(연결 STOP · SF-02)
 const LOST_TAIL = '다시 연결되면 로봇은 잠긴 상태로 시작합니다. 지금 멈춰야 하면 리모컨이나 현장에서 멈추세요.';
 const lostStop = (r: Robot) => `${r.name} 연결 끊김 · 정지를 보낼 수 없습니다. ${LOST_TAIL}`;
 const lostSent = (r: Robot) => `${r.name} 연결이 끊겨 정지를 보내지 못했습니다. ${LOST_TAIL}`;
-/** #529 H1: 서버 경유 조종이 꺼진 실기 — 서버는 이 로봇의 stop 을 에이전트로 보내지 않는다(realtime blocked_agent_control). 목록 값 server_drive_allowed 로 가름(보수적) */
+/** #529 H1: 서버 경유 조종이 꺼진 실기. 서버는 이 로봇의 stop 을 에이전트로 보내지 않는다(realtime blocked_agent_control). 목록 값 server_drive_allowed 로 가름(보수적) */
 const noServerStop = (r: Robot) => !r.sim && r.serverDrive !== true;
 
 export function Stop({ phone, onStop }: { phone: boolean; onStop: () => void }) {
