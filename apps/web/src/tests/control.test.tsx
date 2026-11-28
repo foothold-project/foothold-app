@@ -432,6 +432,14 @@ describe('관제 탭', () => {
     expect(kv('조종')).toBe('박OO');
     expect(kv('모드')).toBe('');
   });
+  it('선택 칸 위치(시안 u5_2): 가용 location_label(타일과 같은 자리 이름)이 있으면 좌표 대신 그 이름', async () => {
+    vi.spyOn(api, 'availability').mockResolvedValue({ items: [{ robot_id: 'g6', robot_name: 'K-07', state: 'FREE', busy_until: null, busy_slot_id: null, busy_label: null, battery_pct: 70, demo: false, sim: false, location_label: '제어실 앞 주도로' }] } as never);
+    vi.spyOn(api, 'robot').mockResolvedValue(ROBOT() as never);
+    mount('u-kim', TWENTY);
+    await act(async () => {});
+    await act(async () => { tile('g6').click(); });
+    expect(kv('위치')).toBe('제어실 앞 주도로');
+  });
   it('선택 칸: 위치 null = «위치 없음», 임무 없음 = «진행 중인 임무가 없습니다», 조종권 없음 = «없음»', async () => {
     vi.spyOn(api, 'robot').mockResolvedValue(ROBOT({ id: 'g3', location: null, current_run: null, lease: null }) as never);
     mount('u-kim', TWENTY);
