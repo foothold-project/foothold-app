@@ -24,6 +24,7 @@ from .environment import BASE_KEYS
 from .native_catalogue import WorldValidationError
 
 ROOT = Path(__file__).resolve().parents[2]
+WORLDS = ROOT / 'apps/simmgr/worlds'  # repository world catalogue: the spawn check reads its gt_map, not the slot catalogue
 # Only these sim knobs reach the agent; never DB URLs, service keys or pass keys.
 SIM_KEYS = ('FH_SIM_SRC', 'FH_SIM_NODE', 'FH_SIM_SEED', 'FH_SIM_BATTERY_START', 'FH_SIM_BATTERY_DRAIN',
             'FH_SIM_ORT_NODE', 'FH_SIM_START_MAP', 'FH_SIM_POLICY_DIR',
@@ -46,7 +47,7 @@ def mujoco_map(world_id):
 
 def spawn_arg(world, xyyaw):
     """Slot spawn [x, y, yaw] -> 'x,y,yaw' for FH_SIM_SPAWN, refused (never moved) unless finite, inside the
-    world map and on a free cell of its occupancy image."""
+    repository map of that world (apps/simmgr/worlds/worlds.json gt_map) and on a free cell of its occupancy image."""
     import math
     from apps.server.fh_server.map_files import gray_pixels, map_yaml
     try:
@@ -55,8 +56,14 @@ def spawn_arg(world, xyyaw):
         raise WorldValidationError('시작 자리 (spawn_xyyaw) 는 [x, y, yaw] 숫자 3 개', 'SIM_SPAWN_INVALID') from None
     if not all(math.isfinite(v) for v in (x, y, yaw)):
         raise WorldValidationError('시작 자리 (spawn_xyyaw) 는 유한한 숫자', 'SIM_SPAWN_INVALID')
-    meta = map_yaml(Path(world.map_file).read_bytes())
-    width, height, pixels = gray_pixels((Path(world.map_file).parent / meta['image']).read_bytes())
+    try:
+        entries = json.loads((WORLDS / 'worlds.json').read_text())['worlds']
+        entry = entries.get(world.id) or next(e for e in entries.values() if e.get('world_id') == world.id)
+        map_file = WORLDS / entry['gt_map']
+        meta = map_yaml(map_file.read_bytes())
+        width, height, pixels = gray_pixels((map_file.parent / meta['image']).read_bytes())
+    except (OSError, ValueError, KeyError, TypeError, StopIteration):
+        raise WorldValidationError(f'시작 자리 검사용 저장소 지도가 없음 ({world.id})', 'SIM_SPAWN_INVALID') from None
     ox, oy, _ = meta['origin']
     col, row = math.floor((x - ox) / meta['resolution']), math.floor((y - oy) / meta['resolution'])
     if not (0 <= col < width and 0 <= row < height):
@@ -109,7 +116,8 @@ class MujocoLauncher:
     async def add(self, slot, credentials):
         if slot.robot_id in self.children or self.world is None:
             raise RuntimeError('MuJoCo slot busy or no world')
-        spawn = None if slot.spawn_xyyaw is None else spawn_arg(self.world, slot.spawn_xyyaw)
+        xyyaw = (slot.spawns or {}).get(self.world.id)  # another world's value is never used here
+        spawn = None if xyyaw is None else spawn_arg(self.world, xyyaw)
         folder = self._folder(slot)
         ready = folder / 'ready'
         ready.unlink(missing_ok=True)

@@ -5,6 +5,7 @@ The child here is a plain Python stand-in for ``python -m foothold_agent.mujoco_
 write its own pid to FH_SIM_READY_FILE after the server connection opens.
 """
 import asyncio
+import json
 from dataclasses import replace
 import os
 from pathlib import Path
@@ -353,21 +354,27 @@ def test_factory_site_map_name_is_listed_and_neighbours_are_refused(tmp_path):
     asyncio.run(run())
 
 
-def spawn_world(tmp_path):
-    """3 x 2 칸 0.5 m 지도: 가운데 윗줄 한 칸만 막힘 (원점 (0, 0), 위가 0 행)."""
+def spawn_world(tmp_path, monkeypatch):
+    """저장소 worlds.json 자리 (WORLDS) 에 3 x 2 칸 0.5 m 지도: 가운데 윗줄 한 칸만 막힘 (원점 (0, 0), 위가 0 행).
+    카탈로그 World 의 map_file 은 local_up 처럼 없는 자리: 시작 자리 검사는 그것을 읽지 않는다."""
     from apps.server.fh_server.map_files import gray_png
-    (tmp_path / 'm.png').write_bytes(gray_png(3, 2, bytes([254, 0, 254, 254, 254, 254])))
-    (tmp_path / 'm.yaml').write_text('image: m.png\nresolution: 0.5\norigin: [0.0, 0.0, 0.0]\nnegate: 0\n'
-                                     'occupied_thresh: 0.65\nfree_thresh: 0.196\nmode: trinary\n')
-    return World('collapsed-house-v2', tmp_path / 'w.sdf', tmp_path / 'm.yaml')
+    root = tmp_path / 'worlds'
+    (root / 'tiny/maps').mkdir(parents=True)
+    (root / 'tiny/maps/m.png').write_bytes(gray_png(3, 2, bytes([254, 0, 254, 254, 254, 254])))
+    (root / 'tiny/maps/m.yaml').write_text('image: m.png\nresolution: 0.5\norigin: [0.0, 0.0, 0.0]\nnegate: 0\n'
+                                           'occupied_thresh: 0.65\nfree_thresh: 0.196\nmode: trinary\n')
+    (root / 'worlds.json').write_text(json.dumps({'worlds': {'collapsed-house-v2/f1': {
+        'world_id': 'collapsed-house-v2', 'gt_map': 'tiny/maps/m.yaml'}}}))
+    monkeypatch.setattr('apps.simmgr.mujoco_launcher.WORLDS', root)
+    return World('collapsed-house-v2', Path('/nonexistent/mujoco'), Path('/nonexistent/mujoco'))
 
 
-def spawn_env(tmp_path, monkeypatch, spawn):
+def spawn_env(tmp_path, monkeypatch, spawns):
     async def run():
         cfg, launch = launcher(tmp_path, 'ready')
         slot = next(iter(cfg.slots.values()))
-        cfg = replace(cfg, worlds={'collapsed-house-v2': spawn_world(tmp_path)},
-                      slots={**cfg.slots, slot.robot_id: replace(slot, spawn_xyyaw=spawn)})
+        cfg = replace(cfg, worlds={'collapsed-house-v2': spawn_world(tmp_path, monkeypatch)},
+                      slots={**cfg.slots, slot.robot_id: replace(slot, spawns=spawns)})
         launch.settings = cfg
         seen = {}
         original = subprocess.Popen
@@ -389,7 +396,14 @@ def test_slot_without_spawn_keeps_the_world_spawn(tmp_path, monkeypatch):
 
 
 def test_slot_spawn_reaches_the_child_environment(tmp_path, monkeypatch):
-    assert spawn_env(tmp_path, monkeypatch, (0.25, 0.25, 1.5))['FH_SIM_SPAWN'] == '0.25,0.25,1.5'
+    seen = spawn_env(tmp_path, monkeypatch, {'collapsed-house-v2': (0.25, 0.25, 1.5)})
+    assert seen['FH_SIM_SPAWN'] == '0.25,0.25,1.5'
+
+
+def test_spawn_for_another_world_is_not_used(tmp_path, monkeypatch):
+    """공장 터 값을 가진 로봇이 다른 세계로 들어가면 칸을 쓰지 않는다 (막힌 값이어도 그 세계 검사에 가지 않음)."""
+    seen = spawn_env(tmp_path, monkeypatch, {'factory_site/f1': (0.75, 0.75, 0.0)})
+    assert 'FH_SIM_SPAWN' not in seen
 
 
 @pytest.mark.parametrize('spawn', [(0.75, 0.75, 0.0),            # 막힌 칸 (가운데 윗줄)
@@ -397,5 +411,24 @@ def test_slot_spawn_reaches_the_child_environment(tmp_path, monkeypatch):
                                    (float('nan'), 0.25, 0.0), (0.25, 0.25)])
 def test_blocked_outside_or_malformed_spawn_is_refused_before_any_process(tmp_path, monkeypatch, spawn):
     with pytest.raises(Exception) as caught:
-        spawn_env(tmp_path, monkeypatch, spawn)
+        spawn_env(tmp_path, monkeypatch, {'collapsed-house-v2': spawn})
+    assert '시작 자리' in str(caught.value)
+
+
+def test_spawn_world_without_a_repository_map_is_refused(tmp_path, monkeypatch):
+    with pytest.raises(Exception) as caught:
+        async def run():
+            cfg, launch = launcher(tmp_path, 'ready')
+            spawn_world(tmp_path, monkeypatch)
+            slot = next(iter(cfg.slots.values()))
+            cfg = replace(cfg, worlds={'warehouse': World('warehouse', Path('/x'), Path('/x'))},
+                          slots={**cfg.slots, slot.robot_id: replace(slot, spawns={'warehouse': (1.0, 1.0, 0.0)})})
+            launch.settings = cfg
+            monkeypatch.setattr('apps.simmgr.mujoco_launcher.mujoco_maps', lambda: {'warehouse'})
+            manager = Manager(cfg, launch)
+            try:
+                await manager.add('warehouse', slot.robot_id, str(uuid4()), slot.org_id, 'x' * 32, 1)
+            finally:
+                await manager.close()
+        asyncio.run(run())
     assert '시작 자리' in str(caught.value)
