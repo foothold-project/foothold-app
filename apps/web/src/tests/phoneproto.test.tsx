@@ -3,7 +3,7 @@
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { RobotSummary, User } from '../../../contracts/ts';
+import type { Event as Ev, RobotSummary, User } from '../../../contracts/ts';
 import { Root } from '../session';
 import { NO_ROBOT_WHY } from '../screens/norobot';
 import { TakeoverAsk } from '../screens/takeover';
@@ -16,15 +16,15 @@ const LEE: User = { ...KIM, id: 'o1', username: 'lee', display_name: '이운영'
 const RA: RobotSummary = { id: 'r-a', name: 'Go2-A', model: 'unitree_go2', owner: { id: LEE.id, display_name: LEE.display_name }, simulation: false, server_drive_allowed: false,
   connection: 'OFFLINE', status: null, battery: null, location: null, lease: null, current_run: null, devices: [], attention: [] };
 type Reply = { status: number; body?: unknown };
-let calls: { method: string; path: string; body?: unknown }[] = [];
+let calls: { method: string; path: string; q: URLSearchParams; body?: unknown }[] = [];
 const err = (status: number, code: string, message: string) => ({ status, body: { error: { code, message, detail: {} } } });
-function serve(routes: Record<string, Reply>) {
+function serve(routes: Record<string, Reply | ((q: URLSearchParams) => Reply)>) {
   calls = [];
   vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
     if (!url.startsWith('/api/v1/')) throw new Error(`밖으로 나가는 요청: ${url}`);
-    const method = init.method ?? 'GET', path = url.replace(/^\/api\/v1/, '').split('?')[0];
-    calls.push({ method, path, body: init.body ? JSON.parse(String(init.body)) : undefined });
-    const rep = routes[`${method} ${path}`] ?? err(404, 'NOT_FOUND', '찾을 수 없습니다.');
+    const method = init.method ?? 'GET', [path, qs = ''] = url.replace(/^\/api\/v1/, '').split('?'), q = new URLSearchParams(qs);
+    calls.push({ method, path, q, body: init.body ? JSON.parse(String(init.body)) : undefined });
+    const r = routes[`${method} ${path}`], rep = (typeof r === 'function' ? r(q) : r) ?? err(404, 'NOT_FOUND', '찾을 수 없습니다.');
     return new Response(rep.status === 204 ? null : JSON.stringify(rep.body), { status: rep.status, headers: { 'Content-Type': 'application/json' } });
   });
 }
@@ -160,5 +160,65 @@ describe('조종권 요청 창 = 시안 u13_5 요청 칸', () => {
     act(() => { root = createRoot(box); root.render(<TakeoverAsk id="t" title="다른 사람이 이 로봇의 조종권을 요청했습니다" give={() => {}} keep={() => {}} />); });
     expect($('[data-takeover-left]')!.textContent).toBe('넘겨주시겠습니까?');
     expect($('[data-takeover-bar]')).toBeNull();
+  });
+});
+
+describe('폰 알림 목록 = 시안 u3_3', () => {
+  const AT = new Date(2026, 10, 28, 14, 20).toISOString();
+  const ev = (id: string, p: Partial<Ev> = {}): Ev => ({ id, at: AT, robot_at: null, category: 'SAFETY', code: 'FALL', severity: 'ERROR',
+    message: `14:20 사건 ${id} 문장`, robot_id: 'r-a', user_id: null, run_id: null, data: {}, ...p });
+  const ITEMS = [ev('1'), ev('2', { category: 'ROUTE', code: 'ROUTE_LOST', severity: 'WARN', message: '길을 못 찾았습니다.' }),
+    ev('3', { category: 'RUN', code: 'RUN_DONE', severity: 'INFO', run_id: 'run-1', message: '순찰을 마쳤습니다.' })];
+  const page = (items: Ev[]) => ({ status: 200, body: { items, next_cursor: null } });
+  const routes = () => ({ ...signedIn(LEE, [RA]), 'GET /notifications': { status: 200, body: { items: [], next_cursor: null, unread_count: 0 } },
+    'GET /events': (q: URLSearchParams) => page(q.get('severity') ? ITEMS.filter((e) => e.severity === q.get('severity')) : ITEMS),
+    'GET /runs/run-1/history': { status: 200, body: { id: 'run-1', scenario_version_id: 'sv1', floor_id: 'f1', map_version_id: 'm1', scenario_name: '공정 순찰 A', floor_name: '1층',
+      scenario_name_snapshot: null, floor_name_snapshot: null, status: 'COMPLETED', started_at: AT, ended_at: AT } } });
+  const tiles = () => [...box.querySelectorAll<HTMLButtonElement>('.u33 .g.list button.tile')];
+  const segs = () => [...box.querySelectorAll<HTMLButtonElement>('.u33 .g.seg button')];
+
+  it('시안 DOM(.proto.pv.u33 · .bg · .top 알림 · .seg 넷 · .list 타일 · .det), 옛 부품 없음, 첫 알림이 골라져 오른쪽 칸에', async () => {
+    serve(routes());
+    await open(true, '#/history');
+    const s = $('[data-u33]')!;
+    expect(s.className).toBe('proto pv u33');
+    expect(s.querySelector(':scope > .bg')).not.toBeNull();
+    expect(s.querySelector('.g.top b')!.textContent).toBe('알림');
+    expect(segs().map((b) => b.textContent)).toEqual(['전체3', '위험1', '주의1', '정보1']);
+    expect(segs()[0].className).toBe('on');
+    expect(tiles().map((t) => t.querySelector('b')!.textContent)).toEqual(['사건 1 문장', '길을 못 찾았습니다.', '순찰을 마쳤습니다.']);
+    expect(tiles()[0].querySelector('p')!.textContent).toBe('Go2-A · 안전');
+    expect(tiles()[0].querySelector('.t')!.textContent).toBe('14:20');
+    expect(tiles().map((t) => t.getAttribute('aria-pressed'))).toEqual(['true', 'false', 'false']);
+    const det = s.querySelector('.g.det')!;
+    expect(det.querySelector('.row span')!.textContent).toBe('위험');
+    expect(det.querySelector('.row b')!.textContent).toBe('사건 1 문장');
+    expect(det.textContent).not.toContain('지도에서 보기');   // 폰에 지도 탭이 없어 갈 곳 없음
+    expect(box.querySelector('.fh-main .lv-card, .fh-main .fh-empty, .fh-main .btn, .fh-main table, .fh-main .hs-tile')).toBeNull();
+  });
+
+  it('등급 칸 = 서버 등급(severity) 거르기 · 고른 칸 .on · 타일을 누르면 오른쪽 칸이 그 알림, run_id 있으면 «실행 기록 보기»', async () => {
+    serve(routes());
+    await open(true, '#/history');
+    act(() => { segs()[1].click(); }); await flush();
+    expect(calls.filter((c) => c.path === '/events').pop()!.q.get('severity')).toBe('ERROR');
+    expect(segs()[1].className).toBe('on');
+    expect(tiles()).toHaveLength(1);
+    act(() => { segs()[0].click(); }); await flush();
+    expect(tiles()).toHaveLength(3);
+    act(() => { tiles()[2].click(); }); await flush();
+    expect(tiles()[2].getAttribute('aria-pressed')).toBe('true');
+    const det = $('.u33 .g.det')!;
+    expect(det.querySelector('.row b')!.textContent).toBe('순찰을 마쳤습니다.');
+    expect(det.querySelector('.row span')!.textContent).toBe('정보');
+    act(() => { det.querySelector<HTMLButtonElement>('button.act2')!.click(); }); await flush();
+    expect($('[role="region"][aria-label="실행 기록"]')!.textContent).toContain('공정 순찰 A');
+  });
+
+  it('PC 기록 탭은 그대로(표 · 시안 u3_3 아님)', async () => {
+    serve(routes());
+    await open(false, '#/history');
+    expect($('.u33')).toBeNull();
+    expect(box.querySelectorAll('[aria-label="사건"] tbody tr')).toHaveLength(3);
   });
 });

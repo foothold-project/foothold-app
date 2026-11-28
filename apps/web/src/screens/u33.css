@@ -1,0 +1,34 @@
+/* 시안 u3_3 화면 <style> (두 덩이) 을 .u33 로 감싼 것(기계 생성). 값은 그대로, body 는 .u33 로, 자산 주소만 /proto-assets/ 로. 시연 틀 움직임(body.anim · @keyframes)은 뺐다. 손으로 고치지 않는다 */
+.u33 .al{position:absolute;left:50%;transform:translateX(-50%);top:10px;width:340px;display:flex;align-items:center;gap:9px;padding:6px 6px 6px 8px;border-radius:16px;z-index:2}
+.u33 .al .ico{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex:none}
+.u33 .al b{display:block;font-size:12.5px;font-weight:800;white-space:nowrap}
+.u33 .al p{font-size:10.5px;font-weight:600;color:var(--mu);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.u33 .al .bt{height:30px;padding:0 10px;border-radius:10px;display:flex;align-items:center;font-size:11.5px;font-weight:800;white-space:nowrap}
+.u33 .pbtn{background:linear-gradient(180deg,#18a07e,#0e7f63);color:#fff;box-shadow:0 6px 14px rgba(14,127,99,.32),inset 0 1px 0 rgba(255,255,255,.4)}
+.u33 .sbtn{background:rgba(255,255,255,.7);border:1px solid rgba(0,0,0,.06);color:var(--ink)}
+.u33 .rbtn{background:linear-gradient(180deg,#e04a2f,#b8361f);color:#fff;box-shadow:0 6px 14px rgba(214,47,51,.32),inset 0 1px 0 rgba(255,255,255,.35)}
+.u33{background:#eceae6;word-break:keep-all;font-variant-numeric:tabular-nums}
+.u33 .bg{position:absolute;inset:-30px;background:url(/proto-assets/assets/real/phone_plan.jpg) center/cover;filter:blur(3px) saturate(.9) brightness(1.04)}
+.u33 .top{position:absolute;left:12px;top:12px;height:44px;display:flex;align-items:center;gap:10px;padding:0 14px 0 6px;border-radius:999px}
+.u33 .top .bk{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+.u33 .seg{position:absolute;left:132px;top:12px;height:44px;display:flex;align-items:center;gap:2px;padding:4px;border-radius:999px}
+.u33 .seg span{height:36px;padding:0 13px;border-radius:999px;display:flex;align-items:center;gap:5px;font-size:12.5px;font-weight:700;color:var(--mu)}
+.u33 .seg span.on{background:#1f2421;color:#fff}
+.u33 .seg small{font-size:10.5px;opacity:.7}
+.u33 .seg i{width:7px;height:7px;border-radius:50%}
+.u33 .list{position:absolute;left:12px;width:404px;top:68px;bottom:12px;padding:14px 8px 8px;border-radius:22px;display:flex;flex-direction:column;gap:11px}
+.u33 .tile{position:relative;display:flex;align-items:center;gap:10px;height:48px;padding:0 10px 0 16px;border-radius:13px;border:1px solid}
+.u33 .tile .tg{position:absolute;left:10px;top:-8px;height:15px;padding:0 6px;border-radius:5px;font-size:9.5px;font-weight:800;display:flex;align-items:center}
+.u33 .tile .new{position:absolute;left:5px;top:50%;width:6px;height:6px;margin-top:-3px;border-radius:50%;background:#e04a2f}
+.u33 .tile .ico{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex:none}
+.u33 .tile b{display:block;font-size:12.5px;font-weight:800;white-space:nowrap}
+.u33 .tile p{font-size:10.5px;font-weight:600;color:var(--mu);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.u33 .tile .t{font-size:11px;font-weight:700;color:var(--mu)}
+.u33 .det{position:absolute;left:428px;right:12px;top:68px;bottom:12px;padding:14px;border-radius:22px}
+.u33 .det .clip{position:relative;height:118px;border-radius:13px;background:url(/proto-assets/src/u3/cam.jpg) center 60%/cover;box-shadow:inset 0 0 0 1px rgba(255,255,255,.6),0 6px 16px rgba(20,30,50,.18);overflow:hidden}
+.u33 .det .clip .pl{position:absolute;left:50%;top:50%;width:38px;height:38px;margin:-19px 0 0 -19px;border-radius:50%;background:rgba(255,255,255,.85);color:#1f2421;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,.3)}
+.u33 .det .clip small{position:absolute;right:8px;bottom:7px;font-size:10.5px;font-weight:700;color:#fff;background:rgba(0,0,0,.45);padding:2px 6px;border-radius:6px}
+.u33 .det .ln{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:600;color:var(--mu);margin-top:8px}
+.u33 .det .ln b{color:var(--ink);font-weight:700}
+.u33 .det .act2{position:absolute;left:14px;right:14px;bottom:14px;height:40px;border-radius:13px;display:flex;align-items:center;justify-content:center;gap:6px;font-size:13px;font-weight:800;color:#fff;background:linear-gradient(180deg,#18a07e,#0e7f63);box-shadow:0 8px 18px rgba(14,127,99,.34),inset 0 1px 0 rgba(255,255,255,.4)}
+.u33 [data-go]{cursor:pointer}

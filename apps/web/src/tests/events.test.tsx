@@ -828,13 +828,14 @@ describe('사진 사건(VQ-F1)', () => {
     expect(c.querySelector('[data-photo]')).toBeNull();   // 다른 사건엔 사진 칸 없음
     stopOk();
   });
-  it('photo_id 가 없는 PHOTO_STORED 는 그림을 요청하지 않고 «사진을 불러오지 못함», 폰 기록 타일도 같은 썸네일', async () => {
+  it('photo_id 가 없는 PHOTO_STORED 는 그림을 요청하지 않고 «사진을 불러오지 못함», 폰은 고른 알림 칸(시안 u3_3 .clip)에 같은 썸네일', async () => {
     serve(signedIn(PARK, { 'GET /events': list([{ ...stored, robot_id: 'r-b', data: {} }, { ...stored, id: 'p3', robot_id: 'r-b' }]) }));
     await open('#/history', true);
-    const [a, b] = [...card('사건').querySelectorAll('[data-tile]')];
-    expect(a.querySelector('img')).toBeNull();
-    expect(a.textContent).toContain('사진을 불러오지 못함');
-    expect(b.querySelector('img')!.getAttribute('src')).toBe(`/api/v1/photos/${PID}/thumbnail`);
+    const [, b] = [...card('사건').querySelectorAll<HTMLElement>('[data-tile]')], det = () => $('.u33 .g.det')!;
+    expect(det().querySelector('img')).toBeNull();
+    expect(det().textContent).toContain('사진을 불러오지 못함');
+    await click(b);
+    expect(det().querySelector('[data-photo="thumb"] img')!.getAttribute('src')).toBe(`/api/v1/photos/${PID}/thumbnail`);
     stopOk();
   });
 });
@@ -908,17 +909,14 @@ describe('기록 한 줄 펼침(u8_4)', () => {
     await click(btn('실행 기록 보기', card('사건')));
     expect(detail()).toHaveLength(0);
   });
-  it('폰 타일도 누르면 펼침 · 다시 누르면 접힘', async () => {
-    serve(signedIn(LEE, { 'GET /events': list([ev('2', { robot_at: RAT }), ev('1')]) }));
+  it('폰(시안 u3_3)은 펼치지 않고 고른 타일이 오른쪽 칸: 처음은 첫 알림, 누르면 그 알림 · 고른 타일만 aria-pressed', async () => {
+    serve(signedIn(LEE, { 'GET /events': list([ev('2', { robot_at: RAT, message: '둘째 사건' }), ev('1', { message: '첫째 사건' })]) }));
     await open('#/history', true);
-    const tile = card('사건').querySelectorAll<HTMLElement>('[data-tile]')[1];
-    await click(tile.querySelector('[data-tile-title]'));
-    expect(toggles()[1].getAttribute('aria-expanded')).toBe('true');
-    expect(detail()).toHaveLength(1);
-    expect(tile.contains(detail()[0])).toBe(true);
-    await click(detail()[0].querySelector('dd'));   // 펼친 칸 안을 눌러도 접히지 않음
-    expect(detail()).toHaveLength(1);
-    await key(toggles()[1], 'Enter');
+    const tiles = () => [...card('사건').querySelectorAll<HTMLElement>('[data-tile]')], det = () => $('.u33 .g.det')!;
     expect(detail()).toHaveLength(0);
+    expect(det().querySelector('.row b')!.textContent).toBe('둘째 사건');
+    await click(tiles()[1].querySelector('[data-tile-title]'));
+    expect(tiles().map((t) => t.getAttribute('aria-pressed'))).toEqual(['false', 'true']);
+    expect(det().querySelector('.row b')!.textContent).toBe('첫째 사건');
   });
 });

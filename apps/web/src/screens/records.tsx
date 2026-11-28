@@ -13,11 +13,11 @@ export const MARK_GRADES = [['ERROR', '위험', true], ['WARN', '주의', null],
 type Grade = (typeof MARK_GRADES)[number][0];
 /** 까닭 코드 → 문장. 서버 501 문장(records.py)과 같은 말 */
 const REASON: Record<string, string> = { CLIP_PIPELINE_NOT_BUILT: '사건 영상 만들기는 아직 서버에 없습니다.', JOINT_LOG_NOT_BUILT: '관절 기록 재생은 아직 서버에 없습니다.' };
-const reason = (c: Pick<EventClip, 'status' | 'reason'>) =>
+export const reason = (c: Pick<EventClip, 'status' | 'reason'>) =>
   c.status === 'PENDING' ? '서버가 클립을 만드는 중입니다.'
     : c.status === 'FAILED' ? `클립을 만들지 못했습니다.${c.reason && REASON[c.reason] ? ` ${REASON[c.reason]}` : ''}`
       : c.reason && REASON[c.reason] ? REASON[c.reason] : '클립이 아직 없습니다.';
-const fail = (e: unknown) => (e instanceof ApiFail ? e.message : '서버에 닿지 못했습니다. 잠시 뒤 다시 시도하세요.');
+export const fail = (e: unknown) => (e instanceof ApiFail ? e.message : '서버에 닿지 못했습니다. 잠시 뒤 다시 시도하세요.');
 
 /** 「지금 남기기」 단추 + 창. done = 남긴 뒤(목록 다시 받기) */
 export function MarkNow({ c, done }: { c: Pick<Ctx, 'user' | 'robots' | 'cancel'> & { robot?: Ctx['robot'] }; done: () => void }) {
