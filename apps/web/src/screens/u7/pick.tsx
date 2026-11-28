@@ -45,12 +45,12 @@ function Stack({ floors, sel, pick }: { floors: MapFloor[]; sel?: string; pick: 
   return <svg viewBox="0 0 760 330" style={{ position: 'absolute', left: '24px', right: '24px', bottom: '66px', width: 'calc(100% - 48px)', height: '300px' }} role="group" aria-label="층 겹친 그림">
     {l.map((f, i) => { const y = 250 - i * 78, on = f.id === sel, line = on ? '#00c389' : 'rgba(255,255,255,.22)';
       if (y < top) return null;
-      return <g key={f.id} data-stack={f.id} onClick={() => pick(f.id)} style={{ cursor: 'pointer' }}>
-        <polygon points={`60,${y} 300,${y + 60} 300,${y + 72} 60,${y + 12}`} fill="rgba(255,255,255,.05)" stroke={line} strokeWidth="1" />
-        <polygon points={`300,${y + 60} 540,${y} 540,${y + 12} 300,${y + 72}`} fill="rgba(0,0,0,.25)" stroke={line} strokeWidth="1" />
-        <polygon points={`60,${y} 300,${y - 60} 540,${y} 300,${y + 60}`} fill={on ? 'rgba(0,195,137,.28)' : 'rgba(255,255,255,.06)'} stroke={line} strokeWidth={on ? 1.6 : 1} />
-        <path d={`M540 ${y}h30`} stroke={line} strokeWidth="1" />
-        <text x="580" y={y + 7} fontSize="19" fontWeight={on ? 800 : 600} fill={on ? '#00c389' : '#9aa19d'}>{f.name}</text></g>; })}</svg>;
+      return <g key={f.id} data-stack={f.id} className={on ? 'sk on' : 'sk'} onClick={() => pick(f.id)} style={{ cursor: 'pointer' }}>
+        <polygon points={`60,${y} 300,${y + 60} 300,${y + 72} 60,${y + 12}`} fill="rgba(255,255,255,.05)" stroke={line} strokeWidth="1" className="sk-l" />
+        <polygon points={`300,${y + 60} 540,${y} 540,${y + 12} 300,${y + 72}`} fill="rgba(0,0,0,.25)" stroke={line} strokeWidth="1" className="sk-r" />
+        <polygon points={`60,${y} 300,${y - 60} 540,${y} 300,${y + 60}`} fill={on ? 'rgba(0,195,137,.28)' : 'rgba(255,255,255,.06)'} stroke={line} strokeWidth={on ? 1.6 : 1} className="sk-t" />
+        <path d={`M540 ${y}h30`} stroke={line} strokeWidth="1" className="sk-ln" />
+        <text className="sk-tx" x="580" y={y + 7} fontSize="19" fontWeight={on ? 800 : 600} fill={on ? '#00c389' : '#9aa19d'}>{f.name}</text></g>; })}</svg>;
 }
 
 /** 관리 칸 휴지통(시안 u7_2 오른쪽 아래): 서버 휴지통 목록 그대로 · 「복원」 = 서버 복원. 「30 일 뒤 지움」 은 서버 값이 없어 뺌 */
@@ -141,16 +141,16 @@ export function PickU7({ maker, t, places, vers, choose, make, note, manage, set
           : fl.approved_version_id ? <p className="mu2" role="status" style={{ position: 'absolute', left: '28px', top: '90px', right: '28px', fontSize: '14px' }}>지도를 불러오는 중…</p>
           : <div className="empty" style={{ top: '60px', bottom: '210px' }} data-empty="floor"><svg className="art" viewBox="0 0 560 340" aria-hidden="true" style={{ width: '100%', maxWidth: '460px', height: 'auto' }} dangerouslySetInnerHTML={{ __html: ART.map }} />
             <h2>지도 없음</h2><p>이 층은 아직 스캔하지 않았습니다.</p></div>}</div>
-        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: 'linear-gradient(180deg,rgba(12,15,20,0) 40%,rgba(12,15,20,.6) 68%,rgba(12,15,20,.94))' }} />
+        <div className="pv-fade" data-pv-fade />
         {v && <div className="g dk" style={{ left: '20px', top: '20px', height: '38px', padding: '0 14px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 700 }} data-tag3d>
           {ic(16, CUBE)}3D 보기 · 미리 보기</div>}
         <div style={{ position: 'absolute', left: '28px', right: '28px', bottom: '26px' }}>
-          <div className="row" style={{ gap: '10px' }}><span style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-.03em', color: '#fff' }} data-prev-title>{cur.building.name} · {fl.name}</span>{v && <span className={tagOf(v)[0]}>{tagOf(v)[1]}</span>}</div>
-          {v && <div className="row" style={{ gap: '22px', marginTop: '12px', fontSize: '13.5px', fontWeight: 600, color: '#c9ced6' }}>
+          <div className="row" style={{ gap: '10px' }}><span className="pv-ttl" style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-.03em' }} data-prev-title>{cur.building.name} · {fl.name}</span>{v && <span className={tagOf(v)[0]}>{tagOf(v)[1]}</span>}</div>
+          {v && <div className="row pv-meta" style={{ gap: '22px', marginTop: '12px', fontSize: '13.5px', fontWeight: 600 }}>
             <span className="row" style={{ gap: '6px' }}>{ic(16, LAYERS)}{meters(v).area}</span><span className="row" style={{ gap: '6px' }}>{ic(16, CLOCK)}{md(v.created_at)} {howMade(v)} · v{v.number}</span>
             <span className="row" style={{ gap: '6px' }}>{ic(16, BAN)}금지 구역 {nogo(v)}</span></div>}
           <div className="row" style={{ gap: '10px', marginTop: '20px' }}><div className="btnp" role="button" tabIndex={0} style={{ height: '52px', flex: 1, fontSize: '15px' }} data-open-map onClick={() => choose(fl.id)}>지도 열기</div>
-            <div className="btns" role="button" tabIndex={0} style={{ height: '52px', width: '170px', fontSize: '14px', background: 'rgba(12,15,20,.5)', color: '#fff' }} aria-disabled={!fl.approved_version_id || undefined}
+            <div className="btns pv-hist" role="button" tabIndex={0} style={{ height: '52px', width: '170px', fontSize: '14px' }} aria-disabled={!fl.approved_version_id || undefined}
               title={fl.approved_version_id ? undefined : '이 층에 저장된 지도가 없습니다.'} data-open-history onClick={() => { if (fl.approved_version_id) choose(fl.id, 'history'); }}>{ic(17, HIST)}버전 기록</div></div></div>
       </div>}</>}
     {children}

@@ -91,3 +91,27 @@
 .proto.light .u7 .u7-more>button{background:#FFFFFF;border-color:#DCE0DE}
 /* u7_9 비교 그림 「같음」(바뀌지 않은 벽 · 범례) · 밝은 판 = 밝음 1 보조 글자색 */
 .proto.light .u7{--u7-same:#5E6662}
+/* u7_1 미리 보기 아래 글 받침(시안 어둠 값 그대로) · 밝은 판 = 칸 흰색으로 옅어짐 · 밝음 1 글자 */
+.u7 .pv-fade{position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,rgba(12,15,20,0) 40%,rgba(12,15,20,.6) 68%,rgba(12,15,20,.94))}
+.u7 .pv-ttl{color:#fff}
+.u7 .pv-meta{color:#c9ced6}
+.u7 .pv-hist{background:rgba(12,15,20,.5);color:#fff}
+.proto.light .u7 .pv-fade{background:linear-gradient(180deg,rgba(255,255,255,0) 40%,rgba(255,255,255,.6) 68%,rgba(255,255,255,.94))}
+.proto.light .u7 .pv-ttl{color:#1F2421}
+.proto.light .u7 .pv-meta{color:#5E6662}
+.proto.light .u7 .pv-hist{background:#FFFFFF;color:#1F2421;border-color:#DCE0DE}
+/* u7_1 층 겹친 그림 밝은 판: 흰 선 · 흰 면(어둠 값)이 흰 칸에서 사라지던 것 → 밝음 1 면 · 선 · 글자(CSS 가 svg 칠 속성보다 앞섬) */
+.proto.light .u7 .sk .sk-l{fill:#F6F7F6;stroke:#5E6662;stroke-opacity:.45}
+.proto.light .u7 .sk .sk-r{fill:#DCE0DE;stroke:#5E6662;stroke-opacity:.45}
+.proto.light .u7 .sk .sk-t{fill:#FFFFFF;stroke:#5E6662;stroke-opacity:.6}
+.proto.light .u7 .sk .sk-ln{stroke:#5E6662;stroke-opacity:.6}
+.proto.light .u7 .sk .sk-tx{fill:#5E6662}
+.proto.light .u7 .sk.on .sk-l,.proto.light .u7 .sk.on .sk-r,.proto.light .u7 .sk.on .sk-ln{stroke:#18A07E;stroke-opacity:1}
+.proto.light .u7 .sk.on .sk-t{fill:#18A07E;fill-opacity:.28;stroke:#18A07E;stroke-opacity:1}
+.proto.light .u7 .sk.on .sk-tx{fill:#0E7F63}
+/* u7_1 층 줄 썸네일(시안 = 칸 바탕 위 선 그림): 서버 판 그림(흰 빈 곳 · 검은 벽)은 그대로 두고 보이기만 바꿈.
+   어둠 = 색 반전 + screen(흰 빈 곳 → 칸 검정 · 벽 → 흰 선), 밝음 = multiply(흰 빈 곳 → 칸 바탕 · 벽 → 검은 선). 썸네일 틀 = 칸 크기 · 칸 바탕 하나 */
+.u7 .frow .th{isolation:isolate}
+.u7 .frow .th .mx-thumb{height:100%;background:transparent;border:0;border-radius:0}
+.u7 .frow .th .mx-thumb image{filter:invert(1);mix-blend-mode:screen}
+.proto.light .u7 .frow .th .mx-thumb image{filter:none;mix-blend-mode:multiply}
