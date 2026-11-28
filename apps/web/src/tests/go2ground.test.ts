@@ -39,6 +39,10 @@ describe('Go2 3D · 자세별 바닥 맞춤', () => {
 
   it('관절값 없음 + posture LYING → 시안 엎드림 자세 · 바닥 y=0 · 관절값이 오면 관절값이 이김 · posture 없으면 서기', () => {
     expect(poseQ(null, true)).toBe(DOWN);
+    // 엎드림 = 관절 한계 안(종아리 하한 -2.72 · 넘으면 종아리가 들림): thigh 1.36 · calf -2.72 · hip 은 서기 값
+    expect(DOWN.filter((_, i) => i % 3 === 1)).toEqual([1.36, 1.36, 1.36, 1.36]);
+    expect(DOWN.filter((_, i) => i % 3 === 2)).toEqual([-2.72, -2.72, -2.72, -2.72]);
+    expect(DOWN.every((x, i) => i % 3 !== 2 || x >= -2.72)).toBe(true);
     expect(poseQ(null, false)).toBe(STAND);
     const got = POSES['앉기']; expect(poseQ(got, true)).toBe(got);
     const a = fake(); applyQ(a.root, a.joints, poseQ(null, false)); const stand = a.root.position.y;

@@ -10,8 +10,9 @@ const HOT: Record<string, number> = { warn: 0xf2b705, hot: 0xff4d4f, ok: 0x00c38
 const ORDER = ['FR', 'FL', 'RR', 'RL'].flatMap((l) => ['hip', 'thigh', 'calf'].map((p) => `${l}_${p}`));
 export const STAND = ORDER.map((n) => (n.endsWith('hip') ? (n[1] === 'R' ? -0.1 : 0.1) : n.endsWith('thigh') ? (n[0] === 'F' ? 0.8 : 1) : -1.5));
 
-/** 시안 pose 'down'(서기에서 thigh +0.8 · calf -1.6) = 관절값이 없을 때 서버 posture LYING 으로 그리는 엎드림 */
-export const DOWN = STAND.map((x, i) => x + (ORDER[i].endsWith('thigh') ? 0.8 : ORDER[i].endsWith('calf') ? -1.6 : 0));
+/** 관절값이 없을 때 서버 posture LYING 으로 그리는 엎드림(다리를 몸 밑으로 접음). hip 은 서기 그대로, thigh 1.36 · calf -2.72.
+ *  값 출처: 조정 세션 11-28 19:39 지시(실제 Go2 엎드림 근사 · calf 는 Go2 종아리 관절 하한 -2.72 에 맞춤). 시안 pose 'down'(+0.8 · -1.6)은 하한을 넘어 종아리가 들려 쓰지 않음 */
+export const DOWN = ORDER.map((n, i) => (n.endsWith('thigh') ? 1.36 : n.endsWith('calf') ? -2.72 : STAND[i]));
 /** 그릴 관절: 받은 관절값이 이긴다 · 없으면 posture LYING 이면 엎드림 · 그 밖은 서기(지어내지 않음) */
 export const poseQ = (q: number[] | null, down: boolean) => (q && q.length === 12 ? q : down ? DOWN : STAND);
 type Joints = Record<string, { o: THREE.Object3D; r0: THREE.Euler }>;
