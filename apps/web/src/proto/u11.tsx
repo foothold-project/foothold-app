@@ -3,7 +3,8 @@
 // 버튼은 기존 동작만 부른다(rt.respond · rt.cancel). Enter · Space 로는 고르지 않는다(Space = 정지 키, 시안 u11_1 문구).
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Device } from '../../../contracts/ts';
-import { rt, type Link, type Live } from '../rt';
+import { rt, useLive, type Link, type Live } from '../rt';
+import { REPORT_STALE_MS } from '../go2model';
 import './u11.css';
 
 const I = (w: number, d: ReactNode) => <svg className="ic" viewBox="0 0 24 24" style={{ width: `${w}px`, height: `${w}px` }}>{d}</svg>;
@@ -74,6 +75,15 @@ export function useHanded(l: Live, me: string) {
 const LINE_IC: Record<DriveLineFacts['at'], ReactNode> = { link: WIFI_OFF, remote: WARN, ask: CLOCK, handed: CHECK };
 export function DriveLine({ f, children }: { f: DriveLineFacts; children?: ReactNode }) {
   return <div className={`line1 ${f.kind} over`} role="status" data-drive-line={f.at}>{I(19, LINE_IC[f.at])}{f.title}<small>{f.sub}</small>{children}</div>;
+}
+
+/** 시안 u4 조종 화면 위 한 줄(u11_2 ~ u11_5): 그 로봇의 rt 값만 읽어 driveLine 이 고른 줄 하나, 없으면 아무것도 안 그림.
+ *  리모컨 줄은 에이전트 장치 줄 글 그대로이고, 1 초 넘게 지난 상태의 글은 쓰지 않는다(REPORT_STALE_MS). 요청 기다림 줄의 남은 초는 250 ms 마다 다시 셈 */
+export function RobotLine({ id, me }: { id: string; me: string }) {
+  const l = useLive(id), handedTo = useHanded(l, me), [, tick] = useState(0), waiting = !!l.outgoing;
+  useEffect(() => { if (!waiting) return; const t = setInterval(() => tick((n) => n + 1), 250); return () => clearInterval(t); }, [waiting]);
+  const now = rt.now(), f = driveLine({ link: rt.link(), l, me, now, handedTo, fresh: !!l.state && now - l.stateAt < REPORT_STALE_MS });
+  return f ? <DriveLine f={f} /> : null;
 }
 
 // ── u11_6 ~ u11_8 빈 화면(시안 .pane.empty · 그림은 시안 svg 그대로) ──
