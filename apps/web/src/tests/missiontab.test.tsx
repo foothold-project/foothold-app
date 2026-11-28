@@ -1,4 +1,5 @@
 // 임무 탭(W2 · U6-01 · U6-03 · U6-05): 탭 열림 · 옛 주소 → 임무 탭에서 그 임무 고름 · 계약 없는 칸은 «준비 중»(숫자 없음) · 금지 구역 겹침 · 미리 확인 · 편집(목록 ↔ 노드) · 편집 중 떠날 때 확인
+import { cardMeta } from '../screens/missionsu6';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -604,6 +605,17 @@ describe('임무 탭(W2)', () => {
     await click($('[data-setup-make]')); await flush();
     expect($('[aria-label="임무 편집"]')).toBeTruthy();
     expect($<HTMLInputElement>('[data-name]')!.value).toBe('');
+  });
+
+  it('시안 u6_2 지도 카드 작은 글: 「(날짜) 스캔 · 판 n · 출입 금지 n 곳」 (승인 판을 받아서) · 구역 0 이면 그 칸 뺌', async () => {
+    await mount('#/missions');
+    await click($('[data-new-mission]')); await flush();
+    const meta = $('[data-setup-map="f1"] [data-setup-meta]')!.textContent!;
+    const n = V1.features.zones.filter((z) => z.type === 'NO_GO').length;
+    expect(meta).toBe(cardMeta(V1));
+    expect(meta).toMatch(n ? new RegExp(`^\\d{2}/\\d{2} 스캔 · 판 1 · 출입 금지 ${n} 곳$`) : /^\d{2}\/\d{2} 스캔 · 판 1$/);
+    expect(cardMeta({ ...V1, number: 3, features: { ...V1.features, zones: [] } })).toMatch(/^\d{2}\/\d{2} 스캔 · 판 3$/);
+    expect(cardMeta(null)).toBeNull();
   });
 
   it('시안 u6_3 편집기: 할 일 순서 줄(이동 · 할 일 · 끝) · 고른 줄 자세히(머무는 시간 · 순서 · 지우기) · 접근 금지 구역을 지나면 저장 막음 · 고친 뒤 PUT 본문', async () => {

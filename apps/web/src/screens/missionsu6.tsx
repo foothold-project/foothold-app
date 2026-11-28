@@ -9,7 +9,8 @@ import '../proto/dark.pv.css';
 import '../proto/light.pv.css';
 import './missionsu6.css';
 import './missionsu6.app.css';
-import type { Estimate, RobotAvailability, Scenario, ScheduleSlot } from '../../../contracts/ts';
+import type { Estimate, MapVersion, RobotAvailability, Scenario, ScheduleSlot } from '../../../contracts/ts';
+import { dateOf } from './u7/pick';
 import { api, type ApiFail } from '../api';
 import { robotStatus, type Robot } from '../fake';
 import type { Ctx } from '../screens';
@@ -433,20 +434,35 @@ function Fix({ f, close, names, rehearse }: { f: Fix; close: () => void; names: 
   </div>;
 }
 
+/** 시안 u6_2 지도 카드 작은 글: 「11/24 스캔 · 판 3 · 출입 금지 1 곳」(구역 0 이면 그 칸을 뺌) · 판을 못 받으면 null */
+export const cardMeta = (v: MapVersion | null | undefined) => {
+  if (!v) return null;
+  const n = v.features?.zones?.filter((z) => z.type === 'NO_GO').length ?? 0;
+  return [`${dateOf(v)} 스캔`, `판 ${v.number}`, ...(n ? [`출입 금지 ${n} 곳`] : [])].join(' · ');
+};
 /** u6_2 새 임무: 지도(승인 판이 있는 층) · 로봇(고른 시간 가용) · 걷기 모드를 고르고 «임무 만들기» */
 function Setup({ robots, places, cancel, p, close, make }: { robots: Robot[]; places: Place[]; cancel?: AbortSignal; p: Plan; close: () => void; make: (floor: string, robot: string, gait: string) => void }) {
   const maps = places.filter((x) => x.floor.approved_version_id);
   const [floor, setFloor] = useState(''), [robot, setRobot] = useState(''), [gait, setGait] = useState<string>('start'), [mp, setMp] = useState(0), [rp, setRp] = useState(0);
   const f = floor || maps[0]?.floor.id || '', avail = p.avail ?? [];
   const r = avail.find((a) => a.robot_id === robot);
-  void cancel;
+  // 시안 u6_2 카드 작은 글 「11/24 스캔 · 판 3 · 출입 금지 1 곳」: 보이는 카드의 승인 판을 받아 날짜(captured_on, 없으면 판 만든 날 · 지도 탭과 같은 규칙) · 판 번호 · 출입 금지 구역 수.
+  // 받기 전 · 못 받으면 옛 글(장소 · 건물)
+  const [vers, setVers] = useState<Record<string, MapVersion | null>>({});
+  const shownIds = maps.filter((x) => x.floor.id === f || maps.filter((y) => y.floor.id !== f).slice(mp * 2, mp * 2 + 2).includes(x)).map((x) => x.floor.approved_version_id!);
+  useEffect(() => {
+    for (const id of shownIds) if (!(id in vers)) {
+      setVers((v) => ({ ...v, [id]: null }));
+      api.version(id, cancel).then((x) => setVers((v) => ({ ...v, [id]: x })), () => {});
+    }
+  }, [shownIds.join()]);   // eslint-disable-line react-hooks/exhaustive-deps
   const MODE: Record<string, [string, string]> = { classic: ['Classic Mode', '기본 걷기. 평평한 바닥에서 가장 조용하고 매끄럽습니다.'], sport: ['Sport Mode', '빠른 걷기. 넓은 통로에서 걸리는 시간을 줄입니다.'], start: ['START Mode', '험지 걷기 (Foothold). 계단 · 경사 · 틈이 있는 길을 그대로 지납니다.'] };
   const card = (x: Place, big: boolean) => { const on = x.floor.id === f;
     return <button key={x.floor.id} type="button" aria-pressed={on} data-setup-map={x.floor.id} onClick={() => setFloor(x.floor.id)} className="u6-mapcard"
       style={{ position: 'relative', borderRadius: '18px', overflow: 'hidden', ...(on ? { border: '1.5px solid rgba(0,195,137,.7)', boxShadow: '0 0 0 4px rgba(0,195,137,.12)' } : { border: '1px solid var(--line)' }), background: 'rgba(255,255,255,.03)' }}>
       <div style={{ height: big ? '370px' : '150px', position: 'relative', overflow: 'hidden' }}><img src={api.imageUrl(x.floor.approved_version_id!)} alt="" className="u6-mapimg" /></div>
       {on && <span style={{ position: 'absolute', right: '14px', top: '14px', color: '#00c389', width: '34px', height: '34px', borderRadius: '50%', background: 'rgba(12,15,20,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ic d={IC.check} s={22} /></span>}
-      <div style={{ padding: '14px 16px', textAlign: 'left' }}><b style={{ fontSize: '16px' }}>{floorName(x.floor.name)}</b><div className="lab" style={{ marginTop: '4px' }}>{x.site.name} · {x.building.name}</div></div></button>; };
+      <div style={{ padding: '14px 16px', textAlign: 'left' }}><b style={{ fontSize: '16px' }}>{floorName(x.floor.name)}</b><div className="lab" style={{ marginTop: '4px' }} data-setup-meta>{cardMeta(vers[x.floor.approved_version_id!]) ?? `${x.site.name} · ${x.building.name}`}</div></div></button>; };
   const first = maps.find((x) => x.floor.id === f), rest = maps.filter((x) => x.floor.id !== f).slice(mp * 2, mp * 2 + 2);
   const t0 = Math.floor(hm2h(p.start)) - 2;   // 시안: 고른 시각 앞뒤 2 시간(150px = 4 시간)
   return <>
