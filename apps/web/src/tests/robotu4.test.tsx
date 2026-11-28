@@ -1,4 +1,4 @@
-// 로봇 탭(PC) = 시안 u4_1 DOM 그대로(robotu4.tsx). 시안 글 · 칸 순서 · 키 배치 · STOP 늘 보임 · 값 없으면 틀 그대로 「—」.
+// 로봇 탭(PC) = 시안 u4_1 DOM 그대로(robotu4.tsx). 시안 글 · 칸 순서 · 키 배치 · STOP 늘 보임 · 값 없으면 틀 그대로 글을 비우거나 「없음」.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -69,7 +69,7 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
     expect(rows.map((r) => r.getAttribute('data-r'))).toEqual(['Go2-7', 'Go2-3', 'Go2-1']);
     expect(rows.map((r) => r.className)).toEqual(['rcard on', 'rcard ', 'rcard ']);
     expect(rows.map((r) => text(r.querySelector('small')))).toEqual(['실제 · 대기', '실제 · 2층 순찰 3/5 중', '실제 · 정지 잠금']);
-    expect(rows.map((r) => text(r.querySelector('.mu2')))).toEqual(['80 %', '82 %', '—']);
+    expect(rows.map((r) => text(r.querySelector('.mu2')))).toEqual(['80 %', '82 %', '없음']);
     click(rows[1]); expect($('.rail .rcard.on')!.getAttribute('data-r')).toBe('Go2-3');
     // 옛 집계 칸 · 담당/상태 고르기 · 경보 묶음은 없다
     expect(rail.querySelector('select')).toBeNull();
@@ -81,12 +81,12 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
     const hdr = $('.hdr')!;
     expect(text(hdr.querySelector('.ttl'))).toBe('Go2-7');
     expect($$('.hdr .st').map((s) => s.getAttribute('data-cell'))).toEqual(['link', 'mode', 'battery', 'temp', 'holder']);
-    expect($$('.hdr .st small').map(text)).toEqual(['—', 'Shift + 1 ~ 4', '—', '최고 관절 온도', '조종자']);
-    expect(text($('[data-cell="mode"]'))).toMatch(/^—/);   // 걷기 모드 보고(state.gait) 전 = 모름
+    expect($$('.hdr .st small').map(text)).toEqual(['', 'Shift + 1 ~ 4', '', '최고 관절 온도', '조종자']);   // 왕복 ms · 남은 시간은 서버 값이 없어 비움
+    expect(text($('[data-cell="mode"]'))).toMatch(/^없음/);   // 걷기 모드 보고(state.gait) 전 = 모름
     act(() => { push('r7', { gait: { gait: 'sport', available: ['classic', 'sport', 'start', 'ame2'] } } as Partial<ScreenState>); });
     expect(text($('[data-cell="mode"]'))).toMatch(/^Sport/);
     expect(text($('[data-cell="battery"]'))).toMatch(/^80 %/);
-    expect(text($('[data-cell="holder"]'))).toMatch(/^—/);
+    expect(text($('[data-cell="holder"]'))).toMatch(/^없음/);
     expect($$('.hdr .seg2 span').map(text)).toEqual(['조종', '점검', '로봇 설정']);
     act(() => { push('r7', { gait: { gait: 'start', available: ['classic', 'sport', 'start', 'ame2'] } } as Partial<ScreenState>); });
     expect(text($('[data-cell="mode"]'))).toMatch(/^START/);
@@ -176,11 +176,12 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
     expect(w.of('action').map((m) => m.action)).toEqual(['Sit']);
   });
 
-  it('로봇 0대: 시안 틀(목록 제목 · 추가 · 머리 칩 다섯 · 칸)은 그대로, 값만 「—」', () => {
+  it('로봇 0대: 시안 틀(목록 제목 · 추가 · 머리 칩 다섯 · 칸)은 그대로, 값만 「없음」', () => {
     mount('u-park', []);
     expect($('[data-u4]')).not.toBeNull();
     expect(text($('.rail .ttl'))).toBe('로봇');
-    expect(text($('.hdr .ttl'))).toBe('—');
+    expect(text($('.hdr .ttl'))).toBe('로봇 없음');
+    expect($$('.hdr .st').map(text)).toEqual(['없음연결', '없음모드', '없음배터리', '없음최고 관절 온도', '없음조종자']);
     expect($$('.hdr .st').length).toBe(5);
     expect($('.stage3d')).not.toBeNull(); expect($('.views')).not.toBeNull();
   });
@@ -189,5 +190,77 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
     expect(u4css).toContain('.u4 .rail{left:24px;top:88px;width:250px;bottom:24px;padding:16px 10px}');
     expect(u4css).toContain('.u4 .views{position:absolute;left:0;right:0;top:0;height:600px;');
     expect(u4css).toContain('.u4 .deck{position:absolute;left:0;right:0;bottom:0;top:682px;');
+  });
+});
+
+describe('로봇 탭 보기 칸 · 지도 경로 · 시뮬 시점(서버 값만)', () => {
+  const V = { id: 'v1', floor_id: 'f1', number: 3, upload_id: 'u', base_version_id: null, copied_from_id: null, status: 'APPROVED', image_sha256: 'x',
+    width: 3200, height: 2000, resolution: 1 / 3.5, origin: [-25 / 3.5, -1980 / 3.5, 0], features: { zones: [], waypoints: [], connectors: [], edits: [] },
+    reason: '', source: 'IMPORT', created_by: 'u', created_at: '2026-11-25T09:00:00Z' };
+  const WP = (x: number, y: number, name: string, vid = 'v1') => ({ floor_id: 'f1', map_version_id: vid, x, y, mission_id: 'm', mission_version: 1, name });
+  const RUN = { id: 'run1', status: 'MOVING' as const, scenario_name: '공정 순찰 A', progress: { done: 1, total: 4 } };
+  const ASG = (id: string) => ({ id, status: 'ACTIVE', scenario_id: 's1', scenario_version: 2, effective_scenario_version: 2, scenario_name: '공정 순찰 A', robot_id: 'r7' });
+  const spies: { mockRestore(): void }[] = [];
+  const flush = () => act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); });
+  function board(asg: object[], wps: object[]) {
+    spies.push(vi.spyOn(api, 'version').mockResolvedValue(V as never), vi.spyOn(api, 'assignments').mockResolvedValue(asg as never),
+      vi.spyOn(api, 'plan').mockResolvedValue({ waypoints: wps } as never));
+  }
+  afterEach(() => { spies.splice(0).forEach((x) => x.mockRestore()); });
+  const LOC = { floor_id: 'f1', map_version_id: 'v1', x: 30, y: -60, yaw: 0, confidence: 1, updated_at: '2026-11-28T00:00:00Z' };
+  const withRun = () => ON.map((r) => (r.id === 'r7' ? { ...r, run: RUN } : r));
+
+  it('기본 화면 글 · 읽어 주는 이름에 em dash 없음', () => {
+    mount('u-park'); serve('r7');
+    const top = $('[data-u4]')!;
+    expect(top.textContent).not.toContain('—');
+    expect([...top.querySelectorAll('[aria-label]')].map((e) => e.getAttribute('aria-label')).join()).not.toContain('—');
+  });
+
+  it('보기만 하는 로봇: 카메라 작은 칸 · 라이다 · 깊이 = 「… 신호 없음 · 까닭」, 시뮬 시점 표지 없음', () => {
+    mount('u-park'); serve('r7', 'r3');
+    click($$('.rail .rcard').find((x) => x.getAttribute('data-r') === 'Go2-3')!);
+    expect(text($('.views .small [data-sd-cam]'))).toBe('카메라 신호 없음 · 보기만 하는 로봇이라 영상을 받지 않습니다');
+    expect($('[data-u4-simtag]')).toBeNull();
+    click($('[data-view="lidar"]')!);
+    expect(text($('[data-u4-big="lidar"]'))).toContain('라이다 신호 없음 · 보기만 하는 로봇이라 영상을 받지 않습니다');
+    click($('[data-view="depth"]')!);
+    expect(text($('[data-u4-big="depth"] [data-sd-depth]'))).toBe('뎁스 카메라 신호 없음 · 보기만 하는 로봇이라 영상을 받지 않습니다');
+  });
+
+  it('임무 없음 · 위치 없음: 임무 칸 「임무 없음」 + 빈 줄 · 막대 0 · 지도 이름 「지도 없음」 · 경로 없음', () => {
+    mount('u-park'); serve('r7');
+    expect(text($('[data-u4-job] b'))).toBe('임무 없음'); expect(text($('[data-u4-job] span'))).toBe('');
+    expect($('[data-u4-job] em')!.style.width).toBe('0%');
+    expect(text($('[data-u4-mapname]'))).toBe('지도 없음');
+    expect($$('[data-u4-wp]').length).toBe(0);
+  });
+
+  it('배정 하나 = 경로: 끝낸 길 · 남은 길 · 지점 번호 · 다음 지점 · 남은 직선 거리 · 지도 판 날 · 시뮬 시점 표지', async () => {
+    board([ASG('a1')], [WP(10, -60, '밸브 확인'), WP(60, -60, '게이지 읽기'), WP(60, -100, '탱크'), WP(90, -100, '출구')]);
+    mount('u-park', withRun()); serve('r7');
+    act(() => { push('r7', { location: LOC } as Partial<ScreenState>); });
+    await flush();
+    expect($$('[data-u4-wp]').map((g) => `${g.getAttribute('data-u4-wp')}${g.hasAttribute('data-done') ? '+' : ''}`)).toEqual(['1+', '2', '3', '4']);
+    expect($('[data-u4-route="done"]')).not.toBeNull(); expect($('[data-u4-route="left"]')).not.toBeNull();
+    expect(text($('[data-u4-job] b'))).toBe('공정 순찰 A');
+    expect(text($('[data-u4-job] span'))).toBe('할 일 2 / 4 · 게이지 읽기로 가는 중 · 남은 직선 약 100 m');   // 30 → 60 (30) + 40 + 30
+    expect($('[data-u4-job] em')!.style.width).toBe('25%');
+    expect(text($('[data-u4-mapname]'))).toBe('지도 2026-11-25');
+    expect(vi.mocked(api.assignments).mock.calls.map((x) => x[0])).toEqual(['r7']);
+    expect(vi.mocked(api.plan).mock.calls.map((x) => x.slice(0, 3))).toEqual([['scenarios', 's1', 2]]);
+    // 앞 카메라 작은 칸: 영상이 없고 서버 위치 · 공장 좌표계 판이 있으니 시뮬 시점(시험 브라우저에는 WebGL 이 없어 까닭만) · 표지는 늘
+    expect(text($('[data-u4-simtag]'))).toBe('시뮬 시점');
+    expect(text($('.views .small [data-sd-cam]'))).toBe('카메라 신호 없음 · 이 브라우저는 3D 를 그리지 못합니다');
+  });
+
+  it('같은 이름 배정이 둘이면 경로를 고르지 않는다(지어내지 않음): 지점 0 · 진행과 상태만', async () => {
+    board([ASG('a1'), ASG('a2')], [WP(10, -60, '밸브 확인')]);
+    mount('u-park', withRun()); serve('r7');
+    act(() => { push('r7', { location: LOC } as Partial<ScreenState>); });
+    await flush();
+    expect($$('[data-u4-wp]').length).toBe(0);
+    expect(api.plan).not.toHaveBeenCalled();
+    expect(text($('[data-u4-job] span'))).toBe('할 일 2 / 4 · 이동 중');
   });
 });

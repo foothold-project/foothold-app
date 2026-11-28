@@ -208,7 +208,7 @@ describe('로봇 탭(시안 u4) 조종 논리 · 옛 세 칸 화면 시험 옮�
     act(() => push('r7', { robot_info: info(2) }));
     expect(stale()).toBe(true);
     act(() => push('r7', { robot_info: info(), connection: 'OFFLINE' }));
-    expect(stale()).toBe(true); expect($('[data-u4-walk]')!.textContent).toBe('—');
+    expect(stale()).toBe(true); expect($('[data-u4-walk]')!.textContent).toBe('걷기 보고 없음');
   });
 
   it('조종하는 사람 칩 = 나 · 동작 단추는 조종 중에만 보냄(그 전엔 까닭)', () => {
@@ -401,11 +401,11 @@ describe('로봇 탭(시안 u4) 조종 논리 · 옛 세 칸 화면 시험 옮�
     expect($('[data-u4-hot]')!.textContent).toBe('앞 오른 엉덩이 62 °C · 경고');
   });
 
-  it('온도가 없거나 오래되면(3초 넘음) 칩 「—」 — 3D 칸 흐림과 따로', () => {
+  it('온도가 없거나 오래되면(3초 넘음) 칩 「없음」 · 3D 칸 흐림과 따로', () => {
     mount('u-park'); serve('r7');
     for (const ri of [info(), warm(TEMP_STALE_S + 0.5), { ...info(), temperature: null }, warm(0.5, { joints: JT.map(() => null), battery: [null, null, null, null], imu: null, body: [null, null] })]) {
       act(() => push('r7', { robot_info: ri as ScreenState['robot_info'] }));
-      expect(temp().textContent).toBe('—최고 관절 온도');
+      expect(temp().textContent).toBe('없음최고 관절 온도');
       expect($('.stage3d')!.hasAttribute('data-stale')).toBe(false);
     }
   });
@@ -417,12 +417,12 @@ describe('로봇 탭(시안 u4) 조종 논리 · 옛 세 칸 화면 시험 옮�
     expect(temp().textContent).toMatch(/^41 °C/);
   });
 
-  it('RV-409 4 온도 age_s 2.8 뒤 다음 보고가 없으면 화면 시계로 나이를 늘려 3초 넘을 때 「—」', () => {
+  it('RV-409 4 온도 age_s 2.8 뒤 다음 보고가 없으면 화면 시계로 나이를 늘려 3초 넘을 때 「없음」', () => {
     mount('u-park'); serve('r7');
     act(() => push('r7', { robot_info: warm(2.8) }));
     expect(temp().textContent).toMatch(/^41 °C/);
     tick(500);
-    expect(temp().textContent).toMatch(/^—/);
+    expect(temp().textContent).toMatch(/^없음/);
   });
 
   it('go2Temps: 연결 · 새 보고일 때만, 관절 12개 아니면 관절만 비움, 숫자 아닌 값은 버림', () => {

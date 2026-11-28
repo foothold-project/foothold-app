@@ -9,7 +9,7 @@ import { rt, runSay, useLive, type RunReq } from '../rt';
 import './missiontab.css';   // .mr 틀(폰 시나리오 시트에서도)
 
 const DONE = ['COMPLETED', 'FAILED', 'CANCELED'];
-const STATUS: Record<RunSnapshot['status'], string> = {
+export const STATUS: Record<RunSnapshot['status'], string> = {
   QUEUED: '줄 서는 중', PREPARING: '준비 중', MOVING: '이동 중', AT_WAYPOINT: '지점 도착', PERFORMING: '할 일 하는 중', WAIT_CONFIRM: '확인 기다림',
   PAUSED: '일시정지', COMPLETED: '끝남', FAILED: '실패', CANCELED: '취소됨',
 };

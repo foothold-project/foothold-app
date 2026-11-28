@@ -1,16 +1,16 @@
 // 로봇 탭(PC) = 시안 proto/screens/u4_1_robot.html 의 body 를 그대로 옮긴 것(scripts/proto2jsx.py 로 뽑은 뒤 고정 글 자리만 서버 값으로).
 // 태그 · 클래스 · 순서 · 글 · 인라인 style 은 시안 그대로. 머리줄 .bar 는 앱 껍데기(W1)가 그리므로 뺐다.
 // 값: 목록 = 서버 로봇 목록 · 머리 칩 = 실시간 state(연결 왕복 ms · 제어 모드 · 배터리 · 관절 최고 온도 · 조종하는 사람) · 3D = 실제 관절값 ·
-// 보기 = 지도(승인 지도 + 로봇 위치) · 카메라 · 라이다 · 깊이. 값이 없으면 시안 틀은 그대로 두고 그 자리만 「—」.
+// 보기 = 지도(승인 지도 + 로봇 위치) · 카메라 · 라이다 · 깊이. 값이 없으면 시안 틀은 그대로 두고 그 칸 글을 비우거나 「없음」(시안 u4_8 배터리 칸과 같은 말).
 // 조종 · STOP 은 serverdrive.tsx useServerDrive 하나(이 파일은 자리만): 키는 시안 글대로 ↑ 앞으로 · ← → 돌기 · ↓ 막힘 · Space 정지.
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as PEv, type ReactNode } from 'react';
-import type { MapVersion, ScreenAction } from '../../../../contracts/ts';
+import type { MapVersion, RunSnapshot, ScreenAction } from '../../../../contracts/ts';
 import { api } from '../../api';
 import { rt, useLive, useRt } from '../../rt';
 import { useStopPress } from '../../App';
 import { ADMIN_LATER, ownerName, type Robot } from '../../fake';
 import type { ApiFail } from '../../api';
-import { driveFeedText, useDriveFeed } from '../../drivemedia';
+import { NO_SIGNAL, driveFeedHeld, driveFeedText, useDriveFeed } from '../../drivemedia';
 import { DriveView, canDrive, keepDrive, useServerDrive, type Tok } from '../../serverdrive';
 import { GAITS } from '../../gait';
 import { LidarMap } from '../../lidarmap';
@@ -24,12 +24,16 @@ import { robotFail } from '../settings';
 import { Guide, RealView, prepSteps } from '../fleet';
 import { Empty as EmptyCard } from '../../empty';
 import { mount, type Go2Api } from './go2view';
+import { FACTORY_PNG, attach, factoryFrame, site, siteKey } from './simcam';
+import { nextIdx, remaining, ro, runOf, useRoute, type Route, type Run } from './route';
+import { STATUS as RUN_STATUS } from '../missionrun';
 import '../../proto/ui.pv.css';
 import '../../proto/pc.pv.css';
 import '../../proto/light.pv.css';
 import './u4.css';
 
-const NA = '—';
+/** 값 없음 표시(시안 u4_8 배터리 칸 「없음」) · em dash 는 쓰지 않는다 */
+const NONE = '없음';
 const DOG = <svg className="ic" viewBox="0 0 24 24" style={{ width: '19px', height: '19px' }}><path d="M4 13h11l3-3h2v4l-2 1H5z" /><path d="M6 15l-1 4M10 15v4M14 15v4M17 15l1 4" /></svg>;
 const CUBE = <svg className="ic" viewBox="0 0 24 24" style={{ width: '19px', height: '19px' }}><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /><path d="m3.3 7 8.7 5 8.7-5" /><path d="M12 22V12" /></svg>;
 const IC17: CSSProperties = { width: '17px', height: '17px' }, IC24: CSSProperties = { width: '24px', height: '24px' };
@@ -57,7 +61,7 @@ export function railLine(x: Robot, me: string) {
     : x.status === 'STOP_LATCHED' ? '정지 잠금' : x.status === 'ERROR' ? '오류' : '대기';
   return [kind, doing, who].filter(Boolean).join(' · ');
 }
-const bat = (x: Robot) => { const v = rt.get(x.id).state?.battery?.soc ?? x.battery; return v == null ? NA : `${Math.round(v)} %`; };
+const bat = (x: Robot) => { const v = rt.get(x.id).state?.battery?.soc ?? x.battery; return v == null ? NONE : `${Math.round(v)} %`; };
 
 function Rail({ c, sel, add }: { c: Ctx; sel: string; add: () => void }) {
   useRt();
@@ -73,30 +77,53 @@ function Rail({ c, sel, add }: { c: Ctx; sel: string; add: () => void }) {
     </div></div>;
 }
 
-/** 지도 칸: 로봇이 있는 승인 지도 + 내 위치(가운데) + 같은 판의 다른 로봇. 시안처럼 3200 px 폭 그림 위에 그린다 */
-function MapView({ c, r }: { c: Ctx; r: Robot }) {
-  useRt();
+/** 이 로봇의 서버 위치와 그 지도판(받는 중 · 없음 = null). 지도 칸 · 지도 이름 · 시뮬 시점이 같은 값을 쓴다 */
+function useBoard(c: Ctx, r: Robot) {
   const loc = rt.get(r.id).state?.location ?? r.location ?? null, vid = loc?.map_version_id ?? null;
-  const [v, setV] = useState<MapVersion | null>(null), view = useRef<HTMLDivElement>(null), [box, setBox] = useState({ w: 816, h: 600 });
+  const [v, setV] = useState<MapVersion | null>(null);
   useEffect(() => {
     setV(null); if (!vid) return;
     let alive = true;
     api.version(vid, c.cancel).then(shape(isVersion)).then((x) => { if (alive) setV(x); }, () => {});
     return () => { alive = false; };
   }, [vid]);
+  return { loc, v: v && v.id === vid ? v : null };
+}
+type Board = ReturnType<typeof useBoard>;
+const xy = (l: Board['loc']) => (l && l.x != null && l.y != null ? { x: l.x, y: l.y } : null);
+
+/** 지도 칸: 로봇이 있는 승인 지도 + 내 위치(가운데) + 임무 경로(끝낸 길 초록 · 남은 길 점선 · 지점 번호) + 같은 판의 다른 로봇. 시안처럼 3200 px 폭 그림 위에 그린다.
+ *  그림 = 서버 판 그림(…/image). 그 그림을 못 받으면 판이 시안 공장 터와 같은 좌표계일 때만 시안 공장 지도, 아니면 그림 없이 점 · 경로만 */
+function MapView({ c, r, b, run, route }: { c: Ctx; r: Robot; b: Board; run: Run | null; route: Route | null }) {
+  useRt();
+  const { loc, v } = b, view = useRef<HTMLDivElement>(null), [box, setBox] = useState({ w: 816, h: 600 });
+  const [miss, setMiss] = useState<string | null>(null);
+  useEffect(() => { setMiss(null); }, [v?.id]);
   useEffect(() => { const el = view.current; if (el?.clientWidth) setBox({ w: el.clientWidth, h: el.clientHeight }); }, []);
   const k = v ? 3200 / v.width : 1, W = 3200, H = v ? Math.round(v.height * k) : 2000;
   const at = (x: number, y: number) => { const [px, py] = toPixel(v!, x, y); return [px * k, py * k] as const; };
-  const me = v && loc?.x != null && loc?.y != null ? at(loc.x, loc.y) : null;
+  const here = xy(loc), me = v && here ? at(here.x, here.y) : null;
   const others = v ? c.robots.filter((x) => x.id !== r.id).flatMap((x) => {
     const l = rt.get(x.id).state?.location ?? x.location;
     return l && l.map_version_id === v.id && l.x != null && l.y != null ? [{ x, p: at(l.x, l.y) }] : [];
   }) : [];
   const shift = me ? `translate(${(box.w / 2 - me[0]).toFixed(1)}px,${(box.h * 0.55 - me[1]).toFixed(1)}px)` : 'translate(0px,0px)';
   const yaw = loc?.yaw ?? null;
+  const wps = route && 'wps' in route && v ? route.wps.map((w, i) => ({ w, i })).filter(({ w }) => w.map_version_id === v.id) : [];
+  const nx = run && route && 'wps' in route ? nextIdx(run.progress, route.wps.length) : null;
+  const pts = (l: (readonly [number, number])[]) => l.map((p) => `${p[0].toFixed(0)},${p[1].toFixed(0)}`).join(' ');
+  const done = nx != null && me ? [...wps.filter(({ i }) => i < nx).map(({ w }) => at(w.x, w.y)), me] : [];
+  const left = nx != null && me ? [me, ...wps.filter(({ i }) => i >= nx).map(({ w }) => at(w.x, w.y))] : wps.map(({ w }) => at(w.x, w.y));
+  const src = !v ? null : miss === 'server' ? (factoryFrame(v) ? FACTORY_PNG : null) : api.imageUrl(v.id);
   return <div className="mapv" ref={view} data-u4-map={v?.id ?? ''}><div className="mapin" style={{ transform: shift }}>
-    {v && <img src={api.imageUrl(v.id)} alt="" style={{ width: `${W}px`, height: `${H}px` }} />}
+    {src && <img src={src} alt="" style={{ width: `${W}px`, height: `${H}px` }} data-u4-mapimg={miss ? 'factory' : 'server'}
+      onError={() => setMiss((m) => (m ? 'none' : 'server'))} />}
     <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ position: 'absolute', left: '0', top: '0' }}>
+      {left.length > 1 && <polyline points={pts(left)} fill="none" stroke="rgba(255,255,255,.75)" strokeWidth="4" strokeDasharray="2 12" strokeLinecap="round" data-u4-route="left" />}
+      {done.length > 1 && <polyline id="done" points={pts(done)} fill="none" stroke="#00c389" strokeWidth="6" strokeLinejoin="round" strokeLinecap="round" data-u4-route="done" />}
+      {wps.map(({ w, i }) => { const p = at(w.x, w.y), ok = nx != null && i < nx; return <g key={i} transform={`translate(${p[0].toFixed(0)},${p[1].toFixed(0)})`} data-u4-wp={i + 1} data-done={ok || undefined}>
+        <circle r="15" fill="#0b0e12" stroke={ok ? '#00c389' : 'rgba(255,255,255,.55)'} strokeWidth="2.5" />
+        <text y="5" textAnchor="middle" fontSize="14" fontWeight="800" fill={ok ? '#00c389' : '#fff'}>{i + 1}</text></g>; })}
       {others.map(({ x, p }) => <g key={x.id} transform={`translate(${p[0].toFixed(0)},${p[1].toFixed(0)})`}>
         <circle r="9" fill={x.online ? '#9aa4ae' : '#5e6662'} stroke="#0b0e12" strokeWidth="3" />
         <text x="16" y="5" fontSize="15" fontWeight="700" fill="#cfd6dc">{`${x.name} · ${railLine(x, c.user.id).split(' · ')[1] ?? ''}`}</text></g>)}
@@ -106,20 +133,60 @@ function MapView({ c, r }: { c: Ctx; r: Robot }) {
         <circle r="13" fill="#fff" stroke="#00c389" strokeWidth="5" /></g>}
     </svg></div></div>;
 }
-function MapName({ c, r }: { c: Ctx; r: Robot }) {
-  const t = useTree(c.cancel), loc = rt.get(r.id).state?.location ?? r.location ?? null;
-  const p = floorsOf(t.tree).find((x) => x.floor.id === loc?.floor_id);
-  return <span className="g dk mapname" data-u4-mapname>{p ? `${p.building.name} ${p.floor.name}` : NA}</span>;
+/** 지도 이름(시안 「큰 공장 1 층 · 지도 2026-11-25」): 건물 층 · 지도 판 만든 날 */
+function MapName({ c, b }: { c: Ctx; b: Board }) {
+  const t = useTree(c.cancel), p = floorsOf(t.tree).find((x) => x.floor.id === b.loc?.floor_id), day = b.v?.created_at.slice(0, 10);
+  const text = [p ? `${p.building.name} ${p.floor.name}` : '', day ? `지도 ${day}` : ''].filter(Boolean).join(' · ');
+  return <span className="g dk mapname" data-u4-mapname>{text || '지도 없음'}</span>;
+}
+/** 임무 칸(시안 「공정 순찰 A」 · 「할 일 2 / 4 · 게이지 읽기로 가는 중 · 남은 약 330 m」 · 막대). 남은 거리는 지점까지 곧은 줄을 더한 값이라 「직선」 */
+export function jobLine(run: Run | null, route: Route | null, b: Board) {
+  if (!run) return { name: '임무 없음', line: '', pct: 0 };
+  const { done, total } = run.progress, wps = route && 'wps' in route ? route.wps : null, nx = wps ? nextIdx(run.progress, wps.length) : null;
+  const to = wps && nx != null ? wps[nx] : null, nm = to ? to.name || `${nx! + 1} 번 지점` : '';
+  const go = to && run.status === 'MOVING' ? `${nm}${ro(nm)} 가는 중` : RUN_STATUS[run.status as RunSnapshot['status']] ?? '';
+  const here = xy(b.loc), rest = wps && nx != null && here && b.v && b.loc?.map_version_id === b.v.id ? remaining(here, wps, nx, b.v.id) : null;
+  const left = rest ? `남은 직선 약 ${Math.round(rest.m)} m${rest.more ? ' · 다른 층 지점 더' : ''}` : '';
+  return { name: run.name, line: [`할 일 ${Math.min(done + 1, total)} / ${total}`, go, left].filter(Boolean).join(' · '), pct: total ? Math.round((done / total) * 100) : 0 };
 }
 
-/** 카메라 · 깊이 · 라이다 받기. 세 채널 다 이 로봇 화면에 붙여 두고 보이는 칸만 켠다(on) — 숨겼다 다시 열어도 epoch 기록이 이어진다(RV-450 ② · RV-452) */
-/** can = 서버가 이 화면의 조종을 허용한 로봇만 받는다(허용 안 된 로봇은 보기만 · 카메라 · 라이다 연결도 없음 — 옛 세 칸 화면과 같음) */
+/** 카메라 · 깊이 · 라이다 받기. 세 채널 다 이 로봇 화면에 붙여 두고 보이는 칸만 켠다(on). 숨겼다 다시 열어도 epoch 기록이 이어진다(RV-450 ② · RV-452).
+ *  can = 서버가 이 화면의 조종을 허용한 로봇만 받는다(허용 안 된 로봇은 보기만 · 카메라 · 라이다 연결도 없음 · 옛 세 칸 화면과 같음) */
 function useFeeds(id: string, view: string, can: boolean) {
   return { rgb: useDriveFeed(id, 'rgb', can && (view === 'map' || view === 'rgb')), depth: useDriveFeed(id, 'depth', can && view === 'depth'), lidar: useDriveFeed(id, 'lidar', can && view === 'lidar') };
 }
 type Feeds = ReturnType<typeof useFeeds>;
-const Feed = ({ fs, ch, big }: { fs: Feeds; ch: 'rgb' | 'depth'; big: boolean }) => <DriveView f={fs[ch]} ch={ch} big={big} />;
-const Lidar = ({ fs }: { fs: Feeds }) => <LidarMap feed={fs.lidar} empty={driveFeedText(fs.lidar, 'lidar')} pick />;
+/** 보기만 하는 로봇의 빈 칸 까닭(영상 연결을 열지 않음) */
+export const VIEW_ONLY = '보기만 하는 로봇이라 영상을 받지 않습니다';
+const NoFeed = ({ ch, why }: { ch: 'rgb' | 'depth'; why: string }) => <div className="dv-video" role="img" aria-label={ch === 'rgb' ? '카메라' : '뎁스 카메라'} {...(ch === 'rgb' ? { 'data-sd-cam': '' } : { 'data-sd-depth': '' })}>
+  <span style={{ padding: 12, textAlign: 'center' }}>{`${NO_SIGNAL[ch]} · ${why}`}</span></div>;
+const Feed = ({ fs, ch, big, can }: { fs: Feeds; ch: 'depth'; big: boolean; can: boolean }) => (can ? <DriveView f={fs[ch]} ch={ch} big={big} /> : <NoFeed ch={ch} why={VIEW_ONLY} />);
+const Lidar = ({ fs, can }: { fs: Feeds; can: boolean }) => <LidarMap feed={fs.lidar} empty={can ? driveFeedText(fs.lidar, 'lidar') : `${NO_SIGNAL.lidar} · ${VIEW_ONLY}`} pick />;
+
+/** 시뮬 시점 칸: 렌더러 하나(simcam)에 붙여 서버 위치에서 본 현장을 그린다. 못 그리면 「카메라 신호 없음 · 까닭」 */
+function SimCam({ v, pose }: { v: MapVersion; pose: { x: number; y: number; yaw: number } }) {
+  const cv = useRef<HTMLCanvasElement>(null), h = useRef<ReturnType<typeof attach>>(null);
+  const [s, setS] = useState<Awaited<ReturnType<typeof site>>>(null), [why, setWhy] = useState(''), key = siteKey(v);
+  useEffect(() => { const a = cv.current ? attach(cv.current) : null; h.current = a; if (!a) setWhy('이 브라우저는 3D 를 그리지 못합니다'); return () => a?.drop(); }, []);
+  useEffect(() => {
+    let alive = true; setS(null);
+    if (!h.current) return;   // WebGL 없음: 받지도 않음
+    site(v)?.then((x) => { if (alive) setS(x); }, () => { if (alive) setWhy('현장 3D 를 받지 못했습니다'); });
+    return () => { alive = false; };
+  }, [key]);
+  useEffect(() => { h.current?.set(s, pose); });
+  return <>{why ? <NoFeed ch="rgb" why={why} /> : <canvas ref={cv} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} data-u4-simcam={key ?? ''} aria-label="시뮬 시점" />}
+    <span className="g dk tag rehearse simtag" data-u4-simtag>시뮬 시점</span></>;
+}
+/** 카메라 칸: 받은 영상(지금 · 마지막 그림)이 먼저. 영상이 없으면 서버 위치 · 지도판 3D 로 시뮬 시점, 그것도 없으면 신호 없음 + 까닭 */
+function Cam({ fs, big, can, b }: { fs: Feeds; big: boolean; can: boolean; b: Board }) {
+  const f = fs.rgb, l = b.loc;
+  if (can && (!driveFeedText(f, 'rgb') || driveFeedHeld(f))) return <DriveView f={f} ch="rgb" big={big} />;
+  const why = !l || l.x == null || l.y == null ? '서버 위치 없음' : l.yaw == null ? '서버 방향 값 없음' : !b.v ? (l.map_version_id ? '지도판 받는 중' : '지도판 없음')
+    : !siteKey(b.v) ? '이 지도판에 3D 현장이 없습니다' : '';
+  if (!why) return <SimCam v={b.v!} pose={{ x: l!.x!, y: l!.y!, yaw: l!.yaw! }} />;
+  return can ? <DriveView f={f} ch="rgb" big={big} /> : <NoFeed ch="rgb" why={VIEW_ONLY} />;
+}
 
 /** 가운데 3D: 시안 go2view 를 그대로 띄우고 실제 관절값 · 나간 명령으로 움직인다 */
 function Stage({ r, q, drive, hot }: { r: Robot; q: number[] | null; drive: Go2Api['drive']; hot: Record<string, string> }) {
@@ -203,7 +270,7 @@ function Settings({ c, r }: { c: Ctx; r: Robot }) {
         value={name} disabled={busy} onChange={(e) => setName(e.target.value)} onBlur={rename} onKeyDown={(e) => { if (e.key === 'Enter') rename(); }} data-u4-name />
         : <div className="fld" style={{ fontWeight: 800 }}>{r.name}</div>}
       <span className="mu" style={{ fontWeight: 600 }}>기체번호</span>
-      <b className={r.serial ? undefined : 'mu2'}>{r.sim ? '시뮬' : r.serial ?? NA}</b>
+      <b className={r.serial ? undefined : 'mu2'}>{r.sim ? '시뮬' : r.serial ?? NONE}</b>
       <span className="mu" style={{ fontWeight: 600 }}>담당</span>
       <div className="fld" role="button" tabIndex={0} onClick={owner} data-u4-owner>{own ? '나' : ownerName(r)} · 담당자 바꾸기{CHEV}</div>
     </div>
@@ -239,7 +306,7 @@ function Check({ c, r, guide }: { c: Ctx; r: Robot; guide: () => void }) {
     <span style={{ color: tone[state] }}><svg className="ic" viewBox="0 0 24 24" style={{ width: '20px', height: '20px' }}>{CHECK_IC[state]}</svg></span>{name}<small>{small}</small></div>;
   return <div className="pane2 chk" style={{ position: 'absolute', inset: '0', padding: '22px 8px 8px' }} aria-label="점검" data-u4-tab="check">
     <div className="row" style={{ justifyContent: 'space-between', padding: '0 18px 12px' }}><span className="ttl">순서 점검</span>
-      <span className="mu2" style={{ fontSize: '13px' }} data-u4-check-head>{mineOrAdmin ? `${at} · ${bad ? `${bad} 곳 막힘` : unknown ? `${unknown} 곳 확인 전` : '모두 통과'}` : NA}</span></div>
+      <span className="mu2" style={{ fontSize: '13px' }} data-u4-check-head>{mineOrAdmin ? `${at} · ${bad ? `${bad} 곳 막힘` : unknown ? `${unknown} 곳 확인 전` : '모두 통과'}` : ''}</span></div>
     {!mineOrAdmin ? <p className="mu" style={{ padding: '0 18px' }} data-u4-check-none>내 담당 로봇만 점검할 수 있습니다 · 이 로봇은 요약만 보입니다.</p> : <>
       <div data-readycheck-list>{list.map((x) => row(x.key, x.state, CHECK_NAME[x.key] ?? x.name, x.why, { 'data-check': x.key, 'data-state': x.state }))}</div>
       <section aria-label="조종 준비" data-u4-prep data-pill={pill.tone}>
@@ -265,14 +332,14 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   useEffect(() => () => clearTimeout(tm.current), []);
   const now = rt.now(), fresh = !!s && now - l.stateAt < REPORT_STALE_MS;
   const pose = go2Pose(s, fresh), temps = go2Temps(s, fresh, s ? (now - l.stateAt) / 1000 : 0);
-  const link = rt.link(), ms = link.at === 'open' && link.latencyMs != null ? `${Math.round(link.latencyMs)} ms` : NA;
+  const link = rt.link(), ms = link.at === 'open' && link.latencyMs != null ? `${Math.round(link.latencyMs)} ms` : '';
   const online = s?.connection === 'ONLINE';
-  const lowlevel = s?.control === 'LOWLEVEL', mode = GAITS.find((x) => x.g === d.gait.cur)?.name ?? NA;   // 걷기 모드(로봇 보고 state.gait) · Shift+1~4 는 useServerDrive
+  const lowlevel = s?.control === 'LOWLEVEL', mode = GAITS.find((x) => x.g === d.gait.cur)?.name ?? NONE;   // 걷기 모드(로봇 보고 state.gait) · Shift+1~4 는 useServerDrive
   const soc = s?.battery?.soc ?? (r.sim ? null : r.battery);
   const hotJ = temps && temps.hot >= 0 ? temps.joints[temps.hot] : null;
-  const holder = l.holder ?? r.holder ?? null, who = holder?.type === 'USER' ? (holder.id === c.user.id ? '나' : holder.name || NA) : NA;
+  const holder = l.holder ?? r.holder ?? null, who = holder?.type === 'USER' ? (holder.id === c.user.id ? '나' : holder.name || NONE) : NONE;
   const a = s?.applied ?? null, sp = s?.speed;
-  const walk = !online || sp == null ? NA : sp < 0.05 ? (s?.posture?.state === 'LYING' ? '엎드림' : '서 있음')
+  const walk = !online || sp == null ? '걷기 보고 없음' : sp < 0.05 ? (s?.posture?.state === 'LYING' ? '엎드림' : '서 있음')
     : `걷는 중 · ${sp.toFixed(1)} m/s ${a && a[0] < 0 ? '뒤로' : a && Math.abs(a[1] ?? 0) > Math.abs(a[0] ?? 0) ? '옆으로' : '앞으로'}`;
   const located = online && s?.location?.x != null;
   const drive = a && online ? { v: a[0] ?? 0, side: a[1] ?? 0, turn: a[2] ?? 0 } : null;
@@ -303,13 +370,15 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
     rt.action(r.id, name, {}, false, (why, id) => { if (why) say(`거부 · ${why}`); else { setPending(id ?? null); say('서버 접수 · 로봇의 결과를 기다리고 있습니다.'); } });
   };
   const offAct = (name: ScreenAction['action']) => name === 'StandUp' ? lowlevel : lowlevel ? !LOWLEVEL.has(name) : FACTORY_OFF.has(name);
-  const small = view === 'map' ? <Feed fs={fs} ch="rgb" big={false} /> : <MapView c={c} r={r} />;
+  const b = useBoard(c, r), run = runOf(r, s?.run), route = useRoute(r.id, run?.name ?? null, c.cancel), job = jobLine(run, route, b);
+  const map = <MapView c={c} r={r} b={b} run={run} route={route} />;
+  const small = view === 'map' ? <Cam fs={fs} big={false} can={can} b={b} /> : map;
   return <>
     <div className="hdr" data-robot-head={r.id}><span className="ttl" style={{ fontSize: '26px', marginRight: '6px' }}>{r.name}</span>
       <span className="g dk st" data-cell="link"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M12 20h.01" /><path d="M2 8.82a15 15 0 0 1 20 0" /><path d="M5 12.859a10 10 0 0 1 14 0" /><path d="M8.5 16.429a5 5 0 0 1 7 0" /></svg>{online ? '연결' : r.online ? '연결 중' : '끊김'}<small>{ms}</small></span>
       <span data-go="u4_7_mode" className="g dk st" data-cell="mode"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="m8 3 4 8 5-5 5 15H2L8 3z" /></svg>{mode}<small>Shift + 1 ~ 4</small></span>
-      <span className="g dk st" data-cell="battery"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M10 14v-4" /><path d="M22 14v-4" /><path d="M6 14v-4" /><rect x="2" y="6" width="16" height="12" rx="2" /></svg>{soc == null ? NA : `${Math.round(soc)} %`}<small>{NA}</small></span>
-      <span className={`g dk st${hotTag ? ' bad warncell' : ''}`} data-cell="temp"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z" /></svg>{hotJ == null ? NA : `${Math.round(hotJ)} °C`}<small>{hotJ != null && hotJ >= 60 ? jointName(JOINTS[temps!.hot]) : '최고 관절 온도'}</small></span>
+      <span className="g dk st" data-cell="battery"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M10 14v-4" /><path d="M22 14v-4" /><path d="M6 14v-4" /><rect x="2" y="6" width="16" height="12" rx="2" /></svg>{soc == null ? NONE : `${Math.round(soc)} %`}<small>{soc == null ? '배터리' : ''}</small></span>
+      <span className={`g dk st${hotTag ? ' bad warncell' : ''}`} data-cell="temp"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z" /></svg>{hotJ == null ? NONE : `${Math.round(hotJ)} °C`}<small>{hotJ != null && hotJ >= 60 ? jointName(JOINTS[temps!.hot]) : '최고 관절 온도'}</small></span>
       <span className="g dk st" data-cell="holder"><svg className="ic" viewBox="0 0 24 24" style={IC17}><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>{who}<small>조종자</small></span>
       <div className="seg2" style={{ marginLeft: 'auto' }} role="tablist">
         {([['drive', '조종', ''], ['check', '점검', 'u4_4_check'], ['settings', '로봇 설정', 'u4_5_settings']] as const).map(([k, t, go]) =>
@@ -324,21 +393,21 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
       <div className="g bub" style={{ left: '58%', top: '70px' }} data-u4-notes>{d.notes}</div>
       {tab === 'check' ? <div className="foot" data-u4-legend><span className="g dk tag" style={{ position: 'static', color: '#00c389' }}>보통</span><span className="g dk tag" style={{ position: 'static', color: '#f2b705' }}>주의 50 °C</span><span className="g dk tag" style={{ position: 'static', color: '#ff4d4f' }}>경고 60 °C</span><span className="mu2" style={{ marginLeft: 'auto', fontSize: '12.5px' }}>관절 온도는 색으로 표시 · 마우스를 올리면 값이 보입니다</span></div>
       : <div className="foot"><span className="g dk tag" style={{ position: 'static', color: '#00c389', minWidth: '178px', justifyContent: 'center' }} data-u4-walk>{walk}</span>
-        <span className="g dk tag" style={{ position: 'static', color: '#ffffff' }} data-u4-loc>{located ? '위치 추정 켜짐' : `위치 추정 ${NA}`}</span>
+        <span className="g dk tag" style={{ position: 'static', color: '#ffffff' }} data-u4-loc>{located ? '위치 추정 켜짐' : '위치 추정 없음'}</span>
         <span className="mu2" style={{ marginLeft: 'auto', fontSize: '12.5px' }}>실제 관절값으로 제자리에서 움직임 · 바닥 점이 뒤로 흐르면 앞으로 걷는 중</span></div>}</div>
     {tab === 'check' ? <div className="right" data-u4-can={can || undefined}><Check c={c} r={r} guide={() => setGuide(true)} /></div>
       : <div className="right" data-u4-can={can || undefined}><div className="views" aria-label="로봇 보기">
-      {view === 'map' ? <MapView c={c} r={r} /> : <div className="mapv" data-u4-big={view}>{view === 'lidar' ? <Lidar fs={fs} /> : <Feed fs={fs} ch={view} big />}</div>}
+      {view === 'map' ? map : <div className="mapv" data-u4-big={view}>{view === 'lidar' ? <Lidar fs={fs} can={can} /> : view === 'rgb' ? <Cam fs={fs} big can={can} b={b} /> : <Feed fs={fs} ch={view} big can={can} />}</div>}
       <div className="g dk vsel">{VIEWS.map(([k, t]) => <span key={k} className={view === k ? 'on' : undefined} data-view={k} role="button" tabIndex={0} aria-pressed={view === k} onClick={() => setView(k)}>{t}</span>)}</div>
       <div className="small" data-swap="1" data-cam-inset role="button" tabIndex={0} onClick={() => setView(view === 'map' ? 'rgb' : 'map')}>{small}<span className="cl">{view === 'map' ? '앞 카메라' : '지도'}</span></div>
-      <div className="g dk job" data-u4-job><b>{r.mission ?? NA}</b><span>{NA}</span><i><em style={{ width: '0%' }} /></i></div>
-      <MapName c={c} r={r} />
+      <div className="g dk job" data-u4-job><b>{job.name}</b><span>{job.line}</span><i><em style={{ width: `${job.pct}%` }} /></i></div>
+      <MapName c={c} b={b} />
       {latched ? <div className="vslot" data-u4-restart>
         {lying ? <div className="vgo big" role="button" tabIndex={0} onClick={d.unlockAsk} data-u4-unlock><svg className="ic" viewBox="0 0 24 24" style={{ width: '24px', height: '24px' }}><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></svg>다시 시작<small>일어섭니다</small></div>
           : <><div className="vgo" role="button" tabIndex={0} onClick={d.unlockAsk} data-u4-unlock><svg className="ic" viewBox="0 0 24 24" style={{ width: '20px', height: '20px' }}><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></svg>다시 시작</div>
             <div data-go="u4_10_restart" className="stop damp" role="button" tabIndex={0} onClick={damp} data-u4-damp><svg className="ic" viewBox="0 0 24 24" style={{ width: '22px', height: '22px' }}><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z" /><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" /></svg>Damping<small>엎드려 힘 빼기</small></div></>}
       </div>
-        : <div data-go="u4_9_stopped" className="vstop stop" role="button" tabIndex={0} aria-label="비상 정지 — 이 로봇" data-sd-stop="u4" {...d.stopPress}>
+        : <div data-go="u4_9_stopped" className="vstop stop" role="button" tabIndex={0} aria-label="비상 정지 · 이 로봇" data-sd-stop="u4" {...d.stopPress}>
         <svg className="ic" viewBox="0 0 24 24" style={{ width: '26px', height: '26px' }}><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z" /><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" /></svg>정지<small>Space</small></div>}
     </div>
       <div className={`ctl${latched ? ' dim' : ''}`}>
@@ -368,15 +437,15 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   </>;
 }
 
-/** 로봇 0대: 시안 틀(목록 제목 · 추가 단추 · 머리 칩 · 칸)은 그대로, 값만 「—」 */
+/** 로봇 0대: 시안 틀(목록 제목 · 추가 단추 · 머리 칩 · 칸)은 그대로, 값만 「없음」 */
 function Empty({ add, none }: { add: () => void; none?: ReactNode }) {
   return <>
     <div className="pane rail"><div className="row" style={{ justifyContent: 'space-between', padding: '0 6px 12px' }}><span className="ttl">로봇</span>
       <span data-go="u4_6_add" className="btns addbtn" style={{ height: '34px', padding: '0 11px', fontSize: '12.5px' }} role="button" tabIndex={0} onClick={add} data-u4-add>
         <svg className="ic" viewBox="0 0 24 24" style={{ width: '14px', height: '14px' }}><path d="M5 12h14" /><path d="M12 5v14" /></svg>로봇 추가</span></div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }} /></div>
-    <div className="hdr" data-robot-head=""><span className="ttl" style={{ fontSize: '26px', marginRight: '6px' }}>{NA}</span>
-      {['연결', '모드', '배터리', '최고 관절 온도', '조종자'].map((k) => <span key={k} className="g dk st">{NA}<small>{k}</small></span>)}</div>
+    <div className="hdr" data-robot-head=""><span className="ttl" style={{ fontSize: '26px', marginRight: '6px' }}>로봇 없음</span>
+      {['연결', '모드', '배터리', '최고 관절 온도', '조종자'].map((k) => <span key={k} className="g dk st">{NONE}<small>{k}</small></span>)}</div>
     <div className="stage3d">{none}</div>
     <div className="right"><div className="views" aria-label="로봇 보기" /></div>
   </>;

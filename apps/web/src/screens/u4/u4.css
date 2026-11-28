@@ -89,3 +89,7 @@
 /* 앱에 놓기(시안 body 자리): 화면 왼쪽 위 0,0 에 1920x1080 그대로 · 앱 머리줄(z 10) 아래 */
 .proto.u4{position:fixed;left:0;top:0;z-index:5}
 .u4 .bub:empty{display:none}
+/* 시뮬 시점 표지(시안 rehearse 파란 점선 규칙): 실제 카메라 영상이 아님을 늘 칸 안에 적는다 */
+.u4 .simtag{z-index:1;padding:3px 9px;font-size:11px;pointer-events:none}
+.u4 .views .small .simtag{right:8px;bottom:7px}
+.u4 .mapv[data-u4-big] .simtag{left:50%;bottom:16px;transform:translateX(-50%)}
