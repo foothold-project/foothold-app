@@ -92,7 +92,7 @@ export function Connect(c: Pick<Ctx, 'user' | 'robots' | 'go'> & Partial<Pick<Ct
   const refresh = c.refresh ?? (() => {}), can = op || app;
   return <>
     {view === 'nearby' || (s.real && s.step !== 'drive') ? <Nearby robots={c.robots} close={() => setView(null)} />
-      : view === 'pair' ? <AddRobot mine={c.robots.map((r) => r.id)} close={() => setView(null)} refresh={refresh} cancel={c.cancel} />
+      : view === 'pair' ? <AddRobot user={c.user} mine={c.robots.map((r) => r.id)} close={() => setView(null)} refresh={refresh} cancel={c.cancel} />
       : view === 'menu' ? <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="로봇 연결하기">
         <div className="fh-row"><h2 className="fh-grow">로봇 연결하기</h2><button type="button" className="btn" onClick={() => setView(null)}>닫기</button></div>
         {op && <><button type="button" className="btn pri" onClick={() => setView('pair')} data-pair-start>새 로봇 추가</button>

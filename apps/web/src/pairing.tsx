@@ -5,7 +5,8 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { PairingClaimed, RobotInstallerInfo, RobotOwnerCandidate, User as ApiUser } from '../../contracts/ts';
 import { api, type ApiFail } from './api';
 import { PHONE_Q } from './App';
-import type { Robot } from './fake';
+import { toRobot, type Robot, type User } from './fake';
+import { ScanPanel, ScanStart } from './screens/scanentry';
 import { Chip, inApp } from './screens';
 import { OwnerSelect, robotFail } from './screens/settings';
 
@@ -107,11 +108,11 @@ function Installer({ cancel, phone }: Cancel & { phone: boolean }) {
   </div>;
 }
 
-type Step = { at: 'code' } | { at: 'name'; p: PairingClaimed } | { at: 'done'; name: string; again: boolean };
+type Step = { at: 'code' } | { at: 'name'; p: PairingClaimed } | { at: 'done'; name: string; again: boolean; robot: Robot } | { at: 'scan'; robot: Robot };
 
 /** 새 로봇 추가(운영 관리자). mine = 지금 내 로봇 id(확정 답의 id 가 이미 있으면 재연결).
  *  PC(넓은 화면·마우스)는 «설치 파일 받기 | 코드 넣기» 두 칸, 6자리 코드가 주 동작이고 QR(노트북 카메라)은 보조. 폰·앱은 한 줄로 QR 먼저(11-12) */
-export function AddRobot({ mine, close, refresh, cancel }: { mine: string[]; close: () => void; refresh: () => void } & Cancel) {
+export function AddRobot({ user, mine, close, refresh, cancel }: { user?: User; mine: string[]; close: () => void; refresh: () => void } & Cancel) {
   const [step, setStep] = useState<Step>({ at: 'code' }), [msg, setMsg] = useState(''), [busy, setBusy] = useState(false);
   const [scan, setScan] = useState(false), [code, setCode] = useState(''), [name, setName] = useState('');
   // 지금 확인 중인 코드 — 입력이 바뀌거나 화면이 닫히면 비워서, 늦게 온 옛 코드 답으로 이름 단계(바로 등록)에 가지 않게 한다
@@ -138,7 +139,7 @@ export function AddRobot({ mine, close, refresh, cancel }: { mine: string[]; clo
     setBusy(true); setMsg('');
     try {
       const r = await api.confirmPairing(p.pairing_id, n, cancel);   // 목록은 «내 로봇으로»에서 다시 받음 — 첫 로봇이면 목록 0→1 로 이 화면이 다시 그려져 안내가 사라짐
-      setStep({ at: 'done', name: r.name, again: mine.includes(r.id) });
+      setStep({ at: 'done', name: r.name, again: mine.includes(r.id), robot: toRobot(r) });
     } catch (err) {
       const f = err as ApiFail;
       if (f.code === 'CANCELED') return;
@@ -158,6 +159,8 @@ export function AddRobot({ mine, close, refresh, cancel }: { mine: string[]; clo
   </form>;
   const toMine = <button type="button" className="btn pri" onClick={() => { refresh(); close(); }}>내 로봇으로</button>;
   const again = <p className="lbl">이미 등록한 로봇을 노트북에 다시 설치했으면 같은 방법으로 다시 연결하세요 — 같은 로봇으로 이어지고 옛 연결 키는 바로 폐기됩니다.</p>;
+  // 붙이기 끝 → 지도 스캔: 새 로봇 추가 카드를 스캔 칸으로 바꾼다(닫기 = 내 로봇으로와 같이 목록 다시 받기)
+  if (step.at === 'scan' && user) return <ScanPanel user={user} robots={[step.robot]} close={() => { refresh(); close(); }} cancel={cancel} />;
   return <section className={phone ? 'lv-card' : 'lv-card pair-pc'} style={{ flexBasis: '100%' }} aria-label="새 로봇 추가" data-pair={step.at}>
     <div className="fh-row"><h2 className="fh-grow">새 로봇 추가</h2><button type="button" className="btn" onClick={close}>닫기</button></div>
     {step.at === 'code' && (phone ? <><Installer cancel={cancel} phone />{note}{qr}{form}{again}</>
@@ -181,6 +184,8 @@ export function AddRobot({ mine, close, refresh, cancel }: { mine: string[]; clo
         ? `${step.name} — 기존 로봇에 다시 연결했습니다. 옛 연결 키는 폐기됐고, 진행 중이던 조종은 정지·잠금됐습니다.`
         : `${step.name} 로봇을 등록했습니다.`} 노트북 화면에 «연결됨»이 뜨면 내 로봇에서 조종권을 잡으세요.</p>
       {phone ? toMine : <div className="fh-row">{toMine}</div>}
+      {/* 붙이기 끝(u2_3): 이 로봇으로 바로 지도 스캔. 권한은 PhoneScan 과 같은 makers() */}
+      {user && <ScanStart user={user} robots={[step.robot]} label="이 현장 지도 스캔하기" start={() => setStep({ at: 'scan', robot: step.robot })} />}
     </>}
     {msg && <p className="fh-msg" role="alert">{msg}</p>}
   </section>;

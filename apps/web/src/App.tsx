@@ -7,7 +7,7 @@ import { Component, useEffect, useRef, useState, useSyncExternalStore, type Reac
 import type { User as ApiUser } from '../../contracts/ts';
 import { BrandLogo } from './BrandLogo';
 import { ADMIN_REAL, ROBOTS, ROLE_NAME, USERS, adminReal, idleSim, lost, lostText, myRobots, robotsFor, type Robot, type User } from './fake';
-import { PC_BOTTOM, PC_TABS, labelOf, leaving, oldScenario, tabFromHash, tabsFor, type Tab, type TabId } from './menu';
+import { PC_BOTTOM, PC_TABS, PHONE_SCAN, labelOf, leaving, oldScenario, tabFromHash, tabsFor, type Tab, type TabId } from './menu';
 import { rt, useRt, withLive, type Live } from './rt';
 import { BODY, EmptyFleet, inApp, useDash, type Ctx } from './screens';
 import { Connect, NO_ROBOT, endDrive } from './drive';
@@ -26,6 +26,7 @@ import { EmptyControl, useControlPick } from './screens/control';
 import { SimTab } from './screens/sim';
 import { Terrain } from './screens/terrain';
 import { Trash } from './screens/trash';
+import { ScanPanel, ScanStart } from './screens/scanentry';
 import { ThemeNav, ThemePick, useTheme } from './theme';
 
 /** STOP 결과 한 줄 — 서버가 받았는지와 로봇이 알린 잠금을 나눠 쓴다. 확인 안 된 «정지됨»은 쓰지 않는다(F-COM-01) */
@@ -337,6 +338,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   }, []);
 
   const cur = tabsFor(phone).find((t) => t.id === tab)!, title = !phone ? labelOf(cur, user.role) : tab === 'history' ? '기록' : open || simOpen ? '조종' : '로봇 연결';
+  const [scan, setScan] = useState(false), more = useRef<HTMLDetailsElement>(null);   // ⋯ 지도 스캔 칸(로봇 연결 화면에서만)
   const shut = (e: { currentTarget: Element }, f: () => void) => { e.currentTarget.closest('details')?.removeAttribute('open'); f(); };
   const problems = pool.filter(lost);
   const ctx: Ctx | null = robot ? { user, robot, robots: tab === 'history' || tab === 'map' || tab === 'fleet' ? withSlots : pool, pick: setRid, go, open, phone, setMe, refresh, cancel, focus, dash } : null;
@@ -366,9 +368,10 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       {!phone && <Guard quiet><Bell cancel={cancel} /></Guard>}
       {!phone && <span className="fh-me">{user.name}({ROLE_NAME[user.role]})</span>}
       {!phone && logout && <button type="button" className="btn" onClick={logout}>로그아웃</button>}
-      {phone && <details className="fh-more"><summary aria-label="더 보기">⋯</summary>
+      {phone && <details className="fh-more" ref={more}><summary aria-label="더 보기">⋯</summary>
         <div className="card">{inApp() ? null : canFull() ? <button type="button" className="btn" aria-pressed={full} data-full onClick={(e) => shut(e, toggleFull)}>{full ? '전체화면 끄기' : '전체화면'}</button>
           : !installed() && <p className="lbl" data-full-tip>공유 → «홈 화면에 추가»로 열면 주소창 없이 넓게 보입니다.</p>}
+          {tab === 'drive' && !open && <ScanStart user={user} robots={pool} label={PHONE_SCAN} start={() => { more.current?.removeAttribute('open'); setScan(true); }} />}
           {tab !== 'history' && <button type="button" className="btn" onClick={(e) => shut(e, () => go('history'))}>기록</button>}
           {logout && <button type="button" className="btn" onClick={(e) => shut(e, logout)}>로그아웃</button>}
           <ThemePick /></div></details>}
@@ -423,6 +426,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     <div className="fh-body">
       {!phone && <nav className="fh-nav" aria-label="주 메뉴">{PC_TABS.filter((t) => !t.hidden).map((t) => link(t, 'nav'))}<span className="fh-grow" /><ThemeNav />{link(PC_BOTTOM, 'nav')}</nav>}
       <main className="fh-main" aria-label={title}><Guard key={tab}>{simOpen ? sv.real ? <RealDrive /> : <SimDrive shrink={setSmall} />
+        : phone && scan && tab === 'drive' && !open ? <ScanPanel key={user.id} user={user} robots={pool} close={() => setScan(false)} cancel={cancel} />   // ⋯ 지도 스캔(u14_2)
         : tab === 'settings' ? <Settings key={user.id} user={user} setMe={setMe} refresh={refresh} cancel={cancel} />   // 로봇 목록이 바뀌어도 다시 그리지 않음(한 번만 보이는 토큰 칸 유지)
         : tab === 'terrain' ? <Terrain />   // 로봇과 무관 — 로봇 0대여도, 로봇을 바꿔도 다시 그리지 않음
         : ctx ? <Body key={`${tab}-${tab === 'control' || tab === 'fleet' || tab === 'approval' || tab === 'trash' ? '' : tab === 'map' ? mapN : ctx.robot.id}-${user.id}`} {...ctx} />   // 관제·지도·결재는 로봇을 골라도 다시 그리지 않음(층·지도 그림·고른 결재 유지 — 상세 서랍은 자기 key)
