@@ -110,7 +110,7 @@
 | POST | `/robots/{id}/agent-token` | 실기 직접 발급 폐지 →403 `PAIRING_REQUIRED`, 시뮬 기존409 `SIM_TOKEN_MANAGED` | 없음 |
 | GET | `/robots/{id}/telemetry` | 그래프용 요약 `?from&to&fields=battery,speed,latency&step=10s` | A, O(내). 담당 밖 운영 관리자는 404 |
 | POST | `/robots/{id}/floor` | 현재 층 사람 입력 `{floor_id}` | A, O(내) |
-| POST | `/robots/{id}/stop` | STOP (WS 를 못 쓸 때 대체 경로) → 202 `{requested:true}`. 웹은 `X-FH-CSRF` 필요. 실시간 중재기가 없는 서버면 503 `SERVER_BUSY` | 로그인 (볼 수 있으면) |
+| POST | `/robots/{id}/stop` | STOP (WS 를 못 쓸 때 대체 경로) → 202 `{requested:true, delivered}` (`StopAccepted`. delivered=false 는 지금 연결된 에이전트가 없거나 정지 길이 막혀 보낼 길이 없다는 뜻이고 정지 여부가 아니다. 에이전트가 없을 때 누른 STOP 은 큐에 넣지 않고, 다시 붙으면 서버가 연결 STOP(cause `agent_connected`)을 보내 잠긴 채 시작한다. 단 서버 조종 스위치가 꺼진 실기는 서버가 STOP 을 보낼 수 없다(폰 직결·리모컨으로 멈춤). `latched` 도 제어 잠금일 뿐이고 물리 정지는 에이전트 `GO2_STOP_HELD` 같은 측정 증거로만 말한다. 계약 README). 웹은 `X-FH-CSRF` 필요. 실시간 중재기가 없는 서버면 503 `SERVER_BUSY` | 로그인 (볼 수 있으면) |
 
 **관제·조종 고르기의 로봇 범위**
 - PC 관제·조종 고르기: 총괄·운영 관리자 모두 `scope=all` 로 전체 로봇을 받는다. 운영 관리자 화면은 자기 담당을 먼저 놓는다(서버 목록은 만든 순서이고, 순서는 화면이 정함).
@@ -402,6 +402,37 @@ purge 이후 NULL 기록이 생겼거나 파일 대기열이 남으면
   "message": "14:02 Go2-3이 계획 경로에서 1.8 m 벗어났습니다.",
   "robot_id": "…"|null, "user_id": "…"|null, "run_id": "…"|null, "data": { "distance_m": 1.8 } }
 ```
+
+**사건 등급 하한** (2026-11-28, #552 기록 탭)
+- 등급은 `INFO` < `WARN` < `ERROR` 셋뿐이다(DB 제약 `event_severity`). 따로 `DANGER`·`CRITICAL` 은 두지 않는다.
+- 코드가 `_(FAILED|REJECTED|DENIED|TIMEOUT)$` 에 맞으면 저장 등급은 최소 `WARN` 이다. 보낸 쪽이 `INFO` 로 보냈거나 등급을 비웠으면 서버가 `WARN` 으로 올린다. 이미 `WARN`·`ERROR` 면 그대로 둔다. 내리는 일은 없다.
+- `STOP_CONFIRM_FAILED` 는 최소 `ERROR` 다. 정지를 요청했는데 2 s 안에 확인이 오지 않아 로봇이 멈췄는지 증명되지 않은 상태이기 때문이다([02 F-TO-04](02-FUNCTIONAL-SPEC.md#f-to-04-조종권-요청-sf-05sf-08--확정--제안-보완) 넘김 순서 4).
+- 서버는 사건 행을 넣는 모든 경로에서 이 하한을 한 곳(`fh_server/models.py` 의 `severity_floor`)으로 건다. 에이전트도 보낼 때 같은 규칙을 쓴다(폰 허브 `PHONE_LEASE_TIMEOUT` 등은 `warn`).
+- 서버 조종권 요청 시간 초과의 코드 `TIMEOUT` 은 밑줄이 없어 위 정규식에 맞지 않지만, 따로 지정해 최소 `WARN` 이다(2026-11-28 결정).
+
+### 8.1 사건 영상 · 관절 기록 재생 · 지금 남기기 (u07, IMPL-GAP U8-03~U8-12)
+
+정본 타입은 `apps/contracts/models.py` 의 `EventClip` · `EventClipList` · `JointLogFrame` · `JointLogReplay` · `RecordMarkRequest` · `RecordMarkResult` 다.
+
+**영상 규칙**
+- 영상은 서버가 만든다. 시뮬과 실기는 같은 기록 · 알림 · 영상을 남긴다.
+- 길이: 사건 10 초 전부터 5 초 뒤까지 (`CLIP_PRE_S` · `CLIP_POST_S`). 넘어짐은 다시 설 때까지라 서기 전에는 `end_at` 이 null 이다.
+- 등급: 위험(`ERROR`)은 늘 영상을 남긴다. 주의(`WARN`)는 고른 때만 남긴다. 정보(`INFO`)는 기록만 하고 영상이 없다.
+- 상태 `status`: `PENDING`(만드는 중) · `READY`(`url` 있음) · `FAILED`(`reason` 있음) · `NOT_BUILT`(만드는 장치가 아직 없음, `clip_id` null, `reason` 있음). `url` 은 `READY` 일 때만 값이 있다.
+
+**관절 기록 재생**: `JointLogReplay { event_id, robot_id, start_at, joint_names[12], rate_hz, frames[] }`, 프레임은 `JointLogFrame { t, q[12], base { xyz[3], wxyz[4] }, gait|null }`. `t` 는 `start_at` 부터 초이고 프레임은 시간 순으로 늘어난다. `q` 는 `joint_names` 순서의 rad. 재생 빠르기 0.25 · 0.5 · 1 · 2 배와 반복은 웹이 프레임을 다시 그려서 한다. 서버는 빠르기를 받지 않는다.
+
+| 메서드 | 경로 | 설명 | 권한 | 지금 |
+|---|---|---|---|---|
+| POST | `/robots/{id}/records/mark-now` | 「지금 남기기」. 본문 `{severity?: INFO\|WARN\|ERROR (기본 WARN), note?: ≤200자, clip?: bool\|null}`. 201 `{event, clip}` | 그 로봇 보기 권한 (`ROBOT_READ`: 담당 운영자 · 총괄) | 사건은 실제로 `events` 에 남는다 (`category RUN`, `code RECORD_MARKED`). 영상은 `NOT_BUILT`, INFO · `clip:false` 면 `clip: null` |
+| GET | `/robots/{id}/records/clips` | 그 로봇의 사건 영상 목록 `EventClipList` | 같음 | **501** `CLIP_PIPELINE_NOT_BUILT` |
+| GET | `/robots/{id}/records/clips/{clip_id}` | 영상 하나 `EventClip` | 같음 | **501** `CLIP_PIPELINE_NOT_BUILT` |
+| GET | `/robots/{id}/records/events/{event_id}/joint-log` | 사건 둘레 관절 기록 `JointLogReplay` | 같음 | **501** `JOINT_LOG_NOT_BUILT` |
+
+- 권한 판정을 먼저 한다. 볼 수 없는 로봇은 501 이 아니라 404 다 (있다는 사실도 숨김).
+- 501 본문은 보통 오류 모양 `{error: {code, message, detail: {}}}` 이고 `message` 는 한 줄이다. 웹은 그대로 보여 준다. 까닭 코드 목록은 `RecordsNotBuiltCode`.
+- 규칙에 어긋난 고르기 (`ERROR` + `clip:false`, `INFO` + `clip:true`) 는 조용히 고치지 않고 400 `VALIDATION`.
+- 이번 범위 밖: 실제 영상 만들기 · 관절 기록 저장 (실기 · Jetson 쪽 일 없음), 「지금 남기기」 알림 발송.
 
 ---
 

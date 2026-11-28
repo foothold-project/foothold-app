@@ -1,5 +1,5 @@
 """Pydantic v2 source for FH-SPEC-05 §§1, 2, 3, 5, 6, 7, 8."""
-from datetime import timezone
+from datetime import timedelta, timezone
 import base64
 import binascii
 import math
@@ -168,6 +168,10 @@ class Battery(Contract):
     updated_at: UTCDateTime
 
 
+# Sim worlds whose observations carry a floor context; the only world-to-floor table.
+SIM_WORLD_FLOORS = {'v5_building': ('l1', 'l2'), 'plant_a': ('l1', 'l2', 'l3'), 'warehouse': ('f1',)}
+
+
 class FloorContext(Contract):
     """Observation identity; compare the entire token before using asynchronous map results.
 
@@ -179,10 +183,10 @@ class FloorContext(Contract):
     run_id: str = Field(min_length=1, max_length=128)
     epoch: int = Field(ge=0, strict=True)
     floor_rev: int = Field(ge=0, strict=True)
-    world_id: Literal['v5_building', 'warehouse']
+    world_id: Literal['v5_building', 'plant_a', 'warehouse']
     building_id: UUID
-    spawn_floor_id: Literal['l1', 'l2', 'f1']
-    current_floor_id: Literal['l1', 'l2', 'f1'] | None
+    spawn_floor_id: Literal['l1', 'l2', 'l3', 'f1']
+    current_floor_id: Literal['l1', 'l2', 'l3', 'f1'] | None
     floor_id: UUID | None
     map_version_id: UUID | None
     sha256: str | None = Field(pattern=r'^[0-9a-f]{64}$')
@@ -194,12 +198,11 @@ class FloorContext(Contract):
 
     @model_validator(mode='after')
     def coherent_floor(self):
-        if self.world_id == 'warehouse':
-            if (self.spawn_floor_id != 'f1' or self.current_floor_id != 'f1'
-                    or self.floor_state != 'on_floor'):
-                raise ValueError('static world has one fixed floor')
-        elif self.spawn_floor_id == 'f1' or self.current_floor_id == 'f1':
-            raise ValueError('connected building floors are l1/l2')
+        floors = SIM_WORLD_FLOORS[self.world_id]
+        if self.spawn_floor_id not in floors or self.current_floor_id not in (*floors, None):
+            raise ValueError('floor does not belong to world')
+        if self.world_id == 'warehouse' and (self.current_floor_id != 'f1' or self.floor_state != 'on_floor'):
+            raise ValueError('static world has one fixed floor')
         if (self.floor_state == 'on_floor') != (self.current_floor_id is not None):
             raise ValueError('current_floor_id is present exactly when on_floor')
         ready = self.map_version_id is not None
@@ -276,6 +279,13 @@ class Device(Contract):
 
 class StopRequest(Contract):
     request_id: UUID
+
+
+class StopAccepted(Contract):
+    """POST /robots/{id}/stop 202. delivered: the stop entered a connected agent
+    queue at that moment. False is not "did not stop"; see contracts README."""
+    requested: Literal[True] = True
+    delivered: bool
 
 
 class StopRequestAck(Contract):
@@ -499,6 +509,117 @@ class NotificationsRead(Contract):
         if self.ids is not None and any(int(value) > 2**63 - 1 for value in self.ids):
             raise ValueError('ID exceeds bigint')
         return self
+
+
+# u07 records (05 §8.1). Clips are cut on the server, same rule for sim and real robot:
+# from CLIP_PRE_S before the event to CLIP_POST_S after it; a fall runs until the robot
+# stands back up (end_at null while open). ERROR always gets a clip, WARN only when
+# chosen, INFO is recorded only. Not built yet: the server answers NOT_BUILT / 501.
+CLIP_PRE_S = 10
+CLIP_POST_S = 5
+ClipStatus = Literal['PENDING', 'READY', 'FAILED', 'NOT_BUILT']
+RecordsNotBuiltCode = Literal['CLIP_PIPELINE_NOT_BUILT', 'JOINT_LOG_NOT_BUILT']
+EventSeverity = Literal['INFO', 'WARN', 'ERROR']
+
+
+def clip_window(at):
+    return at - timedelta(seconds=CLIP_PRE_S), at + timedelta(seconds=CLIP_POST_S)
+
+
+def clip_wanted(severity, chosen):
+    """chosen None = rule default; a choice against the rule is an error, not ignored."""
+    if severity == 'ERROR':
+        if chosen is False:
+            raise ValueError('ERROR events always get a clip')
+        return True
+    if severity == 'INFO':
+        if chosen is True:
+            raise ValueError('INFO events are recorded without a clip')
+        return False
+    return chosen is not False
+
+
+class EventClip(Contract):
+    clip_id: UUID | None = Field(description='만든 영상 번호. 만들기 전(NOT_BUILT)에는 null')
+    event_id: DecimalID
+    robot_id: UUID
+    start_at: UTCDateTime = Field(description='사건 10 초 전')
+    end_at: UTCDateTime | None = Field(description='사건 5 초 뒤. 넘어짐은 다시 설 때까지라 서기 전에는 null')
+    status: ClipStatus
+    url: str | None = Field(description='READY 일 때만 값')
+    reason: str | None = Field(description='NOT_BUILT · FAILED 의 까닭 코드 (예: CLIP_PIPELINE_NOT_BUILT)')
+
+    @model_validator(mode='after')
+    def consistent(self):
+        if (self.status == 'READY') != (self.url is not None):
+            raise ValueError('url is present exactly when READY')
+        if self.status == 'READY' and self.clip_id is None:
+            raise ValueError('READY needs clip_id')
+        if self.status == 'NOT_BUILT' and self.clip_id is not None:
+            raise ValueError('NOT_BUILT has no clip_id')
+        if self.status in ('NOT_BUILT', 'FAILED') and not self.reason:
+            raise ValueError('NOT_BUILT and FAILED need a reason')
+        if self.end_at is not None and self.end_at < self.start_at:
+            raise ValueError('end_at before start_at')
+        return self
+
+
+class EventClipList(Contract):
+    items: list[EventClip]
+    next_cursor: str | None
+
+
+class JointLogBase(Contract):
+    xyz: list[float] = Field(min_length=3, max_length=3, description='몸통 위치 m (기록 좌표)')
+    wxyz: list[float] = Field(min_length=4, max_length=4, description='몸통 자세 사원수')
+
+    @model_validator(mode='after')
+    def unit_quaternion(self):
+        if not .9 <= math.hypot(*self.wxyz) <= 1.1:
+            raise ValueError('invalid quaternion norm')
+        return self
+
+
+class JointLogFrame(Contract):
+    t: float = Field(ge=0, description='JointLogReplay.start_at 부터 초')
+    q: list[float] = Field(min_length=12, max_length=12, description='관절 각 rad, joint_names 순서')
+    base: JointLogBase
+    gait: Annotated[str, Field(min_length=1, max_length=32)] | None = Field(
+        description='걷기 모드 이름 (classic · sport · start · ame2 등, 열린 문자열). 모르면 null')
+
+
+class JointLogReplay(Contract):
+    """3D replay frames. Playback rate (0.25/0.5/1/2) and loop are web-only controls."""
+    event_id: DecimalID
+    robot_id: UUID
+    start_at: UTCDateTime
+    joint_names: list[Go2JointName] = Field(min_length=12, max_length=12)
+    rate_hz: int = Field(ge=1, le=1000)
+    frames: list[JointLogFrame] = Field(max_length=100_000)
+
+    @model_validator(mode='after')
+    def ordered(self):
+        if len(set(self.joint_names)) != 12:
+            raise ValueError('twelve unique joint names required')
+        if any(b.t <= a.t for a, b in zip(self.frames, self.frames[1:])):
+            raise ValueError('frames must be strictly time ordered')
+        return self
+
+
+class RecordMarkRequest(Contract):
+    severity: EventSeverity = 'WARN'
+    note: Annotated[str, Field(max_length=200)] | None = None
+    clip: StrictBool | None = Field(default=None, description='WARN 만 고를 수 있다. null 이면 규칙 기본값')
+
+    @model_validator(mode='after')
+    def policy(self):
+        clip_wanted(self.severity, self.clip)
+        return self
+
+
+class RecordMarkResult(Contract):
+    event: Event
+    clip: EventClip | None = Field(description='영상을 남기지 않는 사건(INFO 등)은 null')
 
 
 # Canonical IDs in mobile/sim/policy-modes.js. go2-demo is display-only;
@@ -1476,11 +1597,13 @@ class ScreenServerPing(Contract):
 
 class ScreenReply(Contract):
     model_config = ConfigDict(json_schema_extra=lambda schema: schema.update(
-        required=[key for key in schema.get('required', []) if key != 'error']))
+        required=[key for key in schema.get('required', []) if key not in ('error', 'delivered')]))
     t: Literal['reply'] = 'reply'
     id: str
     ok: bool
     error: ErrorBody | None = None
+    # Only on a successful `stop` reply; same meaning as StopAccepted.delivered.
+    delivered: bool | None = Field(default=None, exclude_if=lambda v: v is None)
 
 
 class ScreenLeaseUpdate(Contract):
@@ -1902,9 +2025,17 @@ class MappingBundleLink(Contract):
 class MapVersion(Contract):
     slam_bundle: MappingBundleLink | None = Field(default=None, exclude_if=lambda value: value is None)
     voxel_map: VoxelMapSummary | None = Field(default=None, exclude_if=lambda value: value is None)
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('provenance', 'terrain_spec', 'voxel_map', 'slam_bundle'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('provenance', 'terrain_spec', 'voxel_map', 'slam_bundle', 'model_sha256', 'model_floor_z'))
     provenance: Literal['HUMAN', 'SIMULATION'] = 'HUMAN'
     terrain_spec: TerrainSpec | None = Field(default=None, exclude_if=lambda value: value is None)
+    # One indoor 3D model (GLB) of this version's floor, served by GET .../model
+    # with ETag = this hex sha256. null: no 3D, clients show the 2D map only.
+    # glTF (x,y,z) -> world (x,-z,y); world (x,y,z) is glTF (x,z,-y). Metres,
+    # map world origin. See contracts README.
+    model_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
+    # World z (m) of this floor's top face for placing markers on the model;
+    # null exactly when model_sha256 is null.
+    model_floor_z: float | None = None
     upload_id: UUID
     id: UUID
     floor_id: UUID
@@ -3194,7 +3325,7 @@ class SimWorld(Contract):
     model_config = ConfigDict(json_schema_extra=optional_response_fields('map_id', 'floors', 'spawn_floor_ids'))
     map_id: UUID | None = None
     floors: list[SimWorldFloor] = Field(default_factory=list)
-    spawn_floor_ids: list[Literal['l1', 'l2']] = Field(default_factory=list)
+    spawn_floor_ids: list[Literal['l1', 'l2', 'l3']] = Field(default_factory=list)
     id: str = Field(min_length=1, max_length=128)
     name: str = Field(min_length=1, max_length=40)
     description: str = Field(default='', max_length=200)
@@ -3202,20 +3333,27 @@ class SimWorld(Contract):
 
 class SimWorldStart(Contract):
     world_id: str = Field(min_length=1, max_length=128)
-    spawn_floor_id: Literal['l1', 'l2'] | None = None
+    spawn_floor_id: Literal['l1', 'l2', 'l3'] | None = None
 
     @model_validator(mode='after')
     def normalize_building(self):
-        if self.world_id in ('v5_building/l1', 'v5_building/l2'):
-            floor = self.world_id.rsplit('/', 1)[1]
+        # Connected multi-floor worlds (v5_building, plant_a) start as one world plus a spawn floor.
+        world, _, floor = self.world_id.partition('/')
+        floors = SIM_WORLD_FLOORS.get(world, ())
+        if len(floors) > 1 and floor:
+            if floor not in floors:
+                raise ValueError('spawn floor does not belong to world')
             if self.spawn_floor_id is not None and self.spawn_floor_id != floor:
                 raise ValueError('conflicting spawn floor alias')
-            self.world_id, self.spawn_floor_id = 'v5_building', floor
-        if self.world_id == 'v5_building':
+            self.world_id, self.spawn_floor_id = world, floor
+        floors = SIM_WORLD_FLOORS.get(self.world_id, ())
+        if len(floors) > 1:
             if self.spawn_floor_id is None:
                 self.spawn_floor_id = 'l1'
+            elif self.spawn_floor_id not in floors:
+                raise ValueError('spawn floor does not belong to world')
         elif self.spawn_floor_id is not None:
-            raise ValueError('spawn floor selection requires v5_building')
+            raise ValueError('spawn floor selection requires a connected building')
         return self
 
 
@@ -3230,10 +3368,10 @@ class SimRemove(Contract):
 
 class SimMapBinding(Contract):
     """Server-verified canonical GT registration; PNG and PGM hashes are distinct."""
-    world_id: Literal['v5_building', 'warehouse']
+    world_id: Literal['v5_building', 'plant_a', 'warehouse']
     building_id: UUID
     ros_building_id: str = Field(min_length=1, max_length=64)
-    ros_floor_id: Literal['l1', 'l2', 'f1']
+    ros_floor_id: Literal['l1', 'l2', 'l3', 'f1']
     ros_map_version: str = Field(min_length=1, max_length=64)
     floor_id: UUID
     map_version_id: UUID
@@ -3247,13 +3385,13 @@ class SimMapBinding(Contract):
 
     @model_validator(mode='after')
     def world_floor(self):
-        if (self.world_id == 'warehouse') != (self.ros_floor_id == 'f1'):
+        if self.ros_floor_id not in SIM_WORLD_FLOORS[self.world_id]:
             raise ValueError('floor does not belong to world')
         return self
 
 
 class SimProvision(SimStartRequest):
-    map_bindings: list[SimMapBinding] = Field(default_factory=list, max_length=2)
+    map_bindings: list[SimMapBinding] = Field(default_factory=list, max_length=3)
     generation: int = Field(ge=1, le=9223372036854775807)
     owner_id: UUID
     org_id: UUID
@@ -3286,7 +3424,7 @@ class SimCleanupSlot(Contract):
 
 class SimRobot(Contract):
     model_config = ConfigDict(json_schema_extra=optional_response_fields('spawn_floor_id'))
-    spawn_floor_id: Literal['l1', 'l2'] | None = None
+    spawn_floor_id: Literal['l1', 'l2', 'l3'] | None = None
     generation: int = Field(ge=1, le=9223372036854775807)
     robot_id: UUID
     owner_id: UUID
@@ -3471,3 +3609,6 @@ REQUEST_MODELS.update({TerrainSpec, TerrainPose, TerrainBox, TerrainStairs, Terr
 REQUEST_MODELS.add(ZoneOverlapRequest)
 
 REQUEST_MODELS.update({MappingStart, MappingAction, AgentMappingUpdate, AgentMappingCommand})
+
+TOP.update(ClipStatus=ClipStatus, RecordsNotBuiltCode=RecordsNotBuiltCode)
+REQUEST_MODELS.add(RecordMarkRequest)

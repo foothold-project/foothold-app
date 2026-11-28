@@ -223,16 +223,16 @@ function Lifecycle({ where, items, end, on, pick, edit, form }: { where: Where; 
       <span className="sn-tools">
         <button type="button" className="sn-chip" data-all-open aria-pressed={all} title="두 번째 안(단계 펼침) = 고정 절차를 모두 펼친 모양"
           onClick={() => { pin('임무'); setOpen(all ? new Set() : new Set(FOLDS)); }}>{all ? '모두 접기' : '모두 펼치기'}</button>
-        <label className="sn-sup" title="코드 기준 판정(됨·일부·아직 없음) — 실기체 검증과 다름"><input type="checkbox" data-support-toggle checked={sup} onChange={(e) => setSup(e.target.checked)} />지원 현황</label>
+        <label className="sn-sup" title="코드 기준 판정(됨·일부·아직 없음) · 실기체 검증과 다름"><input type="checkbox" data-support-toggle checked={sup} onChange={(e) => setSup(e.target.checked)} />지원 현황</label>
       </span>
       <div className="sn-watch" data-watch><b>내장 안전 기능</b>
         {WATCH.map(([t, id]) => { const b = badgeOf(life(id)!, where);
-          return <button type="button" key={id} className="sn-chip" data-st={b.st} data-life={id} title={`${life(id)!.name} — ${b.text}`} onClick={() => setSel(id)}>{t}</button>; })}
+          return <button type="button" key={id} className="sn-chip" data-st={b.st} data-life={id} title={`${life(id)!.name} · ${b.text}`} onClick={() => setSel(id)}>{t}</button>; })}
         <span className="sn-muted" data-watch-note>기능 설명 · 지금 로봇 상태 아님</span></div>
     </div>
-    <p className="sn-hint">{stage === '임무' ? '임무 = 지금 시나리오 — 지점 카드를 누르면 편집 창(할 일·위치·순서), 지도를 눌러 지점 추가 · 고정 절차는 눌러 펼쳐 읽기만'
-      : stage === '예외 처리' ? '읽기만 — 예외 갈래는 내장 «모의 BT 공장 순찰»에만 있고 시나리오 편집기로는 만들지 않습니다'
-      : '읽기만 — 코드 기준 판정(11-09 대조표)'}{where === 'real' ? ' · 실기 «됨» = 코드 경로 기준, 실기체 검증과 다름' : ''}</p>
+    <p className="sn-hint">{stage === '임무' ? '임무 = 지금 시나리오 · 지점 카드를 누르면 편집 창(할 일·위치·순서), 지도를 눌러 지점 추가 · 고정 절차는 눌러 펼쳐 읽기만'
+      : stage === '예외 처리' ? '읽기만 · 예외 갈래는 내장 «모의 BT 공장 순찰»에만 있고 시나리오 편집기로는 만들지 않습니다'
+      : '읽기만 · 코드 기준 판정(11-09 대조표)'}{where === 'real' ? ' · 실기 «됨» = 코드 경로 기준, 실기체 검증과 다름' : ''}</p>
     <div className="sn-main">
       <Flow key={key} nodes={[...g.boxes, ...g.nodes]} edges={g.edges} on={focus} stage={stage} tap={tap} init={init} view={view} big={big} />
       {(!big || (focus && shut !== focus)) && (form && wp != null && wp === on && items[wp]
@@ -283,7 +283,7 @@ function Detail({ id, g, where, items, edit, close }: { id: string | null; g: N[
   const n = g.find((x) => x.id === id), wp = n?.data.wp, it = wp != null ? items[wp] : undefined, l = it ? life(KIND_LIFE[it.kind]) : life(id ?? undefined);
   if (!n && !l) return <p className="sn-detail sn-muted" data-detail="">노드를 누르면 처리 주체·실패 시·판정을 봅니다.</p>;
   const no = where === 'websim' ? it?.no : undefined, b = no ? { st: 'no' as const, text: '시뮬에서 실행 못 함' } : l && badgeOf(l, where);
-  const miss = no ?? (l && b && b.st !== '됨' ? l.missing[where].replace(/^해당 없음 — /, '') : '');
+  const miss = no ?? (l && b && b.st !== '됨' ? l.missing[where].replace(/^해당 없음 · /, '') : '');
   return <dl className="sn-detail" data-detail={id}>
     <dt className="sn-name">{it ? `${wp! + 1}번 지점 · ${it.title}` : n?.data.title ?? l!.name}
       {close && <button type="button" className="sn-x" aria-label="상세 닫기" title="닫기" data-detail-close onClick={close}>×</button>}</dt>

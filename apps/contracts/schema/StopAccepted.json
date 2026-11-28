@@ -1,0 +1,24 @@
+{
+  "$id": "fh-app/1/StopAccepted",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "POST /robots/{id}/stop 202. delivered: the stop entered a connected agent\nqueue at that moment. False is not \"did not stop\"; see contracts README.",
+  "properties": {
+    "delivered": {
+      "title": "Delivered",
+      "type": "boolean"
+    },
+    "requested": {
+      "const": true,
+      "default": true,
+      "title": "Requested",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "requested",
+    "delivered"
+  ],
+  "title": "StopAccepted",
+  "type": "object"
+}

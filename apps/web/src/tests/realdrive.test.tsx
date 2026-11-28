@@ -120,7 +120,7 @@ describe('실기 직결 조종 화면 배치', () => {
     expect($('[data-real-drive]')?.getAttribute('data-main')).toBe('rgb');
     expect(view('lidar').className).toContain('pip');
     expect(view('lidar').hasAttribute('data-off')).toBe(true);
-    expect(view('lidar').textContent).toBe('라이다 화면 없음 — 이 연결은 카메라만 보입니다');
+    expect(view('lidar').textContent).toBe('라이다 화면 없음 · 이 연결은 카메라만 보입니다');
     expect($('[data-real-swap]')).toBeNull();
     expect($('[data-lidar3d]')).toBeNull();
     expect(want.mock.calls.filter(([ch]) => ch === 'lidar')).toEqual([]);
@@ -226,7 +226,7 @@ describe('실기 직결 조종 화면 배치', () => {
   it('화면 글에 내부 규약명(media/1)·영문 원문이 없음 — 라이다를 알리지 않는 로봇은 쉬운 말 (RV-449 ⑤)', async () => {
     await connected(undefined, { addr: true });
     expect($('[data-real-drive]')?.getAttribute('data-main')).toBe('rgb');
-    expect(view('lidar').textContent).toBe(`라이다 신호 없음 — ${plain(NO_MEDIA)}`);
+    expect(view('lidar').textContent).toBe(`라이다 신호 없음 · ${plain(NO_MEDIA)}`);
     expect(view('lidar').textContent).toContain('관측 영상을 알리지 않습니다');
     expect(box.textContent).not.toMatch(/media\/1/);
     expect(plain(BAD_WELCOME)).not.toMatch(/media/);
@@ -384,7 +384,7 @@ describe('실기 직결 조종 화면 배치', () => {
   it('에이전트가 알린 모르는 영문 사유(Media ROS reader unavailable)는 화면에 내지 않고 쉬운 한국어 한 줄 (RV-454 3)', async () => {
     const down = { available: false, reason: 'Media ROS reader unavailable', token: null };
     await connected({ ...MEDIA, rgb: down, external: down, lidar: down }, { addr: true });
-    expect(view('lidar').textContent).toBe('라이다 신호 없음 — 로봇에서 영상을 받지 못하고 있습니다');
+    expect(view('lidar').textContent).toBe('라이다 신호 없음 · 로봇에서 영상을 받지 못하고 있습니다');
     expect(box.textContent).not.toMatch(/Media|ROS|reader|unavailable/);
     expect(say('Media ROS reader unavailable')).toBe('로봇에서 영상을 받지 못하고 있습니다');
     expect(say('RGB 카메라가 꺼져 있습니다 (RGB source is disabled)')).toBe('RGB 카메라가 꺼져 있습니다');
@@ -422,13 +422,13 @@ describe('실기 직결 조종 화면 배치', () => {
     };
     await status('rgb', '(decoder offline)'); await status('lidar', '수신기 E_TIMEOUT');
     expect(view('rgb').textContent).toBe('로봇에서 영상을 받지 못하고 있습니다');
-    expect(view('lidar').textContent).toBe('라이다 신호 없음 — 로봇에서 영상을 받지 못하고 있습니다');
+    expect(view('lidar').textContent).toBe('라이다 신호 없음 · 로봇에서 영상을 받지 못하고 있습니다');
     expect(box.textContent).not.toMatch(/decoder|offline|E_TIMEOUT|\(\s*[A-Za-z]/);
     for (const t of ['수신기 E_TIMEOUT', '(decoder offline)', 'decoder offline', '영상 수신기 오프라인 [decoder]', '카메라 오류: E504']) expect(say(t)).toBe('로봇에서 영상을 받지 못하고 있습니다');
     expect(say('JPEG decoder (Pillow) is unavailable')).toBe('로봇에서 영상을 받지 못하고 있습니다');
     expect(say(reasonText('JPEG decoder (Pillow) is unavailable'))).toBe('로봇 쪽 JPEG 해독기가 없어 영상을 보낼 수 없습니다');   // 알려진 것 = 쉬운 한국어
     expect(say(reasonText('RGB source is disabled'))).toBe('RGB 카메라가 꺼져 있습니다');
-    expect(why({ state: 'expired', why: '영상 연결 권한(10초·1회)이 끝났습니다 — «영상 다시 받기»로 다시 연결하세요' } as Feed, 'rgb')).toBe('영상 연결 권한(10초·1회)이 끝났습니다 — «영상 다시 받기»로 다시 연결하세요');   // 앱 자체 글은 why 가 say 를 거치지 않는다(RV-456 2)
+    expect(why({ state: 'expired', why: '영상 연결 권한(10초·1회)이 끝났습니다 · «영상 다시 받기»로 다시 연결하세요' } as Feed, 'rgb')).toBe('영상 연결 권한(10초·1회)이 끝났습니다 · «영상 다시 받기»로 다시 연결하세요');   // 앱 자체 글은 why 가 say 를 거치지 않는다(RV-456 2)
     expect(say('')).toBe('');
   });
 
@@ -439,7 +439,7 @@ describe('실기 직결 조종 화면 배치', () => {
       act(() => ws.recv({ t: 'media.status', version: 'media/1', robot: RID, epoch: 1, episode_id: null, channel: ch, reason })); await flush();
     }
     expect(view('rgb').textContent).toBe('로봇에서 영상을 받지 못하고 있습니다');
-    expect(view('lidar').textContent).toBe('라이다 신호 없음 — 로봇에서 영상을 받지 못하고 있습니다');
+    expect(view('lidar').textContent).toBe('라이다 신호 없음 · 로봇에서 영상을 받지 못하고 있습니다');
     expect(box.textContent!.normalize('NFKC')).not.toMatch(/50[34]|\(\s*\d/);
   });
 
@@ -450,7 +450,7 @@ describe('실기 직결 조종 화면 배치', () => {
       act(() => ws.recv({ t: 'media.status', version: 'media/1', robot: RID, epoch: 1, episode_id: null, channel: ch, reason })); await flush();
     }
     expect(view('rgb').textContent).toBe('로봇에서 영상을 받지 못하고 있습니다');
-    expect(view('lidar').textContent).toBe('라이다 신호 없음 — 로봇에서 영상을 받지 못하고 있습니다');
+    expect(view('lidar').textContent).toBe('라이다 신호 없음 · 로봇에서 영상을 받지 못하고 있습니다');
     expect(box.textContent).not.toMatch(/50[34]|\(\s*\d/);
     for (const t of ['수신기 오류 (504)', '라이다 오류 (503)', '오류 504', '수신기 오류 [12]', '수신기 오류 (끊김)']) expect(say(t)).toBe('로봇에서 영상을 받지 못하고 있습니다');
     expect(say('영상 수신기가 꺼져 있습니다')).toBe('영상 수신기가 꺼져 있습니다');   // 숫자·괄호·영문 없는 한국어 사유는 그대로

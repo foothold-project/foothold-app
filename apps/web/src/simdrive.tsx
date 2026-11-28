@@ -1,6 +1,7 @@
 // 시뮬 로봇 띄우기 → 지도(월드) 고르기 → 직결 조종 → 끝내기(09 ADR-002 §3.2·§6). 상태·요청은 phone.ts, 이 파일은 그림만.
 import { useEffect, useRef, useState, type HTMLAttributes, type PointerEvent } from 'react';
-import type { PhoneWelcome, SimRobot } from '../../contracts/ts';
+import type { PhoneWelcome, SimProvision, SimRobot } from '../../contracts/ts';
+type SpawnFloor = NonNullable<SimProvision['spawn_floor_id']>;
 import { feedText, media, needsRelink, useFeed } from './media';
 import { useOrbit, viewBlock } from './extview';
 import { DEAD, RUN_END, allowed, runMoving, sim, stopping, tuned, useSim, velocity, type Sim } from './phone';
@@ -84,13 +85,15 @@ const runText = (l: Link) => {
 /** STOP 결과 한 줄 — 보냈다는 것과 로봇이 알린 잠금을 나눠 쓴다(확인 안 된 «정지됨» 없음, F-COM-01) */
 export function stopText({ stop: p, link: l, step, slotBusy }: Sim) {
   if (!p) return '';
-  if (p.via === 'none') return '■ 로봇에 연결되지 않아 정지 명령을 보낼 길이 없습니다 — 로봇은 폰 입력이 끊기면 스스로 멈춥니다(실기 미검증). 현장 비상 정지 수단을 쓰세요.';
-  if (p.via === 'cleanup') return step === 'pick' ? '' : slotBusy ? '■ 로봇에 연결 전 — 명령 없음. 내 시뮬 로봇으로 확인되면 정리합니다.'
-    : step === 'checking' ? '■ 로봇에 연결 전 — 명령 없음. 정리를 확인하지 못했습니다 — 다시 끝내기를 누르세요.' : '■ 로봇에 연결 전 — 명령 없음, 정리 중입니다.';
+  if (p.via === 'none') return '■ 로봇에 연결되지 않아 정지 명령을 보낼 길이 없습니다. 로봇은 폰 입력이 끊기면 스스로 멈춥니다(실기 미검증). 현장 비상 정지 수단을 쓰세요.';
+  if (p.via === 'cleanup') return step === 'pick' ? '' : slotBusy ? '■ 로봇에 연결 전 · 명령 없음. 내 시뮬 로봇으로 확인되면 정리합니다.'
+    : step === 'checking' ? '■ 로봇에 연결 전 · 명령 없음. 정리를 확인하지 못했습니다. 다시 끝내기를 누르세요.' : '■ 로봇에 연결 전 · 명령 없음, 정리 중입니다.';
   const st = l?.st;
-  if (!st || l!.stAt <= p.at) return '■ 정지 요청을 로봇에 보냈습니다. 로봇 확인을 기다립니다.';
+  if (!st || l!.stAt <= p.at) return '■ 정지 요청을 직결로 로봇에 보냈습니다(서버를 거치지 않음). 로봇 확인을 기다립니다.';
   if (!st.latched) return '■ 정지 요청을 보냈지만 로봇이 아직 잠금을 알리지 않았습니다.';
-  return st.applied.every((v) => v === 0) ? '■ 정지 잠금 — 로봇이 잠금과 멈춤 출력을 알렸습니다.' : '▲ 정지 잠금 — 출력이 아직 멈추지 않았습니다. 현장을 확인하세요.';
+  // 빈 applied = 출력 보고 없음(현장 승인 닫힘 등) · [].every 는 참이라 따로
+  if (!st.applied?.length) return '▲ 정지 잠금 · 멈춤 출력은 확인되지 않았습니다 (현장 승인이 닫혀 있을 수 있음). 리모컨이나 현장에서 멈추세요.';
+  return st.applied.every((v) => v === 0) ? '■ 정지 잠금 · 로봇이 잠금과 멈춤 출력을 알렸습니다.' : '▲ 정지 잠금 · 출력이 아직 멈추지 않았습니다. 현장을 확인하세요.';
 }
 
 /** 잠금 사유 OUTPUT_STALLED(에이전트 출력 지연 → 0·STOP·잠금) 안내. 해제 판정은 에이전트 몫이라 단추 동작은 그대로 */
@@ -110,7 +113,7 @@ export function SimLaunch({ me, view }: { me: string; view?: boolean; admin?: bo
   const only = !view || inApp(), title = !only ? '시뮬 로봇 띄우기' : inApp() ? '시뮬(앱 안)' : '시뮬';
   const [engine, setEngine] = useState(savedEngine);
   const pickEngine = (e: Engine) => { try { localStorage.setItem(ENGINE_KEY, e); setEngine(e); } catch { setEngine('mujoco'); } };   // 저장 실패 = MuJoCo
-  const s = useSim(), [pick, setPick] = useState(''), [spawn, setSpawn] = useState<'l1' | 'l2'>('l1');
+  const s = useSim(), [pick, setPick] = useState(''), [spawn, setSpawn] = useState<SpawnFloor>('l1');
   useDeadline(!!s.robot?.expires_at);
   useEffect(() => { if (s.step === 'pick') sim.load(); }, []);
   useTick(s.step === 'starting');
@@ -119,10 +122,10 @@ export function SimLaunch({ me, view }: { me: string; view?: boolean; admin?: bo
   const gz = worlds.length > 0 && s.worldsOk && !s.managerError, app = only || engine === 'mujoco' || !gz;
   // 시작 층: 고른 월드가 두 층 이상에서 띄울 수 있을 때만(하나뿐이면 표시·전송 0)
   const w0 = worlds.find((w) => w.id === world), spawns = w0?.spawn_floor_ids ?? [], from = spawns.length > 1 ? spawns.includes(spawn) ? spawn : spawns[0] : undefined;
-  const floorName = (f: 'l1' | 'l2') => w0?.floors?.find((x) => x.ros_floor_id === f)?.name ?? (f === 'l1' ? '1층' : '2층');
+  const floorName = (f: SpawnFloor) => w0?.floors?.find((x) => x.ros_floor_id === f)?.name ?? (f === 'l1' ? '1층' : f === 'l2' ? '2층' : '3층');
   const l = s.link, wait = Math.max(0, Math.ceil((s.retryAt - performance.now()) / 1000));
   useTick(!!wait);
-  const msg = s.err && <p className="fh-why" role="status" data-sim-msg>{s.err}</p>;
+  const msg = s.err && <p className="fh-why" role="status" data-sim-msg style={{ wordBreak: 'keep-all' }}>{s.err}</p>;
   const stop = stopText(s);
   const cleanup = s.cleanup.filter((r) => r.owner_id === me);
   // 새로고침·나가기 뒤 다시 들어가기 — 새 연결이라 조종권·잠금 해제는 처음부터(자동 재개 없음)
@@ -149,7 +152,7 @@ export function SimLaunch({ me, view }: { me: string; view?: boolean; admin?: bo
       <div className="fh-row"><b>{short(r.robot_id)}</b><Chip tone="off" text="시뮬" /><span className="lbl">{worldName(s, r.world_id)} · {STATE[r.state]}</span></div>
       <div className="fh-row">{r !== resume && <button type="button" className="btn pri" onClick={() => sim.attach(r)}>{view ? '보기' : '직접 연결'}</button>}<button type="button" className="btn" onClick={() => sim.end(r)}>{r.state === 'ERROR' ? '정리' : '끝내기'}</button></div></li>)}</ul>}
     {!only && <fieldset className="fh-field" style={{ border: 0, padding: 0, margin: 0 }} data-sim-engine><legend>시뮬</legend>
-      <ul className="fh-list" aria-label="시뮬 고르기">{([['mujoco', 'MuJoCo', '이 기기에서 계산'], ['gazebo', 'Gazebo', gz ? '서버에서 계산' : '서버에서 계산 · 준비 중']] as const).map(([id, name, note]) =>
+      <ul className="fh-list" aria-label="시뮬 고르기">{([['mujoco', 'MuJoCo', '이 기기에서 계산'], ['gazebo', 'Gazebo', gz ? '서버에서 계산' : `서버에서 계산 · ${!s.worldsOk ? '월드 목록을 받지 못해' : s.managerError ? '시뮬 관리자에 닿지 않아' : '서버에 띄울 월드가 없어'} 지금 고를 수 없음`]] as const).map(([id, name, note]) =>
         <li key={id}><label className="fh-row">
           <input type="radio" name="sim-engine" value={id} checked={(app ? 'mujoco' : 'gazebo') === id} disabled={id === 'gazebo' && !gz} onChange={() => pickEngine(id)} />
           <span><b>{name}</b><br /><small className="lbl">{note}</small></span></label></li>)}</ul></fieldset>}

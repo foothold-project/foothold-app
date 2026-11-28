@@ -58,11 +58,12 @@ export function Trash(c: Pick<Ctx, 'cancel'>) {
         <button type="button" className="btn" autoFocus onClick={() => setAsk(null)}>취소</button></div>
     </div>}
     <Note m={msg} />
+    {busy && <p className="lv-note" role="status" data-trash-busy>처리하는 중… 끝나면 단추가 다시 켜집니다.</p>}
     <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }} aria-label="휴지통 목록">{(items ?? []).map((x) => <li key={`${x.kind}-${x.id}`} className="fh-row" style={{ padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--panel2)' }} data-trash-item={x.id}>
       <span className="lbl">{KIND[x.kind]}</span>
       <b style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{x.name}</b>
       {x.parent_name && <span className="lbl">{x.parent_name} 안</span>}
-      <span className="lbl fh-grow">{x.deleted_by?.display_name ?? '지운 사람 모름'} · {when(x.archived_at)}</span>
+      <span className="lbl fh-grow" style={{ minWidth: 'min(100%, 24em)' }} data-trash-who>{x.deleted_by?.display_name ?? '지운 사람 모름'} · {when(x.archived_at)}</span>
       <button type="button" className="btn" disabled={busy} onClick={() => run(x, false)}>복원</button>
       <button type="button" className="btn" disabled={busy} onClick={() => { setAsk(x); setMsg(null); }}>완전 삭제</button>
     </li>)}</ul>

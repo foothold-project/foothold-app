@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Session, User } from '../../../contracts/ts';
 import { HAS_ROBOTS, LAST_ADMIN, PW_DONE, SIM_MODELS, TAKEN, tempPassword } from '../screens/settings';
 import { Root } from '../session';
+import { setThemePref } from '../theme';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -266,34 +267,40 @@ describe('총괄 — 계정 관리', () => {
   });
 });
 
-describe('설정 탭 묶음(11-02 공통·실기·시뮬·계정)', () => {
+describe('설정 묶음(U9-04 시안 배치)', () => {
   const ORG = { ...LIMITS, sim_max_vx: 0.5, sim_min_vx: 0.2, sim_max_vy: 0.3, sim_max_wz: 0.5, sim_key_vx: 0.4, stick_deadzone: 0.1, sim_runner_vx: 0.4, sim_runner_wz: 0.6, lidar_view_m: 12, real_no_fast_server_drive: false };
   const tabs = () => [...box.querySelectorAll<HTMLButtonElement>('[role="tablist"] [role="tab"]')];
   const panel = (name: string) => document.getElementById(tabs().find((t) => t.textContent === name)!.getAttribute('aria-controls')!)!;
   const key = (el: Element, k: string) => act(() => { el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })); });
-  it('탭 4개(tablist), 처음 공통, 칸 자리: 공통=조직 기준값, 실기=조종권·서버 경유 스위치, 시뮬=시뮬 값·시뮬 로봇, 계정=내 정보·계정 — 알림 없음', async () => {
+  const ALL = ['계정', '사용자와 권한', '현장 연결', '현장 혼잡 시간', '로봇', '안전', '알림', '기록과 클립', '조작', '표시', '데모 로봇 표시', '시스템'];
+  it('시안 묶음 순서(나 · 현장 · 로봇과 안전 · 화면과 조작 · 기기), 처음 계정, 칸 자리: 알림=조직 기준값, 로봇=조종권 · 시뮬 로봇, 안전=속도 제한 · 고정 안전값, 조작=시뮬 값', async () => {
     serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG } }));
     await open();
-    expect(tabs().map((t) => [t.textContent, t.getAttribute('aria-selected'), t.tabIndex])).toEqual([['공통', 'true', 0], ['실기', 'false', -1], ['시뮬', 'false', -1], ['계정', 'false', -1]]);
-    expect(['공통', '실기', '시뮬', '계정'].map((n) => panel(n).hidden)).toEqual([false, true, true, true]);
+    expect(tabs().map((t) => t.textContent)).toEqual(ALL);
+    expect(tabs().map((t) => [t.getAttribute('aria-selected'), t.tabIndex])).toEqual(ALL.map((_, i) => (i ? ['false', -1] : ['true', 0])));
+    expect([...box.querySelectorAll('[data-st-group]')].map((g) => g.textContent)).toEqual(['나', '현장', '로봇과 안전', '화면과 조작', '기기']);
+    expect(ALL.map((n) => panel(n).hidden)).toEqual(ALL.map((_, i) => i > 0));
     const names = (n: string) => [...panel(n).querySelectorAll('input[name]')].map((i) => i.getAttribute('name'));
-    expect(names('공통')).toEqual(['battery_low_pct', 'run_min_battery_pct', 'deviation_m']);
-    expect(names('실기')).toEqual(['lease_request_timeout_s', 'link_loss_wait_s', 'real_max_vx', 'real_max_vx_back', 'real_max_vy', 'real_max_wz', 'real_no_fast_server_drive']);
-    expect(names('시뮬')).toEqual(['sim_max_vx', 'sim_min_vx', 'sim_max_vy', 'sim_max_wz', 'sim_key_vx', 'stick_deadzone', 'sim_runner_vx', 'sim_runner_wz', 'lidar_view_m']);
-    expect(panel('시뮬').querySelector('[aria-label="로봇"]')).not.toBeNull();
+    expect(names('알림')).toEqual(['battery_low_pct', 'run_min_battery_pct', 'deviation_m']);
+    expect(names('로봇')).toEqual(['lease_request_timeout_s', 'link_loss_wait_s']);
+    expect(names('안전')).toEqual(['real_max_vx', 'real_max_vx_back', 'real_max_vy', 'real_max_wz', 'real_no_fast_server_drive']);
+    expect(names('조작')).toEqual(['sim_max_vx', 'sim_min_vx', 'sim_max_vy', 'sim_max_wz', 'sim_key_vx', 'stick_deadzone', 'sim_runner_vx', 'sim_runner_wz', 'lidar_view_m']);
+    expect(panel('로봇').querySelector('[aria-label="로봇"]')).not.toBeNull();
+    expect(panel('안전').querySelector('[aria-label="고정 안전값"]')).not.toBeNull();
     expect(panel('계정').querySelector('[aria-label="내 정보"]')).not.toBeNull();
-    expect(panel('계정').querySelector('[aria-label="계정"]')).not.toBeNull();
-    expect($('main')!.textContent).not.toContain('알림');   // 머리줄 종은 설정 화면 밖
-    expect(panel('실기').textContent).toContain('켜면 서버 경유 1.5 m/s 이동을 받지 않고 STOP');
+    expect(panel('사용자와 권한').querySelector('[aria-label="계정"]')).not.toBeNull();
+    expect($('main [data-bell]')).toBeNull();   // 머리줄 종은 설정 화면 밖
+    expect(panel('안전').textContent).toContain('켜면 서버 경유 1.5 m/s 이동을 받지 않고 STOP');
     // 키: → 다음(초점도), End 끝, ← 끝에서 앞, Home 처음
+    const last = ALL.length - 1;
     key(tabs()[0], 'ArrowRight');
-    expect(tabs()[1].getAttribute('aria-selected')).toBe('true'); expect(document.activeElement).toBe(tabs()[1]); expect(panel('실기').hidden).toBe(false); expect(panel('공통').hidden).toBe(true);
-    key(tabs()[1], 'End'); expect(tabs()[3].getAttribute('aria-selected')).toBe('true');
-    key(tabs()[3], 'ArrowRight'); expect(tabs()[0].getAttribute('aria-selected')).toBe('true');
-    key(tabs()[0], 'ArrowLeft'); expect(tabs()[3].getAttribute('aria-selected')).toBe('true');
-    key(tabs()[3], 'Home'); expect(tabs()[0].getAttribute('aria-selected')).toBe('true');
-    await click(tabs()[2]);
-    expect(panel('시뮬').hidden).toBe(false);
+    expect(tabs()[1].getAttribute('aria-selected')).toBe('true'); expect(document.activeElement).toBe(tabs()[1]); expect(panel('사용자와 권한').hidden).toBe(false); expect(panel('계정').hidden).toBe(true);
+    key(tabs()[1], 'End'); expect(tabs()[last].getAttribute('aria-selected')).toBe('true');
+    key(tabs()[last], 'ArrowRight'); expect(tabs()[0].getAttribute('aria-selected')).toBe('true');
+    key(tabs()[0], 'ArrowLeft'); expect(tabs()[last].getAttribute('aria-selected')).toBe('true');
+    key(tabs()[last], 'Home'); expect(tabs()[0].getAttribute('aria-selected')).toBe('true');
+    await click(tabs()[8]);
+    expect(panel('조작').hidden).toBe(false);
     expect(location.hash).toBe('#/settings');   // 고른 탭은 주소가 아니라 화면 상태
   });
   it('최대·키보드·임무 실행기 전진 상한은 1.5, AME-2 속도 보장 아님을 안내', async () => {
@@ -408,10 +415,10 @@ describe('설정 탭 묶음(11-02 공통·실기·시뮬·계정)', () => {
     expect(document.getElementById(max.getAttribute('aria-describedby')!)!.textContent).toBe(MSG);
     expect(inp.value).toBe('0.9');
   });
-  it('운영 관리자: 네 탭 모두 보기만(숫자 readOnly·막대·스위치 비활성·저장 비활성 + 같은 이유), PATCH 0, 계정·시뮬 로봇 숨김', async () => {
+  it('운영 관리자: 모든 묶음 보기만(숫자 readOnly·막대·스위치 비활성·저장 비활성 + 같은 이유), PATCH 0, 계정·시뮬 로봇 숨김', async () => {
     serve(signedIn(LEE, { 'GET /org/settings': { status: 200, body: ORG } }));
     await open();
-    expect(tabs().map((t) => t.textContent)).toEqual(['공통', '실기', '시뮬', '계정']);
+    expect(tabs().map((t) => t.textContent)).toEqual(ALL.filter((n) => n !== '사용자와 권한'));   // 사용자와 권한은 총괄만(u9_9)
     const inputs = [...box.querySelectorAll<HTMLInputElement>('[role="tabpanel"] form input[name]')].filter((i) => !['display_name', 'current', 'next', 'again'].includes(i.name));
     expect(inputs).toHaveLength(19);
     for (const i of inputs) expect(i.type === 'number' ? i.readOnly : i.disabled, i.name).toBe(true);
@@ -442,14 +449,14 @@ describe('모델별 시뮬 값(11-04 model_overrides)', () => {
     for (const [id] of SIM_MODELS) expect(src).toContain(`id: '${id}'`);
     expect(SIM_MODELS.map(([id]) => id)).not.toContain('go2-demo');
   });
-  it('시뮬 탭: 공통 + 세 모델, 처음엔 공통 화면 그대로 / 실기 탭: «공통»만 + «모델별 값 없음»', async () => {
+  it('조작 묶음: 공통 + 세 모델, 처음엔 공통 화면 그대로 / 안전 묶음: «공통»만 + «모델별 값 없음»', async () => {
     serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG } }));
     await open();
     expect(chips().map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([['공통', 'true'], ['nvidia', 'false'], ['AME-2', 'false'], ['start', 'false']]);
     expect($('[data-model]')).toBeNull();
-    expect(panel('실기').textContent).toContain('실기에서 도는 모델이 하나뿐이라 모델별 값 없음');
-    expect([...panel('실기').querySelectorAll('[aria-label="실기 값을 고칠 모델"] button')].map((b) => b.textContent)).toEqual(['공통']);
-    expect(panel('시뮬').textContent).not.toContain('공통 값 사용');
+    expect(panel('안전').textContent).toContain('실기에서 도는 모델이 하나뿐이라 모델별 값 없음');
+    expect([...panel('안전').querySelectorAll('[aria-label="실기 값을 고칠 모델"] button')].map((b) => b.textContent)).toEqual(['공통']);
+    expect(panel('조작').textContent).not.toContain('공통 값 사용');
   });
   it('모델 고르기: 같은 9칸, 안 바꾼 칸은 «공통 값 사용(값)», 덮어쓴 칸은 그 모델 값 + 되돌리기, 모델 선택과 무관한 공통 값은 숨김', async () => {
     serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: withAme } }));
@@ -467,7 +474,7 @@ describe('모델별 시뮬 값(11-04 model_overrides)', () => {
     expect(($('.st-scope:not([data-model])') as HTMLElement).hidden).toBe(true);
     await chip('공통');
     expect(scope('ame2-demo').hidden).toBe(true);
-    expect(($('input[name="sim_max_vx"]', panel('시뮬')) as HTMLInputElement).value).toBe('0.5');
+    expect(($('input[name="sim_max_vx"]', panel('조작')) as HTMLInputElement).value).toBe('0.5');
   });
   it('덮어쓰기: 그 모델의 바뀐 칸만 PATCH(공통 칸 없음), 다른 모델로 갔다 와도 쓰던 칸 유지', async () => {
     const next = { ...ORG, model_overrides: { 'nvidia-demo': { sim_key_vx: 0.45 } } };
@@ -545,7 +552,7 @@ describe('모델별 시뮬 값(11-04 model_overrides)', () => {
     let rep = err(422, 'VALIDATION', 'ame2-demo: 시뮬 키보드 전진 속도는 최대 전진 속도 이하여야 합니다.');
     serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG }, [PATCH]: () => rep }));
     await open();
-    const cap = $('[aria-label="시뮬 속도 상한"]', panel('시뮬'))!, max = $<HTMLInputElement>('input[name="sim_max_vx"]', cap)!;
+    const cap = $('[aria-label="시뮬 속도 상한"]', panel('조작'))!, max = $<HTMLInputElement>('input[name="sim_max_vx"]', cap)!;
     setVal(max, '0.3');
     await submit($('form', cap)!);
     expect(sent('PATCH', '/org/settings')[0].body).toEqual({ sim_max_vx: 0.3 });
@@ -559,7 +566,7 @@ describe('모델별 시뮬 값(11-04 model_overrides)', () => {
     await open();
     await chip('nvidia');
     await chip('공통');
-    const c = $('[aria-label="표시"]', panel('시뮬'))!;
+    const c = $('[aria-label="표시"]', panel('조작'))!;
     setVal($<HTMLInputElement>('input[name="lidar_view_m"]', c)!, '20');
     await submit($('form', c)!);
     expect(tag('nvidia-demo', 'lidar_view_m')).toBe('공통 값 사용(20 m)');
@@ -693,4 +700,81 @@ it('임시 비밀번호: 12자, 헷갈리는 글자 없음, 매번 다름', () =
   const a = tempPassword(), b = tempPassword();
   expect(a).toMatch(/^[A-HJ-NP-Za-km-np-z2-9]{12}$/);
   expect(a).not.toBe(b);
+});
+
+describe('U9-03 밝기 · U9-04 서버 값 없는 칸', () => {
+  const tabs = () => [...box.querySelectorAll<HTMLButtonElement>('[role="tablist"] [role="tab"]')];
+  const panel = (name: string) => document.getElementById(tabs().find((t) => t.textContent === name)!.getAttribute('aria-controls')!)!;
+  const radios = () => [...panel('표시').querySelectorAll<HTMLInputElement>('input[type="radio"][name="st-theme"]')];
+  afterEach(() => { act(() => setThemePref('dark')); });
+  it('표시 묶음의 화면 밝기 = 머리 메뉴 밝기와 같은 값, 어느 쪽에서 바꿔도 둘 다 바뀜', async () => {
+    serve(signedIn(KIM));
+    await open();
+    expect(radios().map((r) => [r.value, r.closest('label')!.textContent, r.checked])).toEqual([['dark', '어두움', true], ['light', '밝음', false], ['system', '기기 설정 따름', false]]);
+    act(() => radios()[1].click()); await flush();
+    expect($('[data-theme-pick]')!.getAttribute('aria-label')).toBe('화면 밝기 밝음');
+    expect($('.fh')!.classList.contains('light')).toBe(true);
+    await click($<HTMLButtonElement>('button[data-theme-pick]')!);   // 머리 메뉴: 밝음 → 기기 설정 따름
+    expect(radios().map((r) => r.checked)).toEqual([false, false, true]);
+  });
+  it('운영자가 화살표로 옮겨 다닐 때 총괄만 항목(사용자와 권한 · 데모 로봇 표시)은 건너뛴다', async () => {
+    serve(signedIn(LEE));
+    await open();
+    const sel = () => tabs().find((t) => t.getAttribute('aria-selected') === 'true')?.textContent;
+    const press = (k: string) => act(() => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })); });
+    await click(tabs().find((t) => t.textContent === '표시'));
+    (tabs().find((t) => t.textContent === '표시') as HTMLElement).focus();
+    press('ArrowRight'); expect(sel()).toBe('시스템'); expect(document.activeElement?.textContent).toBe('시스템');
+    press('ArrowLeft'); expect(sel()).toBe('표시'); expect(document.activeElement?.textContent).toBe('표시');
+    press('Home'); expect(sel()).toBe('계정');
+    press('ArrowRight'); expect(sel()).toBe('현장 연결');
+    const seen: string[] = [];
+    for (let i = 0; i < 12; i++) { press('ArrowRight'); seen.push(sel() ?? ''); }
+    expect(seen).not.toContain('데모 로봇 표시'); expect(seen).not.toContain('사용자와 권한');
+    press('End'); expect(sel()).toBe('시스템');
+    // 눌러서 연 데모 로봇 표시에서도 화면 순서대로 앞뒤
+    await click(tabs().find((t) => t.textContent === '데모 로봇 표시')); (tabs().find((t) => t.textContent === '데모 로봇 표시') as HTMLElement).focus();
+    press('ArrowRight'); expect(sel()).toBe('시스템');
+    await click(tabs().find((t) => t.textContent === '데모 로봇 표시')); (tabs().find((t) => t.textContent === '데모 로봇 표시') as HTMLElement).focus();
+    press('ArrowLeft'); expect(sel()).toBe('표시');
+  });
+  it('묶음을 고르면 그 항목을 보이는 곳으로 밀어 줌(좁은 화면 가로 한 줄), 처음 열 때는 밀지 않음', async () => {
+    const seen: string[] = [];
+    const args: unknown[] = [];
+    const spy = vi.fn(function (this: Element, o?: unknown) { seen.push(this.textContent ?? ''); args.push(o); });
+    Element.prototype.scrollIntoView = spy as unknown as Element['scrollIntoView'];
+    serve(signedIn(KIM));
+    await open();
+    expect(spy).not.toHaveBeenCalled();
+    await click(tabs().find((t) => t.textContent === '시스템'));
+    expect(seen).toEqual(['시스템']);
+    expect(args[0]).toEqual({ block: 'nearest', inline: 'nearest' });
+    act(() => { tabs()[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })); });
+    act(() => { tabs()[tabs().length - 1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true })); });
+    expect(seen[seen.length - 1]).toBe('계정');
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  });
+  it('서버 값이 없는 칸은 항목 + 까닭 한 줄만, 켜고 끄는 척하는 단추 · 칸 없음', async () => {
+    serve(signedIn(KIM));
+    await open();
+    const WHY: [string, string[]][] = [
+      ['현장 연결', ['현장 네트워크 목록', '현장 확인 자동 통과']],
+      ['현장 혼잡 시간', ['혼잡 시간', '중복 점검 기준']],
+      ['알림', ['관절 온도 기준']],
+      ['기록과 클립', ['클립 보관 기간']],
+      ['표시', ['언어']],
+      ['데모 로봇 표시', ['데모 로봇에 «데모» 표시']],
+      ['시스템', ['서버 · 앱 정보']],
+    ];
+    for (const [tab, items] of WHY) {
+      const later = [...panel(tab).querySelectorAll('[data-later]')];
+      expect(later.map((l) => l.querySelector('b')!.textContent), tab).toEqual(items);
+      for (const l of later) {
+        expect(l.querySelector('[data-why]')!.textContent!.length, tab).toBeGreaterThan(8);
+        expect(l.querySelectorAll('input, button, select, [role="switch"]'), tab).toHaveLength(0);
+      }
+    }
+    for (const tab of ['현장 연결', '현장 혼잡 시간', '기록과 클립', '데모 로봇 표시', '시스템']) expect(panel(tab).querySelectorAll('input, button, select'), tab).toHaveLength(0);
+    expect(panel('데모 로봇 표시').textContent).toContain('총괄만');
+  });
 });

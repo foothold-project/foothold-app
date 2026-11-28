@@ -6,6 +6,7 @@ import { ADMIN_REAL, ROLE_NAME, driveBlock, robotStatus, type Holder, type Robot
 import { CMD_MS, inputGen, metaCut, rt, useLive, useRt, type Live } from './rt';
 import { PHONE_SHEETS, type SheetId } from './menu';
 import { FallChip } from './go2status';
+import { DriveInputNote } from './driveinput';
 import { Chip, DriveButton, Scenario, inApp, soon, type Ctx } from './screens';
 import { Nearby } from './nearby';
 import { AddRobot, ManageRobot } from './pairing';
@@ -264,7 +265,7 @@ function Screen(c: Ctx) {
   </div>;
   // 잠금 사유 OUTPUT_STALLED(에이전트 출력 지연 → 0·STOP·잠금) — 폰 시뮬 조종(simdrive.tsx)과 같은 문구. 잠금 해제·STOP 동작은 그대로
   const stalled = l.state?.connection === 'ONLINE' && !!l.state.latched && l.state.safety_reason === 'OUTPUT_STALLED';
-  const note = <>{l.notice && <p className="dv-note" role="status">{l.notice}</p>}{stalled && <p className="dv-note" role="status" data-stalled>{STALLED}</p>}
+  const note = <><DriveInputNote devices={rt.now() - l.stateAt < 3000 ? l.state?.devices : null} />{l.notice && <p className="dv-note" role="status">{l.notice}</p>}{stalled && <p className="dv-note" role="status" data-stalled>{STALLED}</p>}
     {ready && (real && ok ? <p className="dv-note" data-real-stick>{REAL_STICK}</p> : <p className="dv-note" data-real-wait>{REAL_WAIT}</p>)}</>;
   const views = <div className="dv-views" aria-label="보기">
     {([['rgb', 'RGB'], ['depth', '뎁스'], ['map', '지도']] as const).map(([v, t]) =>
