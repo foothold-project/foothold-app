@@ -50,7 +50,7 @@ const STANDUP_WHY = 'START 에서는 일어서기를 보낼 수 없습니다 · 
 export function railLine(x: Robot, me: string) {
   const live = rt.get(x.id), h = live.holder ?? x.holder ?? null, s = live.state;
   const kind = x.sim ? '시뮬' : '실제';
-  if (!x.online && !x.sim) return `${kind} · 연결 끊김`;
+  if (!x.online && !x.sim && x.unknown !== 'summary') return `${kind} · 연결 끊김`;   // summary = 구독 안 하는 남의 로봇(목록 요약 값으로 적음)
   const who = h?.type === 'USER' ? (h.id === me ? '나' : h.name || '') : '';
   const doing = h?.type === 'USER' ? '조종 중' : x.status === 'RUNNING' ? (x.mission ? `${x.mission} 중` : '임무 중')
     : x.status === 'STOP_LATCHED' ? '정지 잠금' : x.status === 'ERROR' ? '오류' : '대기';
@@ -254,7 +254,7 @@ const light = () => typeof document !== 'undefined' && document.documentElement.
 export function RobotTab({ c, user, refresh, cancel }: { c: Ctx | null; user: Ctx['user']; refresh: () => void; cancel?: AbortSignal }) {
   const [adding, setAdding] = useState(false), [note, setNote] = useState('');
   const add = () => { if (user.role === 'ORG_ADMIN') { setNote('로봇 추가는 운영 관리자가 자기 계정에서 합니다.'); return; } setAdding(true); };
-  return <div className={`pv u4${light() ? ' light' : ''}`} data-u4 aria-label="로봇">
+  return <div className={`proto${light() ? ' light' : ''} u4`} data-u4 aria-label="로봇">
     {c ? <><Rail c={c} sel={c.robot.id} add={add} /><Robot1 key={c.robot.id} c={c} r={c.robot} /></> : <Empty add={add} />}
     {note && <div className="g dk" role="status" data-u4-note style={{ left: '24px', bottom: '24px', padding: '10px 14px' }} onClick={() => setNote('')}>{note}</div>}
     {adding && <><div className="veil" onClick={() => setAdding(false)} /><div className="g modal" role="dialog" aria-label="로봇 추가">

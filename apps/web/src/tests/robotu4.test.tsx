@@ -60,16 +60,17 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
   it('시안 틀: 최상위 .pv.u4 · 머리줄 .bar 없음 · 왼쪽 목록 = 「로봇」 제목 + 「로봇 추가」 + 줄(이름 · 작은 글 · 배터리)뿐', () => {
     mount('u-park'); serve('r7');
     const top = $('[data-u4]')!;
-    expect(top.className).toBe('pv u4');
+    expect(top.className).toBe('proto u4');
     expect(top.querySelector('.bar')).toBeNull();
     const rail = $('.pane.rail')!;
     expect(text(rail.querySelector('.ttl'))).toBe('로봇');
     expect(text(rail.querySelector('.btns.addbtn'))).toBe('로봇 추가');
     const rows = $$('.rail .rcard');
-    expect(rows.map((r) => r.getAttribute('data-r'))).toEqual(['Go2-7']);
-    expect(rows[0].className).toBe('rcard on');
-    expect(text(rows[0].querySelector('small'))).toBe('실제 · 대기');
-    expect(text(rows[0].querySelector('.mu2'))).toBe('80 %');
+    expect(rows.map((r) => r.getAttribute('data-r'))).toEqual(['Go2-7', 'Go2-3', 'Go2-1']);
+    expect(rows.map((r) => r.className)).toEqual(['rcard on', 'rcard ', 'rcard ']);
+    expect(rows.map((r) => text(r.querySelector('small')))).toEqual(['실제 · 대기', '실제 · 2층 순찰 3/5 중', '실제 · 정지 잠금']);
+    expect(rows.map((r) => text(r.querySelector('.mu2')))).toEqual(['80 %', '82 %', '—']);
+    click(rows[1]); expect($('.rail .rcard.on')!.getAttribute('data-r')).toBe('Go2-3');
     // 옛 집계 칸 · 담당/상태 고르기 · 경보 묶음은 없다
     expect(rail.querySelector('select')).toBeNull();
     expect(rail.querySelectorAll('.rcard').length + 2).toBe(rail.querySelectorAll('.ttl, .addbtn, .rcard').length);
@@ -98,7 +99,8 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
     expect($$('.views .vsel span').map(text)).toEqual(['지도', '카메라', '라이다', '깊이']);
     expect(text($('.views .small .cl'))).toBe('앞 카메라');
     expect(text($('.views .vstop'))).toBe('정지Space');
-    expect(text($('.ctl .keys'))).toBe('↑앞으로 ←→돌기 ↓뒤로는 막힘 Space정지 Shift1~4모드'.replace(/ /g, ''));
+    expect($('.ctl .keys')!.textContent).toBe('↑앞으로←→돌기↓뒤로는 막힘Space정지Shift1~4모드');
+    expect($$('.ctl .keys kbd').map(text)).toEqual(['↑', '←', '→', '↓', 'Space', 'Shift', '1', '4']);
     expect($$('.deck .stick').length).toBe(2);
     expect($$('.deck .act > div').map((d) => d.childNodes[1].textContent)).toEqual(['앉기', '일어서기', '엎드리기', '기지개', '악수', '하트', '인사']);
     expect($$('.deck .act > div em').map(text)).toEqual(['R1+B', 'L2+A', 'L2+A', 'R2+A', 'R2+B', 'R2+Y', '순정 확인 전']);
@@ -112,7 +114,7 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
     expect($('.views .vstop')).not.toBeNull();
     drive();
     expect($('.views .vstop')).not.toBeNull();
-    act(() => { $('.views .vstop')!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 } as PointerEventInit)); });
+    click($('.views .vstop')!);
     expect(w.of('stop').some((m) => m.robot === 'r7')).toBe(true);
     expect($('.views .vstop')).not.toBeNull();
     act(() => { push('r7', { connection: 'OFFLINE' }); });
@@ -122,15 +124,15 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
   it('키는 시안 글대로: ↑ · W 앞으로 · ← → · A D 돌기 · ↓ · S 는 보내지 않고 까닭', () => {
     mount('u-park'); serve('r7'); drive();
     expect(text($('[data-u4-drive]'))).toBe('조종 중');
-    key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0');
-    key('keyup', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('0,0');
-    key('keydown', 'KeyW'); tick(60); expect(lastAxes()).toBe('1.5,0'); key('keyup', 'KeyW'); tick(60);
-    key('keydown', 'ArrowLeft'); tick(60); expect(Number(lastAxes()!.split(',')[1])).toBeGreaterThan(0); key('keyup', 'ArrowLeft'); tick(60);
-    key('keydown', 'KeyD'); tick(60); expect(Number(lastAxes()!.split(',')[1])).toBeLessThan(0); key('keyup', 'KeyD'); tick(60);
-    key('keydown', 'ArrowDown'); tick(60); expect(lastAxes()).toBe('0,0');
+    key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    key('keyup', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('0,0,0');
+    key('keydown', 'KeyW'); tick(60); expect(lastAxes()).toBe('1.5,0,0'); key('keyup', 'KeyW'); tick(60);
+    key('keydown', 'ArrowLeft'); tick(60); expect(Number(lastAxes()!.split(',')[2])).toBeGreaterThan(0); key('keyup', 'ArrowLeft'); tick(60);
+    key('keydown', 'KeyD'); tick(60); expect(Number(lastAxes()!.split(',')[2])).toBeLessThan(0); key('keyup', 'KeyD'); tick(60);
+    key('keydown', 'ArrowDown'); tick(60); expect(lastAxes()).toBe('0,0,0');
     expect(text($('[data-u4-why]'))).toBe('후진은 아직 지원하지 않습니다');
     key('keyup', 'ArrowDown');
-    key('keydown', 'KeyS'); tick(60); expect(lastAxes()).toBe('0,0'); key('keyup', 'KeyS');
+    key('keydown', 'KeyS'); tick(60); expect(lastAxes()).toBe('0,0,0'); key('keyup', 'KeyS');
   });
 
   it('동작 단추: 조종 전이면 까닭만 · 조종 중이면 서버로 그 동작 하나 · START 중 일어서기는 시안 까닭', () => {
