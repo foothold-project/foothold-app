@@ -110,7 +110,8 @@ describe('관제 탭', () => {
     press('점검');   // 가용을 받지 못해 점검 0 대
     expect(tiles().length).toBe(0); expect($('[data-filter-empty]').textContent).toContain('고른 상태의 로봇이 없습니다');
     press('점검'); expect($('[data-filter-empty]')).toBeNull();
-    expect(u5Css).toContain('.u5 .cnt.on{border-color:currentColor}');
+    expect(u5Css).toContain('.u5 .cnt.on{border-color:currentColor;background:color-mix(in srgb,currentColor 12%,transparent)}');
+    expect(u5Css).toContain('.u5 .cnt{cursor:pointer;border:1px solid transparent;border-radius:8px;padding:4px 8px;margin:-5px -4px}');   // 고르지 않은 칩 = 테두리 없음 · 이웃 칩 선 사이 14 - 8 = 6px(팀장 03:25)
     // 칸마다 수 = 그 칸으로 걸렀을 때 남는 타일 수(경고 · 주의 = 테두리 축도 같음)
     for (const k of ['임무 중', '연결 중', '시뮬', '경고', '주의']) { press(k); expect([k, tiles().length]).toEqual([k, Number(sum(k).querySelector('b')!.textContent)]); press(k); }
     for (const w of ['<Mini all={shown}', '<SiteView key={home} all={shown}', '<MapSide all={shown}']) expect(u5Src).toContain(w);   // 작은 지도 · 지도 보기도 같은 목록
