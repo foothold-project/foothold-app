@@ -62,7 +62,7 @@ def test_server_relay_shows_the_person_and_their_name(cloud):
     free_phone(r)
     r.observer.receive({'t': 'lease', 'lease_id': r.lease, 'holder_type': 'USER'})
     r.state(True)
-    r.observer.receive({'t': 'unlock', 'lease_id': r.lease, 'stop_gen': 0, 'user_id': r.user,
+    r.observer.receive({'t': 'unlock', 'lease_id': r.lease, 'stop_gen': r.hub.session._generation(), 'user_id': r.user,
                         'display_name': '박관제'})
     r.state(False)
     s = phone_state(r, r.peer)
@@ -70,8 +70,11 @@ def test_server_relay_shows_the_person_and_their_name(cloud):
     held = r.send(r.peer, 'lease.take')
     assert held['error']['code'] == 'LEASE_HELD' and (held['holder_type'], held['holder_name']) == ('USER', '박관제')
     r.run_id = uid()
-    assert send_run(r, 'run.start')['code'] == 'OK'  # the run start keeps the name
-    assert phone_state(r, r.peer)['holder_name'] == '박관제'
+    assert send_run(r, 'run.start')['code'] == 'OK'
+    # The run machine now holds the Hub: RUN with no name (Codex L5). The starter stays the relay's user.
+    s = phone_state(r, r.peer)
+    assert (s['holder_type'], s['holder_name']) == ('RUN', None)
+    assert r.hub.peers[r.observer.relay].user == r.user and r.hub.peers[r.observer.relay].name == '박관제'
 
 
 def test_server_relay_without_name_is_null(cloud):
@@ -94,7 +97,7 @@ def test_schedule_run_lease_is_run_without_name(cloud):
     run_id = uid()
     r.observer.receive({'t': 'lease', 'lease_id': r.lease, 'holder_type': 'RUN:' + run_id})
     r.state(True)
-    r.observer.receive({'t': 'unlock', 'lease_id': r.lease, 'stop_gen': 0, 'user_id': r.user,
+    r.observer.receive({'t': 'unlock', 'lease_id': r.lease, 'stop_gen': r.hub.session._generation(), 'user_id': r.user,
                         'display_name': '이름 있어도'})
     r.state(False)
     s = phone_state(r, r.peer)

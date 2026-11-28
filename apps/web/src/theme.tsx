@@ -56,6 +56,6 @@ const LOOK: Record<ThemePref, [JSX.Element, string]> = {
 export function ThemeNav() {
   const [p] = useTheme(), i = THEMES.findIndex(([v]) => v === p), [next, nextName] = THEMES[(i + 1) % THEMES.length];
   const name = THEMES[i][1];
-  return <button type="button" className="nav" data-theme-pick={p} aria-label={`화면 밝기 ${name}`} title={`화면 밝기: ${name} — 누르면 ${nextName}`}
+  return <button type="button" className="nav" data-theme-pick={p} aria-label={`화면 밝기 ${name}`} title={`화면 밝기: ${name} · 누르면 ${nextName}`}
     onClick={() => setThemePref(next)}>{LOOK[p][0]}{LOOK[p][1]}</button>;
 }

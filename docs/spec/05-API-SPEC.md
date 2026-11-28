@@ -347,10 +347,15 @@ purge 이후 NULL 기록이 생겼거나 파일 대기열이 남으면
     기기 포함) 은 `LEASE_MISMATCH`. 그 화면이 멈추려면 STOP (누구나, 잠김) 또는 `lease.request` (넘겨받기) 를 쓴다.
   - resume · abort 는 그대로 (lease_id 필수). STOP 잠금이 우선이다. pause 도 resume 도 잠금을 풀지 않는다.
   - 모든 pause 는 사건 `RUN_PAUSE_REQUESTED` (보낸 사람 user_id · `data.run_id` · `data.holder_type` USER|RUN) 를 남긴다.
-- 서버 관문: 담당 (총괄 실기 조종 금지 그대로) · 조종권 USER lease 일치 · 에이전트 인증 0.5 s 안 · 담당 변경 중
+- 서버 관문: 담당 (총괄은 담당과 같은 관문, 운영 결정 2026-11-28 · #544) · 조종권 USER lease 일치 · 에이전트 인증 0.5 s 안 · 담당 변경 중
   아님, 실기는 현장 승인 · 서버 조종 켬을 더한다. 시작은 ACTIVE 배정 (로봇 · 시나리오 판 · 층 · 지도 판) 이어야
   한다. 시작 · 이어 가기는 멈춰 있을 때만. 정지 · 반납 · 승인 · 조종권이 바뀌면 큐에 남은 `run.*` 는 보내지 않는다.
   거절 코드 `RUN_NOT_ALLOWED` · `RUN_MOVING` · `RUN_ASSIGNMENT_INVALID` · `RUN_STOPPED` (배정 확인 중 STOP, 큐에 넣지 않음) (+ 기존 lease · 권한 코드).
+  `run.*` 의 `reply` 는 서버가 에이전트 소켓에 실제로 보낸 뒤에 `ok:true` 다. 마지막 발신 관문에서 막히면 `RUN_NOT_DELIVERED`,
+  STOP · lease 로 큐에서 지워지면 `RUN_STOPPED`, 에이전트가 끊기면 `ROBOT_OFFLINE`. `run.start` 는 보내기 바로 앞에서 배정을 한 번 더 읽고,
+  그 사이 철회되면 `RUN_ASSIGNMENT_INVALID`, 그 사이 STOP 이면 `RUN_STOPPED` (Codex 검토 M3 · M4, 11/28).
+  데모 로봇에서 조종권을 쥔 화면 소켓이 닫히면 서버는 15 초를 기다리지 않고 바로 조종권을 거둔다 (cause `screen_disconnected`, M2).
+  중계기는 서버 unlock 의 `stop_gen` 이 지금 세대와 같을 때만 푼다. 그 사이 다른 STOP 이 있었으면 버린다 (H1).
 - 데모 (시뮬) 로봇도 같은 메시지 · 같은 관문이다. 다른 것은 지금 있는 안전 차이 (현장 승인 · 서버 조종 켬은 실기만) 뿐.
 - 이어 가기 증명: 서버가 «그 로봇의 지금 USER lease 주인» 을 확인한다 (같은 run 을 시작한 사용자이거나 지금
   lease 를 넘겨받은 사용자). 비밀값은 서버 상태에 싣지 않는다. 잠김 중이면 거절.
@@ -430,6 +435,30 @@ purge 이후 NULL 기록이 생겼거나 파일 대기열이 남으면
   "message": "14:02 Go2-3이 계획 경로에서 1.8 m 벗어났습니다.",
   "robot_id": "…"|null, "user_id": "…"|null, "run_id": "…"|null, "data": { "distance_m": 1.8 } }
 ```
+
+### 8.1 사건 영상 · 관절 기록 재생 · 지금 남기기 (u07, IMPL-GAP U8-03~U8-12)
+
+정본 타입은 `apps/contracts/models.py` 의 `EventClip` · `EventClipList` · `JointLogFrame` · `JointLogReplay` · `RecordMarkRequest` · `RecordMarkResult` 다.
+
+**영상 규칙**
+- 영상은 서버가 만든다. 시뮬과 실기는 같은 기록 · 알림 · 영상을 남긴다.
+- 길이: 사건 10 초 전부터 5 초 뒤까지 (`CLIP_PRE_S` · `CLIP_POST_S`). 넘어짐은 다시 설 때까지라 서기 전에는 `end_at` 이 null 이다.
+- 등급: 위험(`ERROR`)은 늘 영상을 남긴다. 주의(`WARN`)는 고른 때만 남긴다. 정보(`INFO`)는 기록만 하고 영상이 없다.
+- 상태 `status`: `PENDING`(만드는 중) · `READY`(`url` 있음) · `FAILED`(`reason` 있음) · `NOT_BUILT`(만드는 장치가 아직 없음, `clip_id` null, `reason` 있음). `url` 은 `READY` 일 때만 값이 있다.
+
+**관절 기록 재생**: `JointLogReplay { event_id, robot_id, start_at, joint_names[12], rate_hz, frames[] }`, 프레임은 `JointLogFrame { t, q[12], base { xyz[3], wxyz[4] }, gait|null }`. `t` 는 `start_at` 부터 초이고 프레임은 시간 순으로 늘어난다. `q` 는 `joint_names` 순서의 rad. 재생 빠르기 0.25 · 0.5 · 1 · 2 배와 반복은 웹이 프레임을 다시 그려서 한다. 서버는 빠르기를 받지 않는다.
+
+| 메서드 | 경로 | 설명 | 권한 | 지금 |
+|---|---|---|---|---|
+| POST | `/robots/{id}/records/mark-now` | 「지금 남기기」. 본문 `{severity?: INFO\|WARN\|ERROR (기본 WARN), note?: ≤200자, clip?: bool\|null}`. 201 `{event, clip}` | 그 로봇 보기 권한 (`ROBOT_READ`: 담당 운영자 · 총괄) | 사건은 실제로 `events` 에 남는다 (`category RUN`, `code RECORD_MARKED`). 영상은 `NOT_BUILT`, INFO · `clip:false` 면 `clip: null` |
+| GET | `/robots/{id}/records/clips` | 그 로봇의 사건 영상 목록 `EventClipList` | 같음 | **501** `CLIP_PIPELINE_NOT_BUILT` |
+| GET | `/robots/{id}/records/clips/{clip_id}` | 영상 하나 `EventClip` | 같음 | **501** `CLIP_PIPELINE_NOT_BUILT` |
+| GET | `/robots/{id}/records/events/{event_id}/joint-log` | 사건 둘레 관절 기록 `JointLogReplay` | 같음 | **501** `JOINT_LOG_NOT_BUILT` |
+
+- 권한 판정을 먼저 한다. 볼 수 없는 로봇은 501 이 아니라 404 다 (있다는 사실도 숨김).
+- 501 본문은 보통 오류 모양 `{error: {code, message, detail: {}}}` 이고 `message` 는 한 줄이다. 웹은 그대로 보여 준다. 까닭 코드 목록은 `RecordsNotBuiltCode`.
+- 규칙에 어긋난 고르기 (`ERROR` + `clip:false`, `INFO` + `clip:true`) 는 조용히 고치지 않고 400 `VALIDATION`.
+- 이번 범위 밖: 실제 영상 만들기 · 관절 기록 저장 (실기 · Jetson 쪽 일 없음), 「지금 남기기」 알림 발송.
 
 ---
 
@@ -582,9 +611,11 @@ P1-B의 `phone.revoke`/`phone.revoke.ack`는 현재 구현 프로토콜 `fh-agen
 ## 12. 변경 이력
 | 판 | 날짜 | 내용 |
 |---|---|---|
-| 0.25 | 2026-11-28 | 10:58: 실기 칸 예약 실행 안 함 (`REAL_ROBOT_SCHEDULE_DISABLED`, 설정 하나 기본 꺼짐), 시뮬은 확정한 사람이 잠금 해제를 미리 누른 것으로 봄 (조종권을 놓으며 생긴 잠금만, `SCHEDULE_PRE_UNLOCK`). 자세한 것은 `apps/contracts/README.md` «일정» |
-| 0.24 | 2026-11-28 | #542 R5: §6.5 일시정지 · RUN 이 쥔 run 은 담당 누구나 lease_id 없이 pause, USER 는 쥔 화면만, 모든 pause 사건 `RUN_PAUSE_REQUESTED`. 예약 실행은 잠긴 로봇을 풀지 않음 (`SKIPPED STOP_LATCHED`) |
-| 0.23 | 2026-11-28 | 일정 칸 예약 실행: CONFIRMED 칸 시각에 서버가 §6.5 `run.start` 를 같은 관문으로 보냄 (RUN holder lease · 칸 run_state · 한 번만). 자세한 것은 `apps/contracts/README.md` «일정» |
+| 0.27 | 2026-11-28 | 조종 화면이 닫혀 잠긴 칸은 `SKIPPED STOP_LATCHED_SCREEN_CLOSED` (미리 해제 대상 아님) |
+| 0.26 | 2026-11-28 | 10:58: 실기 칸 예약 실행 안 함 (`REAL_ROBOT_SCHEDULE_DISABLED`, 설정 하나 기본 꺼짐), 시뮬은 확정한 사람이 잠금 해제를 미리 누른 것으로 봄 (조종권을 놓으며 생긴 잠금만, `SCHEDULE_PRE_UNLOCK`). 자세한 것은 `apps/contracts/README.md` «일정» |
+| 0.25 | 2026-11-28 | #542 R5: §6.5 일시정지 · RUN 이 쥔 run 은 담당 누구나 lease_id 없이 pause, USER 는 쥔 화면만, 모든 pause 사건 `RUN_PAUSE_REQUESTED`. 예약 실행은 잠긴 로봇을 풀지 않음 (`SKIPPED STOP_LATCHED`) |
+| 0.24 | 2026-11-28 | 일정 칸 예약 실행: CONFIRMED 칸 시각에 서버가 §6.5 `run.start` 를 같은 관문으로 보냄 (RUN holder lease · 칸 run_state · 한 번만). 자세한 것은 `apps/contracts/README.md` «일정» |
+| 0.23 | 2026-11-28 | Codex 검토 (#537): `run.*` reply 는 보낸 뒤 · `RUN_NOT_DELIVERED`, 보내기 앞 배정 재확인, 데모 화면 끊김 즉시 회수, 늦은 unlock 의 `stop_gen` 확인 (§6.5) |
 | 0.22 | 2026-11-28 | 웹 시뮬 탭 요청: §13 PhoneState · LEASE_HELD reply 에 `holder_type` · `holder_name`, PhoneHello 선택 `display_name`, 에이전트 `unlock.display_name` |
 | 0.21 | 2026-11-28 | 팀장 05:09 · 05:14: §6.5 실행 명령을 화면 → 서버 → 에이전트 실시간 길 (`run.start` · `run.control`) 로, 데모도 같은 길, 서버 길 이어 가기 증명, 폰 직결은 서버 장애 때 정지 · 끝 길 |
 | 0.19 | 2026-10-25 | ADR-003 ⑤ 후속 계약(§13.10): 고정 시나리오 자료 참조·직결 run 프레임·단일 층·3초 감시 제안·같은 화면 재개·에이전트 보고/영속 기록·구현 분할. 현재 미구현과 제품 결정을 구분 |

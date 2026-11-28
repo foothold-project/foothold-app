@@ -207,7 +207,9 @@ class Scheduler:
         pre_unlock = False
         if not fresh or peer.state.get('latched') is not False:
             if not (fresh and rt.release_latched_only(rid)):
-                return [(slot_id, 'SKIPPED', 'STOP_LATCHED')]  # only a person unlocks (SF-02); never auto-resume
+                closed = fresh and rt.latest_latch_cause(rid) == 'screen_disconnected'
+                # only a person unlocks (SF-02); never auto-resume. A closed control tab gets its own reason.
+                return [(slot_id, 'SKIPPED', 'STOP_LATCHED_SCREEN_CLOSED' if closed else 'STOP_LATCHED')]
             pre_unlock = True  # the confirmer pre-pressed unlock (1); audited below
         if peer.state.get('safety_reason') is not None:
             return [(slot_id, 'SKIPPED', 'SAFETY_STOP')]

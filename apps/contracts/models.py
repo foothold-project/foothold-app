@@ -1,5 +1,5 @@
 """Pydantic v2 source for FH-SPEC-05 §§1, 2, 3, 5, 6, 7, 8."""
-from datetime import date, timezone
+from datetime import date, timedelta, timezone
 import base64
 import binascii
 import math
@@ -502,6 +502,117 @@ class NotificationsRead(Contract):
         if self.ids is not None and any(int(value) > 2**63 - 1 for value in self.ids):
             raise ValueError('ID exceeds bigint')
         return self
+
+
+# u07 records (05 §8.1). Clips are cut on the server, same rule for sim and real robot:
+# from CLIP_PRE_S before the event to CLIP_POST_S after it; a fall runs until the robot
+# stands back up (end_at null while open). ERROR always gets a clip, WARN only when
+# chosen, INFO is recorded only. Not built yet: the server answers NOT_BUILT / 501.
+CLIP_PRE_S = 10
+CLIP_POST_S = 5
+ClipStatus = Literal['PENDING', 'READY', 'FAILED', 'NOT_BUILT']
+RecordsNotBuiltCode = Literal['CLIP_PIPELINE_NOT_BUILT', 'JOINT_LOG_NOT_BUILT']
+EventSeverity = Literal['INFO', 'WARN', 'ERROR']
+
+
+def clip_window(at):
+    return at - timedelta(seconds=CLIP_PRE_S), at + timedelta(seconds=CLIP_POST_S)
+
+
+def clip_wanted(severity, chosen):
+    """chosen None = rule default; a choice against the rule is an error, not ignored."""
+    if severity == 'ERROR':
+        if chosen is False:
+            raise ValueError('ERROR events always get a clip')
+        return True
+    if severity == 'INFO':
+        if chosen is True:
+            raise ValueError('INFO events are recorded without a clip')
+        return False
+    return chosen is not False
+
+
+class EventClip(Contract):
+    clip_id: UUID | None = Field(description='만든 영상 번호. 만들기 전(NOT_BUILT)에는 null')
+    event_id: DecimalID
+    robot_id: UUID
+    start_at: UTCDateTime = Field(description='사건 10 초 전')
+    end_at: UTCDateTime | None = Field(description='사건 5 초 뒤. 넘어짐은 다시 설 때까지라 서기 전에는 null')
+    status: ClipStatus
+    url: str | None = Field(description='READY 일 때만 값')
+    reason: str | None = Field(description='NOT_BUILT · FAILED 의 까닭 코드 (예: CLIP_PIPELINE_NOT_BUILT)')
+
+    @model_validator(mode='after')
+    def consistent(self):
+        if (self.status == 'READY') != (self.url is not None):
+            raise ValueError('url is present exactly when READY')
+        if self.status == 'READY' and self.clip_id is None:
+            raise ValueError('READY needs clip_id')
+        if self.status == 'NOT_BUILT' and self.clip_id is not None:
+            raise ValueError('NOT_BUILT has no clip_id')
+        if self.status in ('NOT_BUILT', 'FAILED') and not self.reason:
+            raise ValueError('NOT_BUILT and FAILED need a reason')
+        if self.end_at is not None and self.end_at < self.start_at:
+            raise ValueError('end_at before start_at')
+        return self
+
+
+class EventClipList(Contract):
+    items: list[EventClip]
+    next_cursor: str | None
+
+
+class JointLogBase(Contract):
+    xyz: list[float] = Field(min_length=3, max_length=3, description='몸통 위치 m (기록 좌표)')
+    wxyz: list[float] = Field(min_length=4, max_length=4, description='몸통 자세 사원수')
+
+    @model_validator(mode='after')
+    def unit_quaternion(self):
+        if not .9 <= math.hypot(*self.wxyz) <= 1.1:
+            raise ValueError('invalid quaternion norm')
+        return self
+
+
+class JointLogFrame(Contract):
+    t: float = Field(ge=0, description='JointLogReplay.start_at 부터 초')
+    q: list[float] = Field(min_length=12, max_length=12, description='관절 각 rad, joint_names 순서')
+    base: JointLogBase
+    gait: Annotated[str, Field(min_length=1, max_length=32)] | None = Field(
+        description='걷기 모드 이름 (classic · sport · start · ame2 등, 열린 문자열). 모르면 null')
+
+
+class JointLogReplay(Contract):
+    """3D replay frames. Playback rate (0.25/0.5/1/2) and loop are web-only controls."""
+    event_id: DecimalID
+    robot_id: UUID
+    start_at: UTCDateTime
+    joint_names: list[Go2JointName] = Field(min_length=12, max_length=12)
+    rate_hz: int = Field(ge=1, le=1000)
+    frames: list[JointLogFrame] = Field(max_length=100_000)
+
+    @model_validator(mode='after')
+    def ordered(self):
+        if len(set(self.joint_names)) != 12:
+            raise ValueError('twelve unique joint names required')
+        if any(b.t <= a.t for a, b in zip(self.frames, self.frames[1:])):
+            raise ValueError('frames must be strictly time ordered')
+        return self
+
+
+class RecordMarkRequest(Contract):
+    severity: EventSeverity = 'WARN'
+    note: Annotated[str, Field(max_length=200)] | None = None
+    clip: StrictBool | None = Field(default=None, description='WARN 만 고를 수 있다. null 이면 규칙 기본값')
+
+    @model_validator(mode='after')
+    def policy(self):
+        clip_wanted(self.severity, self.clip)
+        return self
+
+
+class RecordMarkResult(Contract):
+    event: Event
+    clip: EventClip | None = Field(description='영상을 남기지 않는 사건(INFO 등)은 null')
 
 
 # Canonical IDs in mobile/sim/policy-modes.js. go2-demo is display-only;
@@ -2703,7 +2814,8 @@ class AssignmentList(Contract):
 ScheduleKind = Literal['CONFIRMED', 'DRAFT', 'BATTERY_SWAP']
 # 예약 실행 상태. STARTING 은 서버가 칸을 잡고 시작 중 (다시 켜면 MISSED SCHEDULER_RESTARTED).
 # SKIPPED 까닭: LEASE_HELD · RUN_ACTIVE · NO_ASSIGNMENT · ASSIGNMENT_INVALID ·
-#   MULTI_FLOOR · STOP_LATCHED (로봇이 잠겨 있음, 사람만 푼다) · SAFETY_STOP · CONFIRMER_NOT_ALLOWED (확정한 사람이
+#   MULTI_FLOOR · STOP_LATCHED (로봇이 잠겨 있음, 사람만 푼다) · STOP_LATCHED_SCREEN_CLOSED (조종 화면이 닫혀
+#   잠김, 풀어야 시작. 탭 닫힘은 놓음이 아니라 미리 해제하지 않는다) · SAFETY_STOP · CONFIRMER_NOT_ALLOWED (확정한 사람이
 #   없거나 지금 그 로봇 권한이 없음) · REAL_ROBOT_SCHEDULE_DISABLED (실기는 아직 예약 실행 안 함, 설정 기본 꺼짐). MISSED 까닭: ROBOT_OFFLINE · WINDOW_PASSED · SCHEDULER_RESTARTED · SERVER_BUSY.
 # FAILED 코드: 에이전트 run_result 거절 코드 · 실행 fail_code · START_TIMEOUT · LEASE_LOST · STOP_CONFIRM_FAILED ·
 #   RUN_REPORT_LOST (end_at + 60 초 넘게 보고 없음, 늦은 보고는 SCHEDULE_RUN_LATE_REPORT 사건만).
@@ -3776,3 +3888,6 @@ REQUEST_MODELS.update({TerrainSpec, TerrainPose, TerrainBox, TerrainStairs, Terr
 REQUEST_MODELS.add(ZoneOverlapRequest)
 
 REQUEST_MODELS.update({MappingStart, MappingAction, AgentMappingUpdate, AgentMappingCommand})
+
+TOP.update(ClipStatus=ClipStatus, RecordsNotBuiltCode=RecordsNotBuiltCode)
+REQUEST_MODELS.add(RecordMarkRequest)

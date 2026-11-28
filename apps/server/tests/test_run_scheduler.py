@@ -672,8 +672,9 @@ def test_user_lease_pause_only_by_holder_and_audited(demo, seeded):
 
 # -- (1) confirming a slot counts as pressing unlock in advance: simulation only (10:58) --
 
-def person_unlocks_then_releases(client, seeded, agent):
-    """A person takes control, unlocks, then lets go: the server's release STOP latches the robot again."""
+def person_unlocks_then_releases(client, seeded, agent, *, close=False):
+    """A person takes control, unlocks, then lets go: the server's release STOP latches the robot again.
+    close=True: the person closes the control screen instead of releasing (cause screen_disconnected)."""
     rt = client.app.state.realtime
     rid = str(seeded['robots']['mine'])
     with screen(client, app_token(client)) as sc:
@@ -686,8 +687,13 @@ def person_unlocks_then_releases(client, seeded, agent):
         assert reply(sc, send(sc, 'unlock', rid, lease_id=lease, stop_gen=agent.gen))['ok']
         agent.pump(); agent.pump()
         assert not agent.latched
-        assert reply(sc, send(sc, 'lease.release', rid))['ok']
-        agent.pump(); agent.pump()
+        if not close:
+            assert reply(sc, send(sc, 'lease.release', rid))['ok']
+            agent.pump(); agent.pump()
+    for _ in range(10):
+        agent.pump()
+        if agent.latched and rt.arbiter.robot(rid).holder is None:
+            break
     assert agent.latched and rt.arbiter.robot(rid).holder is None
 
 
@@ -782,3 +788,41 @@ def test_real_robot_flag_is_the_one_switch(demo, seeded):
     factory = sessionmaker(client.app.state.engine, expire_on_commit=False)
     claimed = S.claim_due(factory, seeded['org'], T0 + timedelta(minutes=3), real_enabled=True)
     assert [c['slot_id'] for c in claimed] == [slot_id]
+
+
+def test_screen_closed_latch_is_not_pre_unlocked_and_says_why(demo, seeded):
+    """Coordinator 11/28: a closed control tab is not proof a person let go. The slot is SKIPPED with its own
+    reason (STOP_LATCHED_SCREEN_CLOSED) so the schedule view can say «control screen closed: unlock to start»."""
+    client, sched, clock = demo
+    slot_id = add_slot(seeded, synthetic_assignment(seeded))
+    with agent_ws(client, seeded) as ws:
+        ws.send_json(hello())
+        agent = FakeAgent(ws, latched=True)
+        agent.pump()
+        person_unlocks_then_releases(client, seeded, agent, close=True)
+        before = len(sent(agent, 'unlock'))
+        clock[0] = T0 + timedelta(minutes=3)
+        run_ticks(client, sched, agent, 5)
+        row = slot_row(seeded, slot_id)
+        assert (row['state'], row['code']) == ('SKIPPED', 'STOP_LATCHED_SCREEN_CLOSED')
+        assert len(sent(agent, 'unlock')) == before and sent(agent, 'run.start') == [] and agent.latched
+    assert [d['reason'] for _, d in events(seeded, 'SCHEDULE_RUN_SKIPPED')] == ['STOP_LATCHED_SCREEN_CLOSED']
+    assert events(seeded, 'SCHEDULE_PRE_UNLOCK') == []
+
+
+def test_screen_closed_reason_only_while_that_latch_is_the_latest(demo, seeded):
+    """After a screen-closed latch, a later STOP of any kind is plain STOP_LATCHED."""
+    client, sched, clock = demo
+    rid = str(seeded['robots']['mine'])
+    slot_id = add_slot(seeded, synthetic_assignment(seeded))
+    with agent_ws(client, seeded) as ws:
+        ws.send_json(hello())
+        agent = FakeAgent(ws, latched=True)
+        agent.pump()
+        person_unlocks_then_releases(client, seeded, agent, close=True)
+        with screen(client, app_token(client)) as sc:
+            assert reply(sc, send(sc, 'stop', rid))['ok']
+            agent.pump()
+        clock[0] = T0 + timedelta(minutes=3)
+        run_ticks(client, sched, agent, 5)
+        assert slot_row(seeded, slot_id)['code'] == 'STOP_LATCHED'

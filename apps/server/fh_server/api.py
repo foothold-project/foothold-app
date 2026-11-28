@@ -906,6 +906,8 @@ def create_app(settings: Settings | None = None):
     assignments.install(app, DB, Identity, fail, page)
     approvals.install(app, DB, Identity, fail, authorize, page)
     events_api.install(app, DB, Identity, fail)
+    from . import records
+    records.install(app, DB, Identity, fail, authorize)
     notifications.install(app, DB, Identity, fail)
     maps.install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity, upload_write)
     from . import terrains

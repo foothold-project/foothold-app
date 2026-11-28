@@ -3,6 +3,7 @@ import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { PHONE_PORT_RANGE, phonePorts } from './src/phoneTransport';
 import { phoneProxy, tunnelGuard, tunnelOrigin } from './tunnel';
+import { localSim, simDir } from './localsim';
 
 // 기본 개발 주소는 127.0.0.1:5180. Docker 안에서만 FH_WEB_HOST=0.0.0.0을 준다.
 // /api(실시간 WS /api/v1/ws 포함) → 로컬 관제 서버(apps/server README 의 uvicorn 127.0.0.1:8810). 운영 포트(8453·8792)는 쓰지 않는다.
@@ -13,7 +14,7 @@ export default defineConfig(({ mode, command, isPreview }) => {
   if (devTunnel) console.warn('FH_TUNNEL requested on Vite dev: tunnel access disabled; run build then preview');
   const proxy = { '/api': { target: env.FH_API || 'http://127.0.0.1:8810', ws: true }, ...phoneProxy(env) };
   return {
-    plugins: [react(), tunnelGuard(origin, ports)],
+    plugins: [react(), tunnelGuard(origin, ports), localSim(simDir(env))],   // /sim/ = 준비된 시뮬 폴더(FH_SIM_DIR) 또는 만드는 법 안내
     base: './',
     cacheDir: env.FH_TUNNEL === '1' ? '../../tmp/phone-tunnel/vite' : undefined,
     define: { 'import.meta.env.FH_PHONE_PORT_RANGE': JSON.stringify(env.FH_PHONE_PORT_RANGE ?? PHONE_PORT_RANGE) },

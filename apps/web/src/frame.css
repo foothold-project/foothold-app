@@ -258,3 +258,10 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .pair-cols form.fh-row{align-items:flex-end}
 .pair-cols [data-pair-code]{width:9em;letter-spacing:.2em}
 .pair-pc .pair-one{max-width:30rem}
+/* 빈 화면(U11-04): 선 아이콘 · 제목 · 한 줄 까닭 · 다음 할 일 하나. 칸 가운데 */
+.fh-empty{align-items:center;justify-content:center;gap:10px;padding:40px 16px;text-align:center;flex-basis:100%}
+.fh-empty:not(.lv-card){display:flex;flex-direction:column}
+.fh-empty-ic{display:grid;place-items:center;width:72px;height:72px;border-radius:50%;border:1px solid var(--line);background:var(--acc-bg);color:var(--accent)}
+.fh-empty>h2{margin:4px 0 0;font-size:18px}
+.fh-empty>.lv-note{margin:0;max-width:48ch;text-wrap:balance;word-break:keep-all}
+.fh-empty>.fh-row{justify-content:center;margin-top:6px}

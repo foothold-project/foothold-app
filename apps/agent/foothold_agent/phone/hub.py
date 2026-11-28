@@ -524,7 +524,10 @@ class Hub:
         """Who holds the Hub, for display (11/28): USER with a name if known, RUN for a schedule run."""
         if self.owner is not None:
             p = self.peers[self.owner]
-            return ({'holder_type': 'RUN', 'holder_name': None} if p.run_holder
+            # The run machine holds the Hub (ScenarioRun._promote sets session holder RUN) or the relay
+            # carries a schedule run's RUN lease: RUN, no person's name (Codex L5).
+            return ({'holder_type': 'RUN', 'holder_name': None}
+                    if p.run_holder or self.session.holder_type == 'RUN'
                     else {'holder_type': 'USER', 'holder_name': p.name})
         if self.reservation is not None:
             return {'holder_type': 'USER', 'holder_name': None}  # reserved identity, name not kept

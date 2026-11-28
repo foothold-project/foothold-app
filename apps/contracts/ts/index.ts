@@ -544,6 +544,27 @@ export interface Event {
   data: Record<string, unknown>;
 }
 
+export interface EventClip {
+  /** 만든 영상 번호. 만들기 전(NOT_BUILT)에는 null */
+  clip_id: string | null;
+  event_id: string;
+  robot_id: string;
+  /** 사건 10 초 전 */
+  start_at: string;
+  /** 사건 5 초 뒤. 넘어짐은 다시 설 때까지라 서기 전에는 null */
+  end_at: string | null;
+  status: "PENDING" | "READY" | "FAILED" | "NOT_BUILT";
+  /** READY 일 때만 값 */
+  url: string | null;
+  /** NOT_BUILT · FAILED 의 까닭 코드 (예: CLIP_PIPELINE_NOT_BUILT) */
+  reason: string | null;
+}
+
+export interface EventClipList {
+  items: EventClip[];
+  next_cursor: string | null;
+}
+
 export interface EventList {
   items: Event[];
   next_cursor: string | null;
@@ -775,6 +796,32 @@ export interface Go2Temperature {
 export interface IdempotencyHeaders {
   /** Idempotency-Key header; same user/key replays the first successful response for 24 hours. */
   idempotency_key?: string | null;
+}
+
+export interface JointLogBase {
+  /** 몸통 위치 m (기록 좌표) */
+  xyz: number[];
+  /** 몸통 자세 사원수 */
+  wxyz: number[];
+}
+
+export interface JointLogFrame {
+  /** JointLogReplay.start_at 부터 초 */
+  t: number;
+  /** 관절 각 rad, joint_names 순서 */
+  q: number[];
+  base: JointLogBase;
+  /** 걷기 모드 이름 (classic · sport · start · ame2 등, 열린 문자열). 모르면 null */
+  gait: string | null;
+}
+
+export interface JointLogReplay {
+  event_id: string;
+  robot_id: string;
+  start_at: string;
+  joint_names: ("FR_hip_joint" | "FR_thigh_joint" | "FR_calf_joint" | "FL_hip_joint" | "FL_thigh_joint" | "FL_calf_joint" | "RR_hip_joint" | "RR_thigh_joint" | "RR_calf_joint" | "RL_hip_joint" | "RL_thigh_joint" | "RL_calf_joint")[];
+  rate_hz: number;
+  frames: JointLogFrame[];
 }
 
 export type JsonValue = unknown;
@@ -1924,6 +1971,19 @@ export interface ProvenRunStarted {
   map_proof: RunMapProof;
 }
 
+export interface RecordMarkRequest {
+  severity?: "INFO" | "WARN" | "ERROR";
+  note?: string | null;
+  /** WARN 만 고를 수 있다. null 이면 규칙 기본값 */
+  clip?: boolean | null;
+}
+
+export interface RecordMarkResult {
+  event: Event;
+  /** 영상을 남기지 않는 사건(INFO 등)은 null */
+  clip: EventClip | null;
+}
+
 export interface RefreshRequest {
   refresh_token: string;
 }
@@ -2995,3 +3055,5 @@ export type ControlMode = "FACTORY" | "LOWLEVEL";
 export type FactoryUnsupportedAction = "Greet";
 export type LowlevelQuery = "CheckMode" | "AutoRecoveryGet";
 export type PairingPollResult = PairingWaiting | PairingPaired;
+export type ClipStatus = "PENDING" | "READY" | "FAILED" | "NOT_BUILT";
+export type RecordsNotBuiltCode = "CLIP_PIPELINE_NOT_BUILT" | "JOINT_LOG_NOT_BUILT";

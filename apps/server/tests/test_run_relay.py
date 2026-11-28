@@ -1,6 +1,7 @@
 """Run start/control relay reuses the posture lease, approval and stop gates (11/28 05:09 · 05:14)."""
+import asyncio
 from dataclasses import replace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError
@@ -10,8 +11,9 @@ from sqlalchemy.orm import Session as DBSession
 from apps.contracts import models as C
 from apps.server.fh_server.leases import LeaseError
 from apps.server.fh_server.models import (Assignment, Building, Floor, MapVersion, Scenario,
-                                          ScenarioVersion, Site, Upload)
+                                          Robot, ScenarioVersion, Site, Upload)
 from apps.server.fh_server import realtime as R
+from apps.server.fh_server.models import now
 from .test_server_drive import trial
 from .test_server_drive_flag_stop import relay
 from .test_realtime import app_token, hello, receive, reply, screen, send, state, take
@@ -277,5 +279,155 @@ def test_stop_during_assignment_read_rejects_run_stopped(trial, seeded):
             rt.read = original
             assert answer['ok'] is False and answer['error']['code'] == 'RUN_STOPPED'
             receive(ag, 'stop')
+            with pytest.raises(BaseException):
+                receive(ag, 'run.start', timeout=.3)
+
+
+@pytest.fixture
+def demo_trial(trial, seeded):
+    engine = create_engine(seeded['urls']['migrate'])
+    with DBSession(engine) as db:
+        db.get(Robot, seeded['robots']['mine']).simulation = True
+        db.commit()
+    engine.dispose()
+    return trial
+
+
+def test_demo_holder_screen_close_releases_relay_at_once(demo_trial, seeded):
+    """M2 (Codex 11/28): on the demo robot the server lease IS the relay's Hub controller. When the holder
+    screen goes away the relay must let go now (as a phone link loss does in 3 s), not after the 15 s grace
+    while server pings keep the relay alive."""
+    rid = seeded['robots']['mine']
+    with demo_trial.websocket_connect('/api/v1/agent/ws', headers={
+            'authorization': 'Bearer fake-test-' + str(rid)}) as ag:
+        ag.send_json(hello())
+        receive(ag, 'lease'); receive(ag, 'stop')
+        with screen(demo_trial, app_token(demo_trial)) as ws:
+            lease = take(ws, ag, rid)
+            assert reply(ws, send(ws, 'unlock', rid, lease_id=lease, stop_gen=3))['ok']
+            receive(ag, 'unlock')
+        assert receive(ag, 'lease', timeout=1)['lease_id'] is None
+        assert receive(ag, 'stop', timeout=1)['cause'] == 'screen_disconnected'
+
+
+@pytest.mark.parametrize('op', ['pause', 'abort'])
+def test_pause_abort_dropped_at_send_gate_reply_not_ok(demo_trial, seeded, op):
+    """M3 (Codex 11/28): run.control queued, then dropped by the final send gate (auth snapshot too old ·
+    authority changed). The screen must get ok:false with a reason, never a bare ok:true."""
+    rid = seeded['robots']['mine']
+    rt = demo_trial.app.state.realtime
+    original, calls = rt.blocked_agent_control, []
+
+    def stale_at_send(peer, body):
+        if body.get('t') == 'run.control':
+            calls.append(body)
+            if len(calls) > 1:
+                return True  # passed at enqueue, stale at the final send
+        return original(peer, body)
+
+    with demo_trial.websocket_connect('/api/v1/agent/ws', headers={
+            'authorization': 'Bearer fake-test-' + str(rid)}) as ag:
+        ag.send_json(hello())
+        receive(ag, 'lease'); receive(ag, 'stop')
+        with screen(demo_trial, app_token(demo_trial)) as ws:
+            lease = take(ws, ag, rid)
+            rt.blocked_agent_control = stale_at_send
+            answer = reply(ws, send(ws, 'run.control', rid, lease_id=lease, run_id=str(uuid4()),
+                                    screen_id=str(uuid4()), op=op))
+            rt.blocked_agent_control = original
+            assert answer['ok'] is False and answer['error']['code'] == 'RUN_NOT_DELIVERED'
+            with pytest.raises(BaseException):
+                receive(ag, 'run.control', timeout=.3)
+
+
+def test_run_control_reply_ok_only_after_it_reached_the_agent(demo_trial, seeded):
+    rid = seeded['robots']['mine']
+    with demo_trial.websocket_connect('/api/v1/agent/ws', headers={
+            'authorization': 'Bearer fake-test-' + str(rid)}) as ag:
+        ag.send_json(hello())
+        receive(ag, 'lease'); receive(ag, 'stop')
+        with screen(demo_trial, app_token(demo_trial)) as ws:
+            lease = take(ws, ag, rid)
+            answer = reply(ws, send(ws, 'run.control', rid, lease_id=lease, run_id=str(uuid4()),
+                                    screen_id=str(uuid4()), op='pause'))
+            assert answer['ok'] is True
+            assert receive(ag, 'run.control')['op'] == 'pause'
+
+
+def test_assignment_removed_after_start_gate_never_reaches_agent(trial, seeded):
+    """M4 (Codex 11/28): run.start passes the ACTIVE assignment read, then the assignment is removed before
+    the frame leaves the server. The agent must not get it; the screen gets ok:false RUN_ASSIGNMENT_INVALID."""
+    rid = seeded['robots']['mine']
+    owner = app_token(trial)
+    good = synthetic_assignment(seeded)
+    rt = trial.app.state.realtime
+    original = rt.read
+
+    async def read_then_remove(fn, *args):
+        result = await original(fn, *args)
+        if fn is R.run_assignment_valid and rt.read is read_then_remove:
+            rt.read = original  # only the first (gate) read; the assignment goes away right after it
+            await asyncio.to_thread(remove)
+        return result
+
+    def remove():
+        engine = create_engine(seeded['urls']['migrate'])
+        try:
+            with DBSession(engine) as db:
+                row = db.get(Assignment, UUID(good['assignment_id']))
+                row.status, row.removed_at = 'REMOVED', now()  # as DELETE /assignments does
+                db.commit()
+        finally:
+            engine.dispose()
+
+    with trial.websocket_connect('/api/v1/agent/ws', headers={
+            'authorization': 'Bearer fake-test-' + str(rid)}) as ag:
+        ag.send_json(hello())
+        receive(ag, 'lease'); receive(ag, 'stop'); receive(ag, 'field_approval')
+        with screen(trial, owner) as ws:
+            lease = take(ws, ag, rid)
+            assert reply(ws, send(ws, 'unlock', rid, lease_id=lease, stop_gen=3))['ok']
+            receive(ag, 'unlock')
+            ag.send_json(state(3, stop_ref=ag.stop_ref))
+            rt.read = read_then_remove
+            answer = reply(ws, send(ws, 'run.start', rid, lease_id=lease, run_id=str(uuid4()),
+                                    screen_id=str(uuid4()), **good))
+            rt.read = original
+            assert answer['ok'] is False and answer['error']['code'] == 'RUN_ASSIGNMENT_INVALID'
+            with pytest.raises(BaseException):
+                receive(ag, 'run.start', timeout=.3)
+
+
+def test_stop_during_final_assignment_reread_cancels_run_start(trial, seeded):
+    """M4 fix keeps J1: a STOP landing during the last assignment re-read (before send) cancels run.start."""
+    rid = seeded['robots']['mine']
+    owner = app_token(trial)
+    good = synthetic_assignment(seeded)
+    rt = trial.app.state.realtime
+    original, reads = rt.read, []
+
+    async def stop_on_second_read(fn, *args):
+        if fn is R.run_assignment_valid:
+            reads.append(fn)
+            if len(reads) == 2:
+                holder = rt.arbiter.robot(str(rid)).holder
+                rt.apply(rt.arbiter.stop(str(rid), holder.actor))
+        return await original(fn, *args)
+
+    with trial.websocket_connect('/api/v1/agent/ws', headers={
+            'authorization': 'Bearer fake-test-' + str(rid)}) as ag:
+        ag.send_json(hello())
+        receive(ag, 'lease'); receive(ag, 'stop'); receive(ag, 'field_approval')
+        with screen(trial, owner) as ws:
+            lease = take(ws, ag, rid)
+            assert reply(ws, send(ws, 'unlock', rid, lease_id=lease, stop_gen=3))['ok']
+            receive(ag, 'unlock')
+            ag.send_json(state(3, stop_ref=ag.stop_ref))
+            rt.read = stop_on_second_read
+            answer = reply(ws, send(ws, 'run.start', rid, lease_id=lease, run_id=str(uuid4()),
+                                    screen_id=str(uuid4()), **good))
+            rt.read = original
+            assert len(reads) == 2
+            assert answer['ok'] is False and answer['error']['code'] == 'RUN_STOPPED'
             with pytest.raises(BaseException):
                 receive(ag, 'run.start', timeout=.3)

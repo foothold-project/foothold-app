@@ -27,6 +27,22 @@ TS는 타입 선언이며 런타임 검증기가 아니다. bigint 사건 ID는 
 모든 시각은 시간대가 있어야 하며 응답은 UTC `Z`로 정규화한다. UUID는 TS에서 string이다.
 웹 새로고침 뒤 CSRF 획득 응답은 `SessionInfo`이며 서버 README의 `/auth/session`을 따른다.
 
+## 기록 · 사건 영상 · 관절 기록 재생 (u07)
+
+자세한 경로 · 권한은 API 명세 §8.1. 타입은 `EventClip` · `EventClipList` · `JointLogFrame` ·
+`JointLogBase` · `JointLogReplay` · `RecordMarkRequest` · `RecordMarkResult` · `ClipStatus` · `RecordsNotBuiltCode`.
+
+- 영상은 서버가 만든다. 사건 10 초 전부터 5 초 뒤까지 (`CLIP_PRE_S` · `CLIP_POST_S`, `clip_window`).
+  넘어짐은 다시 설 때까지라 서기 전에는 `end_at` 이 null.
+- 위험(`ERROR`)은 늘 영상, 주의(`WARN`)는 고른 때만, 정보(`INFO`)는 기록만 (`clip_wanted`).
+  규칙에 어긋난 고르기는 검증 오류다.
+- 시뮬과 실기는 같은 기록 · 알림 · 영상을 만든다.
+- `EventClip.url` 은 `READY` 일 때만, `NOT_BUILT` · `FAILED` 는 `reason` 이 있다. `NOT_BUILT` 는 `clip_id` 가 null.
+- `JointLogFrame.t` 는 `JointLogReplay.start_at` 부터 초, `q` 는 `joint_names` 순서 rad, `gait` 는 열린 문자열.
+  재생 빠르기 0.25 · 0.5 · 1 · 2 배와 반복은 웹에서 한다.
+- 지금 서버: `mark-now` 는 실제 사건 행을 남기고 영상 상태는 `NOT_BUILT`. 영상 목록 · 영상 하나 · 관절 기록은
+  501 `CLIP_PIPELINE_NOT_BUILT` · `JOINT_LOG_NOT_BUILT` 와 한 줄 글.
+
 ## 에이전트 실시간 판 (W4-B 조정 결정)
 
 화면 `fh-rt/1`은 유지한다. agent hello는 `fh-agent/2`이며 state.stop_ref가 필수다.
@@ -516,6 +532,9 @@ Upload/MapVersion 경로와 옛 판 관리 방식을 쓴다. 해상도 0.05 m·�
   예외 (①, 시뮬만): 칸을 CONFIRMED 로 만든 사람 (`confirmed_by`) 이 잠금 해제를 미리 누른 것으로 본다. 단 그 잠금이
   «사람이 풀어 둔 로봇을 서버가 조종권을 놓으며 (lease 반납 · 만료 · run 끝) 잠근 것» 일 때만이다. 다시 붙음 · 재시작 ·
   사람 STOP · 에이전트 스스로 잠금 (stop_gen 이 서버 STOP 없이 바뀜) · safety 잠금은 그대로 `STOP_LATCHED`.
+  조종 화면이 닫혀 서버가 조종권을 거둔 잠금 (cause `screen_disconnected`) 도 미리 풀지 않는다. 탭이 닫혔다고 사람이 놓았다는
+  확인은 아니기 때문이다. 이 잠금이 그대로면 칸은 `SKIPPED STOP_LATCHED_SCREEN_CLOSED` 이고 사건 `SCHEDULE_RUN_SKIPPED`
+  의 reason 도 같다. 일정 화면은 «조종 화면이 닫혀 잠김 · 풀어야 시작» 으로 보인다 (화면 줄은 이식 쪽).
   해제는 그 사람 권한 (지금도 담당 또는 총괄, 잠기지 않은 계정) 으로 하고 사건 `SCHEDULE_PRE_UNLOCK` (user = 확정한 사람) 을 남긴다.
   권한이 없거나 확정한 사람이 없으면 `SKIPPED CONFIRMER_NOT_ALLOWED`. `ScheduleSlot.confirmed_by` 는 만들 때 CONFIRMED 면 만든 사람,
   PATCH 로 종류가 CONFIRMED 가 되면 그 사람, CONFIRMED 가 아니게 되면 null 이다.

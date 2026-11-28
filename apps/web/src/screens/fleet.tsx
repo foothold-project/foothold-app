@@ -18,6 +18,7 @@ import { MapFrame, MapImage } from '../mapframe';
 import { Guard } from '../App';
 import { Shapes, floorsOf, isVersion, shape, toPixel, useFit, useTree } from './maps';
 import { FallChip, pickInfo, sdeg } from '../go2status';
+import { ReadyCheck } from './readycheck';
 import { useSimAt } from './missions';
 import { ManageRobot } from '../pairing';
 import { Chip, Detail, Kpi, LINK, Operators, Pair, Seen, attn, inApp, linkText, pct, type Ctx } from '../screens';
@@ -168,6 +169,7 @@ function Prepare({ c, r, guide }: { c: Ctx; r: Robot; guide: () => void }) {
         : on ? '서버가 아직 조종을 허용하지 않았습니다 — 담당·기체번호·서버 전체 스위치 중 맞지 않는 것이 있습니다.' : '로봇이 연결되면 서버가 담당·기체번호·서버 전체 스위치를 자동으로 확인합니다.', undefined, 'fl-step-drive')}
     </ol>
     {!ok && !r.sim && <ActionTrial robot={r} allowed={false} />}
+    <ReadyCheck r={r} server={net} again={c.refresh} />
   </section>;
 }
 
