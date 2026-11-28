@@ -71,21 +71,21 @@ const RUN = (status = 'MOVING') => ({ run: { run_id: 'r1', status, step: 0, wait
 const runs = (ids: string[], status = 'MOVING') => Object.fromEntries(ids.map((id) => [id, RUN(status)]));
 
 describe('관제 탭', () => {
-  it('시안 칸 순서: 보기 · 첫 화면으로 · 수 여섯(임무 중 · 충전 · 점검 · 연결 중 · 시뮬 대기 · 경고) · 뒤집기 · 데모 표시 · 범위, 그 아래 타일 벽 · 오른쪽 칸', async () => {
+  it('시안 칸 순서: 보기 · 첫 화면으로 · 수 일곱(임무 중 · 충전 · 점검 · 연결 중 · 시뮬 · 경고 · 주의) · 뒤집기 · 데모 표시 · 범위, 그 아래 타일 벽 · 오른쪽 칸', async () => {
     dashOk({ robots_running: 7 });
-    mount('u-kim', EIGHT); feed(EIGHT);
+    mount('u-kim', EIGHT); feed(EIGHT, runs(['k1', 'k2', 'k3', 'k4', 'k5', 'k6']));
     await act(async () => {});
     const u5 = $('.proto > main.u5');
     expect([...u5.children].map((e) => e.className)).toEqual(['tb', 'wall', 'side']);
     expect($$('.u5 .tb .seg2 [data-v]').map((e) => e.textContent)).toEqual(['타일 보기', '지도 보기']);
     expect($('.u5 .tb .pinf').textContent).toBe('첫 화면으로');
-    expect($$('.u5 .tb .cnt').map((e) => e.dataset.sum)).toEqual(['임무 중', '충전', '점검', '연결 중', '시뮬 대기', '경고']);
-    expect($('[data-sum="임무 중"] b').textContent).toBe('6');   // 타일이 «임무 중» 인 로봇 = RUNNING · 끊기지 않음(K-07 끊김 · K-08 시뮬 대기 빼고)
+    expect($$('.u5 .tb .cnt').map((e) => e.dataset.sum)).toEqual(['임무 중', '충전', '점검', '연결 중', '시뮬', '경고', '주의']);
+    expect($('[data-sum="임무 중"] b').textContent).toBe('6');   // 임무 중 배지 = 진행 중인 임무가 있는 실기 · 데모(K-07 끊김 · K-08 시뮬 빼고)
     expect($('[data-sum="충전"] b').textContent).toBe('');   // 가용(GET /robots/availability)을 받지 못함 = 수를 비움(em dash 없음)
     expect($('[data-sum="충전"]').dataset.none).toBe('true');
     expect($('[data-sum="점검"] b').textContent).toBe('');   // 가용을 받지 못함 = 수를 비움
     expect($('[data-sum="점검"]').title).toBe('가용(GET /robots/availability)을 받지 못했습니다');
-    expect($('[data-sum="시뮬 대기"] b').textContent).toBe('1');
+    expect($('[data-sum="시뮬"] b').textContent).toBe('1');
     expect($('.u5 .tb .flipb').textContent).toBe('정면 상태로 뒤집기');
     expect($$('.u5 .tb .flt [data-f]').map((e) => e.textContent)).toEqual(['모두', '내 로봇']);
     expect(tiles().map((t) => t.dataset.t)).toEqual(['K-01', 'K-02', 'K-03', 'K-04', 'K-05', 'K-06', 'K-07', 'K-08']);
@@ -94,21 +94,23 @@ describe('관제 탭', () => {
   });
 
   it('머리 줄 필터(팀장 02:21): 수 칸을 누르면 그 상태만 타일 · 작은 지도에 · 여러 개 = 합 · 다시 누르면 풀림 · 수는 그대로 · 0 대면 빈 한 줄', async () => {
-    mount('u-kim', EIGHT); feed(EIGHT);
+    mount('u-kim', EIGHT); feed(EIGHT, runs(['k1', 'k2', 'k3', 'k4', 'k5', 'k6']));
     await act(async () => {});
     const sum = (k: string) => $('[data-sum="' + k + '"]');
     const press = (k: string) => act(() => { sum(k).click(); });
     press('임무 중');
     expect(sum('임무 중').classList.contains('on')).toBe(true); expect(sum('임무 중').getAttribute('aria-pressed')).toBe('true');
     expect(tiles().length).toBe(6); expect(sum('임무 중').querySelector('b')!.textContent).toBe('6');   // 수는 그대로
-    press('시뮬 대기');
-    expect(tiles().length).toBe(7);   // 여러 개 = 합(임무 중 6 + 시뮬 대기 1)
-    press('임무 중'); press('시뮬 대기');
+    press('시뮬');
+    expect(tiles().length).toBe(7);   // 여러 개 = 합(임무 중 6 + 시뮬 1)
+    press('임무 중'); press('시뮬');
     expect(tiles().length).toBe(8); expect(sum('임무 중').classList.contains('on')).toBe(false);
     press('점검');   // 가용을 받지 못해 점검 0 대
     expect(tiles().length).toBe(0); expect($('[data-filter-empty]').textContent).toContain('고른 상태의 로봇이 없습니다');
     press('점검'); expect($('[data-filter-empty]')).toBeNull();
     expect(u5Css).toContain('.u5 .cnt.on{border-color:currentColor}');
+    // 칸마다 수 = 그 칸으로 걸렀을 때 남는 타일 수(경고 · 주의 = 테두리 축도 같음)
+    for (const k of ['임무 중', '연결 중', '시뮬', '경고', '주의']) { press(k); expect([k, tiles().length]).toEqual([k, Number(sum(k).querySelector('b')!.textContent)]); press(k); }
     for (const w of ['<Mini all={shown}', '<SiteView key={home} all={shown}', '<MapSide all={shown}']) expect(u5Src).toContain(w);   // 작은 지도 · 지도 보기도 같은 목록
   });
   it('타일 한 장 = 시안 칸 그대로: 칸(뒤 1 m) · 이름 · 모드 · 임무 + 할 일 · 진행 막대 · 위치 · 배터리 · 온도 · 연결 · 조종', () => {
@@ -139,7 +141,7 @@ describe('관제 탭', () => {
     expect(tile('g9').dataset.tone).toBe('warn'); expect(tile('g9').classList.contains('lv-warn')).toBe(true); expect(tile('g9').classList.contains('warncell')).toBe(true);
     expect(tile('g9').querySelector('[data-warn-flag]')!.textContent).toBe('주의 · 배터리 낮음');
     expect(tile('g3').dataset.tone).toBeUndefined();
-    expect($('[data-sum="경고"] b').textContent).toBe('1');
+    expect(['경고', '주의'].map((k) => $(`[data-sum="${k}"] b`).textContent)).toEqual(['0', '1']);   // g9 = 주의(테두리 warn) · 경고 칸과 나눔(조정 02:30)
     expect(wallGrid(8).zoom).toBe(1);   // 8 칸 = 시안 4×2 그대로(줄이지 않음)
   });
 
@@ -730,8 +732,8 @@ describe('관제 탭', () => {
     expect(tiles()).toHaveLength(2);
     expect(tiles().every((t) => t.dataset.tone === undefined && !t.querySelector('[data-warn-flag]'))).toBe(true);
     expect($('[data-sum="경고"] b').textContent).toBe('0');
-    expect($$('.u5 .tb .cnt').map((e) => e.dataset.sum)).toEqual(['임무 중', '충전', '점검', '연결 중', '시뮬 대기', '경고']);   // 시안 칸 줄 그대로 · 0 이면 0
-    expect(['연결 중', '시뮬 대기'].map((k) => $(`[data-sum="${k}"] b`).textContent)).toEqual(['0', '0']);
+    expect($$('.u5 .tb .cnt').map((e) => e.dataset.sum)).toEqual(['임무 중', '충전', '점검', '연결 중', '시뮬', '경고', '주의']);   // 시안 칸 줄 그대로 · 0 이면 0
+    expect(['연결 중', '시뮬'].map((k) => $(`[data-sum="${k}"] b`).textContent)).toEqual(['0', '0']);
     expect($('[data-alarm]')).toBeNull();
     expect($$('[aria-label="최근 경고"] [data-alert]')).toHaveLength(0);
     expect($('main').textContent).not.toContain('연결 끊김');
@@ -798,13 +800,15 @@ describe('관제 탭', () => {
 
 
 
-  it('총괄 요약 = 수 칸: 임무 중 = 타일 실행 상태로 셈(시뮬 포함 · 서버 요약은 실기만이라 안 씀) · 경고 = 타일 테두리 경고 수(서버 요약은 실기만이라 안 씀), 결재 대기 = 서버 GET /dashboard = 머리줄 메뉴 끝 작은 표', async () => {
+  it('총괄 요약 = 수 칸: 임무 중 = 임무 중 배지 수(시뮬은 시뮬 칸) · 경고 · 주의 = 타일 테두리 수(서버 요약은 실기만이라 안 씀), 결재 대기 = 서버 GET /dashboard = 머리줄 메뉴 끝 작은 표', async () => {
     dashOk({ robots_running: 5, robots_attention: 2, approvals_pending: 4 });
-    mount('u-kim', TWENTY); feed(TWENTY);
+    const going = TWENTY.filter((r) => r.status === 'RUNNING' && r.online && !r.sim).map((r) => r.id);
+    mount('u-kim', TWENTY); feed(TWENTY, runs(going));
     await act(async () => {});
-    expect([$('[data-sum="임무 중"]').dataset.src, $('[data-sum="임무 중"] b').textContent]).toEqual([undefined, String(TWENTY.filter((r) => r.status === 'RUNNING' && r.online).length)]);
+    expect([$('[data-sum="임무 중"]').dataset.src, $('[data-sum="임무 중"] b').textContent]).toEqual([undefined, String(going.length)]);
     expect($('[data-sum="경고"]').dataset.src).toBeUndefined();
-    expect($('[data-sum="경고"] b').textContent).toBe(String(document.querySelectorAll('.u5 .tile[class*="lv-"]').length));
+    expect($('[data-sum="경고"] b').textContent).toBe(String(document.querySelectorAll('.u5 .tile.lv-bad, .u5 .tile.lv-crit').length));
+    expect($('[data-sum="주의"] b').textContent).toBe(String(document.querySelectorAll('.u5 .tile.lv-warn').length));
     const ap = $('.bar .tabs [data-approvals]');
     expect([ap.dataset.approvals, ap.hidden, ap.textContent]).toEqual(['4', false, '결재 4']);
     act(() => { ap.click(); window.dispatchEvent(new HashChangeEvent('hashchange')); });
@@ -828,9 +832,9 @@ describe('관제 탭', () => {
     for (const [rep, says] of [[{ code: 'FORBIDDEN', status: 403, message: '권한이 없습니다.' }, '권한이 없습니다.'], [{ code: 'INTERNAL', status: 500, message: '서버 오류' }, '서버 오류'], [{}, '요약 형식이 맞지 않습니다']] as const) {
       const d = vi.spyOn(api, 'dashboard');
       if ('code' in rep) d.mockRejectedValue(rep); else d.mockResolvedValue(rep as never);
-      mount('u-kim', EIGHT); feed(EIGHT);
+      mount('u-kim', EIGHT); feed(EIGHT, runs(['k1', 'k2', 'k3', 'k4', 'k5', 'k6']));
       await act(async () => {});
-      expect(['임무 중', '경고'].map((k) => $(`[data-sum="${k}"] b`).textContent)).toEqual(['6', String(document.querySelectorAll('.u5 .tile[class*="lv-"]').length)]);   // 수 칸은 타일로 셈 · 요약 실패와 무관
+      expect(['임무 중', '경고'].map((k) => $(`[data-sum="${k}"] b`).textContent)).toEqual(['6', String(document.querySelectorAll('.u5 .tile.lv-bad, .u5 .tile.lv-crit').length)]);   // 수 칸은 타일로 셈 · 요약 실패와 무관
       expect($('[data-dash-err]').textContent).toContain(says);
       expect($('.bar [data-approvals]').dataset.approvals).toBe('');
       expect($('.bar [data-approvals]').hidden).toBe(true);

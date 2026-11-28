@@ -317,15 +317,18 @@ export function tileBadge(f: TileFacts): Badge | null {
 /** 배지 점 색은 여기 한 곳(팀장 02:14): 임무 중 = 빨강(--u5-dot-red) · 충전 = 초록 · 시뮬 = 파랑 · 연결 전 = 하양(--u5-on), 나머지 = 배지 글 색 */
 export const badgeDot = (b: Badge): string =>
   b.key === 'run' || b.key === 'driving' ? 'var(--u5-dot-red)' : b.key === 'charging' ? 'var(--u5-ok)' : b.key === 'simrun' ? 'var(--u5-sim)' : b.key === 'pre' ? 'var(--u5-on)' : b.col;
-/** 머리 줄 수 칸 = 필터 갈래(팀장 02:21). 수와 필터가 같은 판정을 쓴다(수는 바뀌지 않음) */
-export type Group = '임무 중' | '충전' | '점검' | '연결 중' | '시뮬 대기' | '경고';
+/** 머리 줄 수 칸 = 필터 갈래(팀장 02:21 · 조정 02:29). 수와 필터 모두 tileBadge 의 key 에서 센다(배지와 어긋나지 않음).
+ *  임무 중 = 임무 중 · 임무 멈춤 배지(실기 · 데모), 시뮬 = 시뮬 로봇 전체(시뮬 중 + 대기), 경고만 배지가 아닌 경고 테두리 축(겹쳐 셈) */
+export type Group = '임무 중' | '충전' | '점검' | '연결 중' | '시뮬' | '경고' | '주의';
+const keyIn = (f: TileFacts, ...k: Badge['key'][]) => { const b = tileBadge(f); return !!b && k.includes(b.key); };
 export const GROUP: Record<Group, (f: TileFacts) => boolean> = {
-  '임무 중': (f) => f.x.status === 'RUNNING' && !f.lostNow,   // 타일이 «임무 중» 인 로봇(실행 상태 RUNNING · 끊기지 않음, 시뮬 포함)
-  '충전': (f) => f.charging,
-  '점검': (f) => f.job?.kind === 'maint',
-  '연결 중': (f) => !f.sim && (f.lostNow || (!f.x.online && f.x.unknown === 'wait')),
-  '시뮬 대기': (f) => f.sim && f.x.status !== 'RUNNING',
-  '경고': (f) => !!f.level,   // 타일 테두리가 경고인 로봇(시뮬 포함)
+  '임무 중': (f) => !f.sim && keyIn(f, 'run', 'paused'),
+  '충전': (f) => keyIn(f, 'charging'),
+  '점검': (f) => keyIn(f, 'maint'),
+  '연결 중': (f) => !f.sim && keyIn(f, 'relink', 'lost'),
+  '시뮬': (f) => f.sim,
+  '경고': (f) => f.level === 'bad' || f.level === 'crit',   // 경고 테두리 축: 경고 · 위험 = 「경고」, 주의 = 「주의」(조정 02:30)
+  '주의': (f) => f.level === 'warn',
 };
 /** 고른 갈래 중 하나라도 맞으면 보임(여러 개 고름 = 합). 고른 것이 없으면 모두 */
 export const inGroups = (f: TileFacts, pick: readonly Group[]) => !pick.length || pick.some((g) => GROUP[g](f));
@@ -509,20 +512,21 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
   // 총괄: 수 칸 = 서버 요약(GET /dashboard · 시뮬 몫은 뺌 · realDash)의 임무 중 · 주의 필요(=경고). 받지 못하면 수를 비우고 까닭(title · 화면 읽기 한 줄). 운영 관리자 = 받은 로봇 상태로 셈
   const d = admin ? realDash(c.dash?.d ?? null, c.robots) : null, dErr = admin ? c.dash?.err ?? '' : '';
   const why = dErr ? `요약을 받지 못했습니다. ${dErr}` : undefined;
-  const cnt = (k: Group, icon: ReactNode, v: number | null, red = false, src?: 'dashboard', none?: string) => { const on = pick.includes(k); return <span className={on ? 'cnt on' : 'cnt'} style={red ? { color: 'var(--u5-red)' } : undefined} data-sum={k} data-src={src} title={src ? why : none} data-none={v == null || undefined}
-    role="button" tabIndex={0} aria-pressed={on} onClick={() => flip(k)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(k); } }}>{I(16, icon, red ? 'var(--u5-red)' : undefined)}{`${k} `}<b style={red ? { color: 'var(--u5-red)' } : undefined}>{v ?? ''}</b></span>; };
+  const cnt = (k: Group, icon: ReactNode, v: number | null, col?: string, src?: 'dashboard', none?: string) => { const on = pick.includes(k); return <span className={on ? 'cnt on' : 'cnt'} style={col ? { color: col } : undefined} data-sum={k} data-src={src} title={src ? why : none} data-none={v == null || undefined}
+    role="button" tabIndex={0} aria-pressed={on} onClick={() => flip(k)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(k); } }}>{I(16, icon, col)}{`${k} `}<b style={col ? { color: col } : undefined}>{v ?? ''}</b></span>; };
   return <main className="u5" data-view={view} aria-label="관제">
     <div className="tb"><div className="seg2" role="group" aria-label="보기">{seg(view === 'tiles', '타일 보기', IC.tiles, () => setView('tiles'))}{seg(view === 'map', '지도 보기', IC.map, () => { setFrom(null); setFocus(''); setView('map'); })}</div>
       <span className="pinf" role="button" tabIndex={0} data-home onClick={toHome} onKeyDown={(e) => { if (e.key === 'Enter') toHome(); }} style={{ cursor: 'pointer' }}><i></i>첫 화면으로</span><span className="sep"></span>
       {/* 임무 중 = 타일이 «임무 중» 인 로봇(실행 상태 RUNNING · 끊기지 않음, 시뮬 포함). 서버 요약의 robots_running 은 실기만이라 타일과 어긋나서 쓰지 않음 */}
       {cnt('임무 중', IC.flag, n(GROUP['임무 중']))}
-      {cnt('충전', IC.bolt, av ? n(GROUP['충전']) : null, false, undefined, av ? undefined : '가용(GET /robots/availability)을 받지 못했습니다')}
-      {cnt('점검', IC.wrench, av ? n(GROUP['점검']) : null, false, undefined, av ? undefined : '가용(GET /robots/availability)을 받지 못했습니다')}
+      {cnt('충전', IC.bolt, av ? n(GROUP['충전']) : null, undefined, undefined, av ? undefined : '가용(GET /robots/availability)을 받지 못했습니다')}
+      {cnt('점검', IC.wrench, av ? n(GROUP['점검']) : null, undefined, undefined, av ? undefined : '가용(GET /robots/availability)을 받지 못했습니다')}
       {/* 시안 칸 줄 그대로 여섯 칸 · 0 이면 0. 서버에 없는 값은 수를 비우고 까닭은 title */}
       {cnt('연결 중', IC.wifi, n(GROUP['연결 중']))}
-      {cnt('시뮬 대기', IC.box, n(GROUP['시뮬 대기']))}
+      {cnt('시뮬', IC.box, n(GROUP['시뮬']))}
       {/* 경고 = 타일 테두리가 경고인 로봇(시뮬 포함). 서버 요약 robots_attention 은 실기만이라 타일과 어긋나서 쓰지 않음 */}
-      {cnt('경고', IC.warn, n(GROUP['경고']), true)}
+      {cnt('경고', IC.warn, n(GROUP['경고']), 'var(--u5-red)')}
+      {cnt('주의', IC.warn, n(GROUP['주의']), 'var(--u5-amb)')}
       {why && <span className="ap-sr" role="alert" data-dash-err>{why}</span>}
       {/* 시안 밖 · 새로 그림: 타일은 8 칸까지(wallPick), 남은 로봇이 어디 있는지 한 줄 */}
       {view === 'tiles' && shown.length > wall.length && <span className="mu2" style={{ fontSize: '12.5px' }} data-wall-rest={shown.length - wall.length}>{`타일 ${wall.length} 대 · 나머지 ${shown.length - wall.length} 대는 지도 보기 · 로봇 탭`}</span>}
