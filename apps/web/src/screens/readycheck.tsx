@@ -7,7 +7,7 @@ import { useState } from 'react';
 import type { Robot } from '../fake';
 import { pickInfo } from '../go2status';
 import { JOINTS, jointName } from '../go2model';
-import { TEMP_STALE_S } from '../pcdrive';
+import { TEMP_STALE_S } from '../go2model';
 import './readycheck.css';
 
 type State = 'ok' | 'blocked' | 'none';

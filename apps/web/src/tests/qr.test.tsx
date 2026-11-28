@@ -61,7 +61,7 @@ describe('단계 막대(U2-01)', () => {
   for (const phone of [true, false]) it(`${phone ? '폰' : 'PC'}: 코드 1/3 → 이름 2/3 → 끝 3/3, 지난 칸 · 지금 칸 표시`, async () => {
     serve();
     await open(phone);
-    if (phone) await startPair(); else { location.hash = '#/fleet'; await flush(); await click(btn('+ 새 로봇 추가') ?? btn('+ 로봇 연결하기')); }
+    if (phone) await startPair(); else { location.hash = '#/fleet'; await flush(); await click($('[data-u4-add]') ?? btn('+ 로봇 연결하기')); if ($('[data-u4-next]')) await click($('[data-u4-next]')); }
     const at = () => ({ text: steps().textContent, label: steps().getAttribute('aria-label'), on: [...steps().querySelectorAll('[data-on]')].length });
     expect(at()).toEqual({ text: '1 / 3', label: '3 단계 중 1 단계', on: 1 });
     await putCode();

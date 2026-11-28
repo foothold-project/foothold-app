@@ -12,7 +12,6 @@ import { holderText } from '../drive';
 import { NO_SIGNAL } from '../drivemedia';
 import { PhoneRelay, useRelayExpiry } from '../phoneRelay';
 import { canDrive, keepDrive, stopLine } from '../serverdrive';
-import { PcDrive } from '../pcdrive';
 import { ActionTrial } from './actiontrial';
 import { MapFrame, MapImage } from '../mapframe';
 import { Guard } from '../App';
@@ -22,6 +21,8 @@ import { ReadyCheck } from './readycheck';
 import { RobotTiles } from './robottiles';
 import { useSimAt } from './missions';
 import { ManageRobot } from '../pairing';
+import { RobotTab } from './u4/robotu4';
+import { pcBoard } from '../pcboard';
 import { Chip, Detail, Kpi, LINK, Operators, Pair, Seen, attn, inApp, linkText, pct, type Ctx } from '../screens';
 
 /** 화면이 아는 위치: 구독 로봇은 실시간 state, 아니면 목록 요약(남의 로봇은 서버가 감춤 — 그리지 않음) */
@@ -153,22 +154,31 @@ const DRIVE_BLOCKED: Record<NonNullable<Robot['serverDriveBlocked']>[number], st
   FIELD_GATE_CLOSED: '현장 승인이 닫혀 있어 앱 정지가 로봇에 가지 않습니다. 리모컨으로 멈추세요',
 };
 
-/** 조종 준비: 서버 연결 → 로봇 연결 → 조종 가능(허용 판단은 server_drive_allowed 만, 이유 목록은 표시만). 허용되면 조종은 세 칸 조종 화면(«조종 화면 열기»)에서 */
-function Prepare({ c, r, guide }: { c: Ctx; r: Robot; guide: () => void }) {
+/** 조종 준비 세 단계(서버 연결 → 로봇 연결 → 조종 가능)와 머리 알약. 허용 판단은 server_drive_allowed 만, 이유 목록은 표시만.
+ *  옛 PC 부품(Prepare)과 PC 로봇 탭 시안 u4 «점검» 창이 같이 쓴다 */
+export function prepSteps(c: Ctx, r: Robot) {
   const k = kindOf(r), net = rt.link().at === 'open', on = k === 'on', ok = canDrive(c, r);
   const ready = ok && on;   // 서버 허용 값이 남아 있어도 로봇이 끊기면 완료로 보이지 않는다(목록 갱신 전). 패널(STOP 포함)은 ok 면 그대로 둔다
   const pill = k === 'lost' || k === 'server' ? { tone: 'bad' as const, text: '재연결 필요' } : ready ? { tone: 'ok' as const, text: '조종 가능' } : on ? { tone: 'warn' as const, text: '서버 허용 대기' } : { tone: 'off' as const, text: '연결 대기' };
   const blocked = shownDriveBlocked(r.serverDrive, r.serverDriveBlocked)?.filter((reason) => DRIVE_BLOCKED[reason]);
-  const step = (n: number, done: boolean, cur: boolean, t: string, p: ReactNode, more?: ReactNode, id?: string) => <li className={`fl-step${done ? ' done' : cur ? ' cur' : ''}`} data-step={n}>
-    <span className="fl-mark" aria-hidden="true">{done ? '✓' : n}</span><div><h3>{t}</h3><p className="lv-note" id={id}>{p}</p>{more}</div></li>;
+  const steps: { n: number; done: boolean; cur: boolean; title: string; text: ReactNode; guide?: boolean; id?: string }[] = [
+    { n: 1, done: net, cur: !net, title: '서버 연결', text: net ? '관제 서버와 연결되어 있습니다.' : '서버 연결이 끊겼습니다. 네트워크를 확인하세요.' },
+    { n: 2, done: on, cur: net && !on, title: '로봇 연결', guide: !on, text: on ? '로봇 상태를 받고 있습니다.' : k === 'wait' ? '로봇 상태를 확인하는 중입니다.' : k === 'lost' ? '네트워크와 노트북 연결 프로그램을 확인하세요.' : '노트북 연결 프로그램을 확인하세요.' },
+    { n: 3, done: ready, cur: on && !ok, title: '조종 가능', id: 'fl-step-drive', text: blocked?.length ? blocked.map((reason, i) => <span key={reason} data-drive-block={reason}>{i > 0 && <br />}{DRIVE_BLOCKED[reason]}</span>) : ready ? '서버가 담당·기체번호·서버 전체 스위치·로봇 연결을 확인했습니다.'
+      : on ? '서버가 아직 조종을 허용하지 않았습니다 — 담당·기체번호·서버 전체 스위치 중 맞지 않는 것이 있습니다.' : '로봇이 연결되면 서버가 담당·기체번호·서버 전체 스위치를 자동으로 확인합니다.' },
+  ];
+  return { pill, steps, ok, net };
+}
+
+/** 조종 준비: 서버 연결 → 로봇 연결 → 조종 가능. 허용되면 조종은 세 칸 조종 화면(«조종 화면 열기»)에서 */
+export function Prepare({ c, r, guide }: { c: Ctx; r: Robot; guide: () => void }) {
+  const { pill, steps, ok, net } = prepSteps(c, r);
   return <section className="lv-card fl-prep" aria-label="조종 준비">
     <div className="fh-row"><h2 className="fh-grow">조종 준비</h2><Chip {...pill} /></div>
     <ol className="fl-steps">
-      {step(1, net, !net, '서버 연결', net ? '관제 서버와 연결되어 있습니다.' : '서버 연결이 끊겼습니다. 네트워크를 확인하세요.')}
-      {step(2, on, net && !on, '로봇 연결', on ? '로봇 상태를 받고 있습니다.' : k === 'wait' ? '로봇 상태를 확인하는 중입니다.' : k === 'lost' ? '네트워크와 노트북 연결 프로그램을 확인하세요.' : '노트북 연결 프로그램을 확인하세요.',
-        !on && <button type="button" className="btn fl-small" onClick={guide}>연결 방법 보기</button>)}
-      {step(3, ready, on && !ok, '조종 가능', blocked?.length ? blocked.map((reason, i) => <span key={reason} data-drive-block={reason}>{i > 0 && <br />}{DRIVE_BLOCKED[reason]}</span>) : ready ? '서버가 담당·기체번호·서버 전체 스위치·로봇 연결을 확인했습니다.'
-        : on ? '서버가 아직 조종을 허용하지 않았습니다 — 담당·기체번호·서버 전체 스위치 중 맞지 않는 것이 있습니다.' : '로봇이 연결되면 서버가 담당·기체번호·서버 전체 스위치를 자동으로 확인합니다.', undefined, 'fl-step-drive')}
+      {steps.map((x) => <li key={x.n} className={`fl-step${x.done ? ' done' : x.cur ? ' cur' : ''}`} data-step={x.n}>
+        <span className="fl-mark" aria-hidden="true">{x.done ? '✓' : x.n}</span><div><h3>{x.title}</h3><p className="lv-note" id={x.id}>{x.text}</p>
+          {x.guide && <button type="button" className="btn fl-small" onClick={guide}>연결 방법 보기</button>}</div></li>)}
     </ol>
     {!ok && !r.sim && <ActionTrial robot={r} allowed={false} />}
     <ReadyCheck r={r} server={net} again={c.refresh} />
@@ -189,7 +199,7 @@ function Sheet({ title, open, close, children }: { title: string; open: boolean;
     <div className="fl-sheet-body">{children}</div>
   </div>;
 }
-const Guide = ({ r }: { r: Robot }) => <ol className="fl-guide">
+export const Guide = ({ r }: { r: Robot }) => <ol className="fl-guide">
   <li><b>로봇과 노트북 연결</b><span className="lv-note">현장에서 쓰는 연결 방식(유선·현장 네트워크)으로 Go2 와 노트북을 잇습니다.</span></li>
   <li><b>노트북 연결 프로그램 켜기</b><span className="lv-note">«Go2 기체번호 찾음»에 보이는 번호가 이 로봇{r.serial ? <> (<span className="mono">{r.serial}</span>)</> : ''}과 같은지 확인합니다.</span></li>
   <li><b>로봇 상태 받기 확인</b><span className="lv-note">연결 프로그램에 «연결됨»이 뜨고 이 화면의 «로봇»이 «연결», «마지막 보고»가 초 단위로 바뀌면 됩니다.</span></li>
@@ -263,7 +273,7 @@ function SummaryRow({ c, x }: { c: Ctx; x: Robot }) {
 
 /** 실기 보기(옛 시뮬 탭 «Go2 실기 보기» — 같은 조건: 폰 앱 밖·실기만). 상세 칸 아래.
  *  지도 고르기(RB-REPLAY-LIVE 11-18): 승인 판이 있는 층 → 층 화면 «시뮬 열기»와 같은 규칙(useSimAt)으로 그 지형을 연다(못 열면 꺼짐 + 이유). 기본 = 로봇이 있는 층, 없으면 «지도 없이»(기본 지형) */
-function RealView({ r }: { r: Robot }) {
+export function RealView({ r }: { r: Robot }) {
   if (inApp() || r.sim) return null;   // 로봇 탭은 이미 실기만 — 서버 목록은 simulation 을 늘 보낸다
   return <RealViewPick r={r} />;
 }
@@ -299,21 +309,28 @@ const Side = ({ r, children }: { r: Robot; children: ReactNode }) => <div classN
 
 /** 로봇 탭은 실기만: 목록에서 시뮬(끝낸 슬롯 포함)을 빼고, App 에서 고른 로봇(머리줄 STOP 대상)이 시뮬이면 첫 실기로 바꾼다(운영 관리자 — 화면의 로봇 = STOP 대상). 실기 0대면 null.
  *  총괄이 고른 시뮬은 그대로 둔다: 총괄 머리줄 STOP·Space 는 내 시뮬뿐(실기 STOP 없음 — App)이라 실기로 바꾸면 이 탭에서 멈출 길이 사라진다(REVIEW-315 1). 서랍은 행을 눌러야 열리고 그때 실기를 고른다 */
-function useReal(c: Ctx): Ctx | null {
+export function useReal(c: Ctx): Ctx | null {
   const robots = c.robots.filter((x) => !x.sim), keep = c.user.role === 'ORG_ADMIN' && !!c.robot.sim;
   const robot = keep ? c.robot : robots.find((x) => x.id === c.robot.id) ?? robots[0];
   useEffect(() => { if (robot && robot.id !== c.robot.id) c.pick(robot.id); }, [robot?.id, c.robot.id]);
   return robots.length ? { ...c, robot, robots } : null;
 }
-const NoReal = () => <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="실기 로봇 없음" data-no-real><h2>실기 로봇이 없습니다</h2>
+export const NoReal = () => <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="실기 로봇 없음" data-no-real><h2>실기 로봇이 없습니다</h2>
   <p className="lv-note">로봇 탭에는 실기 로봇만 보입니다. 시뮬 로봇은 «시뮬» 탭에서 보고 조종합니다.</p>
   <div className="fh-row"><a className="btn" href="#/sim">시뮬 탭 열기</a></div></section>;
 
+/** 로봇 탭: PC 는 시안 u4 화면(robotu4.tsx · 실기만 — 시뮬은 시뮬 탭), 폰은 아래 옛 배치 그대로 */
 export function OperatorRobot(c0: Ctx) {
+  return c0.phone || pcBoard.on ? <OperatorBoard {...c0} /> : <RobotTab c={c0} user={c0.user} refresh={c0.refresh} cancel={c0.cancel} />;
+}
+export function OperatorBoard(c0: Ctx) {
   const c = useReal(c0);
   return c ? <Operator {...c} /> : <Pair user={c0.user} mine={[]} refresh={c0.refresh} cancel={c0.cancel}><NoReal /></Pair>;
 }
 export function AdminFleet(c0: Ctx) {
+  return c0.phone || pcBoard.on ? <AdminBoard {...c0} /> : <RobotTab c={c0} user={c0.user} refresh={c0.refresh} cancel={c0.cancel} />;
+}
+export function AdminBoard(c0: Ctx) {
   const c = useReal(c0);
   const d = realDash(c0.dash.d, c0.robots);
   return c ? <Admin {...c} d={d} /> : <><Kpi user={c0.user} d={d} err={c0.dash.err} /><NoReal /><Operators user={c0.user} d={d} /></>;
@@ -336,9 +353,6 @@ function Operator(c: Ctx) {
   const bad = isLost(r), [sheet, setSheet] = useState<'' | 'settings' | 'guide'>(''), [list, setList] = useState(false);
   useEffect(() => { setSheet(''); setList(false); }, [r.id]);   // 로봇을 고르면 바로 조종 화면(허용된 로봇만)
   const guide = () => setSheet('guide');
-  if (own && keepDrive(c, r) && !list) return <Pair user={c.user} mine={mine.map((x) => x.id)} refresh={c.refresh} cancel={c.cancel}>
-    <PcDrive key={r.id} c={c} r={r} back={() => setList(true)} floorMap={<Guard><FleetMap robots={[r]} sel={r.id} cancel={c.cancel} /></Guard>} />
-  </Pair>;
   return <Pair user={c.user} mine={mine.map((x) => x.id)} refresh={c.refresh} cancel={c.cancel}>
     <div className="fh-focus" data-lost={bad || undefined} data-summary={!own || undefined}>
       {(mine.length > 1 || (!own && mine.length > 0)) && <section className="lv-card fl-pick" aria-label="내 로봇 고르기"><h2>내 실기 로봇 {mine.length}대</h2>
@@ -368,12 +382,8 @@ const needs = (x: Robot) => { const t = robotStatus(x).tone; return t === 'bad' 
  *  운영 관리자와 같은 세 칸 조종 화면(pcdrive). 서버 관문(스위치 · 연결 확인 · 조종권 하나 · 잠금)은 그대로 서버가 답한다. 서랍을 닫아도 고른 행은 그대로 */
 function Admin({ d, ...c }: Ctx & { d: Dashboard | null }) {
   useRt();
-  const r = c.robot, { err } = c.dash, [drawer, setDrawer] = useState(false), [f, setF] = useState<Filter>({ owner: '', state: '' }), [drive, setDrive] = useState(false);
-  const open = (id: string) => { c.pick(id); setDrawer(true); setDrive(false); };
-  const can = !r.sim && keepDrive(c, r);
-  if (drive && can) return <Pair user={c.user} mine={c.robots.filter((x) => x.owner === c.user.id).map((x) => x.id)} refresh={c.refresh} cancel={c.cancel}>
-    <PcDrive key={r.id} c={c} r={r} back={() => setDrive(false)} floorMap={<Guard><FleetMap robots={[r]} sel={r.id} cancel={c.cancel} /></Guard>} />
-  </Pair>;
+  const r = c.robot, { err } = c.dash, [drawer, setDrawer] = useState(false), [f, setF] = useState<Filter>({ owner: '', state: '' });
+  const open = (id: string) => { c.pick(id); setDrawer(true); };
   const owners = [...new Map(c.robots.map((x) => [x.owner, ownerName(x)])).entries()];
   const rows = c.robots.filter((x) => (!f.owner || x.owner === (f.owner === '-' ? '' : f.owner))
     && (!f.state || (f.state === 'attn' ? needs(x) : f.state === 'online' ? x.online : !x.online)));
@@ -407,9 +417,7 @@ function Admin({ d, ...c }: Ctx & { d: Dashboard | null }) {
           </button></li>; })}</ul>
       </section>
       {/* 담당이 바뀌면 상세를 새로 받는다 — 옛 요청의 늦은 답은 내린 화면에 떨어져 버려진다 */}
-      {drawer && <Side r={r}>{!r.sim && (can ? <button type="button" className="btn pri" data-admin-drive onClick={() => setDrive(true)}>조종 화면</button>
-        : <p className="lv-note" data-admin-nodrive>서버 경유 조종이 이 로봇에 켜져 있지 않습니다 (서버 조종 스위치 · 로봇 연결 · 담당 확인). 조종은 서버가 허용한 뒤에 엽니다.</p>)}
-        <Detail key={`${r.id}-${r.owner}`} {...c} close={() => setDrawer(false)} /></Side>}
+      {drawer && <Side r={r}><Detail key={`${r.id}-${r.owner}`} {...c} close={() => setDrawer(false)} /></Side>}
     </div>
     <Operators user={c.user} d={d} />
   </Pair>;

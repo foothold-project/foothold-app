@@ -75,5 +75,5 @@ export function useGait(id: string, moving: () => boolean) {
     {offs.length > 0 && <span className="lbl" data-gait-off style={{ flexBasis: '100%' }}>{offs.join(' · ')}: 이 로봇에서 지금 쓸 수 없음</span>}
     {(ask || msg) && <span role="status" className="lbl" style={{ flexBasis: '100%' }} data-gait-msg>{ask ? `${NAME[ask.g]} 모드로 바꾸는 중…` : msg}</span>}
   </div>;
-  return { row, press };
+  return { row, press, cur, msg: ask ? `${NAME[ask.g]} 모드로 바꾸는 중…` : msg };
 }

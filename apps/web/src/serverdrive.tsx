@@ -13,7 +13,7 @@ import { REPORT_STALE_MS, go2Pose, type Pose } from './go2model';
 import { DriveInputNote } from './driveinput';
 import type { Look } from './lidar3d';
 import { DEPTH_HINT, driveFeedHeld, driveFeedText, useDriveFeed, type DriveCh, type DriveFeed } from './drivemedia';
-import { type Robot, type Tone } from './fake';
+import { driveBlock, type Robot, type Tone } from './fake';
 import { api } from './api';
 import { ActionTrial } from './screens/actiontrial';
 import { GAIT_KEYS, gaitKey, useGait } from './gait';
@@ -22,7 +22,7 @@ import type { OrgSettings, UnlockRefused } from '../../contracts/ts';
 import orgSettingsSchema from '../../contracts/schema/OrgSettings.json';
 
 /** 누름 하나: up·down = 전후(W·↑ / S·↓), left·right = 옆걸음(Q / E), rotl·rotr = 제자리 회전(A·← / D·→). 모든 조종 화면 한 배치(d5 · 11-28) */
-type Tok = 'up' | 'down' | 'left' | 'right' | 'rotl' | 'rotr';
+export type Tok = 'up' | 'down' | 'left' | 'right' | 'rotl' | 'rotr';
 /** 계약 JSON 스키마 중 OrgSettings 가 쓰는 낱말만(type·required·properties·additionalProperties·anyOf·minimum·maximum). 모르는 type 은 거절 */
 type Schema = { type?: string; required?: string[]; properties?: Record<string, Schema>; additionalProperties?: boolean | Schema; anyOf?: Schema[]; minimum?: number; maximum?: number };
 const plain = (o: unknown): o is Record<string, unknown> => !!o && typeof o === 'object' && !Array.isArray(o);
@@ -248,6 +248,13 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
     if (readyRef.current && permitted(command(t), settingsRef.current)) setWhy(''); changed();
   };
   const lift = (p: number) => { if (pads.current.delete(p)) changed(); };
+  /** 손잡이(시안 u4 조이스틱): 끄는 동안 방향이 바뀌면 같은 누름 세대로 바꾸고, 빈 방향이면 놓음 */
+  const stick = (p: number, el: HTMLElement, t: Tok[]) => {
+    const was = pads.current.get(p);
+    if (!t.length) return lift(p);
+    if (was && id(was.t) === id(t)) return;
+    pads.current.set(p, { n: was ? was.n : now(), t, el }); changed();
+  };
   /** 누른 단추가 사라짐(작게 보기·전체화면 전환 등 — 놓음을 못 받음): 그 포인터를 지우고 세대 +1(RV-426 ⑥) */
   const gone = (el: HTMLElement) => { let hit = false; for (const [p, x] of pads.current) if (x.el === el) { pads.current.delete(p); hit = true; } if (hit) zero(); };
 
@@ -367,7 +374,8 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   // 조종 시작/끝내기 — 조각으로 돌려주고 붙이는 쪽이 배치(같은 단추를 두 번 그리지 않게). 권한·기다릴 이유는 DriveButton 이 글로
   const hint = <span className="lbl fh-grow">W·↑ / S·↓ 앞뒤 1.5 m/s · A·← / D·→ 제자리 회전 최대 {MAX_TURN_RATE} rad/s · Q/E 옆걸음 1.0 m/s · Space 정지 · {GAIT_KEYS}. 누르고 있으면 2초에 걸쳐 최고 속도까지 올라가고, 떼면 바로(약 0.3초) 멈춥니다. ↑+A/D로 전진하며 회전합니다. 다른 조합을 누르면 입력은 0입니다. 조직 상한을 넘는 단추는 비활성입니다.</span>;
   const end = <button type="button" className="btn" onClick={() => { zero(); rt.release(r.id); }}>조종 끝내기</button>;
-  const begin = <DriveButton c={c} r={r} label="조종 시작" wait={wait} onClick={() => { setWhy(''); stale.current = false; if (l.holder?.type === 'USER') rt.request(r.id); else rt.take(r.id); }} />;
+  const take = () => { setWhy(''); stale.current = false; if (l.holder?.type === 'USER') rt.request(r.id); else rt.take(r.id); };
+  const begin = <DriveButton c={c} r={r} label="조종 시작" wait={wait} onClick={take} />;
   const poseRow = mine && <div className="fh-row" role="group" aria-label="로봇 자세" style={{ flexWrap: 'wrap' }} data-sd-posture>
     {(['up', 'down'] as const).map((k) => <button key={k} type="button" className="btn" data-sd-pose={k} disabled={shifting || link !== 'open' || s?.connection !== 'ONLINE' || k === 'up' && s?.control === 'LOWLEVEL'}
       onClick={() => askPose(k)}>{POSE[k].name}</button>)}
@@ -377,7 +385,9 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   const trial = <ActionTrial robot={r} allowed={!!r.serverDrive && !r.sim} beforeSend={zero} />;
   const releasing = l.releasing?.why && <div className="fh-row" role="status"><span className="fh-why">조종권 반납을 확인하지 못했습니다. {l.releasing.why}</span>
     <button type="button" className="btn" onClick={() => rt.release(r.id)}>다시 시도</button></div>;
-  return { l, s, mine, off, link, posture, shifting, stalled, refused, age, lock, zero, stop, stopNote, unlock, pad, status, latency, notes, hint, end, begin, poseRow, gaitRow: gait.row, trial, releasing };
+  return { l, s, mine, off, link, posture, shifting, stalled, refused, age, lock, zero, stop, stopNote, unlock, pad, status, latency, notes, hint, end, begin, poseRow, gaitRow: gait.row, trial, releasing,
+    take, takeWhy: driveBlock(c.user, r) ?? (wait || ''), stick, stopPress, why, on, ready, askPose, poseNow, poseMsg: poseMsg || lost, gait,
+    unlockAsk: () => { setAsked(rt.now()); rt.unlock(r.id); }, unlockState: asked == null ? null : late ? 'unconfirmed' as const : 'wait' as const, stopLine: sl };
 }
 
 /** 화면 이동 단추 — 사라질 때(unmount) gone 으로 알린다. 잠긴 동안에도 누름을 받아야 해서 disabled 대신 aria-disabled(누른 세대만 적고 명령은 0) */

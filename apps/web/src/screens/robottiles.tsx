@@ -8,7 +8,7 @@ import { useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode
 import { ownerName, robotStatus, type Robot } from '../fake';
 import { rt, useRt } from '../rt';
 import { pickInfo, sdeg } from '../go2status';
-import { REPORT_STALE_MS, go2Pose, go2Temps } from '../pcdrive';
+import { REPORT_STALE_MS, go2Pose, go2Temps } from '../go2model';
 import { Go2Figure, JOINTS, jointName } from '../go2model';
 import { Chip, attn, linkText } from '../screens';
 import './robottiles.css';

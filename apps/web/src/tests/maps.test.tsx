@@ -3,7 +3,8 @@
 // 두 단계 올리기 순서·실패 중단, STALE, 판 전환, 승인 판 없음, 로봇 점 없음, 어떤 실패에도 STOP 이 보이고 실제로 정지 요청이 나가는지 본다.
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { pcBoard } from '../pcboard';
 import type { MapFeatures, MapVersion, RobotSummary, SiteTree, User } from '../../../contracts/ts';
 import { Root } from '../session';
 import { floorName, pixelTo, toPixel } from '../screens/maps';
@@ -15,6 +16,9 @@ import raw from './mapcases.json?raw';
 import mapscenCss from '../screens/mapscen.css?raw';
 import { FakeWS } from './fakeWs';
 import { keptMission } from '../screens/missiontab';
+// 옛 PC 관제 부품(관제 요약 · 상세 서랍 · 연결 상태 · 조종 준비) 시험: PC 로봇 탭은 시안 u4 라 부품을 앱 맥락 안에 직접 그린다 → W1 u5
+beforeEach(() => { pcBoard.on = true; });
+afterEach(() => { pcBoard.on = false; });
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

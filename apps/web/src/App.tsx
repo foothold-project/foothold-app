@@ -10,6 +10,8 @@ import { ROBOTS, ROLE_NAME, USERS, idleSim, lost, lostText, myRobots, robotsFor,
 import { PC_BOTTOM, PC_TABS, PHONE_SCAN, labelOf, leaving, oldScenario, tabFromHash, tabsFor, type Tab, type TabId } from './menu';
 import { rt, undelivered, useRt, withLive, type Live } from './rt';
 import { BODY, EmptyFleet, inApp, useDash, type Ctx } from './screens';
+import { RobotTab } from './screens/u4/robotu4';
+import { pcBoard } from './pcboard';
 import { Connect, NO_ROBOT, endDrive } from './drive';
 import { sim, useSim } from './phone';
 import { SimDrive, SimPip, stopText as simStopText, type Cam } from './simdrive';
@@ -402,7 +404,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         : ctx ? <Body key={`${tab}-${tab === 'control' || tab === 'fleet' || tab === 'approval' || tab === 'trash' ? '' : tab === 'map' || tab === 'missions' ? mapN : ctx.robot.id}-${user.id}`} {...ctx} />   // 관제·지도·결재는 로봇을 골라도 다시 그리지 않음(층·지도 그림·고른 결재 유지 — 상세 서랍은 자기 key)
         : tab === 'drive' ? <Connect user={user} robots={pool} go={go} refresh={refresh} cancel={cancel} />   // 로봇 0대여도 시뮬 로봇 띄우기 자리
         : tab === 'control' ? <EmptyControl />   // 로봇 0대 관제 = 한 줄 + 로봇 탭 링크
-        : tab === 'fleet' ? <EmptyFleet user={user} cancel={cancel} dash={dash} robots={withSlots} refresh={refresh} />   // 로봇 0대여도 관제 요약·운영 관리자 표
+        : tab === 'fleet' ? phone || pcBoard.on ? <EmptyFleet user={user} cancel={cancel} dash={dash} robots={withSlots} refresh={refresh} /> : <RobotTab c={null} user={user} refresh={refresh} cancel={cancel} />   // 로봇 0대여도 관제 요약·운영 관리자 표
         : tab === 'history' ? <History key={`history-${user.id}`} user={user} robots={withSlots} go={go} phone={phone} cancel={cancel} focus={focus} />   // 로봇 0대여도 계정·내 행동 기록과 알림 링크
         : tab === 'missions' ? <MissionTab key={`missions-${mapN}-${user.id}`} user={user} robots={pool} cancel={cancel} />   // 로봇 0대여도 임무 목록·짜기
         : tab === 'map' ? <Maps key={`map-${mapN}-${user.id}`} user={user} cancel={cancel} dash={dash} robots={withSlots} />   // 로봇 0대여도 장소·지도·시나리오
