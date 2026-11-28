@@ -27,7 +27,7 @@ type Binding = Pick<PhoneMediaWelcome, 'robot' | 'epoch' | 'episode_id'>;
 
 /** 에이전트 reason(영문 고정 문구) → 화면 문구. 모르는 것은 원문 그대로 */
 const WHY: Record<string, string> = {
-  'External camera source is not connected': '외부 카메라 연결 전 — 시뮬 외부 카메라 소스가 아직 연결되지 않았습니다',
+  'External camera source is not connected': '외부 카메라 연결 전 · 시뮬 외부 카메라 소스가 아직 연결되지 않았습니다',
   'RGB source is disabled': 'RGB 카메라가 꺼져 있습니다',
   'JPEG decoder (Pillow) is unavailable': '로봇 쪽 JPEG 해독기가 없어 영상을 보낼 수 없습니다',
   'Media binding or worker is unavailable': '로봇 영상 처리가 준비되지 않았습니다',
@@ -37,9 +37,9 @@ export const reasonText = (r: string) => (WHY[r] ? `${WHY[r]} (${r})` : r);
 export const NO_MEDIA = '이 로봇은 관측 영상(media/1)을 알리지 않습니다';
 export const BAD_WELCOME = '로봇이 알린 관측 영상(media/1) 형식이 약속과 달라 받지 않습니다';
 const LOST = '영상 연결이 끊겼습니다. 조종·STOP 에는 영향이 없습니다';
-const EXPIRED = '영상 연결 권한(10초·1회)이 끝났습니다 — «영상 다시 받기»로 다시 연결하세요';
+const EXPIRED = '영상 연결 권한(10초·1회)이 끝났습니다 · «영상 다시 받기»로 다시 연결하세요';
 const BAD = '받은 자료가 media/1 약속과 달라 연결을 닫았습니다';
-const HIDDEN = '화면을 숨겨 영상 연결을 닫았습니다 — «영상 다시 받기»로 다시 연결하세요';
+const HIDDEN = '화면을 숨겨 영상 연결을 닫았습니다 · «영상 다시 받기»로 다시 연결하세요';
 
 const blank = (state: FeedState = 'off', why = ''): Feed => ({ state, why, at: 0, seq: -1, img: '', xyz: new Float32Array(0), n: 0, frame: '', truncated: false, ver: 0 });
 let feeds: Record<MediaChannel, Feed> = { rgb: blank(), external: blank(), lidar: blank() };

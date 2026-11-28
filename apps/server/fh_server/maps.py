@@ -178,7 +178,8 @@ def version_object(row, floor, upload, db):
     return C.MapVersion(upload_id=row.upload_id, id=row.id, floor_id=row.floor_id, number=row.number, base_version_id=row.base_version_id,
         copied_from_id=row.copied_from_id,
         status='SUPERSEDED' if row.status == 'APPROVED' and floor.approved_version_id != row.id else row.status,
-        image_sha256=row.image_sha256.hex(), width=row.width, height=row.height, resolution=row.resolution,
+        image_sha256=row.image_sha256.hex(), model_sha256=row.model_sha256.hex() if row.model_sha256 else None,
+        model_floor_z=floor.floor_z if row.model_sha256 else None, width=row.width, height=row.height, resolution=row.resolution,
         origin=(row.origin_x, row.origin_y, row.origin_yaw), features=row.features, reason=row.reason,
         source=row.source, provenance=row.provenance, terrain_spec=terrain_spec, voxel_map=voxel_summary(db, row, upload),
         slam_bundle=bundle_link, created_by=row.created_by, created_at=row.created_at)
@@ -578,6 +579,16 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         if not path.is_file():
             fail(503, 'FILE_STORAGE_ERROR', '지도 파일을 찾을 수 없습니다.')
         return FileResponse(path, media_type='image/png', headers={'Cache-Control': 'private, no-store', 'ETag': '"' + row.image_sha256.hex() + '"'})
+
+    @app.get('/api/v1/map-versions/{version_id}/model', response_class=FileResponse)
+    def model(version_id: UUID, auth: Identity, db: DB):
+        row = own(db, MapVersion, version_id, auth[0])
+        if row.model_sha256 is None:
+            fail(404, 'MODEL_NOT_FOUND', '이 층은 3D 모형이 없습니다.')
+        path = root / row.model_path
+        if not path.is_file():
+            fail(503, 'FILE_STORAGE_ERROR', '3D 모형 파일을 찾을 수 없습니다.')
+        return FileResponse(path, media_type='model/gltf-binary', headers={'Cache-Control': 'private, no-store', 'ETag': '"' + row.model_sha256.hex() + '"'})
 
     @app.get('/api/v1/floor-connectors', response_model=C.FloorConnectorList)
     def connectors(building_id: UUID, auth: Identity, db: DB):

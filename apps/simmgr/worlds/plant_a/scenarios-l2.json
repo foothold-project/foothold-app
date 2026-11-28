@@ -1,0 +1,39 @@
+[
+  {
+    "id": "l2-inspection",
+    "name": "공정동 A 2층 점검 순회 · 초안",
+    "finish": "RETURN_TO_START",
+    "waypoints": [
+      {
+        "x": 7.0,
+        "y": 3.2,
+        "yaw": -1.5708,
+        "mission_name": "plant_a-l2-p1 · 관제실 화면 벽 사진"
+      },
+      {
+        "x": 18.0,
+        "y": 2.4,
+        "yaw": -1.5708,
+        "mission_name": "plant_a-l2-p2 · MCC-1 전기반 온도"
+      },
+      {
+        "x": 31.0,
+        "y": 4.0,
+        "yaw": 0.0,
+        "mission_name": "plant_a-l2-p3 · 배터리실 가스"
+      },
+      {
+        "x": 14.0,
+        "y": 15.5,
+        "yaw": 1.5708,
+        "mission_name": "plant_a-l2-p4 · 배관 통로 압력계 PG-2"
+      },
+      {
+        "x": 30.0,
+        "y": 15.5,
+        "yaw": 0.0,
+        "mission_name": "plant_a-l2-p5 · 배관 통로 새는 소리"
+      }
+    ]
+  }
+]

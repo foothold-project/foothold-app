@@ -34,7 +34,24 @@
 .st-fixed{background:var(--panel2)}
 .st-row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px;color:var(--muted)}
 .st-row b{color:var(--text);font-weight:600;white-space:nowrap}
+/* U9-04 시안 배치: PC 는 왼쪽 묶음 목록(묶음 이름 + 항목) | 오른쪽 내용. 폰은 위에 가로로 밀어 보는 한 줄 */
+.fh-main>.st{flex-direction:row;align-items:flex-start}
+.st-side{flex:0 0 220px;flex-direction:column;align-self:flex-start;gap:2px;padding:10px;position:sticky;top:0}
+.st-side button{text-align:left;padding:9px 12px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.st-side button[data-only]::after{content:'총괄만';font-size:11px;font-weight:600;padding:0 7px;border-radius:10px;border:1px solid var(--accent);color:var(--accent)}
+.st-group{padding:10px 12px 2px;font-size:11px;font-weight:600;color:var(--muted)}
+.st-group:first-child{padding-top:2px}
+.st-body{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:16px}
+.st-later{display:flex;flex-direction:column;gap:2px;padding:8px 0;border-bottom:1px solid var(--line)}
+.st-later:last-child{border-bottom:0}
+.st-later b{font-size:14px;font-weight:600}.st-later [data-why]{word-break:keep-all}
+.st-theme{display:flex;flex-direction:column}
+.st-theme input{width:20px;height:20px}
 @media (max-width:640px){
-  .st-tabs{align-self:stretch}.st-tabs button{flex:1;padding:8px 0}
+  .fh-main>.st{flex-direction:column;align-items:stretch}
+  .st-side{flex:none;flex-direction:row;overflow-x:auto;position:static;padding:4px;max-width:100%}
+  .st-side button{flex:none;white-space:nowrap}
+  .st-group{display:none}
+  .st-tabs{align-self:stretch}.st-tabs:not(.st-side) button{flex:1;padding:8px 0}
   .st-grid>section,.st-scope>section{flex-basis:100%}
 }

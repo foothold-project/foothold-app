@@ -1074,7 +1074,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
                 {r.reachable ? '✓ 모두 갈 수 있음' : '⚠ 갈 수 없는 지점이 있음'} · 약 {Math.round(r.est_distance_m)} m<span aria-hidden="true"> ⓘ</span></p>
               <details className="fh-fold"><summary>경로 더 보기</summary>
                 <p>{r.reachable ? '모든 지점에 갈 수 있습니다.' : '갈 수 없는 지점이 있습니다. 빨간 지점을 옮기거나 지우세요.'}</p>
-                <p>예상 거리 약 {Math.round(r.est_distance_m)} m <span className="lbl">— 지점 사이 직선과 층 연결점까지 거리로 잰 대략 값입니다. 실제로 걷는 길은 실행할 때 로봇이 정합니다.</span></p>
+                <p>예상 거리 약 {Math.round(r.est_distance_m)} m <span className="lbl">· 지점 사이 직선과 층 연결점까지 거리로 잰 대략 값입니다. 실제로 걷는 길은 실행할 때 로봇이 정합니다.</span></p>
                 <p>필요 장치: {devices(r.required_devices)}</p>
                 {r.segments.some((s) => !s.reachable || s.via.length) && <ul className="fh-list" aria-label="구간">{r.segments.filter((s) => !s.reachable || s.via.length).map((s, j) =>
                   <li key={j} className="fh-row"><span>{elName(s.start)} → {elName(s.end)}</span><span className={s.reachable ? 'lbl' : 'fh-why'}>{s.reachable ? `${floorName(s.via[0]?.floor_id ?? '')} → ${floorName(s.via[1]?.floor_id ?? '')} 층 연결점을 거칩니다` : s.reason}</span></li>)}</ul>}

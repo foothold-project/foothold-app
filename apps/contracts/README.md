@@ -27,6 +27,22 @@ TS는 타입 선언이며 런타임 검증기가 아니다. bigint 사건 ID는 
 모든 시각은 시간대가 있어야 하며 응답은 UTC `Z`로 정규화한다. UUID는 TS에서 string이다.
 웹 새로고침 뒤 CSRF 획득 응답은 `SessionInfo`이며 서버 README의 `/auth/session`을 따른다.
 
+## 기록 · 사건 영상 · 관절 기록 재생 (u07)
+
+자세한 경로 · 권한은 API 명세 §8.1. 타입은 `EventClip` · `EventClipList` · `JointLogFrame` ·
+`JointLogBase` · `JointLogReplay` · `RecordMarkRequest` · `RecordMarkResult` · `ClipStatus` · `RecordsNotBuiltCode`.
+
+- 영상은 서버가 만든다. 사건 10 초 전부터 5 초 뒤까지 (`CLIP_PRE_S` · `CLIP_POST_S`, `clip_window`).
+  넘어짐은 다시 설 때까지라 서기 전에는 `end_at` 이 null.
+- 위험(`ERROR`)은 늘 영상, 주의(`WARN`)는 고른 때만, 정보(`INFO`)는 기록만 (`clip_wanted`).
+  규칙에 어긋난 고르기는 검증 오류다.
+- 시뮬과 실기는 같은 기록 · 알림 · 영상을 만든다.
+- `EventClip.url` 은 `READY` 일 때만, `NOT_BUILT` · `FAILED` 는 `reason` 이 있다. `NOT_BUILT` 는 `clip_id` 가 null.
+- `JointLogFrame.t` 는 `JointLogReplay.start_at` 부터 초, `q` 는 `joint_names` 순서 rad, `gait` 는 열린 문자열.
+  재생 빠르기 0.25 · 0.5 · 1 · 2 배와 반복은 웹에서 한다.
+- 지금 서버: `mark-now` 는 실제 사건 행을 남기고 영상 상태는 `NOT_BUILT`. 영상 목록 · 영상 하나 · 관절 기록은
+  501 `CLIP_PIPELINE_NOT_BUILT` · `JOINT_LOG_NOT_BUILT` 와 한 줄 글.
+
 ## 에이전트 실시간 판 (W4-B 조정 결정)
 
 화면 `fh-rt/1`은 유지한다. agent hello는 `fh-agent/2`이며 state.stop_ref가 필수다.
@@ -38,9 +54,21 @@ AGENT_PROTOCOL_MISMATCH 사건을 남긴다. Client는 0·잠금 및 기존 대�
 AgentState와 이를 상속하는 PhoneState의 선택 필드 `safety_reason`은
 `OUTPUT_STALLED | null`이다. publisher 지연으로 잠긴 동안 `OUTPUT_STALLED`를
 보내며 신선한 STOP 피드백·새 unlock·해제 피드백 뒤 null이 된다.
-물리 정지 확인은 기존 `stop_requested` 피드백이며 이 사유 필드로 대신하지 않는다.
+`stop_requested`·`latched` 피드백은 제어 쪽 확인(우리 출력이 멈춰 있음)이고, 물리 정지는
+에이전트 `GO2_STOP_HELD` 같은 측정 증거로만 말한다. 이 사유 필드는 어느 쪽도 대신하지 않는다.
 서버는 검증된 값을 로봇별 `ScreenState.safety_reason`으로 전달한다. 필드를 생략하는
 옛 에이전트, 아직 상태가 없거나 오래된 상태, 오프라인 로봇은 null이다.
+
+정지 접수 `POST /robots/{id}/stop` 202 본문은 `StopAccepted {requested: true, delivered}`이고,
+화면 `stop`의 성공 `ScreenReply`에도 같은 뜻의 `delivered`가 붙는다(다른 회신에는 없다).
+`delivered=true`는 그 순간 정지가 연결된 에이전트 대기열에 들어갔다는 뜻이다. 소켓으로 실제 보냈다는 보증은 아니다.
+`delivered=false`는 로봇이 멈췄다는 뜻도, 안 멈췄다는 뜻도 아니다. 에이전트 연결이 없거나
+막혀 서버가 지금 보낼 길이 없다는 뜻이다. 정지 감사 기록은 그대로 남는다.
+에이전트가 없을 때 누른 STOP은 큐에 넣지 않는다. 다시 붙으면 서버가 연결 STOP(cause `agent_connected`)을
+보내 잠긴 채 시작한다. 단 서버 조종 스위치가 꺼진 실기는 서버가 STOP을 보낼 수 없다(재연결 STOP도
+막힌다. 폰 직결·리모컨으로 멈춘다).
+`latched`는 제어 잠금(우리 출력이 멈춰 있음)일 뿐 물리 정지 확인이 아니다. 움직이던 기체가 실제로
+섰는지는 에이전트의 `GO2_STOP_HELD` 같은 측정 증거로만 말한다. `delivered`도 `latched`도 그 증거를 대신하지 않는다.
 
 `AgentState`·`PhoneState`·`ScreenState`의 선택 `unlock_refused`는
 `{reason, at, axes}` 또는 null이다. `at`은 UTC 시각, `reason`은 `UnlockRefused`의
@@ -243,6 +271,34 @@ unlock·새 중립을 거쳐 새 실행한다. 구체 원칙은 [05 §13.10.5](.
 200=image/png·no-store·증명 PNG SHA 일치, 401=인증 실패, 404=미허용/다른 조직/없는 판,
 422 MAP_VERSION_MISMATCH=보관 이미지와 증명 불일치다. 최신 판/일반 사용자 URL로 우회하지
 않는다. 이미지 API는 2a 미구현이며 검증된 로컬 사본으로 대체해도 증명은 필수다.
+
+`MapVersion.model_sha256`은 그 지도 판 층의 실내 3D 모형(GLB) 하나의 실제 바이트 SHA-256(소문자
+hex)이다. null이면 3D 모형이 없고 클라이언트는 2D 지도만 보인다. `MapVersion.model_floor_z`는 그
+층 바닥 윗면의 world z(m)이고 시뮬 층은 worlds.json `floor_z`다(공정동 A 0 · 3.375 · 6.75).
+`model_sha256`이 null이면 이 칸도 null이다. 모형은 `GET /api/v1/map-versions/{id}/model`로 받는다.
+인증·소유 검사는 같은 판의 `/image`와 같고, 200=`model/gltf-binary`·`Cache-Control: private,
+no-store`·`ETag: "<model_sha256>"`, 401=인증 실패, 404=없는 판/다른 조직(`/image`와 같은 응답)이거나
+모형 없음(`MODEL_NOT_FOUND`), 503 `FILE_STORAGE_ERROR`=기록된 모형 파일이 서버 저장소에 없음이다.
+
+클라이언트가 기대는 규약. GLB는 +Y가 위, 단위는 미터, 원점은 지도 world 원점이다.
+glTF (x,y,z) → world (x,−z,y). 거꾸로 world (x,y,z) 는 glTF (x,z,−y). 서버는 바이트를 바꾸지 않고
+변환은 클라이언트가 한 번 한다. 로봇 위치 x, y(world 미터)는 그대로 얹으며 2D 이미지의
+origin/resolution 픽셀 변환은 거치지 않는다. 한 판의 모형은 그 층 하나뿐이다. 표식 높이는
+`model_floor_z`가 있으면 그 값, 없으면 모형 맨 아래다. 클라이언트는 GLB 노드 이름을 찾지 않는다
+(MapVersion의 floor_id는 UUID라 층 키와 맞지 않는다).
+
+만드는 쪽 규약(서버 동기화 검사에만 쓴다). 시뮬 월드는 `apps/simmgr/worlds/worlds.json` 층 항목의
+`model`(카탈로그 폴더 기준 경로, 공정동 A는 `plant_a_<층>_real.glb` 꼴)과 `sha256.model`로
+선언한다. GLB 안에는 바닥 노드 `<층 키>_floor`(sim 층 이름, 예 `l1_floor`·`l2_floor`·`l3_floor`)가
+하나 있어야 한다. GLB는 저장소에 넣지 않으며(`**/models/`는 무시 목록) 선언만 있고 파일이 없으면
+조용히 2D만 등록한다. 파일이 있으면 동기화가 DB 쓰기 전에 크기(64 MiB 이하)·SHA-256·glTF 2 머리를
+보고, 바닥 노드의 경계 상자(노드 변환 포함, POSITION min/max)를 world로 바꾸어 (1) 그 층 지도
+범위(origin·resolution·크기) 안에 드는지, (2) 윗면 world z가 `floor_z`와 1 cm 안인지 본다. 지도
+범위는 원점에 대칭이 아니라 y 부호가 뒤집힌 모형은 범위 밖으로 나가 거절된다. 검사에 실패하면
+모형을 붙이지 않고, 이미 붙은 모형이 있으면 떼어 `model_sha256`·`model_floor_z`를 null로 둔다
+(맞지 않는 3D보다 2D가 안전하다). 2D 지도는 정상 등록하며 `SIM_MODEL_REJECTED` 사건에 까닭을
+남긴다. 같은 판·같은 까닭·같은 파일 sha의 거절은 한 번만 남긴다. 통과하면 서버 파일 저장소에 내용 주소로 복사해 그 층의 같은 이미지 판에
+붙인다. 선언 형식 오류나 카탈로그 밖 경로는 동기화 전체를 거부한다.
 
 계약 집중 시험은 다음과 같다. 기존 안전 셀프테스트의 기대값은 변경하지 않는다.
 

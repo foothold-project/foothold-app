@@ -2,7 +2,7 @@
 // 2D = 서버 tiles(64×64칸 조각) — cursor 를 끝까지 따라가고, 다음 번은 첫 쪽 update_seq 이후 바뀐 조각만. 판(revision)이 바뀌면(409 포함) 비우고 처음부터.
 // 3D = 서버 voxels API(판·since·cursor, 11-25 RB-SLAM-WEB4)로 빠짐없이 — 진행 자료의 마지막 증분은 «새로 왔음» 신호로만. lidar3d «상자» 보기로. 로봇 = 진행 자료 odom.
 // 저장된 지도 = bundle 의 voxels(int32 LE x·y·z)·grid(칸마다 1바이트)를 같은 그리기로. 그림만 — 명령 0.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { MappingGridTile, MappingOdom, MappingProgress, MappingVoxelPage } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import type { DriveFeed, Pose } from '../drivemedia';
@@ -161,11 +161,12 @@ export function useSlamLive(robot: string, p: MappingProgress | null, link = 0):
 }
 
 /** 저장된 지도 묶음(bundle) — 담당 운영자만(남은 403). 받는 중 null */
-export function useSlamSaved(robot: string, session: string, cancel?: AbortSignal): { pic: SlamPic | null; err: string } {
+export function useSlamSaved(robot: string, session: string, cancel?: AbortSignal, again = 0): { pic: SlamPic | null; err: string } {
   const [r, setR] = useState<{ pic: SlamPic | null; err: string }>({ pic: null, err: '' });
   useEffect(() => {
     const ac = new AbortController(), off = () => ac.abort();
     cancel?.addEventListener('abort', off);
+    setR((x) => (x.err ? { pic: null, err: '' } : x));   // 다시 시도: 옛 오류 줄을 지우고 받는 중으로(또 실패하면 새 오류 줄)
     (async () => {
       try {
         const [m, vb, gb] = await Promise.all([api.slamBundle(robot, session, ac.signal), api.slamBundleFile(robot, session, 'voxels', ac.signal), api.slamBundleFile(robot, session, 'grid', ac.signal)]);
@@ -181,7 +182,7 @@ export function useSlamSaved(robot: string, session: string, cancel?: AbortSigna
       }
     })();
     return () => { ac.abort(); cancel?.removeEventListener('abort', off); };
-  }, [robot, session]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [robot, session, again]);   // eslint-disable-line react-hooks/exhaustive-deps
   return r;
 }
 
@@ -260,28 +261,36 @@ function SlamGrid({ pic, over, hideBase = false }: { pic: SlamPic; over?: Over |
 function SlamBoxes({ pic, fail }: { pic: SlamPic; fail: () => void }) {
   const feed = useMemo<DriveFeed>(() => ({ state: 'live', why: '', at: 0, seq: pic.ver, img: '', xyz: pic.xyz, n: pic.n, frame: 'map', truncated: false, ver: pic.ver,
     range: null, pose: pic.pose }), [pic.ver]);   // eslint-disable-line react-hooks/exhaustive-deps
-  return <Lidar3D feed={feed} small={false} look="boxes" ratio={1} onFail={fail} />;
+  return <Lidar3D feed={feed} small={false} look="boxes" ratio={1} views={false} onFail={fail} />;
 }
 
 /** 지도 칸(부모 크기를 채움): «위에서 2D» / «3D 상자» 고르기 + 그 그림(first3d = 3D 로 시작). 아무것도 안 왔으면 안내만.
  *  over·hideBase = 2D 에 겹칠 칸·조각 숨김(지도 만들기 GLIM 미리보기 — 안 주면 그대로). 조각을 숨기면 3D 상자도 막는다 */
-export function SlamView({ pic, empty, first3d = false, over: raw, hideBase = false }: { pic: SlamPic; empty: string; first3d?: boolean; over?: Over | null; hideBase?: boolean }) {
+export function SlamView({ pic, empty, first3d = false, over: raw, hideBase = false, no3d: none3d = '3D 칸을 아직 받지 못했습니다' }: { pic: SlamPic; empty: string; first3d?: boolean; over?: Over | null; hideBase?: boolean; no3d?: string }) {
   const over = useMemo(() => cleanOver(raw), [raw]);
-  const [d3, setD3] = useState(first3d), [no3d, setNo3d] = useState(false), show3d = d3 && !no3d && !hideBase;
+  const [d3, setD3] = useState(first3d), [no3d, setNo3d] = useState(false), show3d = d3 && !no3d && !hideBase && pic.n > 0, whyId = useId();
+  // 3D 상자가 회색인 까닭 한 줄 (폰에는 마우스 올림이 없다)
+  const why3d = no3d ? '이 브라우저는 3D 를 그릴 수 없습니다' : !pic.n ? none3d : hideBase ? '고친 지도 미리보기는 위에서만 봅니다' : '';
   const any = (!hideBase && (pic.n > 0 || pic.patches.length > 0)) || !!over?.cells.length;
-  return <div style={{ position: 'absolute', inset: 0, background: 'var(--panel)' }} data-slam-view={show3d ? '3d' : '2d'} data-slam-boxes={pic.n}>
-    {!any ? <QEmpty text={empty} /> : show3d ? <SlamBoxes pic={pic} fail={() => setNo3d(true)} /> : <SlamGrid pic={pic} over={over} hideBase={hideBase} />}
-    {any && <div className="fh-row" role="group" aria-label="지도 보기 고르기" style={{ position: 'absolute', right: 8, top: 8, zIndex: 1 }}>
-      <button type="button" className="btn" aria-pressed={!show3d} data-slam-pick="2d" onClick={() => setD3(false)}>위에서</button>
-      <button type="button" className="btn" aria-pressed={show3d} data-slam-pick="3d" disabled={no3d || !pic.n || hideBase} title={no3d ? '이 브라우저는 3D 를 그릴 수 없습니다' : undefined} onClick={() => setD3(true)}>3D 상자</button>
-    </div>}
+  // 지도 칸(그림 + 오른쪽 위 단추 묶음) 아래에 까닭 한 줄. 띠를 그림 위에 띄우면 작은 폰 지도 윗부분을 가린다(11-28 폰 스캔 사진). PC 지도 탭 · 폰 스캔 같은 규칙
+  return <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', background: 'var(--panel)' }} data-slam-view={show3d ? '3d' : '2d'} data-slam-boxes={pic.n}>
+    <div style={{ position: 'relative', flex: '1 1 auto', minHeight: 0 }} data-slam-pane>
+      {!any ? <QEmpty text={empty} /> : show3d ? <SlamBoxes pic={pic} fail={() => setNo3d(true)} /> : <SlamGrid pic={pic} over={over} hideBase={hideBase} />}
+      {any && <div className="fh-row" role="group" aria-label="지도 보기 고르기" style={{ position: 'absolute', right: 8, top: 8, zIndex: 1, justifyContent: 'flex-end' }}>
+        <button type="button" className="btn" aria-pressed={!show3d} data-slam-pick="2d" onClick={() => setD3(false)}>위에서</button>
+        <button type="button" className="btn" aria-pressed={show3d} data-slam-pick="3d" disabled={!!why3d} aria-describedby={why3d ? whyId : undefined} onClick={() => setD3(true)}>3D 상자</button>
+      </div>}
+    </div>
+    {any && why3d && <p className="lbl" data-slam-note style={{ margin: 0, padding: '4px 8px', textAlign: 'right', borderTop: '1px solid var(--line)' }}><span id={whyId} data-slam-3d-why>{why3d}</span></p>}
   </div>;
 }
 
 /** 저장된 «로봇으로 만든 지도» 다시 열기 — 같은 그리기 */
 export function SlamSavedView({ robot, session, cancel }: { robot: string; session: string; cancel?: AbortSignal }) {
-  const { pic, err } = useSlamSaved(robot, session, cancel);
+  const [n, setN] = useState(0), { pic, err } = useSlamSaved(robot, session, cancel, n);
   return <div className="vx" data-slam-saved>
-    {pic ? <SlamView pic={pic} empty="이 지도에는 받은 칸이 없습니다." first3d /> : <p className={err ? 'fh-msg mx-center' : 'lv-note mx-center'} role={err ? 'alert' : 'status'}>{err ? `지도 자료를 받지 못했습니다. ${err}` : '지도 자료를 받는 중…'}</p>}
+    {pic ? <SlamView pic={pic} empty="이 지도에는 받은 칸이 없습니다." first3d no3d="이 지도에는 3D 칸이 없습니다" />
+      : err ? <div className="mx-center"><p className="fh-msg" role="alert">지도 자료를 받지 못했습니다. {err}</p><button type="button" className="btn" onClick={() => setN(n + 1)}>다시 시도</button></div>
+      : <p className="lv-note mx-center" role="status">{n ? '지도 자료를 다시 받는 중…' : '지도 자료를 받는 중…'}</p>}
   </div>;
 }
