@@ -313,6 +313,29 @@ describe('로봇 탭 보기 칸 · 지도 경로 · 시뮬 시점(서버 값만)
     expect(FakeWS.all.some((x) => x.url.includes('/robots/r3/drive-media'))).toBe(false);
   });
 
+  // 결정 13 확정 계약(11/28 21:48): accept 뒤 close code + 이유 글. 4403 · 4404 = 문구 · 다시 붙지 않음, accept 전 닫힘(1006) = 끊김 · 다시 붙음
+  for (const [code, reason, say] of [[4403, 'ROBOT_READ_REQUIRED', '이 로봇을 볼 권한이 없습니다'], [4403, 'OTHER_ORG', '이 로봇을 볼 권한이 없습니다'],
+    [4403, 'AUTH_REQUIRED', '다시 로그인해 주세요'], [4404, 'ROBOT_ARCHIVED', '보관된 로봇입니다'], [4404, 'ROBOT_NOT_FOUND', '로봇을 찾을 수 없습니다']] as const) {
+    it(`결정 13 계약: ${code} ${reason} → 「${say}」 · 다시 붙지 않음`, () => {
+      mount('u-park'); serve('r7', 'r3'); pick('Go2-3');
+      click($('[data-view="lidar"]')!);
+      const l = media('r3', 'lidar')!;
+      act(() => { l.open(); l.drop(code, reason); });
+      expect(text($('[data-u4-big="lidar"]'))).toContain(`라이다 신호 없음 · ${say}`);
+      const k = FakeWS.all.length; tick(RETRY_MS * 3);
+      expect(FakeWS.all.slice(k).some((x) => x.url.includes('/robots/r3/drive-media/lidar'))).toBe(false);
+    });
+  }
+  it('결정 13 계약: accept 전 닫힘(1006)은 끊김으로 보고 다시 붙음', () => {
+    mount('u-park'); serve('r7', 'r3'); pick('Go2-3');
+    click($('[data-view="lidar"]')!);
+    const l = media('r3', 'lidar')!;
+    act(() => l.drop(1006));
+    expect(text($('[data-u4-big="lidar"]'))).toContain('라이다 신호 없음 · 연결이 끊겼습니다');
+    const k = FakeWS.all.length; tick(RETRY_MS + 10);
+    expect(FakeWS.all.slice(k).filter((x) => x.url.endsWith('/robots/r3/drive-media/lidar')).length).toBe(1);
+  });
+
   it('결정 13: 보기 소켓이 권한 없음(4403)으로 닫히면 「이 로봇을 볼 권한이 없습니다」 · 다시 붙지 않음 · NO_POINTS 는 지금 표시 그대로', () => {
     mount('u-park'); serve('r7', 'r3'); pick('Go2-3');
     click($('[data-view="lidar"]')!);

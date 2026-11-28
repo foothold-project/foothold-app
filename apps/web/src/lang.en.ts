@@ -96,6 +96,8 @@ export const EN: Record<string, string> = {
   '기록 탭에서 모두 보기': 'See all in History', '보기': 'View', '범위': 'Scope', '로봇 타일': 'Robot tiles', '작은 지도 · 누르면 지도 보기': 'Mini map · click for map',
   '실시간 3D · 끌어서 돌리기 · 휠 확대': 'Live 3D · drag to rotate · wheel to zoom', '동선 겹쳐 보기': 'Route overlap', '기존 동선': 'Current routes', '대': 'robots', '새 동선': 'New route', '겹치는 곳': 'Overlaps', '현장 3D': 'Site 3D',
   '로봇 추가': 'Add robot', '데모 · 정지 잠금': 'Demo · stop latched', '시뮬 · 정지 잠금': 'Sim · stop latched', '실제 · 연결 끊김': 'Real · disconnected', '바꿀 수 있는 모드 없음': 'No modes to switch', '조종을 시작해야 걷기 모드를 바꿀 수 있습니다.': 'Start driving to change the walking mode.',
+  '이 로봇을 볼 권한이 없습니다': 'You do not have permission to view this robot', '다시 로그인해 주세요': 'Please log in again',
+  '보관된 로봇입니다': 'This robot is archived', '로봇을 찾을 수 없습니다': 'Robot not found',
   '조종자': 'Driver', '조종': 'Drive', '로봇 설정': 'Robot settings', '끌어서 돌려 보기': 'Drag to rotate', '서 있음': 'Standing', '위치 추정 켜짐': 'Localization on',
   '관절값을 받지 않아 서 있는 모양 그대로': 'No joint values · shown standing', '카메라': 'Camera', '라이다': 'LiDAR', '깊이': 'Depth', '시뮬 시점': 'Sim view', '앞 카메라': 'Front camera', '임무 없음': 'No mission',
   '조종 시작': 'Start driving', '말하기': 'Talk', '옆걸음': 'Strafe', '화면': 'View', '모드': 'Mode', '앉기': 'Sit', '일어서기': 'Stand up', '엎드리기': 'Lie down', '기지개': 'Stretch', '악수': 'Shake', '하트': 'Heart', '인사': 'Hello',

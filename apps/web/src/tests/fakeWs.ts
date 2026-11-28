@@ -3,7 +3,7 @@
 import type { ScreenReply, ScreenState } from '../../../contracts/ts';
 
 export type Msg = { t: string; id: string; proto?: string; robot?: string; [k: string]: unknown };
-type Handler = ((e: { code?: number; data?: string }) => void) | null;
+type Handler = ((e: { code?: number; reason?: string; data?: string }) => void) | null;
 
 export class FakeWS {
   static all: FakeWS[] = [];
@@ -22,7 +22,7 @@ export class FakeWS {
   close(code = 1000) { if (this.readyState !== 3) this.drop(code); }
   open() { if (this.readyState !== 0) return; this.readyState = 1; this.onopen?.({}); }   // 닫힌(버린) 소켓은 열리지 않는다
   recv(m: object) { this.onmessage?.({ data: JSON.stringify(m) }); }
-  drop(code: number) { this.readyState = 3; this.onclose?.({ code }); }
+  drop(code: number, reason = '') { this.readyState = 3; this.onclose?.({ code, reason }); }
   of(t: string) { return this.sent.filter((m) => m.t === t); }
 }
 

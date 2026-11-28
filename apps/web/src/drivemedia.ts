@@ -24,8 +24,16 @@ const poseOf = (p: unknown): Pose | null => {
 };
 export const RETRY_MS = 2000;
 export const DEPTH_HINT = '뎁스 카메라 영상이 아직 오지 않습니다. 로봇 컴퓨터의 뎁스 카메라 프로그램이 켜져 있는지 확인하세요';
-/** 보기 소켓을 서버가 권한 없음(4403)으로 닫음(결정 13 · 보기 = ROBOT_READ + 같은 조직 + 보관 안 됨). 다시 붙지 않는다 */
+/** 보기 소켓 거절(결정 13 확정 계약 11/28): 서버는 먼저 accept 한 뒤 close code + 이유 글로 닫는다(열린 뒤 0.5 초마다 다시 볼 때도 같음).
+ *  4403 · 4404 는 다시 붙지 않는다. accept 전 닫힘(브라우저에는 1006)은 끊김으로 보고 다시 붙는다 */
 export const VIEW_DENIED = '이 로봇을 볼 권한이 없습니다';
+export const VIEW_CLOSE: Record<string, string> = {
+  ROBOT_READ_REQUIRED: VIEW_DENIED, OTHER_ORG: VIEW_DENIED, AUTH_REQUIRED: '다시 로그인해 주세요',
+  ROBOT_ARCHIVED: '보관된 로봇입니다', ROBOT_NOT_FOUND: '로봇을 찾을 수 없습니다',
+};
+/** 다시 붙지 않을 닫힘이면 그 문구, 아니면 null. 모르는 이유 글이면 코드대로(4403 = 권한 없음 · 4404 = 찾을 수 없음) */
+export const viewClosed = (code: number | undefined, reason: string | undefined) =>
+  code === 4403 || code === 4404 ? VIEW_CLOSE[reason ?? ''] ?? (code === 4404 ? VIEW_CLOSE.ROBOT_NOT_FOUND : VIEW_DENIED) : null;
 export const NO_SIGNAL: Record<DriveCh, string> = { rgb: '카메라 신호 없음', lidar: '라이다 신호 없음', depth: '뎁스 카메라 신호 없음' };
 const blank = (state: Feed['state'] = 'wait', why = ''): Raw => ({ state, why, at: 0, seq: -1, img: '', xyz: new Float32Array(0), n: 0, frame: '', truncated: false, ver: 0, range: null, pose: null });
 /** 계약 depth_min_m·depth_max_m: 유한·0≤min<max≤10000 — 아니면 null(RGB 를 뎁스로 보여 주지 않음) */
@@ -127,10 +135,11 @@ export function useDriveFeed(robot: string, ch: DriveCh, on = true): DriveFeed {
       const w = ws = new WebSocket(driveMediaUrl(robot, ch));
       w.binaryType = 'arraybuffer';
       w.onmessage = (e: { data?: unknown }) => { if (ws === w) frame(e.data); };
-      w.onclose = (e: { code?: number }) => {
+      w.onclose = (e: { code?: number; reason?: string }) => {
         if (ws !== w) return;
         ws = null;
-        if (e?.code === 4403) { denied = true; clearTimeout(retry); return clear('none', VIEW_DENIED, true); }
+        const shut = viewClosed(e?.code, e?.reason);
+        if (shut) { denied = true; clearTimeout(retry); return clear('none', shut, true); }
         again('lost', '연결이 끊겼습니다');
       };
     }
