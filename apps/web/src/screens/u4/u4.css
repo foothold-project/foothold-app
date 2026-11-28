@@ -5,7 +5,7 @@
 .u4 .rcard{height:58px}.u4 .rcard small{white-space:nowrap}
 /* 고른 시뮬 카드: 고른 칸 초록(.rcard.on)이 시뮬 파란 점선(.rehearse)을 덮지 않게, 시뮬 파랑(dark.pv · light.pv 의 .rehearse 색)으로 고른 꼴 */
 .proto .u4 .rcard.on.rehearse{background:rgba(76,155,255,.10);border:1px dashed #4C9BFF}.proto .u4 .rcard.on.rehearse .av{background:#4C9BFF;color:#fff}
-.proto.light .u4 .rcard.on.rehearse{background:rgba(47,111,224,.08);border-color:#2F6FE0}.proto.light .u4 .rcard.on.rehearse .av{background:#2F6FE0;color:#fff}
+.proto.light .u4 .rcard.on.rehearse{background:#FFFFFF;border-color:#2F6FE0}.proto.light .u4 .rcard.on.rehearse .av{background:#2F6FE0;color:#FFFFFF}
 .u4 .hdr .g{position:relative}
 .u4 .hdr{position:absolute;left:298px;right:24px;top:88px;height:52px;display:flex;align-items:center;gap:10px}
 .u4 .st{height:42px;padding:0 13px;border-radius:13px;display:flex;align-items:center;gap:7px;font-size:13.5px;font-weight:700}
@@ -133,6 +133,8 @@
 .proto.light .u4 .views .small{border-color:#DCE0DE;box-shadow:0 10px 24px rgba(31,36,33,.18)}
 /* 메인 칸 확대(시안 밖 · 새로 그림 · 같은 탭 시안 결): 무대(1920x1080) 안 fixed = 변환된 무대 틀 기준. 키 줄 · 손잡이 판은 아래에 떠 있고 정지는 그 위 오른쪽 */
 .u4 .right[data-u4-zoom]{z-index:6}
+/* 확대 중 창(다시 시작 · 걷기 모드 · 설정): 막과 창이 확대 화면(z 6 · 조작 7) 위로. 막을 누르면 창만 닫힘(검토 L1) */
+.u4 .right[data-u4-zoom] ~ .veil{z-index:8}.u4 .right[data-u4-zoom] ~ .modal{z-index:9}
 .u4 .right[data-u4-zoom] .views{position:fixed;left:0;top:64px;width:1920px;height:1016px;border-radius:0;border:0;z-index:6}   /* 머리줄(모두 정지)은 그대로 보이게 그 아래 */
 .u4 .right[data-u4-zoom] .ctl{position:fixed;left:24px;right:24px;top:auto;bottom:256px;z-index:7}
 .u4 .right[data-u4-zoom] .deck{position:fixed;left:24px;right:24px;top:auto;bottom:24px;height:218px;z-index:7;background:linear-gradient(180deg,rgba(28,32,40,.52),rgba(18,20,26,.38));backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
