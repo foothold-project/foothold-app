@@ -1107,6 +1107,9 @@ namespace, tf_prefix, command_topic, launcher, `expires_at`(UTC 기한, 옛 관�
 `remaining_s`(관리자 단조 시계 기준 남은 정수 초, 옛 관리자면 null)을 싣는다. `state=PREPARED,launcher=fake`는
 가짜 launcher의 계약 시험 결과이고 접속 가능한 로봇이 아니다. `RUNNING,native-single`은
 네이티브 에이전트 listener가 열린 결과이며 §13.6·ADR-002 §8 성능 통과를 뜻하지 않는다.
+`RUNNING,mujoco-local`은 로컬 전용 `FH_SIM_LOCAL_BACKEND=mujoco` 의 헤드리스 MuJoCo 에이전트가
+서버 에이전트 WS 인증 연결을 연 결과다. 이 에이전트는 폰 직결 listener 가 없어 `agent_address` 로는 붙지 않는다.
+자식이 끝나면 `ERROR` 로 바뀌며 DELETE 로 정리한다.
 
 시뮬 수명은 `FH_SIM_RUNTIME_SECONDS` 한 설정으로 기본1800초(30분), native는300..3600초,
 fake는5..3600초까지 허용한다. 월드 준비를 요청한 시점부터 계산하며 준비 시간도 포함한다.

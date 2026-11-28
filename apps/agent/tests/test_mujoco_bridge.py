@@ -150,3 +150,17 @@ def test_hello_identity_matches_contract_shape():
         pytest.skip('pydantic/apps.contracts unavailable for wire validation')
     C.AgentHello.model_validate(hello)
     C.AgentState.model_validate(state)
+
+
+def test_ready_file_written_with_own_pid_only_on_server_connect(tmp_path):
+    from foothold_agent.mujoco_bridge.__main__ import ReadySession
+    ready = tmp_path / 'ready'
+    session = ReadySession(identity=identity(time.monotonic), ready_file=str(ready))
+    assert not ready.exists()  # constructing (child up, no server yet) is not readiness
+    session.connect()
+    assert ready.read_text() == str(os.getpid())
+    ready.unlink()
+    session.connect()  # reconnects do not rewrite it
+    assert not ready.exists()
+    plain = ReadySession(identity=identity(time.monotonic), ready_file=None)
+    plain.connect()  # no file configured: unchanged Session behaviour

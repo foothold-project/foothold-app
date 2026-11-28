@@ -30,6 +30,11 @@
   SIM_SLOT_BUSY는 [FIRST-LAUNCH](FIRST-LAUNCH.md)의 복구 1·2단계로 돌아간다.
 - `FakeLauncher`: 시뮬·에이전트 프로세스/리스너/ROS0. `PREPARED` 응답을 살아 있는 로봇으로 표시하지 않는다.
   UUID별 namespace·TF prefix·명령 토픽·에이전트 포트 분리의 **계획/계약**만 시험한다.
+- `MujocoLauncher` (`mujoco_launcher.py`, 로컬 전용): `FH_SIM_LOCAL_BACKEND=mujoco` + `FH_SIM_SRC` 일 때만.
+  로봇마다 `python -m foothold_agent.mujoco_bridge` 를 새 세션(프로세스 묶음)으로 띄운다. 월드 id 가 MuJoCo 지도 id 다.
+  에이전트가 서버 WS 인증 연결을 연 뒤 자기 pid 를 `FH_SIM_READY_FILE` 에 쓰면 그때만 `RUNNING`(`launcher=mujoco-local`).
+  제한 시간(기본 90 s) 안에 안 오거나 먼저 끝나면 그 묶음을 정리하고 `ERROR`. 실행 중 자식이 끝나도 `ERROR`.
+  제거는 에이전트 pid 에 SIGTERM, 5 s 뒤 그 묶음 번호에 SIGKILL, 묶음 프로세스 0 확인. 폰 직결 listener 는 없다.
 - `NativeLauncher`: 명시 `FH_SIM_RUN=1` 때만 기존 D1 `Simulation` supervisor를 불러 쓴다.
   자원/전용 user unit/identity/source hash/정리 검사를 재사용. 원본은 고정Go2+고정토픽이라
   실제1대만 허용한다. private 목록과 native `worlds.json` 양쪽에 등록된 월드·층만 열며,
