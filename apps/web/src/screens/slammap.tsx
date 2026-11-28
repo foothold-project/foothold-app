@@ -272,7 +272,7 @@ export function SlamView({ pic, empty, first3d = false, over: raw, hideBase = fa
   // 3D 상자가 회색인 까닭 한 줄 (폰에는 마우스 올림이 없다)
   const why3d = no3d ? '이 브라우저는 3D 를 그릴 수 없습니다' : !pic.n ? none3d : hideBase ? '고친 지도 미리보기는 위에서만 봅니다' : '';
   const any = (!hideBase && (pic.n > 0 || pic.patches.length > 0)) || !!over?.cells.length;
-  // 지도 칸(그림 + 오른쪽 위 단추 묶음) 아래에 까닭 한 줄. 띠를 그림 위에 띄우면 작은 폰 지도 윗부분을 가린다(11-28 폰 스캔 사진) — PC 지도 탭 · 폰 스캔 같은 규칙
+  // 지도 칸(그림 + 오른쪽 위 단추 묶음) 아래에 까닭 한 줄. 띠를 그림 위에 띄우면 작은 폰 지도 윗부분을 가린다(11-28 폰 스캔 사진). PC 지도 탭 · 폰 스캔 같은 규칙
   return <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', background: 'var(--panel)' }} data-slam-view={show3d ? '3d' : '2d'} data-slam-boxes={pic.n}>
     <div style={{ position: 'relative', flex: '1 1 auto', minHeight: 0 }} data-slam-pane>
       {!any ? <QEmpty text={empty} /> : show3d ? <SlamBoxes pic={pic} fail={() => setNo3d(true)} /> : <SlamGrid pic={pic} over={over} hideBase={hideBase} />}
