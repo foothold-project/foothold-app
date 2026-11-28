@@ -334,7 +334,7 @@ export function Go2Figure({ pose, motion = NONE, showJoints = true, temps = null
   const k = at.sketch, line = (p: readonly (readonly [number, number])[]) => p.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
   return <div className="pd-go2" data-go2-model={kind}>
     {/* 끌기 = 돌려 보기 · 휠 = 확대 · 두 번 누름 = 처음 보기. 눌러도 초점을 옮기지 않는다(mousedown 기본 막음 — 조종 키 입력 그대로, serverdrive 11-11 과 같은 이유). 그림만 — 명령 0 */}
-    <div ref={box} className="pd-go2-view" role="img" aria-label={pose ? 'Go2 — 로봇이 보낸 관절·자세 (끌어서 돌려 보기)' : 'Go2 — 기본 자세(로봇 보고 없음)'}
+    <div ref={box} className="pd-go2-view" role="img" aria-label={pose ? 'Go2 · 로봇이 보낸 관절·자세 (끌어서 돌려 보기)' : 'Go2 · 기본 자세(로봇 보고 없음)'}
       data-go2-orbit={moved ? 'moved' : 'home'} style={{ touchAction: 'none', cursor: 'grab' }}
       onMouseDown={(e) => e.preventDefault()} onDoubleClick={() => setView(HOME)}
       onPointerDown={(e) => { if (e.button) return; drag.current = { x: e.clientX, y: e.clientY }; e.currentTarget.setPointerCapture?.(e.pointerId); }}

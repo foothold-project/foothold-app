@@ -1,0 +1,149 @@
+{
+  "$defs": {
+    "JointLogBase": {
+      "additionalProperties": false,
+      "properties": {
+        "wxyz": {
+          "description": "몸통 자세 사원수",
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "Wxyz",
+          "type": "array"
+        },
+        "xyz": {
+          "description": "몸통 위치 m (기록 좌표)",
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Xyz",
+          "type": "array"
+        }
+      },
+      "required": [
+        "xyz",
+        "wxyz"
+      ],
+      "title": "JointLogBase",
+      "type": "object"
+    },
+    "JointLogFrame": {
+      "additionalProperties": false,
+      "properties": {
+        "base": {
+          "$ref": "#/$defs/JointLogBase"
+        },
+        "gait": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "걷기 모드 이름 (classic · sport · start · ame2 등, 열린 문자열). 모르면 null",
+          "title": "Gait"
+        },
+        "q": {
+          "description": "관절 각 rad, joint_names 순서",
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 12,
+          "minItems": 12,
+          "title": "Q",
+          "type": "array"
+        },
+        "t": {
+          "description": "JointLogReplay.start_at 부터 초",
+          "minimum": 0,
+          "title": "T",
+          "type": "number"
+        }
+      },
+      "required": [
+        "t",
+        "q",
+        "base",
+        "gait"
+      ],
+      "title": "JointLogFrame",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/JointLogReplay",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "3D replay frames. Playback rate (0.25/0.5/1/2) and loop are web-only controls.",
+  "properties": {
+    "event_id": {
+      "pattern": "^[1-9][0-9]{0,18}$",
+      "title": "Event Id",
+      "type": "string"
+    },
+    "frames": {
+      "items": {
+        "$ref": "#/$defs/JointLogFrame"
+      },
+      "maxItems": 100000,
+      "title": "Frames",
+      "type": "array"
+    },
+    "joint_names": {
+      "items": {
+        "enum": [
+          "FR_hip_joint",
+          "FR_thigh_joint",
+          "FR_calf_joint",
+          "FL_hip_joint",
+          "FL_thigh_joint",
+          "FL_calf_joint",
+          "RR_hip_joint",
+          "RR_thigh_joint",
+          "RR_calf_joint",
+          "RL_hip_joint",
+          "RL_thigh_joint",
+          "RL_calf_joint"
+        ],
+        "type": "string"
+      },
+      "maxItems": 12,
+      "minItems": 12,
+      "title": "Joint Names",
+      "type": "array"
+    },
+    "rate_hz": {
+      "maximum": 1000,
+      "minimum": 1,
+      "title": "Rate Hz",
+      "type": "integer"
+    },
+    "robot_id": {
+      "format": "uuid",
+      "title": "Robot Id",
+      "type": "string"
+    },
+    "start_at": {
+      "format": "date-time",
+      "title": "Start At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "event_id",
+    "robot_id",
+    "start_at",
+    "joint_names",
+    "rate_hz",
+    "frames"
+  ],
+  "title": "JointLogReplay",
+  "type": "object"
+}

@@ -1,0 +1,45 @@
+{
+  "$id": "fh-app/1/RecordMarkRequest",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "clip": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "WARN 만 고를 수 있다. null 이면 규칙 기본값",
+      "title": "Clip"
+    },
+    "note": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Note"
+    },
+    "severity": {
+      "default": "WARN",
+      "enum": [
+        "INFO",
+        "WARN",
+        "ERROR"
+      ],
+      "title": "Severity",
+      "type": "string"
+    }
+  },
+  "title": "RecordMarkRequest",
+  "type": "object"
+}

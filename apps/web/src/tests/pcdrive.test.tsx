@@ -494,8 +494,8 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     act(() => push('r7', { devices: [{ key: 'go2-identity', kind: 'OTHER', label: IDENTITY_FAULT_LABEL, state: 'ERROR' }] } as Partial<ScreenState>));
     expect(lid.readyState).toBe(3); expect(rgb.readyState).toBe(3);
     expect(lidarN()).not.toBe('2');
-    expect(tile('rgb').textContent).toContain(`${NO_SIGNAL.rgb} — ${BODY_FAULT}`);
-    expect(tile('lidar').textContent).toContain(`${NO_SIGNAL.lidar} — ${BODY_FAULT}`);
+    expect(tile('rgb').textContent).toContain(`${NO_SIGNAL.rgb} · ${BODY_FAULT}`);
+    expect(tile('lidar').textContent).toContain(`${NO_SIGNAL.lidar} · ${BODY_FAULT}`);
   });
 
   // RV-442: 화면이 영구 오류를 따로 기억하지 않는다 — 에이전트가 다시 켤 때까지 장치 표로 계속 보내므로, 이번 상태 연결에서 그 로봇의 표를 받고 오류가 아닐 때만 연다
@@ -507,10 +507,10 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     mount('u-park'); serve();   // 새 페이지 — 상태 소켓은 열렸지만 r7 표는 아직
     expect($('[data-pc-drive]')).not.toBeNull();
     tick(10_000);
-    expect(media().length).toBe(0); expect(tile('rgb').textContent).toContain(`${NO_SIGNAL.rgb} — ${BODY_CHECK}`);
+    expect(media().length).toBe(0); expect(tile('rgb').textContent).toContain(`${NO_SIGNAL.rgb} · ${BODY_CHECK}`);
     act(() => push('r7', FAULT));
     tick(10_000);
-    expect(media().length).toBe(0); expect(tile('rgb').textContent).toContain(`${NO_SIGNAL.rgb} — ${BODY_FAULT}`);
+    expect(media().length).toBe(0); expect(tile('rgb').textContent).toContain(`${NO_SIGNAL.rgb} · ${BODY_FAULT}`);
     act(() => push('r7', OK));   // 로봇 프로그램을 다시 켜 오류 없는 표가 오면 연다
     expect(chans()).toEqual(new Set(['rgb', 'lidar', 'depth']));
   });
@@ -530,7 +530,7 @@ describe('PC 로봇 탭 세 칸 조종 화면', () => {
     expect(media().length).toBe(n); expect(tile('rgb').querySelector('img')).toBeNull();
     act(() => push('r7', FAULT));   // 에이전트가 계속 보내는 영구 오류
     tick(10_000);
-    expect(media().length).toBe(n); expect(tile('rgb').textContent).toContain(`${NO_SIGNAL.rgb} — ${BODY_FAULT}`);
+    expect(media().length).toBe(n); expect(tile('rgb').textContent).toContain(`${NO_SIGNAL.rgb} · ${BODY_FAULT}`);
     act(() => push('r7', OK));
     expect(chans()).toEqual(new Set(['rgb', 'lidar', 'depth']));
   });

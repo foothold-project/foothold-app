@@ -421,6 +421,30 @@ purge 이후 NULL 기록이 생겼거나 파일 대기열이 남으면
   "robot_id": "…"|null, "user_id": "…"|null, "run_id": "…"|null, "data": { "distance_m": 1.8 } }
 ```
 
+### 8.1 사건 영상 · 관절 기록 재생 · 지금 남기기 (u07, IMPL-GAP U8-03~U8-12)
+
+정본 타입은 `apps/contracts/models.py` 의 `EventClip` · `EventClipList` · `JointLogFrame` · `JointLogReplay` · `RecordMarkRequest` · `RecordMarkResult` 다.
+
+**영상 규칙**
+- 영상은 서버가 만든다. 시뮬과 실기는 같은 기록 · 알림 · 영상을 남긴다.
+- 길이: 사건 10 초 전부터 5 초 뒤까지 (`CLIP_PRE_S` · `CLIP_POST_S`). 넘어짐은 다시 설 때까지라 서기 전에는 `end_at` 이 null 이다.
+- 등급: 위험(`ERROR`)은 늘 영상을 남긴다. 주의(`WARN`)는 고른 때만 남긴다. 정보(`INFO`)는 기록만 하고 영상이 없다.
+- 상태 `status`: `PENDING`(만드는 중) · `READY`(`url` 있음) · `FAILED`(`reason` 있음) · `NOT_BUILT`(만드는 장치가 아직 없음, `clip_id` null, `reason` 있음). `url` 은 `READY` 일 때만 값이 있다.
+
+**관절 기록 재생**: `JointLogReplay { event_id, robot_id, start_at, joint_names[12], rate_hz, frames[] }`, 프레임은 `JointLogFrame { t, q[12], base { xyz[3], wxyz[4] }, gait|null }`. `t` 는 `start_at` 부터 초이고 프레임은 시간 순으로 늘어난다. `q` 는 `joint_names` 순서의 rad. 재생 빠르기 0.25 · 0.5 · 1 · 2 배와 반복은 웹이 프레임을 다시 그려서 한다. 서버는 빠르기를 받지 않는다.
+
+| 메서드 | 경로 | 설명 | 권한 | 지금 |
+|---|---|---|---|---|
+| POST | `/robots/{id}/records/mark-now` | 「지금 남기기」. 본문 `{severity?: INFO\|WARN\|ERROR (기본 WARN), note?: ≤200자, clip?: bool\|null}`. 201 `{event, clip}` | 그 로봇 보기 권한 (`ROBOT_READ`: 담당 운영자 · 총괄) | 사건은 실제로 `events` 에 남는다 (`category RUN`, `code RECORD_MARKED`). 영상은 `NOT_BUILT`, INFO · `clip:false` 면 `clip: null` |
+| GET | `/robots/{id}/records/clips` | 그 로봇의 사건 영상 목록 `EventClipList` | 같음 | **501** `CLIP_PIPELINE_NOT_BUILT` |
+| GET | `/robots/{id}/records/clips/{clip_id}` | 영상 하나 `EventClip` | 같음 | **501** `CLIP_PIPELINE_NOT_BUILT` |
+| GET | `/robots/{id}/records/events/{event_id}/joint-log` | 사건 둘레 관절 기록 `JointLogReplay` | 같음 | **501** `JOINT_LOG_NOT_BUILT` |
+
+- 권한 판정을 먼저 한다. 볼 수 없는 로봇은 501 이 아니라 404 다 (있다는 사실도 숨김).
+- 501 본문은 보통 오류 모양 `{error: {code, message, detail: {}}}` 이고 `message` 는 한 줄이다. 웹은 그대로 보여 준다. 까닭 코드 목록은 `RecordsNotBuiltCode`.
+- 규칙에 어긋난 고르기 (`ERROR` + `clip:false`, `INFO` + `clip:true`) 는 조용히 고치지 않고 400 `VALIDATION`.
+- 이번 범위 밖: 실제 영상 만들기 · 관절 기록 저장 (실기 · Jetson 쪽 일 없음), 「지금 남기기」 알림 발송.
+
 ---
 
 ## 9. 실시간 — 화면 ↔ 서버 (`wss://<서버>/api/v1/ws`, `fh-rt/1`)
