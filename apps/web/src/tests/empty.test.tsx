@@ -105,12 +105,14 @@ describe('지도 없음', () => {
   it('지도 1 개 이상: 위 «+ 파일 올리기» 그대로(칠함) · 빈 칸 없음', async () => {
     serve(KIM, [RA]); await open('#/map');
     expect($('[data-empty="map"]')).toBeNull();
-    expect($('[data-make-file]')!.classList.contains('pri')).toBe(true);
+    expect($('[data-make-file]')).toBeTruthy();   // 시안 u7_1: «＋ 새 지도 만들기» 메뉴 안
+    expect(filled()).toEqual(['지도 열기']);         // 칠한 단추는 고른 층의 «지도 열기» 하나
   });
   it('고른 층에 지도가 없으면: 아이콘 · 한 줄 까닭 · «새 지도 올리기…» 하나(«지도 만들기»는 ··· 메뉴)', async () => {
     serve(KIM, [RA]); await open('#/map');
     const b = box.querySelector<HTMLButtonElement>('[aria-label="지도 고르기"] [data-building]');
     if (b) { act(() => b.click()); await flush(); }
+    { const o = box.querySelector<HTMLButtonElement>('[data-open-map]'); if (o) { act(() => o.click()); await flush(); } }   // 시안 u7_1: 건물 = 고르기, «지도 열기»로 연다
     const r = empty('floor');
     expect(r.title).toBe('이 층에 아직 지도가 없습니다');
     expect(r.acts).toEqual(['새 지도 올리기…']);

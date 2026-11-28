@@ -16,6 +16,10 @@ const ALLOW: [string, string, string][] = [
   ['slammap.tsx', "g.fillStyle = `rgb(${RGB[0].join(',')})`", '점유 지도 바탕 = 지도 자료 색(occmap.tsx 표, 테마와 무관한 그림)'],
   ['slammap.tsx', "|| '#36c'", '토큰을 읽지 못할 때만 쓰는 기본색'],
   ['slammap.tsx', "g.strokeStyle = '#fff'", '지도 그림(테마와 무관한 점유 색) 위 로봇 화살 테두리'],
+  ['mapscen.css', '.mp{--mp-rowhi:', '시안 u7 어두운 판 값을 토큰으로 정의하는 줄(밝은 판은 .fh.light 줄에서 테마 토큰으로 덮음)'],
+  ['mapscen.css', '.mp-fl{--mp-rowhi:', '층 화면의 같은 토큰 정의(밝은 판은 .fh.light 줄에서 덮음)'],
+  ['mapscen.css', '  --mp-on:rgba(0,195,137', '같은 토큰 정의 둘째 줄'],
+  ['mapscen.css', '  --mp-view:radial-gradient(', '같은 토큰 정의 셋째 줄'],
   ['mapedit.tsx', "stroke: '#FFFFFF'", '지우기 손잡이 = --bad-strong 위 흰 X(두 테마 같은 대비 6.5:1, STOP 단추와 같은 고정 쌍)'],
 ];
 

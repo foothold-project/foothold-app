@@ -431,12 +431,11 @@ describe('임무 탭(W2)', () => {
     expect($('h1')!.textContent).toBe('지도');
   });
 
-  it('지도 탭 링크: 지도 고르기 화면의 시나리오 안내는 임무 탭으로 가는 링크 한 줄(«시뮬» 탭으로 보내지 않음)', async () => {
+  // 지도 탭이 시안 u7 로 바뀜: 고르기(u7_1)에는 안내 글이 없고, 임무로 가는 길은 층 화면(u7_3) «이 지도로 모의 실행» = 임무 탭
+  it('지도 탭 링크: 지도 고르기(u7_1)는 «시뮬» 탭으로 보내지 않고, 층 화면 «이 지도로 모의 실행»은 임무 탭으로', async () => {
     await mount('#/map');
-    const a = $<HTMLAnchorElement>('[aria-label="지도 고르기"] a[data-mission-link]')!;
-    expect(a.getAttribute('href')).toBe('#/missions');
-    expect(a.textContent).toContain('임무');
-    expect($('[aria-label="지도 고르기"]')!.textContent).not.toContain('«시뮬» 탭에서 만들고 고칩니다');
+    expect($('[aria-label="지도 고르기"]')!.textContent).not.toContain('«시뮬» 탭');
+    expect($('[aria-label="지도 고르기"] a[href="#/sim"]')).toBeNull();
     act(() => { location.hash = '#/missions'; window.dispatchEvent(new HashChangeEvent('hashchange', { oldURL: 'http://x/#/map', newURL: 'http://x/#/missions' })); });
     await flush(); await flush();
     expect($('h1')!.textContent).toBe('임무');

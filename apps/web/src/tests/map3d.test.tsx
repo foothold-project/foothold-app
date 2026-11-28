@@ -80,6 +80,7 @@ async function open(pick = true) {
   await flush();
   const b = box.querySelector<HTMLButtonElement>('[aria-label="지도 고르기"] [data-building]');
   if (pick && b) { act(() => b.click()); await flush(); }
+  if (pick) { const o = box.querySelector<HTMLButtonElement>('[data-open-map]'); if (o) { act(() => o.click()); await flush(); } }   // 시안 u7_1: 건물 = 고르기, «지도 열기»로 연다
 }
 afterEach(() => { fake.on = false; fake.scene = null; fake.drawn = null; act(() => root?.unmount()); root = null; box?.remove(); kept.d = null; kept.job = null; clearPlans(); localStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); resetModels(); });
 
