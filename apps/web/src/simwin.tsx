@@ -5,6 +5,7 @@
 // 최소 240px·최대 화면 안. 시뮬 그림은 창에 맞춰 커지고 줄어든다(폭 700 화면을 줄여 그림 — 그보다 큰 창은 제 크기). 크게 보기 → 다시 작은 창이면 마지막 크기·자리 그대로.
 // 창 상태는 메모리뿐 — 새로고침·로그아웃(App 내림)·폰 틀로 바뀜이면 사라진다. 폰 틀·앱 안은 이 창을 안 올려 옛 그대로 페이지 이동.
 import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
+import { sx, sy, stageRect, vh, vw } from './stage';
 
 type Win = { url: string; small: boolean; dead?: boolean };
 /** 크기 끌기 한 번: 처음 폭·누른 자리, 창 테두리 몫(pad)·시뮬 칸 밖 높이(extra), 제자리에 둘 모서리(ax, ay), 손잡이가 오른쪽(r)·아래(d)인가 */
@@ -45,20 +46,20 @@ export function SimWindow() {
     if (small) { f.closest('aside')?.querySelector<HTMLElement>('button:not(:disabled)')?.focus(); f.contentWindow?.postMessage({ fhSim: 'small' }, location.origin); } else f.focus();
   }, [up, small]);
   /** 손잡이는 화면에 여유가 많은 쪽 모서리로(오른쪽 끝에 붙은 창 = 왼쪽 손잡이, 아래 끝 = 위 손잡이) */
-  const place = (el: HTMLElement, b: Pick<DOMRect, 'left' | 'top' | 'width' | 'height'> = el.parentElement!.getBoundingClientRect()) => { setCorner((b.top + b.height / 2 < innerHeight / 2 ? 'b' : 't') + (b.left + b.width / 2 < innerWidth / 2 ? 'r' : 'l')); };
+  const place = (el: HTMLElement, b: Pick<DOMRect, 'left' | 'top' | 'width' | 'height'> = stageRect(el.parentElement!)) => { setCorner((b.top + b.height / 2 < vh() / 2 ? 'b' : 't') + (b.left + b.width / 2 < vw() / 2 ? 'r' : 'l')); };
   /** 폭을 정한다: 최소 MIN_W, 최대 = 제자리 모서리에서 화면 끝까지(높이 16:9 포함) — 화면 밖 막기가 최소보다 먼저 */
   const fit = (p: Pull, want: number) => {
-    const max = Math.min(p.r ? innerWidth - p.ax : p.ax, ((p.d ? innerHeight - p.ay : p.ay) - p.extra) * 16 / 9 + p.pad);
-    const wd = Math.round(Math.min(max, Math.max(MIN_W, want))), h = p.extra + (wd - p.pad) * 9 / 16;
+    const max = Math.min(p.r ? vw() - p.ax : p.ax, ((p.d ? vh() - p.ay : p.ay) - p.extra) * 16 / 9 + p.pad);
+    const wd = Math.min(Math.floor(max), Math.round(Math.max(MIN_W, want))), h = p.extra + (wd - p.pad) * 9 / 16;
     setAt([p.r ? p.ax : p.ax - wd, p.d ? p.ay : p.ay - h]); setSize([wd, Math.min(1, (wd - p.pad) / VIEW_W)]);
   };
   // 화면이 줄거나 돌면(REVIEW-348) 저장한 자리·크기가 화면 밖에 남지 않게: 폭을 화면 안 최대로 줄이고 자리를 화면 안으로 당긴다(끌기와 같은 fit)
   useEffect(() => {
     if (!small) return;
-    const re = () => { const v = frame.current?.parentElement, b = v?.parentElement?.getBoundingClientRect(); if (!v || !b) return;
-      if (b.left >= 0 && b.top >= 0 && b.right <= innerWidth && b.bottom <= innerHeight) return;
-      const pad = b.width - v.offsetWidth, extra = b.height - v.offsetWidth * 9 / 16, wd = Math.floor(Math.min(b.width, innerWidth, (innerHeight - extra) * 16 / 9 + pad)), h = extra + (wd - pad) * 9 / 16;
-      const ax = Math.max(0, Math.min(innerWidth - wd, b.left)), ay = Math.max(0, Math.min(Math.floor(innerHeight - h), b.top));   // 내림 = 소수점 높이로 아래 끝을 넘지 않게
+    const re = () => { const v = frame.current?.parentElement, b = (v?.parentElement ? stageRect(v.parentElement) : undefined); if (!v || !b) return;
+      if (b.left >= 0 && b.top >= 0 && b.right <= vw() && b.bottom <= vh()) return;
+      const pad = b.width - v.offsetWidth, extra = b.height - v.offsetWidth * 9 / 16, wd = Math.floor(Math.min(b.width, vw(), (vh() - extra) * 16 / 9 + pad)), h = extra + (wd - pad) * 9 / 16;
+      const ax = Math.max(0, Math.min(vw() - wd, b.left)), ay = Math.max(0, Math.min(Math.floor(vh() - h), b.top));   // 내림 = 소수점 높이로 아래 끝을 넘지 않게
       fit({ w: wd, x: 0, y: 0, pad, extra, ax, ay, r: true, d: true }, wd); place(v, { left: ax, top: ay, width: wd, height: h }); };
     addEventListener('resize', re); return () => removeEventListener('resize', re);
   }, [small]);
@@ -67,21 +68,21 @@ export function SimWindow() {
   const loaded = () => { const f = frame.current; let ok = false;
     try { ok = !!f?.contentDocument?.querySelector('#home[data-small]'); } catch { /* 다른 출처로 나감 */ }
     if (!ok) shrink(true); else if (!win?.small) f!.focus(); };
-  const down = (e: PointerEvent<HTMLElement>) => { const b = e.currentTarget.parentElement!.getBoundingClientRect(); grab.current = [e.clientX - b.left, e.clientY - b.top]; e.currentTarget.setPointerCapture?.(e.pointerId); };
+  const down = (e: PointerEvent<HTMLElement>) => { const b = stageRect(e.currentTarget.parentElement!); grab.current = [sx(e) - b.left, sy(e) - b.top]; e.currentTarget.setPointerCapture?.(e.pointerId); };
   const move = (e: PointerEvent<HTMLElement>) => {
     const g = grab.current, b = e.currentTarget.parentElement!; if (!g) return;
-    setAt([Math.max(0, Math.min(innerWidth - b.offsetWidth, e.clientX - g[0])), Math.max(0, Math.min(innerHeight - b.offsetHeight, e.clientY - g[1]))]);
+    setAt([Math.max(0, Math.min(vw() - b.offsetWidth, sx(e) - g[0])), Math.max(0, Math.min(vh() - b.offsetHeight, sy(e) - g[1]))]);
   };
   const drop = (e: PointerEvent<HTMLElement>) => { grab.current = null; place(e.currentTarget); };
   const begin = (el: HTMLElement, x = 0, y = 0): Pull => {
-    const b = el.parentElement!.getBoundingClientRect(), v = frame.current!.parentElement!, r = corner[1] === 'r', d = corner[0] === 'b';
+    const b = stageRect(el.parentElement!), v = frame.current!.parentElement!, r = corner[1] === 'r', d = corner[0] === 'b';
     return { w: b.width, x, y, pad: b.width - v.offsetWidth, extra: b.height - v.offsetWidth * 9 / 16,   // 시뮬 칸 높이는 16:9 로 셈(offsetHeight 는 반올림돼 소수점이 어긋남)
       ax: r ? b.left : b.right, ay: d ? b.top : b.bottom, r, d };
   };
   // 끄는 동안 포인터는 손잡이가 잡고(capture) 시뮬 칸은 작은 창 내내 inert 라 시뮬이 포인터를 먹지 않는다
-  const zDown = (e: PointerEvent<HTMLElement>) => { pull.current = begin(e.currentTarget, e.clientX, e.clientY); e.currentTarget.setPointerCapture?.(e.pointerId); };
+  const zDown = (e: PointerEvent<HTMLElement>) => { pull.current = begin(e.currentTarget, sx(e), sy(e)); e.currentTarget.setPointerCapture?.(e.pointerId); };
   const zMove = (e: PointerEvent<HTMLElement>) => { const p = pull.current; if (!p) return;
-    const dx = (e.clientX - p.x) * (p.r ? 1 : -1), dy = (e.clientY - p.y) * (p.d ? 1 : -1) * 16 / 9; fit(p, p.w + (Math.abs(dx) > Math.abs(dy) ? dx : dy)); };   // 가로·세로 중 더 많이 끈 쪽
+    const dx = (sx(e) - p.x) * (p.r ? 1 : -1), dy = (sy(e) - p.y) * (p.d ? 1 : -1) * 16 / 9; fit(p, p.w + (Math.abs(dx) > Math.abs(dy) ? dx : dy)); };   // 가로·세로 중 더 많이 끈 쪽
   const zDrop = (e: PointerEvent<HTMLElement>) => { if (pull.current) { pull.current = null; place(e.currentTarget); } };
   const zKey = (e: KeyboardEvent<HTMLElement>) => { const d = ({ ArrowRight: 24, ArrowUp: 24, ArrowLeft: -24, ArrowDown: -24 } as Record<string, number>)[e.key];
     if (d) { e.preventDefault(); const p = begin(e.currentTarget); fit(p, p.w + d); } };
