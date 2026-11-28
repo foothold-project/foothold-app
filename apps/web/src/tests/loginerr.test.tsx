@@ -52,7 +52,7 @@ describe('로그인 오류 보기 (u10_3)', () => {
     serve({ 'GET /auth/session': NO_LOGIN });
     await open(); await login('', '');
     expect(band()!.getAttribute('role')).toBe('alert');
-    expect(band()!.textContent).toBe('아이디와 비밀번호를 입력하세요.');
+    expect(band()!.textContent).toBe('계정과 비밀번호를 입력하세요.');
     expect(user().getAttribute('aria-invalid')).toBe('true');
     expect(pass().hasAttribute('aria-invalid')).toBe(false);
     expect(document.activeElement).toBe(user());
@@ -116,13 +116,13 @@ describe('로그인 오류 보기 (u10_3)', () => {
     const note = $('[data-login-note]')!;
     expect(note.textContent).toBe('로그인이 끝났습니다. 다시 로그인하세요.');
     expect(band()).toBeNull();
-    expect(note.className).not.toContain('lg-err');
+    expect(note.getAttribute('style')).not.toContain('--bad');
     expect(note.querySelector('svg')).toBeNull();
     expect(box.querySelectorAll('[aria-invalid]').length).toBe(0);
     await login('kim', 'bad');
     expect($('[data-login-note]')).toBeNull();
     expect(band()!.textContent).toBe(BAD);
-    expect(band()!.className).toContain('lg-err');   // 빨간 줄 = 시안 오류 한 줄(u10_3)
+    expect(band()!.getAttribute('style')).toContain('--bad');
   });
 
   it('처음 세션 확인이 401 이 아닌 까닭(500 · 연결 실패)으로 실패하면 빨간 오류 띠 · 칸 표시 없음 (REVIEW-PR580 §7)', async () => {
@@ -131,7 +131,7 @@ describe('로그인 오류 보기 (u10_3)', () => {
     expect($('main[aria-label="로그인"]')).not.toBeNull();
     expect($('[data-login-note]')).toBeNull();
     expect(band()!.textContent).toBe('서버 오류입니다.');
-    expect(band()!.className).toContain('lg-err');   // 빨간 줄 = 시안 오류 한 줄(u10_3)
+    expect(band()!.getAttribute('style')).toContain('--bad');
     expect(box.querySelectorAll('[aria-invalid]').length).toBe(0);
     act(() => root?.unmount()); root = null; box.remove();
     serve({ NET: { status: 0 } });
