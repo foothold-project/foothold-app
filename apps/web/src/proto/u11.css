@@ -21,3 +21,16 @@
 /* u4 조종 화면에 한 줄이 떠 있으면(data-line) 그 자리의 옛 글을 한 줄로 모음: 끌기 안내는 숨기고, 리모컨 줄과 같은 에이전트 글(data-drive-input)은 한 번만 */
 .proto .stage3d[data-line] .hint{display:none}
 .proto .stage3d[data-line="remote"] [data-drive-input]{display:none}
+/* 밝은 판(.proto.light) · 정본 DESIGN.md 「밝음 1」: 어두운 판 민트 · 흰 글자를 밝은 바탕에 맞춤(창 .modal 은 두 판 모두 밝은 유리라 글자색 그대로) */
+.proto{--u11-ok:#00c389;--u11-ok-bg:rgba(0,195,137,.14)}
+.proto.light{--u11-ok:#0E7F63;--u11-ok-bg:rgba(24,160,126,.12)}
+.proto.light .tbar i{background:#18A07E}
+.proto.light .line1{color:#1F2421}
+.proto.light .line1 small{color:#5E6662}
+.proto.light .line1.err{background:rgba(224,74,47,.12);border-color:#E04A2F;box-shadow:0 10px 26px rgba(31,36,33,.12)}
+.proto.light .line1.amb{background:rgba(217,162,31,.12);border-color:#D9A21F;box-shadow:0 10px 26px rgba(31,36,33,.12)}
+.proto.light .line1.ok{background:rgba(24,160,126,.12);border-color:#18A07E;box-shadow:0 10px 26px rgba(31,36,33,.12)}
+.proto.light .line1.err .ic{color:#B8361F}
+.proto.light .line1.ok .ic{color:#0E7F63}
+.proto.light .empty h2{color:#1F2421}
+.proto.light .empty p{color:#5E6662}
