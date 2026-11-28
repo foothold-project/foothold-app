@@ -271,7 +271,6 @@ describe('PC 총괄 · 로봇 탭 대시보드(남 담당 실기 관리는 2 차
   it('목록: 담당·연결·주의. 상세: 남 담당 실기는 기체번호 읽기 · 관리는 2 차 까닭 한 줄, 현장 확인 화면 없음 · 새 로봇 추가 · STOP 있음(11/28)', async () => {
     serve(signedIn(KIM, [RAX, RB]));
     await open('#/fleet', false);
-    expect($('[aria-label="로봇 상세"]')).toBeNull();   // 총괄 상세는 행을 눌러 여는 서랍(#216)
     const list = card('로봇 목록').textContent!;
     expect(list).toMatch(/Go2-A.*이운영/);
     expect(list).not.toContain('현장 승인');

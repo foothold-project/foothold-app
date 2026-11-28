@@ -221,7 +221,7 @@ describe('움직임 · prefers-reduced-motion', () => {
 });
 
 describe('총괄 로봇 탭에 붙임', () => {
-  it('「로봇 목록」 칸 안, 거르기 아래에 타일 · 거르기를 따르고, 「자세히」 는 기존 서랍 상세를 엶', async () => {
+  it('u4 틀 아래 「로봇 한눈에」 칸에 타일 · 왼쪽 거르기를 따르고, 「자세히」 는 그 로봇의 점검(상세)을 엶', async () => {
     const flush = () => act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); await new Promise((r) => setTimeout(r, 0)); });
     vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ items: [], next_cursor: null }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
     location.hash = '#/fleet';
@@ -230,14 +230,15 @@ describe('총괄 로봇 탭에 붙임', () => {
     await flush();
     const list = box.querySelector('[aria-label="로봇 목록"]')!;
     const real = ROBOTS.filter((r) => !r.sim);
-    expect(list.querySelector('[aria-label="로봇 타일"]')).not.toBeNull();
+    expect(box.querySelector('[aria-label="로봇 한눈에"] [aria-label="로봇 타일"]')).not.toBeNull();
     expect(ids().sort()).toEqual(real.map((r) => r.id).sort());
     const owner = list.querySelector<HTMLSelectElement>('select[data-filter="owner"]')!;
     act(() => { owner.value = 'u-park'; owner.dispatchEvent(new Event('change', { bubbles: true })); });
     expect(ids()).toEqual(real.filter((r) => r.owner === 'u-park').map((r) => r.id));   // 표와 같은 거르기
-    expect(list.querySelectorAll('.fl-table li')).toHaveLength(ids().length);
+    expect(list.querySelectorAll('[data-robot-row]')).toHaveLength(ids().length);
     act(() => { owner.value = ''; owner.dispatchEvent(new Event('change', { bubbles: true })); });
     act(() => tiles()[0].querySelector<HTMLButtonElement>('[data-tile-open]')!.click());
-    expect(box.querySelector('.fh-fleet.admin.open')).not.toBeNull();
+    expect(box.querySelector('[data-robot-frame]')!.getAttribute('data-tab')).toBe('check');
+    expect(box.querySelector('[data-robot-head] h2')!.textContent).toBe(ROBOTS.find((r) => r.id === tiles()[0].dataset.robotTile)!.name);
   });
 });

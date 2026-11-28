@@ -58,12 +58,13 @@ function empty(kind: string) {
 }
 
 describe('로봇 0대', () => {
-  it('총괄: 아이콘 · 한 줄 까닭 · «시뮬 탭 열기» 하나', async () => {
+  it('총괄(모든 권한 11/28): 아이콘 · 한 줄 까닭 · 다음 할 일은 «+ 새 로봇 추가» 하나 · 누르면 붙이기 화면', async () => {
     serve(KIM, []); await open('#/fleet');
     const r = empty('robots');
     expect(r.title).toBe('등록된 로봇이 없습니다');
-    expect(r.acts).toEqual(['시뮬 탭 열기']);
-    expect(($('[data-empty="robots"] a') as HTMLAnchorElement).getAttribute('href')).toBe('#/sim');
+    expect(r.acts).toEqual(['+ 새 로봇 추가']);
+    act(() => { ($('[data-empty="robots"] [data-pair-start]') as HTMLButtonElement).click(); });
+    expect($('[data-empty="robots"]')).toBeNull();
   });
   it('운영자: 아이콘 · 한 줄 까닭 · 다음 할 일은 «+ 새 로봇 추가» 하나(칸 안에 다른 단추 없음)', async () => {
     serve(LEE, []); await open('#/fleet');

@@ -22,6 +22,7 @@ import { ReadyCheck } from './readycheck';
 import { RobotTiles } from './robottiles';
 import { useSimAt } from './missions';
 import { ManageRobot } from '../pairing';
+import { Deck, Head, RailCard, Stage, Views, type Tab } from './robotframe';
 import { Chip, Detail, Kpi, LINK, Operators, Pair, Seen, attn, inApp, linkText, pct, type Ctx } from '../screens';
 
 /** 화면이 아는 위치: 구독 로봇은 실시간 state, 아니면 목록 요약(남의 로봇은 서버가 감춤 — 그리지 않음) */
@@ -327,89 +328,110 @@ export function realDash(d: Dashboard | null, all: Robot[]): Dashboard | null {
     operators: d.operators.map((o) => ({ ...o, robot_count: less(o.robot_count, n((x) => x.owner === o.user_id)) })) } : d;
 }
 
-/** 운영 관리자(PC): 고르기(실기 2대 이상만) → 머리·큰 상태 안내·상태 한 줄 → 로봇 관측(지도·카메라·라이다)·로봇 상태 | 조종 준비·현재 임무(상세)+실기 보기 → 다른 로봇.
- *  «로봇 설정»(이름·담당 넘기기·연결 끊기·지우기 — pairing.tsx 그대로)·«연결 방법»은 화면 위 창 */
+/** u4 틀 한 벌(11/28 · 시안 u4_1 · u4_4 · u4_5): 왼쪽 .rail · 머리 .hdr · 가운데 .stage3d · 오른쪽 .right.
+ *  driving = 조종이 허용된 로봇의 «조종» — 가운데 · 오른쪽 자리에 기존 세 칸 조종 화면(PcDrive) 그대로(조종 · STOP 경로 시험을 지킴, u4 조종 칸 이식은 다음 단위).
+ *  r 이 없으면(총괄이 고른 시뮬 — 머리줄 STOP 대상 유지) 가운데에 «로봇을 고르세요» 한 줄 */
+function Frame({ c, r, tab, setTab, rail, settings, driving, views, check }: { c: Ctx; r: Robot | null; tab: Tab; setTab: (t: Tab) => void; rail: ReactNode;
+  settings?: () => void; driving: ReactNode; views: ReactNode; check: ReactNode }) {
+  return <div className="u4" data-robot-frame data-tab={tab}>
+    {rail}
+    {!r ? <section className="u4-pane stage3d" style={{ gridColumn: 'stage / right', gridRow: 'hdr / stage' }} data-robot-none>
+      <p className="s3-none">왼쪽 목록에서 로봇을 고르세요</p></section>
+      : <>
+        <Head c={c} r={r} tab={tab} setTab={setTab} settings={settings} />
+        {driving ? <div className="right" style={{ gridColumn: 'stage / right' }} data-robot-side>{driving}</div>
+          : <><Stage key={r.id} r={r} />
+            <div className="right" data-robot-side>{tab === 'drive' ? <>{views}
+              {/* 점검 칸(상태 한 줄 · 조종 준비 · 상세)은 «조종»에서도 접어 둔다 — 고른 로봇의 상세 · 관리 단추를 잃지 않게 */}
+              <More>{check}</More></>
+              : <div className="u4-pane chk" aria-label="순서 점검">{check}</div>}</div></>}
+      </>}
+  </div>;
+}
+
+/** «조종»에서 점검 칸을 접어 두는 자리(펼치기 단추 · 접혀도 칸은 DOM 에 남아 고른 로봇의 상세 · 관리를 잃지 않음) */
+function More({ children }: { children: ReactNode }) {
+  const [on, setOn] = useState(false);
+  return <section className="u4-pane u4-more" data-robot-more><button type="button" className="u4-more-btn" aria-expanded={on} onClick={() => setOn(!on)}>점검 칸 {on ? '접기' : '펼치기'}</button>
+    <div hidden={!on}>{children}</div></section>;
+}
+
+/** 운영 관리자(PC): 왼쪽 = 내 실기 + «다른 로봇»(남의 로봇은 요약만) · 조종 = 보기(지도 · 영상 까닭) · 조종 줄 · 조종 칸, 허용된 내 실기는 바로 조종 화면(«← 목록»으로 보기) ·
+ *  점검 = 상태 한 줄 · 로봇 상태 · 조종 준비 · 상세 · 실기 보기 · 로봇 설정(이름 · 담당 넘기기 · 연결 끊기 · 지우기 — pairing.tsx 그대로) · 연결 방법은 화면 위 창 */
 function Operator(c: Ctx) {
   useRt();
   const me = c.user.id, mine = c.robots.filter((x) => x.owner === me), others = c.robots.filter((x) => x.owner !== me), r = c.robot, own = r.owner === me;
-  const bad = isLost(r), [sheet, setSheet] = useState<'' | 'settings' | 'guide'>(''), [list, setList] = useState(false);
+  const [sheet, setSheet] = useState<'' | 'settings' | 'guide'>(''), [list, setList] = useState(false), [tab, setTab] = useState<Tab>('drive');
   useEffect(() => { setSheet(''); setList(false); }, [r.id]);   // 로봇을 고르면 바로 조종 화면(허용된 로봇만)
-  const guide = () => setSheet('guide');
-  if (own && keepDrive(c, r) && !list) return <Pair user={c.user} mine={mine.map((x) => x.id)} refresh={c.refresh} cancel={c.cancel}>
-    <PcDrive key={r.id} c={c} r={r} back={() => setList(true)} floorMap={<Guard><FleetMap robots={[r]} sel={r.id} cancel={c.cancel} /></Guard>} />
-  </Pair>;
-  return <Pair user={c.user} mine={mine.map((x) => x.id)} refresh={c.refresh} cancel={c.cancel}>
-    <div className="fh-focus" data-lost={bad || undefined} data-summary={!own || undefined}>
-      {(mine.length > 1 || (!own && mine.length > 0)) && <section className="lv-card fl-pick" aria-label="내 로봇 고르기"><h2>내 실기 로봇 {mine.length}대</h2>
-        <div className="fh-row" role="group" aria-label="실기">{mine.map((x) => <button key={x.id} type="button" className="btn" aria-pressed={x.id === r.id} onClick={() => c.pick(x.id)}><Chip {...robotStatus(x)} /><b>{x.name}</b><FallChip x={x} /></button>)}</div></section>}
-      {!mine.length && <section className="lv-card fl-pick" aria-label="로봇 없음"><h2>담당 로봇이 없습니다</h2>
-        <p className="lv-note">«+ 새 로봇 추가»에서 연결 코드로 실기를 등록하거나, 총괄에게 담당 지정을 요청하세요. 시뮬 로봇은 «시뮬» 탭에서 띄웁니다.</p>
-        <div className="fh-row"><a className="btn" href="#/sim">시뮬 탭 열기</a></div></section>}
-      <StateLine c={c} r={r} own={own} guide={guide} settings={() => setSheet('settings')} drive={() => setList(false)} />
-      {/* 남의 로봇은 서버가 실시간 값을 감춘다 — 관측·로봇 상태·조종 준비 없이 요약 상세만 */}
-      {own && <Observe key={r.id} c={c} r={r} />}
-      {own && <Telemetry r={r} />}
-      <Side r={r}>{own && <Prepare key={r.id} c={c} r={r} guide={guide} />}<Detail key={`${r.id}-${r.owner}`} {...c} solo /></Side>
-      {others.length > 0 && <details className="lv-card fh-fold fl-others" aria-label="다른 로봇" open={!own || undefined}>
-        <summary>다른 로봇 {others.length}대 — 남의 로봇은 요약만</summary>
-        <ul className="fh-list robots">{others.map((x) => <SummaryRow key={x.id} c={c} x={x} />)}</ul></details>}
-      {own && <Sheet title="로봇 설정" open={sheet === 'settings'} close={() => setSheet('')}><ManageRobot key={`${r.id}-${r.owner}`} r={r} refresh={c.refresh} cancel={c.cancel} /></Sheet>}
-      {own && <Sheet title="로봇 연결 방법" open={sheet === 'guide'} close={() => setSheet('')}><Guide r={r} /></Sheet>}
-    </div>
-  </Pair>;
+  const guide = () => setSheet('guide'), ok = own && keepDrive(c, r);
+  const why = isLost(r) ? '로봇 연결이 끊겼습니다' : !r.online ? '로봇이 아직 연결되지 않았습니다' : !own ? '남의 로봇은 조종할 수 없습니다'
+    : ok ? '«조종 화면 열기»를 누르면 조종 화면에서 받습니다' : '서버 경유 조종이 허용되면 조종 화면에서 받습니다';
+  return <Pair user={c.user} mine={mine.map((x) => x.id)} refresh={c.refresh} cancel={c.cancel}>{(add) => <>
+    <Frame c={c} r={r} tab={tab} setTab={(t) => { setTab(t); if (t === 'drive') setList(false); }} settings={own ? () => setSheet('settings') : undefined}
+      rail={<aside className="u4-pane rail" aria-label="로봇 목록" data-robot-rail>
+        <div className="rail-top"><h2 className="ttl">로봇</h2>{add}</div>
+        {!mine.length ? <div className="rail-sub" data-no-mine><b>담당 로봇이 없습니다</b><p className="lv-note">«+ 새 로봇 추가»에서 연결 코드로 실기를 등록하거나, 총괄에게 담당 지정을 요청하세요. 시뮬 로봇은 «시뮬» 탭에서 띄웁니다.</p>
+          <a className="btn" href="#/sim">시뮬 탭 열기</a></div>
+          : <ul className="rail-list" aria-label="내 로봇 고르기">{mine.map((x) => <RailCard key={x.id} x={x} on={x.id === r.id} open={c.pick} />)}</ul>}
+        {others.length > 0 && <details className="fl-others" aria-label="다른 로봇" open>
+          <summary className="rail-sub">다른 로봇 {others.length}대 · 남의 로봇은 요약만</summary>
+          <ul className="rail-list">{others.map((x) => <RailCard key={x.id} x={x} on={x.id === r.id} open={c.pick} watching />)}</ul></details>}
+      </aside>}
+      driving={ok && !list && tab === 'drive' && <PcDrive key={r.id} c={c} r={r} back={() => setList(true)} floorMap={<Guard><FleetMap robots={[r]} sel={r.id} cancel={c.cancel} /></Guard>} />}
+      views={<><Views key={r.id} r={r} why={why} map={<Guard><FleetMap robots={[r]} sel={r.id} cancel={c.cancel} /></Guard>}
+          drive={ok && <button type="button" className="btn pri" onClick={() => setList(false)} data-open-drive>조종 화면 열기</button>} />
+        <Deck why={why} /></>}
+      check={<div className="fh-focus" data-lost={isLost(r) || undefined} data-summary={!own || undefined}>
+        <StateLine c={c} r={r} own={own} guide={guide} settings={() => setSheet('settings')} drive={() => { setTab('drive'); setList(false); }} />
+        {own && <Observe key={r.id} c={c} r={r} />}
+        {own && <Telemetry r={r} />}
+        <Side r={r}>{own && <Prepare key={r.id} c={c} r={r} guide={guide} />}<Detail key={`${r.id}-${r.owner}`} {...c} solo /></Side>
+      </div>} />
+    {own && <Sheet title="로봇 설정" open={sheet === 'settings'} close={() => setSheet('')}><ManageRobot key={`${r.id}-${r.owner}`} r={r} refresh={c.refresh} cancel={c.cancel} /></Sheet>}
+    {own && <Sheet title="로봇 연결 방법" open={sheet === 'guide'} close={() => setSheet('')}><Guide r={r} /></Sheet>}
+  </>}</Pair>;
 }
 
 type Filter = { owner: string; state: '' | 'attn' | 'online' | 'off' };
 const RANK: Record<Tone, number> = { bad: 0, warn: 1, ok: 2, off: 3 };
 const needs = (x: Robot) => { const t = robotStatus(x).tone; return t === 'bad' || t === 'warn' || !!x.attention?.length; };
 
-/** 총괄(PC): 요약 → 큰 지도 + 경보 → 표 목록(+거르기) → 서랍 상세. 총괄 = 모든 권한(11/28): 머리줄 STOP 은 고른 로봇, 서버가 허용한 실기는 서랍의 «조종 화면»으로
- *  운영 관리자와 같은 세 칸 조종 화면(pcdrive). 서버 관문(스위치 · 연결 확인 · 조종권 하나 · 잠금)은 그대로 서버가 답한다. 서랍을 닫아도 고른 행은 그대로 */
+/** 총괄(PC): 왼쪽 = 요약 수 · 담당 · 상태 거르기 · 경보(주의 먼저) · 로봇 목록. 조종 = 보기(전 로봇 위치 지도 · 층 고르기) · 서버가 허용한 실기는 «조종 화면»(운영 관리자와 같은 세 칸 조종 — #547),
+ *  점검 = 상세(담당 지정 · 내 로봇 관리) · 실기 보기. 아래 = 로봇 타일(u5_4) · 운영 관리자 표. 총괄이 고른 시뮬(머리줄 STOP 대상)은 그대로 두고 가운데는 «고르세요» */
 function Admin({ d, ...c }: Ctx & { d: Dashboard | null }) {
   useRt();
-  const r = c.robot, { err } = c.dash, [drawer, setDrawer] = useState(false), [f, setF] = useState<Filter>({ owner: '', state: '' }), [drive, setDrive] = useState(false);
-  const open = (id: string) => { c.pick(id); setDrawer(true); setDrive(false); };
-  const can = !r.sim && keepDrive(c, r);
-  if (drive && can) return <Pair user={c.user} mine={c.robots.filter((x) => x.owner === c.user.id).map((x) => x.id)} refresh={c.refresh} cancel={c.cancel}>
-    <PcDrive key={r.id} c={c} r={r} back={() => setDrive(false)} floorMap={<Guard><FleetMap robots={[r]} sel={r.id} cancel={c.cancel} /></Guard>} />
-  </Pair>;
+  const { err } = c.dash, [f, setF] = useState<Filter>({ owner: '', state: '' }), [drive, setDrive] = useState(false), [tab, setTab] = useState<Tab>('drive');
+  const r = c.robot.sim ? null : c.robot;
+  const open = (id: string) => { c.pick(id); setDrive(false); };
+  const can = !!r && keepDrive(c, r);
   const owners = [...new Map(c.robots.map((x) => [x.owner, ownerName(x)])).entries()];
   const rows = c.robots.filter((x) => (!f.owner || x.owner === (f.owner === '-' ? '' : f.owner))
     && (!f.state || (f.state === 'attn' ? needs(x) : f.state === 'online' ? x.online : !x.online)));
   const alerts = c.robots.filter(needs).sort((a, b) => RANK[robotStatus(a).tone] - RANK[robotStatus(b).tone]);
   const sel = (k: keyof Filter, label: string, opts: [string, string][]) => <label className="fh-row lbl">{label}
     <select className="fh-user fh-sel" value={f[k]} data-filter={k} onChange={(e) => setF({ ...f, [k]: e.target.value })}>{opts.map(([v, t]) => <option key={v} value={v}>{t}</option>)}</select></label>;
-  return <Pair user={c.user} mine={c.robots.filter((x) => x.owner === c.user.id).map((x) => x.id)} refresh={c.refresh} cancel={c.cancel}>
-    <Kpi user={c.user} d={d} err={err} />
-    <div className={`fh-fleet admin${drawer ? ' open' : ''}`}>
-      <section className="lv-card fl-map" aria-label="지도"><h2>지도 — 전 로봇 위치</h2><Guard><FleetMap robots={c.robots} sel={drawer ? r.id : undefined} cancel={c.cancel} /></Guard></section>
-      <section className="lv-card fl-alerts" aria-label="경보"><h2>경보{alerts.length ? ` ${alerts.length}` : ''}</h2>
-        {!alerts.length ? <p className="lv-note">주의가 필요한 로봇이 없습니다.</p>
-          : <ul className="fh-list">{alerts.map((x) => <li key={x.id}><button type="button" aria-pressed={drawer && x.id === r.id} onClick={() => open(x.id)}>
-            <Chip {...robotStatus(x)} /><b>{x.name}</b><span className="lbl fh-wide">{attn(x) || robotStatus(x).text} · {ownerName(x)}</span></button></li>)}</ul>}
-      </section>
-      <section className="lv-card fl-list" aria-label="로봇 목록">
-        <div className="fh-row"><h2>로봇 {rows.length === c.robots.length ? c.robots.length : `${rows.length}/${c.robots.length}`}대</h2><span className="fh-grow" />
-          {sel('owner', '담당', [['', '전체'], ...owners.map(([id, name]): [string, string] => [id || '-', name])])}
+  const nodrive = '서버 경유 조종이 이 로봇에 켜져 있지 않습니다 (서버 조종 스위치 · 로봇 연결 · 담당 확인). 조종은 서버가 허용한 뒤에 엽니다.';
+  const why = !r ? '' : isLost(r) ? '로봇 연결이 끊겼습니다' : !r.online ? '로봇이 아직 연결되지 않았습니다' : can ? '«조종 화면»을 누르면 조종 화면에서 받습니다' : nodrive;
+  return <Pair user={c.user} mine={c.robots.filter((x) => x.owner === c.user.id).map((x) => x.id)} refresh={c.refresh} cancel={c.cancel}>{(add) => <>
+    <Frame c={c} r={r} tab={tab} setTab={(t) => { setTab(t); if (t !== 'drive') setDrive(false); }}
+      rail={<aside className="u4-pane rail" aria-label="로봇 목록" data-robot-rail>
+        <div className="rail-top"><h2 className="ttl">로봇 {rows.length === c.robots.length ? c.robots.length : `${rows.length}/${c.robots.length}`}대</h2>{add}</div>
+        <Kpi user={c.user} d={d} err={err} />
+        <div className="rail-filt">{sel('owner', '담당', [['', '전체'], ...owners.map(([id, name]): [string, string] => [id || '-', name])])}
           {sel('state', '상태', [['', '전체'], ['attn', '주의 필요'], ['online', '연결됨'], ['off', '끊김·연결 전']])}</div>
-        <RobotTiles robots={rows} open={open} />
-        <div className="fl-row fl-head" aria-hidden="true"><span>로봇</span><span>담당</span><span>연결</span><span>배터리</span><span>임무</span><span>마지막 보고</span></div>
+        <section className="rail-alerts" aria-label="경보"><h3>경보{alerts.length ? ` ${alerts.length}` : ''}</h3>
+          {!alerts.length ? <p className="lv-note">주의가 필요한 로봇이 없습니다.</p>
+            : <ul>{alerts.map((x) => <li key={x.id}><button type="button" onClick={() => open(x.id)} data-alert={x.id}>
+              <Chip {...robotStatus(x)} /><b>{x.name}</b><span className="lbl">{attn(x) || robotStatus(x).text}</span></button></li>)}</ul>}</section>
         {!rows.length && <p className="lv-note">거른 조건에 맞는 로봇이 없습니다.</p>}
-        <ul className="fh-list robots fl-table">{rows.map((x) => { const a = attn(x); return <li key={x.id}>
-          <button type="button" className="fl-row" aria-pressed={x.id === r.id} onClick={() => open(x.id)}>
-            <span><Chip {...robotStatus(x)} /><b>{x.name}</b><FallChip x={x} /></span>
-            <span className="lbl">{ownerName(x)}</span>
-            <span><span className="lbl" data-link-text>{linkText(x)}</span></span>
-            <span className="mono">{pct(x.battery)}</span>
-            <span>{x.mission ?? '—'}{a && <span className="lbl" data-attention> ▲ {a}</span>}</span>
-            <span><Seen x={x} /><PhoneRelay report={x.phoneRelay} receivedAt={x.phoneRelayAt} compact /></span>
-          </button></li>; })}</ul>
-      </section>
-      {/* 담당이 바뀌면 상세를 새로 받는다 — 옛 요청의 늦은 답은 내린 화면에 떨어져 버려진다 */}
-      {drawer && <Side r={r}>{!r.sim && (can ? <button type="button" className="btn pri" data-admin-drive onClick={() => setDrive(true)}>조종 화면</button>
-        : <p className="lv-note" data-admin-nodrive>서버 경유 조종이 이 로봇에 켜져 있지 않습니다 (서버 조종 스위치 · 로봇 연결 · 담당 확인). 조종은 서버가 허용한 뒤에 엽니다.</p>)}
-        <Detail key={`${r.id}-${r.owner}`} {...c} close={() => setDrawer(false)} /></Side>}
-    </div>
+        <ul className="rail-list">{rows.map((x) => <RailCard key={x.id} x={x} on={x.id === r?.id} open={open} />)}</ul>
+      </aside>}
+      driving={drive && can && r && tab === 'drive' && <PcDrive key={r.id} c={c} r={r} back={() => setDrive(false)} floorMap={<Guard><FleetMap robots={[r]} sel={r.id} cancel={c.cancel} /></Guard>} />}
+      views={r && <><Views r={r} why={why} map={<Guard><FleetMap robots={c.robots} sel={r.id} cancel={c.cancel} /></Guard>}
+          drive={can && <button type="button" className="btn pri" data-admin-drive onClick={() => setDrive(true)}>조종 화면</button>} />
+        <Deck why={why} nodrive={!can} /></>}
+      check={r && <Side r={r}><Detail key={`${r.id}-${r.owner}`} {...c} /></Side>} />
+    <section className="lv-card" aria-label="로봇 한눈에" style={{ flexBasis: '100%' }}><RobotTiles robots={rows} open={(id) => { open(id); setTab('check'); }} /></section>
     <Operators user={c.user} d={d} />
-  </Pair>;
+  </>}</Pair>;
 }
