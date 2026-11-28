@@ -33,6 +33,7 @@ import { Trash } from './screens/trash';
 import { ScanPanel, ScanStart } from './screens/scanentry';
 import { ThemeNav, ThemePick, useTheme } from './theme';
 import { BellFace, PcBar, STOP_FACE } from './proto/bar';
+import { setStage } from './stage';
 import { Control5 } from './proto/u5';
 
 /** STOP 결과 한 줄 — 서버가 받았는지와 로봇이 알린 잠금을 나눠 쓴다. 확인 안 된 «정지됨»은 쓰지 않는다(F-COM-01) */
@@ -435,6 +436,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     const goTab = (id: string) => { const h = `#/${id}`; if (!leaving.ask) { away.current = null; setWant(h); } location.hash = h; };
     const u6 = tab === 'missions' && !simOpen;   // 임무 = 시안 u6
     const barTabs = [...PC_TABS.filter((t) => !t.hidden), PC_BOTTOM].map((t) => ({ id: t.id, label: labelOf(t, user.role) }));
+    setStage(stage);   // 끌기 좌표 도우미(stage.ts)가 이 무대 배율을 쓴다
     return <div className="fit" data-fit style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: light ? '#F6F7F6' : '#000000' }}>
       <div className={`proto${light ? ' light' : ''}`} data-layout="pc" data-scale={stage.s.toFixed(4)} style={{ position: 'absolute', left: 0, top: 0, width: STAGE_W, height: STAGE_H, transform: `translate(${stage.x}px,${stage.y}px) scale(${stage.s})`, transformOrigin: '0 0' }}>
       <PcBar light={light} tabs={barTabs} cur={navTab} go={goTab} role={user.role} name={user.name} roleName={ROLE_NAME[user.role]} online={pool.filter((r) => r.online).length} net={net.at}
@@ -457,6 +459,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       {!inApp() && <Guard quiet><SimWindow /></Guard>}
     </div></div>;
   }
+  setStage(null);
   return <div className={`fh${light ? ' light' : ''}${phone ? ' phone' : ''}`} data-layout={phone ? 'phone' : 'pc'} data-drive={open || simOpen ? '' : undefined}>
     {/* 시뮬 조종 화면(10-26): 머리줄은 STOP 만 — 영상 위 오른쪽 위에 뜬다(drive.css .fh-head[data-bare]). 시뮬 끝내기·연결 표시는 조종 화면 메뉴·알약으로 */}
     <header className="fh-head" data-bare={simOpen || undefined}>{simOpen ? (canStop || toSim) && <Stop phone onStop={stop} /> : <>
