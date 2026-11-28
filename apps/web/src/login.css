@@ -1,13 +1,13 @@
 /* 시안 로그인(proto screens/u10_1 · u10_3). 값은 시안 ui.css .g.dk · u10 화면 <style> 그대로.
    카드 .card(480 폭 · 둥글기 28 · 안 여백 40/40/34) · 입력 .inp(52 높이 · 둥글기 12) · 오류 줄 .line1.err · 로그인 단추 .btnp(56 높이).
    칸 · 오류 · 초점 · 보기 단추의 동작은 loginform.tsx 그대로이고, 여기서는 모양만 바꾼다(loginform 의 인라인 모양은 이 카드 안에서만 덮는다).
-   바탕: 시안은 공장 조감 사진 위 왼쪽 어둠 그러데이션. 사진은 저장소에 넣지 않아(사진 커밋 금지) 같은 그러데이션 + 옅은 격자.
+   바탕: 시안 그대로 공장 조감 그림(우리 절차 생성 지도의 Blender 점토 렌더 · public/login) 위 왼쪽 어둠 그러데이션.
    밝은 판: 같은 구조에 공식 토큰(foothold.tokens.css, 값 수정 없음). */
 .fh.lg { position: relative; min-height: 100vh; overflow: hidden; background: #0c0f14; }
 .fh.lg .lg-bg { position: absolute; inset: 0; background:
   linear-gradient(90deg, rgba(12,15,20,.94) 0%, rgba(12,15,20,.82) 34%, rgba(12,15,20,.25) 62%, rgba(12,15,20,.05) 100%),
-  url(/proto-assets/shared/map_large_factory_iso.jpg?v=1128042956) 58% 46% / cover,
-  radial-gradient(900px 600px at 72% 46%, #2a3a36, #121820 70%); }   /* 시안 u10_1 .bg 공장 그림(저장소 밖 자산 · FH_ASSET_DIR → /proto-assets/). 그림이 없으면 아래 바탕 */
+  url(/login/factory_iso.jpg) 58% 46% / cover,
+  radial-gradient(900px 600px at 72% 46%, #2a3a36, #121820 70%); }   /* 시안 u10_1 .bg 공장 그림(앱 public/login · 시안 shared/map_large_factory_iso.jpg 사본). 그림이 없으면 아래 바탕 */
 .fh.lg .fh-login { position: relative; z-index: 2; justify-content: flex-start; padding: 48px 16px 48px clamp(16px, 9.4vw, 180px); }
 .fh.lg .lg-card { width: 100%; max-width: 480px; box-sizing: border-box; padding: 40px 40px 34px; border-radius: 28px; display: flex; flex-direction: column; gap: 0; color: #fff;
   background: linear-gradient(180deg, rgba(28,32,40,.52), rgba(18,20,26,.38)); border: 1px solid rgba(255,255,255,.22);
@@ -15,7 +15,9 @@
 .fh.lg .lg-logo { font-weight: 900; letter-spacing: .08em; font-size: 18px; }
 .fh.lg .lg-card h2 { margin: 26px 0 0; font-size: 28px; font-weight: 800; letter-spacing: -.02em; }
 .fh.lg .lg-sub { margin: 6px 0 0; font-size: 14.5px; font-weight: 600; color: #9aa19d; }
-.fh.lg .lg-fields { display: flex; flex-direction: column; gap: 16px; margin-top: 24px; }
+.fh.lg .lg-fields { display: flex; flex-direction: column; gap: 16px; margin-top: 90px; }   /* 시안 u10_1: 부제 아래 빈 줄 자리(18 + 48) + 24 */
+.fh.lg .lg-fields:has(> [data-login-err], > [data-login-note], > [data-pw-changed]) { margin-top: 18px; }   /* u10_3 · u10_4: 그 자리에 오류 · 안내 줄 */
+.fh.lg .lg-fields > :is([data-login-err], [data-login-note], [data-pw-changed]) + * { margin-top: 8px; }   /* 줄 아래 칸까지 24(gap 16 + 8) */
 .fh.lg .lg-fields .fh-field { display: block; }
 .fh.lg .lg-fields .fh-field .lbl { display: block; font-size: 13px; font-weight: 700; color: #9aa19d; margin-bottom: 8px; }
 .fh.lg .lg-fields .inp { width: 100%; box-sizing: border-box; height: 52px; border-radius: 12px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); padding: 0 14px;
@@ -32,13 +34,14 @@
 .fh.lg .lg-fields .btn.pri:disabled { opacity: .6; cursor: default; }
 .fh.lg .lg-card > div:has(> [data-pw-link]) { margin-top: 22px; }
 .fh.lg [data-pw-link] { color: #00c389 !important; font-weight: 700 !important; font-size: 14px; min-height: 44px !important; }
+.fh.lg [data-pw-link] { margin: -12px 0; }   /* 누르는 곳 44 는 그대로, 줄 높이는 시안 글 높이(카드 아래 끝 = 시안) */
 .fh.lg [data-account-ask] { font-size: 13px; font-weight: 600; color: #9aa19d; }
 .fh.lg [data-pw-hint] { margin-top: 10px !important; border-radius: 12px !important; background: rgba(255,255,255,.07) !important; border-color: rgba(255,255,255,.14) !important; color: #fff !important; }
 @media (max-width: 600px) { .fh.lg .fh-login { justify-content: center; padding: 24px 16px; } .fh.lg .lg-card { padding: 28px 22px 24px; } }
 
 .fh.lg.light { background: #F6F7F6; }
 .fh.lg.light .lg-bg { background: linear-gradient(90deg, rgba(246,247,246,.96) 0%, rgba(246,247,246,.80) 40%, transparent 75%),
-  url(/proto-assets/shared/map_large_factory_iso.jpg?v=1128042956) 58% 46% / cover, #F6F7F6; }
+  url(/login/factory_iso.jpg) 58% 46% / cover, #F6F7F6; }
 .fh.lg.light .lg-card { color: #1F2421; background: rgba(255,255,255,.92); border-color: #DCE0DE; box-shadow: 0 8px 24px rgba(31,36,33,.10); }
 .fh.lg.light .lg-sub, .fh.lg.light .lg-fields .fh-field .lbl, .fh.lg.light [data-account-ask], .fh.lg.light .lg-fields [data-pw-eye] { color: #5E6662 !important; }
 .fh.lg.light .lg-fields .inp { background: #FFFFFF; border-color: #DCE0DE; color: #1F2421; box-shadow: inset 0 1px 2px rgba(31,36,33,.05); }
