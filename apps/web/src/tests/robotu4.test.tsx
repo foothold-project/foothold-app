@@ -374,6 +374,18 @@ describe('로봇 탭 보기 칸 · 지도 경로 · 시뮬 시점(서버 값만)
     expect(st.getAttribute('data-u4-legs')).toBe('down');   // 충전 = 엎드림(관절값 없을 때)
   });
 
+  it('충전 중이면 모형 · 아래 두 글이 관제 타일과 같은 판단(proto/u5 lying)으로 엎드림 · 자세 보고가 STANDING 이어도', async () => {
+    vi.spyOn(api, 'availability').mockResolvedValue({ items: [{ robot_id: 'r7', state: 'CHARGING', demo: false, location_label: null, busy_label: null, busy_slot_id: null }] } as never);
+    mount('u-park'); serve('r7');
+    act(() => { push('r7', { speed: 0, posture: { state: 'STANDING' } } as unknown as Partial<ScreenState>); });
+    await flush();
+    const note = $('[data-u4-jointnote]')!;
+    expect($('.stage3d')!.getAttribute('data-u4-legs')).toBe('down');
+    expect(text($('[data-u4-walk]'))).toBe('충전 중 · 엎드림');
+    expect([note.getAttribute('data-u4-jointnote'), text(note)]).toEqual(['posture', '관절값이 없어 충전 자세(엎드림)로 그림']);
+    expect(u4src).toContain('tileLying({ x: r, act: actOf(r, false), charging: !!av?.charging })');
+  });
+
   it('같은 이름 배정이 둘이면 경로를 고르지 않는다(지어내지 않음): 지점 0 · 진행과 상태만', async () => {
     board([ASG('a1'), ASG('a2')], [WP(10, -60, '밸브 확인')]);
     mount('u-park', withRun()); serve('r7');
