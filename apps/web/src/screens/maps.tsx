@@ -236,7 +236,7 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   // 지도 탭 = 실기 장소만, 시뮬 탭 = 시뮬 + 실기 장소(RB-SCEN-SIMTAB 11-11 — 시나리오는 실기·시뮬 같은 것을 시뮬 탭에서 고친다). 이름으로 거르지 않음 — 서버 purpose.
   // 장소 고치기(이름·삭제·만들기)는 그 탭 쓰임의 장소만(own)
   const own = (s: MapSite) => purposeOf(s) === purpose;
-  const t = useMemo(() => ({ ...t0, tree: t0.tree && { ...t0.tree, items: sim ? t0.tree.items : t0.tree.items.flatMap((s) => { const x = mapTabSite(s); return x ? [x] : []; }) } }), [t0.tree, t0.err]);
+  const t = useMemo(() => ({ ...t0, tree: t0.tree && { ...t0.tree, items: sim ? t0.tree.items : t0.tree.items.filter((s) => purposeOf(s) === 'REAL') } }), [t0.tree, t0.err]);
   const admin = c.user.role === 'ORG_ADMIN', places = useMemo(() => floorsOf(t.tree), [t.tree]), robots = c.robots ?? [];
   const [pick, setPick] = useState(() => kept.d?.floor ?? keptPlan.floor), cur = places.find((p) => p.floor.id === pick);
   const [sel, setSel0] = useState<string | null>(() => (keptPlan.kind === 'scenarios' && !kept.d ? keptPlan.sel : null)), setSel = (x: string | null) => { keptPlan.sel = x; setSel0(x); };

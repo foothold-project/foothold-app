@@ -36,7 +36,7 @@ export const stageLook = (world: boolean, front: { yaw: number; dist: number }) 
   (world ? { yaw: Math.PI, dist: REAR_DIST, stageShadow: false } : { yaw: front.yaw, dist: front.dist, stageShadow: true });
 /** 현장 꼴 그림자 원(지도 좌표 · z 위): 반지름 · 길이 배 · 진하기 = 관제 타일. 긴 쪽 = 로봇 앞(지도 yaw) */
 export const mapShadow = (pose: { x: number; y: number; yaw: number }, z: number) =>
-  ({ r: SHADOW.r, x: pose.x, y: pose.y, z: z + 0.001, rotZ: pose.yaw, sx: SHADOW.sy, sy: 1, opacity: SHADOW.opacity });
+  ({ r: SHADOW.r, x: pose.x, y: pose.y, z: z + 0.02, rotZ: pose.yaw, sx: SHADOW.sy, sy: 1, opacity: SHADOW.opacity });
 /** 모형의 가장 낮은 점(꼭짓점 기준)을 y=0 에 */
 export function ground(root: THREE.Object3D) {
   root.position.y = 0; root.updateMatrixWorld(true);
