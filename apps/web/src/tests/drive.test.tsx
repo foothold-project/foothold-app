@@ -2725,7 +2725,7 @@ describe('폰 실기 조종 화면 정지 자리 (시안 u1)', () => {
     mount(true, 'u-kim', '#/drive/r7');
     serve(KIM, 'r3', 'r7', 'r1');
     click(btn('지도 스캔'));
-    expect($('[data-scan]')).toBeTruthy();
+    expect($('.dv-stage [data-scan-panel].u142-over')).toBeTruthy();
     inScreen();
     press('r7');
   });
@@ -2734,7 +2734,7 @@ describe('폰 실기 조종 화면 정지 자리 (시안 u1)', () => {
     mount(true, 'u-kim', '#/drive/r7');
     serve(KIM, 'r3', 'r7', 'r1');
     ready();
-    w.auto = (m) => (m.t === 'lease.release' ? null : { ok: true });
+    w.auto = (m) => (m.t === 'lease.release' ? undefined : { ok: true });
     click(btn('끝내기'));
     expect($('[data-ending]')).toBeTruthy();
     inScreen();
