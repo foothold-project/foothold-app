@@ -484,10 +484,10 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
   const openMode = (g?: GaitName) => { setModeAsk(g ?? d.gait.cur ?? GAITS[0].g); modeBind.open(); }, closeMode = () => { setModeAsk(null); modeBind.close(); };
   // 시안 u4_7: Shift+N 도 칩과 같은 확인 창을 그 모드를 고른 채 연다(창 없이 보내지 않음). 못 여는 때(조종권 없음 · 그 모드를 못 씀)는 원래 길(press)이 까닭을 알림
   if (d.gaitAsk) d.gaitAsk.current = (g) => (mine && !noGait && (!d.gait.avail || d.gait.avail.includes(g)) ? openMode(g) : d.gait.press(g));
-  const [arm, setArm] = useState(0);
+  const [arm, setArm] = useState(-Infinity);   // 처음 = 아직 안 누름(0 이면 페이지 연 뒤 3 초 안 첫 누름이 바로 Damp · 폰 drive 와 같게)
   const damp = () => {
     if (rt.now() - arm > 3000) { setArm(rt.now()); return say('한 번 더 누르면 엎드려 힘을 뺍니다'); }
-    setArm(0); d.zero(); rt.action(r.id, 'Damp', {}, true, (why, id) => { if (why) say(`거부 · ${why}`); else setPending(id ?? null); });
+    setArm(-Infinity); d.zero(); rt.action(r.id, 'Damp', {}, true, (why, id) => { if (why) say(`거부 · ${why}`); else setPending(id ?? null); });
   };
   const stopTag = !latched ? null : d.unlockState === 'unconfirmed' ? `미확인 · 로봇이 정지 확인을 못 해 잠금이 그대로입니다. ${d.refused || '현장에서 로봇이 완전히 멈췄는지 확인한 뒤 다시 누르세요.'}`
     : d.unlockState === 'wait' ? `해제 대기 · 로봇이 정지를 확인하면 풀립니다.${d.refused ? ` ${d.refused}` : ''}`

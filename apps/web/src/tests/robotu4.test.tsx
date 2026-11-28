@@ -207,6 +207,18 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
     expect(lastAxes()).toBe('0,0,0');
   });
 
+  it('Damping 두 번 누르기: 페이지 연 직후(시계 3 초 안) 한 번 누름은 Damp 를 보내지 않고 안내만 · 3 초 안 두 번째에 하나', () => {
+    mount('u-park'); serve('r7'); drive();
+    click($('.views .vstop')!);
+    expect(performance.now()).toBeLessThan(3000);   // 페이지 시계가 막 시작된 때(옛 처음 값 0 이면 여기서 바로 Damp)
+    click($('[data-u4-damp]')!);
+    expect(w.of('action').filter((m) => m.action === 'Damp')).toHaveLength(0);
+    expect(text($('[data-u4-why]'))).toBe('한 번 더 누르면 엎드려 힘을 뺍니다');
+    tick(500);
+    click($('[data-u4-damp]')!);
+    expect(w.of('action').filter((m) => m.action === 'Damp')).toHaveLength(1);
+  });
+
   it('동작 단추: 조종 전이면 까닭만 · 조종 중이면 서버로 그 동작 하나 · START 중 일어서기는 시안 까닭', () => {
     mount('u-park'); serve('r7');
     click($('[data-u4-act="Sit"]')!);
