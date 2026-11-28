@@ -133,8 +133,8 @@
 .u1d .u1-mission .dots button.on{width:10px;border-radius:2px;background:#fff}.proto.light.u1d .u1-mission .dots button.on{background:var(--ink)}
 /* 왼쪽 지도 시점 고르개(시안 u1_1 left view column 값 그대로 · 로봇 = 둘레 · 평면 = 판 전체 · 3D 는 판에 glb 가 생길 때까지 꺼 둠) */
 .u1d .u1-vcol{position:absolute;left:12px;top:118px;width:46px;padding:5px;display:flex;flex-direction:column;gap:4px;border-radius:16px;z-index:2}
-.u1d .u1-vcol .btn{height:44px;border-radius:12px;color:var(--ink);padding:0;min-width:0;background:none;border:0}
+.u1d .u1-vcol .btn{height:44px;border-radius:12px;color:var(--ink)!important;padding:0;min-width:0;background:none!important;border:0!important}   /* !important: 폰 틀 밝은 판 .fh.light .dv-hud .btn(drive.css)이 덮어 고른 칸이 안 보였음 */
 .u1d .u1-vcol .btn .ic{width:16px;height:16px}
-.u1d .u1-vcol .btn[aria-pressed="true"]{background:#1f2421;color:#fff}
+.u1d .u1-vcol .btn[aria-pressed="true"]{background:#1f2421!important;color:#fff!important}
 .u1d .u1-vcol .btn[aria-disabled="true"]{opacity:.4;cursor:not-allowed}
 .u1d .u1-vcol .u1-vnote{position:absolute;left:54px;bottom:10px;white-space:nowrap;margin:0;padding:5px 10px;border-radius:999px;font-size:11.5px;font-weight:700;color:var(--ink)}   /* 시안 유리 .g(밝은 유리 · 시안 u1_12 「두 손가락으로 돌리기」 알약 결) · 어두운 판 바탕과 대비 */

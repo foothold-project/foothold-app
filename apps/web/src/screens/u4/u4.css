@@ -59,7 +59,9 @@
 .u4 .deck{position:absolute;left:0;right:0;bottom:0;top:682px;border-radius:22px;background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02));border:1px solid var(--line);--js:150px}
 .u4 .deck .stick{bottom:auto;top:50%;margin-top:-75px}
 .u4 .deck .act div.no{opacity:.45}.u4 .deck .act em{font-style:normal;font-size:10px;font-weight:700;opacity:.55;margin-top:-3px}
-.u4 .deck .why{position:absolute;left:50%;top:10px;transform:translateX(-50%);padding:5px 12px;border-radius:999px;background:rgba(242,183,5,.14);color:#f2b705;font-size:12px;font-weight:700;white-space:nowrap;opacity:0;transition:opacity .2s}.u4 .deck .why.on{opacity:1}
+/* 도움말 알약(시안 밖 · 새로 그림 · 팀장 23:48 「촌스럽다」): 가는 선 · 옅은 유리 · 작은 글 */
+.u4 .deck .why{position:absolute;left:50%;top:10px;transform:translateX(-50%);padding:4px 11px;border-radius:999px;background:rgba(20,24,30,.42);border:1px solid rgba(255,255,255,.16);color:rgba(255,255,255,.86);font-size:11.5px;font-weight:600;white-space:nowrap;opacity:0;transition:opacity .2s;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.proto.light .u4 .deck .why{background:rgba(255,255,255,.72);border-color:#DCE0DE;color:#1F2421}.u4 .deck .why.on{opacity:1}
 .u4 .deck .act{left:204px;right:204px;bottom:auto;top:50%;transform:translateY(-50%)}
 .u4 .pane2{border-radius:22px;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.03));border:1px solid var(--line);box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
 .u4 .chk div.r{display:flex;align-items:center;gap:12px;height:54px;padding:0 18px;border-bottom:1px solid var(--line);font-size:15px;font-weight:700}
@@ -136,16 +138,24 @@
 /* 확대 중 창(다시 시작 · 걷기 모드 · 설정): 막과 창이 확대 화면(z 6 · 조작 7) 위로. 막을 누르면 창만 닫힘(검토 L1) */
 .u4 .right[data-u4-zoom] ~ .veil{z-index:8}.u4 .right[data-u4-zoom] ~ .modal{z-index:9}
 .u4 .right[data-u4-zoom] .views{position:fixed;left:0;top:64px;width:1920px;height:1016px;border-radius:0;border:0;z-index:6}   /* 머리줄(모두 정지)은 그대로 보이게 그 아래 */
-.u4 .right[data-u4-zoom] .ctl{position:fixed;left:24px;right:24px;top:auto;bottom:256px;z-index:7}
-.u4 .right[data-u4-zoom] .deck{position:fixed;left:24px;right:24px;top:auto;bottom:24px;height:218px;z-index:7;background:linear-gradient(180deg,rgba(28,32,40,.52),rgba(18,20,26,.38));backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
-.u4 .right[data-u4-zoom] .vstop,.u4 .right[data-u4-zoom] .vslot{bottom:330px;right:40px}
-.u4 .right[data-u4-zoom] .vsel{left:148px;top:24px}
+/* 위 칸 top 88 = 머리줄 64 아래 24(확대 칸은 64 부터). 확대 = 폰 시안 u1_2 자리(팀장 11-28 23:48): 위 가운데 조종 · 「이동」 키 그림, 아래 양끝 손잡이 · 가운데 동작(판 바탕 없음), 오른쪽 아래 정지 · 그 위 말하기 */
+.u4 .right[data-u4-zoom] .ctl{position:fixed;left:16px;right:16px;top:88px;bottom:auto;justify-content:center;pointer-events:none}
+.u4 .right[data-u4-zoom] .ctl{z-index:7}.u4 .right[data-u4-zoom] .ctl>*{pointer-events:auto}
+.u4 .right[data-u4-zoom] .ctl .btn{height:44px;border-radius:14px}
+.u4 .right[data-u4-zoom] .ctl .keys{flex:none;height:44px;padding:0 14px;gap:5px;font-size:13px;font-weight:700}
+.u4 .right[data-u4-zoom] .ctl .talk{position:fixed;right:24px;bottom:136px;width:132px;height:72px;flex-direction:column;gap:3px;padding:0;border-radius:20px;font-size:13px}
+.u4 .right[data-u4-zoom] .deck{position:fixed;left:16px;right:16px;top:auto;bottom:16px;height:200px;z-index:7;background:none;border:0;backdrop-filter:none;-webkit-backdrop-filter:none;pointer-events:none}
+.u4 .right[data-u4-zoom] .deck>*{pointer-events:auto}
+.u4 .right[data-u4-zoom] .deck [data-u4-stick="R"]{right:172px!important}
+.u4 .right[data-u4-zoom] .deck .act{left:210px;right:360px}
+.u4 .right[data-u4-zoom] .vstop,.u4 .right[data-u4-zoom] .vslot{bottom:24px;right:24px}
+.u4 .right[data-u4-zoom] .vsel{left:172px;top:24px}
 .u4 .right[data-u4-zoom] .small{right:40px;top:24px;width:320px;height:194px}
 .u4 .right[data-u4-zoom] .mapname{left:24px;top:76px}
 .u4 .right[data-u4-zoom] .job{left:24px;bottom:330px}
 .u4 .zback{position:absolute;left:24px;top:24px;z-index:3;height:40px;padding:0 14px 0 10px;border-radius:12px;display:flex;align-items:center;gap:6px;font-size:13.5px;font-weight:700;cursor:pointer}
 .u4 .zback small{font-size:11px;font-weight:600;opacity:.6;margin-left:4px}
-.proto.light .u4 .right[data-u4-zoom] .deck{background:rgba(255,255,255,.82);border-color:#DCE0DE}
+.proto.light .u4 .right[data-u4-zoom] .deck{background:none;border:0}
 /* 밝은 판 지도 칸(흰 점토 결 그림) 위 다른 로봇 표: 밝음 1 글자 · 흰 테 */
 .proto.light .u4 .mapin [data-u4-other] text{fill:#1F2421;stroke:#FFFFFF;stroke-width:4px;paint-order:stroke}
 .proto.light .u4 .mapin [data-u4-other] circle{stroke:#FFFFFF}

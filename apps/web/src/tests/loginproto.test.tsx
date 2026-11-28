@@ -57,3 +57,23 @@ describe('시안 로그인 카드 (u10_1)', () => {
     expect([box.querySelector('.fh.lg'), box.querySelector('[data-fit]'), box.querySelector('form.lg-card')]).toEqual([null, null, null]);
   });
 });
+
+// 팀장 11-28 23:53: 로그인 바탕 그림은 저장소 밖(/proto-assets) 이 아니라 앱 public 우리 자리(/login/)에서 · 자리는 시안 u10_1 · u13_1 그대로
+import loginCss from '../login.css?raw';
+import u13AppCss from '../screens/u13.app.css?raw';
+describe('로그인 바탕 그림 · 자리 (시안 u10_1 · u13_1)', () => {
+  it('PC 바탕 = /login/factory_iso.jpg 58% 46% cover (어둠 · 밝음 둘 다) · /proto-assets 안 씀', () => {
+    expect(loginCss).not.toContain('/proto-assets/');
+    expect(loginCss.match(/url\(\/login\/factory_iso\.jpg\) 58% 46% \/ cover/g)).toHaveLength(2);
+  });
+  it('폰 바탕 = /login/factory_k01.jpg (시안 u13_1 .bg 40% 50% cover)', () => {
+    expect(u13AppCss).toContain('.u13 .bg{background-image:url(/login/factory_k01.jpg)}');
+  });
+  it('PC 카드: 시안 u10_1 의 빈 줄 자리(18 + 48) 를 지킴 · 오류 · 안내 줄이 있으면 그 자리에 들어감(u10_3)', () => {
+    expect(loginCss).toContain('.fh.lg .lg-fields { display: flex; flex-direction: column; gap: 16px; margin-top: 90px; }');
+    expect(loginCss).toContain('.fh.lg .lg-fields:has(> [data-login-err], > [data-login-note], > [data-pw-changed]) { margin-top: 18px; }');
+  });
+  it('PC 「비밀번호 바꾸기」 줄 높이 = 시안 글 높이(누르는 곳 44 는 음수 바깥 여백으로 지킴) · 카드 아래 끝이 시안과 같게', () => {
+    expect(loginCss).toContain('.fh.lg [data-pw-link] { margin: -12px 0; }');
+  });
+});

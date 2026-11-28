@@ -2479,6 +2479,9 @@ describe('폰 u1 임무 화면(보이기만)', () => {
     expect(u1AppCss).toMatch(/\.u1-vnote\{[^}]*color:var\(--ink\)\}/);
     expect($('.u1d svg.u1-mmap')!.getAttribute('viewBox')).toBe('0 0 200 100');
     expect(u1AppCss).toMatch(/\.u1d \.u1-vcol\{position:absolute;left:12px;top:118px;width:46px;padding:5px;display:flex;flex-direction:column;gap:4px;border-radius:16px/);
+    // 밝은 판: 폰 틀 .fh.light .dv-hud .btn 규칙(drive.css)이 덮지 않게 — 고른 칸 = 시안 #1f2421 채움 · 흰 글자, 안 고른 칸 = 바탕 없음
+    expect(u1AppCss).toContain('.u1d .u1-vcol .btn[aria-pressed="true"]{background:#1f2421!important;color:#fff!important}');
+    expect(u1AppCss).toContain('.u1d .u1-vcol .btn{height:44px;border-radius:12px;color:var(--ink)!important;padding:0;min-width:0;background:none!important;border:0!important}');
   });
 
   it('임무가 없으면 보기 고르개 없음', async () => {
