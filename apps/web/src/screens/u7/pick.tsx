@@ -208,7 +208,7 @@ export function PickU7({ maker, t, places, vers, choose, make, note, manage, set
       {fl && <div className="pane" style={{ left: '992px', top: '160px', right: '24px', bottom: '24px', overflow: 'hidden', padding: 0 }} aria-label="미리 보기">
         {/* 시안 u7_1 「3D 보기 · 미리 보기」: 판에 서버 3D 모형이 있으면 그 모형(Map3D still · 점토 결), 없으면 판의 2D 그림을 점토로 세운 비스듬한 위 시점(ClayMap). 시뮬 월드 · 로봇 실시간은 그리지 않음(팀장 22:37).
             판이 없는 층 = 시안 u11_7 꼴 빈 칸(그림 · 제목 · 글), 숫자 없음 */}
-        <div style={{ position: 'absolute', inset: 0 }} data-u7-preview>{v && modelOf(v) && no3 !== v.id ? <Map3D key={v.id} v={v} robots={[]} still missing={() => setNo3(v.id)} />
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }} data-u7-preview>{v && modelOf(v) && no3 !== v.id ? <Map3D key={v.id} v={v} robots={[]} still missing={() => setNo3(v.id)} />
           : v ? <ClayMap key={v.id} v={v} light={light()} />
           : fl.approved_version_id ? <p className="mu2" role="status" style={{ position: 'absolute', left: '28px', top: '90px', right: '28px', fontSize: '14px' }}>지도를 불러오는 중…</p>
           : <MapEmpty kind="pick-floor" className="empty" style={{ top: '40px', bottom: '110px' }} title="지도 없음" why="이 층은 아직 스캔하지 않았습니다."
