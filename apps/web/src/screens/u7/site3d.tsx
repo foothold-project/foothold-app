@@ -1,24 +1,15 @@
 // 지도 탭 데모 현장 3D (시안 u7_1 미리 보기 「3D 보기 · 미리 보기」 · u7_4 「3D 보기」).
-// 모형 = 시안 공장 GLB(proto/site.ts SITE_GLB · 저장소 밖 /proto-assets 자산), 좌표 = 로봇 탭 · 관제와 같은 현장 m(x 동 · y 위 · z 남, toMapPx).
-// 색 · 빛 · 카메라는 시안 그림을 구운 build_scene.py 값 그대로(흰 점토 재질 · 해 기울기 50° 방위 140° · 높이각 37° 방위 -12° · 렌즈 70/50 mm).
+// 모형 = 공장 질감판(proto/site.ts loadSite · SITE_TEX_GLB, 없으면 옛 SITE_GLB) · 관제 · 로봇 탭과 같은 로더 · 재질 색 곱(TEX_TONE) · 빛(TEX_LOOK).
+// 좌표 = 로봇 탭 · 관제와 같은 현장 m(x 동 · y 위 · z 남, toMapPx). 해 방향 · 카메라는 시안 build_scene.py 값 그대로(높이각 37° 방위 -12° · 렌즈 70/50 mm).
 // 캔버스는 마운트마다 새 렌더러가 만든 것을 쓰고 거둘 때 지운다(같은 캔버스에 렌더러를 다시 붙이면 forceContextLoss 뒤라 흰 칸이 된다 · 7c07a9b7).
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { ASSET, K, OX, OY, SITE_GLB, loadGo2, ringLine, sitePose } from '../../proto/site';
+import { K, OX, OY, SITE_TOP, TEX_LOOK, lightNow, loadGo2, loadSite, ringLine, sitePose, toneSite } from '../../proto/site';
 import { useRt } from '../../rt';
 import type { Robot } from '../../fake';
 import { whereOf } from '../map3d';
 
-/** 시안 3D 그림의 위에서 본 그림(작은 지도) */
-export const FACTORY_TOP = `${ASSET}/shared/map_large_factory_top.jpg`;
-/** build_scene.py MATS (재질 이름 = GLB 재질 이름, fk_ 뗌) */
-export const CLAY: Record<string, string> = {
-  road: '#d7cfcc', pave: '#ece4e0', dikefloor: '#e0d8d4', wall: '#f0eae7', building: '#f5f0ee', tank: '#f6f1ef', tankroof: '#ece5e1',
-  equip: '#f1ece9', steel: '#d9d8d8', pipe: '#dcdcdd', water: '#d3d6d8', nogo_post: '#e0483f',
-};
-const GROUND = '#e6dcd8', SKY = '#d9d3d0', NOGO = '#e0483f';
 const SITE_W = 3200 / K, SITE_H = 2000 / K;   // 공장 그림 전체(m)
 
 type View = 'iso' | 'k01';
@@ -40,24 +31,13 @@ export function camOf(view: View, aspect: number) {
 /** 해 방향(빛 쪽 단위 벡터): Blender 해(기울기 50° · 방위 140°)를 three 좌표(x, z_b, -y_b)로 */
 const SUN = new THREE.Vector3(0.492, 0.643, -0.587).normalize();
 
-let srcP: Promise<THREE.Group | null> | null = null;
-/** 모형 원본(한 번 받음). 마운트마다 clone — 형상은 같이 쓰므로 거둘 때 형상은 지우지 않는다 */
-const source = () => (srcP ??= new Promise((res) => new GLTFLoader().load(SITE_GLB, (g) => res(g.scene), undefined, () => { srcP = null; res(null); })));
-
-/** 시안 재질 입히기. 금지 구역 = 붉은 바닥(옅게) · 울타리 · 기둥 */
-export function dress(site: THREE.Object3D) {
-  site.traverse((o) => {
-    const m = o as THREE.Mesh;
-    if (!m.isMesh) return;
-    const name = ((m.material as THREE.Material)?.name || m.name).replace(/^fk_/, '');
-    m.userData.nogo = name.startsWith('nogo');
-    m.material = name === 'nogo_floor' ? new THREE.MeshBasicMaterial({ color: NOGO, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false })
-      : name === 'nogo_fence' ? new THREE.MeshBasicMaterial({ color: NOGO, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false })
-      : new THREE.MeshStandardMaterial({ color: CLAY[name] ?? CLAY.building, roughness: 0.85, metalness: 0 });
-    m.castShadow = !name.startsWith('nogo'); m.receiveShadow = true;
-  });
+/** 질감판 · 옛 모형 모두 금지 구역(붉은 반투명)은 재질 표시(tex · kind)가 없는 그물 → 「금지 구역」 스위치로 켜고 끔 */
+export function markNogo(site: THREE.Object3D) {
+  site.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.userData.nogo = !m.userData.tex && !m.userData.kind; m.castShadow = !m.userData.nogo; m.receiveShadow = true; } });
   return site;
 }
+/** 판(밝음 · 어둠)에 맞춘 질감판 빛 · 바탕(관제 3D 와 같은 TEX_LOOK) */
+const lookOf = (light: boolean) => TEX_LOOK[light ? 'light' : 'dark'];
 
 type Rig = { draw: () => void; home: () => void; eye: () => void; nogo: (on: boolean) => void; marks: THREE.Group; dispose: () => void };
 
@@ -82,7 +62,7 @@ export function DemoSite3D({ preview, nogo = true, robots = [], floor = '', vid 
   useEffect(() => {
     let live = true, done: Rig | null = null;
     setAt('wait');
-    source().then((src) => {
+    loadSite().then((src) => {
       if (!live) return;
       if (!src) { setAt('bad'); return; }
       let gl: THREE.WebGLRenderer;
@@ -93,12 +73,19 @@ export function DemoSite3D({ preview, nogo = true, robots = [], floor = '', vid 
       gl.shadowMap.enabled = true; gl.shadowMap.type = THREE.PCFShadowMap;
       el.prepend(canvas);
       const scene = new THREE.Scene(), cam = new THREE.PerspectiveCamera(30, 1, 0.3, 8000);
-      scene.background = new THREE.Color(SKY);
-      scene.fog = new THREE.Fog(SKY, 2200, 5200);
-      const site = dress(src.clone(true));
-      const ground = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), new THREE.MeshStandardMaterial({ color: GROUND, roughness: 1 }));
+      let lit = lightNow(), L = lookOf(lit);
+      scene.background = new THREE.Color(L.bg);
+      scene.fog = new THREE.Fog(L.bg, 2200, 5200);
+      const site = markNogo(src);   // loadSite 가 부를 때마다 새로 복제해 준다
+      toneSite(site, lit);
+      const ground = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), new THREE.MeshStandardMaterial({ color: L.bg, roughness: 1 }));
       ground.rotation.x = -Math.PI / 2; ground.position.set(SITE_W / 2 - OX / K, -0.05, SITE_H / 2 - OY / K); ground.receiveShadow = true;
-      const hemi = new THREE.HemisphereLight(0xffffff, 0xcfc6c2, 1.5), sun = new THREE.DirectionalLight(0xfffbf5, 2.3);
+      const hemi = new THREE.HemisphereLight(L.hemi[0], L.hemi[1], L.hemi[2]), sun = new THREE.DirectionalLight(0xffffff, L.sun);
+      gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = L.exp;
+      /** 판이 바뀌면 다음 그림부터 질감 색 곱 · 바탕 · 빛을 따라감 */
+      const tone = () => { const l = lightNow(); if (l === lit) return; lit = l; L = lookOf(l); toneSite(site, l);
+        (scene.background as THREE.Color).setHex(L.bg); scene.fog!.color.setHex(L.bg); (ground.material as THREE.MeshStandardMaterial).color.setHex(L.bg);
+        hemi.color.setHex(L.hemi[0]); hemi.groundColor.setHex(L.hemi[1]); hemi.intensity = L.hemi[2]; sun.intensity = L.sun; gl.toneMappingExposure = L.exp; };
       sun.position.set(450 + SUN.x * 1500, SUN.y * 1500, 280 + SUN.z * 1500); sun.target.position.set(450, 0, 280);
       sun.castShadow = true; sun.shadow.mapSize.set(4096, 4096); sun.shadow.bias = -0.0004;
       Object.assign(sun.shadow.camera, { left: -620, right: 620, top: 620, bottom: -620, near: 10, far: 4000 });
@@ -122,7 +109,7 @@ export function DemoSite3D({ preview, nogo = true, robots = [], floor = '', vid 
       /** 로봇 이름표: 모형 머리 위를 화면 px 로(시안 u7_3 K-01 이름표 꼴) */
       const label = () => { cam.updateMatrixWorld(); setTags(marks.children.flatMap((o) => { v3.set(o.position.x, (o.userData.top as number) + 2, o.position.z).project(cam);
         return v3.z < 1 && Math.abs(v3.x) <= 1 && Math.abs(v3.y) <= 1 ? [{ id: o.userData.bot as string, name: o.userData.name as string, x: ((v3.x + 1) / 2) * el.clientWidth, y: ((1 - v3.y) / 2) * el.clientHeight }] : []; })); };
-      const draw = () => { gl.render(scene, cam); if (!preview) { seen(); label(); } };
+      const draw = () => { tone(); gl.render(scene, cam); if (!preview) { seen(); label(); } };
       const put = (v: View) => { const w = el.clientWidth || 1, h = el.clientHeight || 1, c = camOf(v, w / h); cam.fov = c.fov; cam.position.set(...c.pos); orbit.target.set(...c.at); cam.updateProjectionMatrix(); orbit.update(); draw(); };
       const home = () => put(preview ? 'iso' : 'k01');
       const eye = () => {   // 로봇 눈높이: 지금 보는 곳(대상) 앞 6 m · 높이 0.45 m(Go2 앞 카메라 높이 쯤)에서 대상 쪽으로
@@ -185,7 +172,7 @@ export function DemoSite3D({ preview, nogo = true, robots = [], floor = '', vid 
       <div className="mp-hint3" role="group" aria-label="3D 다루기"><span>끌어서 회전</span><span>오른쪽 버튼 끌어 이동</span><span>휠로 확대</span>
         <button type="button" data-eye onClick={() => rig.current?.eye()}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" /><circle cx="12" cy="12" r="2.8" /></svg>로봇 눈높이</button></div>
       {tags.map((t) => <span key={t.id} className="mp-bot3" data-bot3={t.id} style={{ left: t.x, top: t.y }}>{t.name}</span>)}
-      <div className="mp-mini3" aria-label="작은 지도 · 보이는 곳"><img src={FACTORY_TOP} alt="" />
+      <div className="mp-mini3" aria-label="작은 지도 · 보이는 곳"><img src={SITE_TOP[lightNow() ? 'light' : 'dark']} alt="" data-site-top />
         {box && <i data-seen style={{ left: `${box[0] * 100}%`, top: `${box[1] * 100}%`, width: `${box[2] * 100}%`, height: `${box[3] * 100}%` }} />}</div></>}
     <div className="vx-over">
       {at === 'wait' && <p className="lv-note" role="status" data-site3d-wait>3D 모형을 불러오는 중…</p>}

@@ -10,7 +10,8 @@ import { Root } from '../session';
 import { SIM_SAVE, Shapes, TRAIL_WHY, areaText, floorName, pixelTo, toPixel } from '../screens/maps';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { featSub, kept } from '../screens/mapedit';
-import { FACTORY_LIGHT, FACTORY_PNG, FactoryImage } from '../mapframe';
+import { FactoryImage } from '../mapframe';
+import { SITE_TOP } from '../proto/site';
 import { setThemePref } from '../theme';
 /** 훅을 쓰는 작은 svg 조각을 그려 html 로 (renderToStaticMarkup 은 useSyncExternalStore 서버 값이 없어 못 씀) */
 const svgHtml = (el: React.ReactElement) => { const d = document.createElement('div'), r = createRoot(d); act(() => r.render(el)); const h = d.innerHTML; act(() => r.unmount()); return h; };
@@ -1695,7 +1696,9 @@ describe('판 비교·되돌리기(W4c)', () => {
   /** 판 번호 대신 부르는 이름(총괄 = 만든 사람 이름도 앎) */
   const nm = (v: MapVersion) => `${new Date(v.created_at).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' })} · 김총괄`;
   /** 시안 u7_9 버전 기록 열기(처음 = 지금 판과 그 기준 판 비교) · 닫고 다시 열기 */
-  const compare = () => click($('[data-open-u79]'));
+  /** u7_9 차이 목록은 접혀 있다(시안 밖 칸 · 지도를 가리지 않게) → 목록을 보는 시험은 펼친다 */
+  const unfold = async () => { const t = $('[data-diff-list-toggle]'); if (t?.getAttribute('aria-expanded') === 'false') await click(t); };
+  const compare = async () => { await click($('[data-open-u79]')); await unfold(); };
   const reopen = async () => { await click($('[data-u7="u7_9_history"] [data-u7-back]')); await compare(); };
   const pair = () => $('[data-u7-pair]')!.textContent;
   const retry = () => $$('[aria-label="기록 비교"] [role="button"]').find((b) => b.textContent === '다시 시도');
@@ -1747,6 +1750,20 @@ describe('판 비교·되돌리기(W4c)', () => {
     expect(after().style.opacity).toBe(diffSvg().querySelector<SVGImageElement>('image[data-image="before"]')!.style.opacity);   // 두 그림 모두 자기 투명도 그대로
     await click(btn('v2', card('지도 그림')));
     expect(diffSvg().style.getPropertyValue('--fh-map-a')).toBe('0.45'); own();
+  });
+
+  it('u7_9 비교 그림: 바뀌지 않은 벽은 「같음」 회색 한 가지(판 글자색 아님 · 테마마다 뒤집히지 않음) · 차이 목록(시안 밖)은 접힌 채 시작', async () => {
+    serve(signedIn(KIM, { 'GET /map-versions/v2/diff': { status: 200, body: DIFF } }));
+    await open('#/map');
+    await click($('[data-open-u79]'));
+    const floods = [...diffSvg().querySelectorAll('feFlood')].map((f) => (f as SVGElement).style.floodColor);
+    expect(floods.length).toBeGreaterThan(0);
+    expect(floods.every((c) => c === 'var(--u7-same)')).toBe(true);
+    expect($('[data-diff-list-toggle]')!.getAttribute('aria-expanded')).toBe('false');
+    expect($('[aria-label="차이 목록"]')).toBeNull();
+    expect($('[data-diff-float]')!.hasAttribute('data-off-proto')).toBe(true);
+    await unfold();
+    expect(rows()).toHaveLength(4);
   });
 
   it('추가·삭제·바뀜·순서 바뀜을 색으로 구분해 그리고, 차이 목록을 누르면 그 요소만 강조', async () => {
@@ -2446,7 +2463,7 @@ describe('지도 탭 · 시안 u7', () => {
     expect(sites.querySelector('[data-building="b8"]')).toBeNull();
     expect(box.querySelector('[data-factory]')).toBeNull();   // 실제 현장(REAL) = 서버 판 그대로
     await click(sites.querySelector('[data-building="b9"]'));
-    expect(card('층 목록').querySelector('.mx-thumb [data-factory]')!.getAttribute('href')).toBe(FACTORY_PNG);   // 데모 판 = 시안 공장 그림(썸네일 · 미리 보기 · 층 화면)
+    expect(card('층 목록').querySelector('.mx-thumb [data-factory]')!.getAttribute('href')).toBe(SITE_TOP.dark);   // 데모 판 = 시안 공장 그림(썸네일 · 미리 보기 · 층 화면)
     expect(card('미리 보기').querySelector('[data-site3d="preview"]')).not.toBeNull();   // 미리 보기 = 시안 u7_1 「3D 보기 · 미리 보기」(시안 공장 모형)
     expect(card('미리 보기').querySelector('[data-tag3d]')!.textContent).toBe('3D 보기 · 미리 보기');
     await click($('[data-open-map]'));
@@ -2485,10 +2502,10 @@ describe('지도 탭 · 시안 u7', () => {
     act(() => setThemePref('light'));
     try {
       const light = svgHtml(<svg><FactoryImage v={v} /></svg>);
-      expect(light).toContain(`href="${FACTORY_LIGHT}"`); expect(FACTORY_LIGHT).toMatch(/map_large_factory_top\.jpg$/);
+      expect(light).toContain(`href="${SITE_TOP.light}"`); expect(SITE_TOP.light).toMatch(/maps_v2\/factory_kr\/top_light\.png$/);
       expect(mx(light)).toBe(mx(dark));
     } finally { act(() => setThemePref('dark')); }
-    expect(dark).toContain(`href="${FACTORY_PNG}"`);
+    expect(dark).toContain(`href="${SITE_TOP.dark}"`);
   });
 
   it('넓이 글 = 시안 u7 꼴(50 만 m² · 4.2 만 m² · 8,400 m²)', () => {
