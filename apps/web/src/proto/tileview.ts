@@ -14,7 +14,7 @@ export type TileLook = {
 };
 type Pose = { x: number; z: number; rot: number };
 export type Held = Pose & { travel: number };
-type View = { c: HTMLCanvasElement; look: () => TileLook; at: Held | null };
+type View = { c: HTMLCanvasElement; look: () => TileLook; at: Held | null; ray?: { x: number; z: number; rot: number; front: boolean; k: number } };
 /** 서버 위치 · yaw 를 부드럽게 따라감(시안 site3d.js 돌기 곡선: 한 프레임에 남은 차 × dt × 6 · 방향은 짧은 쪽). 5 m 넘게 뛰면(다시 잡힘) 바로 옮김.
  *  travel = 실제로 간 거리 누적(바닥 점이 이만큼 흐름 · 서 있으면 멈춤) */
 export function follow(cur: Held | null, to: Pose, dt: number): Held {
@@ -27,6 +27,16 @@ const HOT: Record<string, number> = { warn: 0xf2b705, hot: 0xff4d4f, ok: 0x00c38
 /** 시뮬(cyber) 로봇 재질. 시뮬 칸도 실기 · 데모와 같은 현장 · 따라가기 카메라(팀장 20:49) · 파란 결은 로봇 · 테두리 · 이름표로만.
  *  밝은 판: 흰 땅 위에서 더하기 섞기는 보이지 않아 보통 섞기 · 예행 색 #2F6FE0(u5.css 밝음 1 «예행», .chip.sim · .tile.sim 과 같은 값) */
 export const simLook = (light: boolean) => (light ? { blend: THREE.NormalBlending, col: 0x2f6fe0 } : { blend: THREE.AdditiveBlending, col: SIM });
+/** 따라가기 카메라 가림(K-08 이 건물 옆이라 뒤 2.1 m 카메라가 벽 안에 들어감): 로봇 머리 → 카메라로 광선 한 번, 현장 물체에 맞으면
+ *  맞은 자리 0.15 m 앞으로 당긴다(머리에서 최소 0.6 m). 투명한 것(금지 구역 빨강)은 막지 않음. 돌려주는 값 = 머리 → 카메라 선 위 비율(1 = 그대로) */
+const HEAD = new THREE.Vector3(0, 0.3, 0), ray = new THREE.Raycaster();
+export function camPull(world: THREE.Object3D, cam: THREE.Vector3) {
+  const to = cam.clone().sub(HEAD), len = to.length();
+  ray.set(HEAD, to.clone().normalize()); ray.far = len;
+  world.updateMatrixWorld(true);
+  const hit = ray.intersectObject(world, true).find((h) => !((h.object as THREE.Mesh).material as THREE.Material | undefined)?.transparent);
+  return hit ? Math.max(0.6, hit.distance - 0.15) / len : 1;
+}
 /** 발 끝(종아리 넷)의 가장 낮은 점을 y=0 에 놓는 높이. 몸 전체(7.5 만 꼭짓점) 대신 종아리(1.4 만)만 재어 칸마다 매 판 재도 가볍게 */
 export function feetUp(b: Body) {
   b.root.position.y = 0; b.root.updateMatrixWorld(true);
@@ -155,7 +165,14 @@ class Tiles {
       const p = v.at;
       this.world.visible = !!(p && this.site);
       if (p) { this.world.rotation.set(0, -p.rot, 0); this.world.position.set(0, 0, 0); this.world.updateMatrix();
-        const off = new THREE.Vector3(-p.x, 0, -p.z).applyAxisAngle(new THREE.Vector3(0, 1, 0), -p.rot); this.world.position.copy(off); }
+        const off = new THREE.Vector3(-p.x, 0, -p.z).applyAxisAngle(new THREE.Vector3(0, 1, 0), -p.rot); this.world.position.copy(off);
+        // 가림 광선은 로봇이 0.2 m(또는 0.2 rad) 넘게 움직였거나 시점이 바뀌었을 때만 다시 쏜다(매 판 쏘지 않음)
+        const q = v.ray;
+        if (this.site && (!q || q.front !== look.front || Math.hypot(p.x - q.x, p.z - q.z) > 0.2 || Math.abs(Math.atan2(Math.sin(p.rot - q.rot), Math.cos(p.rot - q.rot))) > 0.2))
+          v.ray = { x: p.x, z: p.z, rot: p.rot, front: look.front, k: camPull(this.world, this.cam.position) };
+        const k = v.ray?.k ?? 1;
+        if (k < 1) { this.cam.position.sub(HEAD).multiplyScalar(k).add(HEAD); this.cam.lookAt(0, 0.17, 0); }
+      } else v.ray = undefined;
       this.gm.uniforms.col.value.setHex(look.cyber ? SIM : 0x00c389).lerp(new THREE.Color(0xffffff), 0.4);
       this.gm.uniforms.off.value = p ? -p.travel : look.walk ? -this.t * 0.45 : 0;   // 자리가 있으면 실제로 간 거리만큼, 없으면 시안 걷기 흐름
       this.shadow.visible = !look.cyber;

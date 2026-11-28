@@ -3,7 +3,7 @@
 // 고친 뒤: 자세마다 발 끝(종아리) 가장 낮은 점이 y = 0 위(흔들림은 위로만), 엎드림 · 서버 관절은 몸 전체 최저점 y = 0
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { feetUp, poseBody } from '../proto/tileview';
+import { camPull, feetUp, poseBody } from '../proto/tileview';
 import { STAND } from '../screens/u4/go2view';
 import type { Body, Walk } from '../proto/site';
 
@@ -48,4 +48,23 @@ describe('타일 3D 바닥 맞춤', () => {
     const b = fake(); b.root.position.y = 3; const y = feetUp(b); b.root.position.y = y;
     expect(Math.abs(feetY(b))).toBeLessThan(1e-6);
   });
+});
+
+// K-08 빈 판(21:06): 뒤 2.1 m 카메라가 벽 안 → 머리에서 카메라로 광선, 맞으면 그 앞으로 당김(최소 0.6 m) · 투명한 금지 구역은 막지 않음
+describe('따라가기 카메라 가림', () => {
+  const cam = new THREE.Vector3(0, 0.55, -2.1);   // 뒤 1 m 시점(yaw π)
+  const wall = (z: number, transparent = false) => { const w = new THREE.Group(); const m = new THREE.Mesh(new THREE.BoxGeometry(4, 3, 0.2), new THREE.MeshBasicMaterial({ transparent })); m.position.set(0, 1, z); w.add(m); return w; };
+  it('벽이 없으면 그대로(1)', () => { expect(camPull(new THREE.Group(), cam)).toBe(1); });
+  it('로봇 뒤 1.2 m 벽 → 벽 0.15 m 앞으로 당김', () => {
+    const k = camPull(wall(-1.2), cam), len = cam.clone().sub(new THREE.Vector3(0, 0.3, 0)).length();
+    expect(k).toBeLessThan(1);
+    const at = new THREE.Vector3(0, 0.3, 0).add(cam.clone().sub(new THREE.Vector3(0, 0.3, 0)).multiplyScalar(k));
+    expect(at.z).toBeGreaterThan(-1.1); expect(at.z).toBeLessThan(-0.9);   // 벽 앞면 z = -1.1 의 안쪽
+    expect(k * len).toBeGreaterThanOrEqual(0.6);
+  });
+  it('벽이 머리 바로 뒤(0.3 m) 여도 최소 0.6 m', () => {
+    const k = camPull(wall(-0.4), cam), len = cam.clone().sub(new THREE.Vector3(0, 0.3, 0)).length();
+    expect(k * len).toBeCloseTo(0.6, 6);
+  });
+  it('투명한 것(금지 구역)은 막지 않음', () => { expect(camPull(wall(-1.2, true), cam)).toBe(1); });
 });
