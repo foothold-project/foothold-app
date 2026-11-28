@@ -176,8 +176,8 @@ export function MapSteps({ e, route, pending }: { e: Edit; route: Route; pending
   return <div className="g dk" style={{ left: '20px', top: '20px', width: '320px', padding: '18px', borderRadius: '18px', zIndex: 3 }} data-map-steps>
     <div className="row" style={{ justifyContent: 'space-between', marginBottom: '10px' }}><span style={{ fontSize: '15px', fontWeight: '800' }}>할 일 순서</span><Pager n={n} per={PER} at={at} go={setPage} label="할 일" /></div>
     {e.body.waypoints.slice(at * PER, at * PER + PER).map((w, k) => <div key={at * PER + k} className="row" style={{ height: '38px', gap: '10px', fontSize: '14px', fontWeight: '700' }}>{badge(at * PER + k + 1)}<span style={{ minWidth: 0, flex: '1', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={jobName(e, w)}>{jobName(e, w)}</span>
-      <span style={{ flex: 'none', fontSize: '12.5px', color: 'rgba(255,255,255,.62)', maxWidth: '96px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{place(w, route)}</span></div>)}
-    {pending && <div className="row" style={{ height: '42px', gap: '10px', fontSize: '14px', fontWeight: '800', color: '#fff', borderTop: '1px solid rgba(255,255,255,.14)', marginTop: '6px' }} data-pending>{badge(n + 1, true)}{pending.name} 고르는 중</div>}
+      <span className="u6-at" style={{ flex: 'none', fontSize: '12.5px', maxWidth: '96px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{place(w, route)}</span></div>)}
+    {pending && <div className="row u6-pend" style={{ height: '42px', gap: '10px', fontSize: '14px', fontWeight: '800', marginTop: '6px' }} data-pending>{badge(n + 1, true)}{pending.name} 고르는 중</div>}
     {!n && !pending && <Why>지도를 누르거나 우클릭해 첫 할 일을 놓으세요.</Why>}
   </div>;
 }

@@ -7,6 +7,7 @@ import { App } from '../App';
 import { leaving, oldScenario, tabFromHash } from '../menu';
 import { clearPlans } from '../screens/missions';
 import { keptMission } from '../screens/missiontab';
+import u6AppCss from '../screens/missionsu6.app.css?raw';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
 
@@ -471,6 +472,18 @@ describe('임무 탭(W2)', () => {
     expect($('[data-look="map"]')!.getAttribute('aria-pressed')).toBe('true');
     expect($('[data-pending]')!.textContent).toContain('게이지 읽기 고르는 중');
     expect($('[data-map-steps]')!.textContent).toContain('펌프');
+    // 밝은 판 대비: 자리 글 · 고르는 중 줄은 흰 글을 박지 않고 판별 칸(.u6-at · .u6-pend)으로 칠한다
+    const at = $('[data-map-steps] .u6-at')!;
+    expect(at.style.color).toBe('');
+    expect($('[data-pending]')!.classList.contains('u6-pend')).toBe(true);
+    expect($('[data-pending]')!.style.color).toBe('');
+  });
+  it('밝은 판 대비: 배속 고른 칸 · 지도 위 자리 글은 밝은 판에서 어두운 글 (기존 밝은 판 값)', () => {
+    const rules = u6AppCss.replace(/\s+/g, ' ');
+    expect(rules).toMatch(/\.proto\.light\.u6 \.mseg span\.on\{[^}]*color:#1F2421/);
+    expect(rules).toMatch(/\.proto\.light\.u6 \.u6-at\{color:#5E6662\}/);
+    expect(rules).toMatch(/\.proto\.light\.u6 \.u6-pend\{color:#1F2421/);
+    expect(rules).toMatch(/\.u6 \.mseg\[data-locked\]\{opacity:1\}/);   // 잠긴 배속 칸도 고른 값은 흐리지 않음
   });
   it('편집 중 탭 떠날 때 확인창 그대로: 저장 안 한 지도 편집이 있으면 임무 탭 · 옛 주소로 가기 전에 묻는다', async () => {
     await mount('#/map');
