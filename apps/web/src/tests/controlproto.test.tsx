@@ -60,13 +60,14 @@ describe('관제 타일 · 시안 u5_1', () => {
     expect(k.querySelector('small')!.textContent).toMatch(/^마지막 화면 \d\d:\d\d$/);
   });
 
-  it('위 띠 수: 시안 여섯 칸(임무 중 · 충전 · 점검 · 연결 중 · 시뮬 대기 · 경고), 가용을 못 받은 충전 · 점검은 수를 비움, 모드는 지어내지 않음', () => {
+  it('위 띠 수: 일곱 칸(임무 중 · 충전 · 점검 · 연결 중 · 시뮬 · 경고 · 주의), 가용을 못 받은 충전 · 점검은 수를 비움, 모드는 지어내지 않음', () => {
     mount('u-lee', R);
-    act(() => { FakeWS.last.open(); for (const r of R) FakeWS.last.recv(state(r.id, { status: r.status })); FakeWS.last.recv(state('a3', OFF)); });
+    const RUN = { run: { run_id: 'r1', status: 'MOVING', step: 0, wait_reason: null, fail_code: null, progress: { done: 1, total: 4 } } };   // 임무 중 배지 = 진행 중인 임무
+    act(() => { FakeWS.last.open(); for (const r of R) FakeWS.last.recv(state(r.id, { status: r.status, ...(r.status === 'RUNNING' ? RUN : {}) } as never)); FakeWS.last.recv(state('a3', OFF)); });
     const sums = [...box.querySelectorAll<HTMLElement>('.u5 .tb [data-sum]')];
-    expect(sums.map((e) => e.dataset.sum)).toEqual(['임무 중', '충전', '점검', '연결 중', '시뮬 대기', '경고']);
+    expect(sums.map((e) => e.dataset.sum)).toEqual(['임무 중', '충전', '점검', '연결 중', '시뮬', '경고', '주의']);
     const num = (k: string) => sums.find((e) => e.dataset.sum === k)!.querySelector('b')!.textContent;
-    expect([num('임무 중'), num('연결 중'), num('시뮬 대기')]).toEqual(['1', '1', '0']);
+    expect([num('임무 중'), num('연결 중'), num('시뮬')]).toEqual(['1', '1', '0']);
     expect([num('충전'), num('점검')]).toEqual(['', '']);   // 가용 없음 = 비움(0 을 지어내지 않음)
     const text = $('.u5 .wall').textContent!;
     for (const w of ['데모', 'START', 'Classic', 'AME-2', '약 ']) expect(text, w).not.toContain(w);
