@@ -10,7 +10,7 @@ import { CEIL_M } from '../drivemedia';
 import { LidarMap } from '../lidarmap';
 import { lidarToBase } from '../lidarmount';
 
-const gl = { ok: true, renders: 0, alive: 0, drawn: -1, up: 0, inst: 0, pts: 0, snap: '', size: [] as number[], aspect: 0 };
+const gl = { ok: true, renders: 0, alive: 0, drawn: -1, up: 0, inst: 0, pts: 0, snap: '', size: [] as number[], aspect: 0, proj: 0 };
 type Inst = { rotation: { x: number; y: number }; isInstancedMesh?: boolean; isPoints?: boolean; count: number; instanceMatrix: { version: number }; geometry: { drawRange: { count: number }; attributes: { position: { version: number } } } };
 const seenVer = new WeakMap<object, number>();
 vi.mock('three', async (orig) => {
@@ -21,8 +21,9 @@ vi.mock('three', async (orig) => {
     setPixelRatio() {} dispose() {}
     setSize(w: number, h: number) { gl.size = [w, h]; }
     forceContextLoss() { gl.alive--; }
-    render(scene: { traverse: (f: (o: Inst) => void) => void }, cam?: { aspect: number }) {
-      gl.aspect = cam?.aspect ?? 0;   // drawn = 상자 묶음 합, up = 이번에 GPU 로 다시 올린 묶음 수(가장 큰 값)
+    render(scene: { traverse: (f: (o: Inst) => void) => void }, cam?: { aspect: number; projectionMatrix?: { elements: number[] } }) {
+      gl.aspect = cam?.aspect ?? 0;
+      const pm = cam?.projectionMatrix?.elements; gl.proj = pm ? pm[5] / pm[0] : 0;   // 투영 행렬이 실제로 쓰는 가로세로 비(updateProjectionMatrix 를 불러야 aspect 와 같다, reviewer #568 K4)   // drawn = 상자 묶음 합, up = 이번에 GPU 로 다시 올린 묶음 수(가장 큰 값)
       gl.renders++; gl.drawn = 0; gl.inst = 0; gl.pts = 0; let up = 0; const rot: number[] = [];
       scene.traverse((o) => {   // 상자 묶음(InstancedMesh)·점 묶음(Points) 둘 다 · snap = 모든 것의 돌림(Go2 다리)
         rot.push(o.rotation.x, o.rotation.y);
@@ -45,7 +46,7 @@ const $ = (s: string) => box.querySelector<HTMLElement>(s);
 const setHidden = (h: boolean) => Object.defineProperty(document, 'hidden', { configurable: true, get: () => h });
 
 beforeEach(() => {
-  gl.ok = true; gl.renders = 0; gl.alive = 0; gl.drawn = -1; gl.up = 0; gl.size = []; gl.aspect = 0; vi.useFakeTimers(); setHidden(false);
+  gl.ok = true; gl.renders = 0; gl.alive = 0; gl.drawn = -1; gl.up = 0; gl.size = []; gl.aspect = 0; gl.proj = 0; vi.useFakeTimers(); setHidden(false);
   vi.stubGlobal('WebGL2RenderingContext', class {});   // jsdom 엔 없다 — 있으면 3D 를 만들어 본다(없으면 lidar3d 가 곧바로 위에서 본 그림)
   vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
   vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(500);
@@ -451,9 +452,11 @@ describe('그리기 크기 = 칸 크기(reviewer #568 G1)', () => {
     act(() => { root!.render(<Lidar3D feed={feed(3, 1)} small={false} onFail={() => {}} />); }); act(() => { vi.advanceTimersByTime(5); });
     expect(gl.size).toEqual([800, 500]);
     expect(gl.aspect).toBeCloseTo(800 / 500);
+    expect(gl.proj).toBeCloseTo(800 / 500);
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(412); vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(560);
     act(() => { vi.advanceTimersByTime(600); });
     expect(gl.size).toEqual([412, 560]);
     expect(gl.aspect).toBeCloseTo(412 / 560);
+    expect(gl.proj).toBeCloseTo(412 / 560);
   });
 });
