@@ -7,7 +7,8 @@ import { App } from '../App';
 import { USERS, type Robot } from './fixtures';
 import { FakeWS, state } from './fakeWs';
 import { EmptyControl, actOf, lastly } from '../screens/control';
-import { facts, order, tempLevel, wallGrid } from '../proto/u5';
+import { WALK_MIN_SPEED, facts, jointsNow, lying, order, tempLevel, wallGrid, walking } from '../proto/u5';
+import { JOINTS } from '../go2model';
 import { api } from '../api';
 import { sim } from '../phone';
 import { rt } from '../rt';
@@ -192,24 +193,31 @@ describe('관제 탭', () => {
     expect(location.hash).toBe('#/fleet');
   });
 
-  it('뒤집기 = 정면 상태(관절 온도), 시뮬 로봇은 늘 정면 · 뒤집기는 고르기가 아님', () => {
+  // 팀장 20:49: 시뮬도 실기 · 데모와 같은 따라가기 카메라(뒤 1 m) · 같은 현장. 정면은 뒤집기일 때만(시안 K-08 «정면 보기» 글도 그때만)
+  it('뒤집기 = 정면 상태(관절 온도), 시뮬 로봇도 실기와 같은 뒤 1 m 시점 · 뒤집기는 고르기가 아님', () => {
     mount('u-kim', TWENTY); feed(TWENTY);
     expect(tile('g3').querySelector('.cv')!.getAttribute('data-face')).toBe('live');
-    expect(tile('g2').querySelector('.cv')!.getAttribute('data-face')).toBe('front');
-    expect(tile('g2').querySelector('.cv .ov')!.textContent).toBe('임무 중 · 정면 보기');
+    expect(tile('g2').querySelector('.cv')!.getAttribute('data-face')).toBe('live');
+    expect(tile('g2').querySelector('.cv .ov')!.textContent).toBe('뒤 1 m');
     expect(tile('g2').querySelector('.chip.sim')!.textContent).toBe('시뮬');
     expect(tile('g2').classList.contains('rehearse')).toBe(true);
     act(() => { $('.u5 .flipb').click(); });
     expect(tiles().every((t) => t.querySelector('.cv')!.getAttribute('data-face') === 'front')).toBe(true);
     expect(tile('g3').querySelector('.cv .ov')!.textContent).toBe('최고 관절 온도');
+    expect(tile('g2').querySelector('.cv .ov')!.textContent).toBe('임무 중 · 정면 보기');
     expect($('.u5 .flipb').textContent).toBe('뒤 1 m 시점으로');
     expect(tile('g3').dataset.sel).toBeUndefined();
   });
 
-  it('3D 는 지금 동작대로: 임무 중 = 걷기, 잠금 · 오류 = 엎드림, 대기 = 서 있음, 끊김 = 마지막 자세 모름', () => {
-    mount('u-kim', TWENTY); feed(TWENTY);
+  // 팀장 20:51: K-04 · 06 · 08 은 조종권을 쥔 채 0 축(속도 0)인데 다리가 걸었다 → 걷는 다리는 서버 속도(state.speed) 가 WALK_MIN_SPEED 이상일 때만
+  it('3D 는 지금 동작대로: 임무 중이고 실제로 움직이면(speed ≥ 0.05) 걷기, 속도 0 이면 선 자세, 잠금 · 오류 = 엎드림, 대기 = 서 있음, 끊김 = 마지막 자세 모름', () => {
+    mount('u-kim', TWENTY); feed(TWENTY, { g5: { speed: 0.4 } });
     expect(tile('g5').dataset.act).toBe('walk');
     expect(tile('g5').dataset.live).toBe('1');
+    act(() => { FakeWS.last.recv(state('g5', { status: 'RUNNING', speed: 0 })); });
+    expect(tile('g5').dataset.live).toBeUndefined();   // 임무 중이어도 서 있으면 걷지 않음
+    act(() => { FakeWS.last.recv(state('g5', { status: 'RUNNING', speed: null })); });
+    expect(tile('g5').dataset.live).toBeUndefined();   // 속도 모름 = 걷지 않음(지어내지 않음)
     expect(tile('g15').dataset.act).toBe('lost');
     expect(tile('g3').dataset.act).toBe('stand');
     expect(actOf({ ...TWENTY[3], status: 'STOP_LATCHED' }, false)).toBe('lie');
@@ -217,6 +225,35 @@ describe('관제 탭', () => {
     expect(actOf({ ...TWENTY[3], unknown: 'wait' }, false)).toBe('unknown');
   });
 
+  it('걷기 판정 문턱 0.05 m/s(rt 가 속도를 0.1 자리까지만 견주므로 그 반 · 가장 느린 시뮬 이동 0.2 보다 아래 · 로봇 탭 robotu4 «서 있음» 0.05 와 같음)', () => {
+    expect(WALK_MIN_SPEED).toBe(0.05);
+    expect(walking('walk', null, 0)).toBe(false);       // 조종권 쥔 채 0 축(K-04 · 06 · 08)
+    expect(walking('walk', null, 0.049)).toBe(false);
+    expect(walking('walk', null, 0.05)).toBe(true);
+    expect(walking('stand', null, 0.3)).toBe(true);     // 상태가 대기여도 실제로 움직이면(리모컨 등) 걷기
+    expect(walking('walk', null, null)).toBe(false);     // 속도 모름
+    expect(walking('walk', '일시정지', 0.4)).toBe(false);
+    expect(walking('lie', null, 0.4)).toBe(false);
+    expect(walking('lost', null, 0.4)).toBe(false);
+  });
+  // 팀장 20:55: Go2 X 가 일어섰는데 앉아 있게 그려졌다(잠금 상태 = 엎드림이 관절 · 자세 보고보다 앞섬) → 관절 > 자세 보고 > 상태 > 선 자세
+  it('자세 순서: 서버 관절이 오면 관절 · 없으면 자세 보고(STANDING 이면 잠금이어도 서 있음) · 보고도 없을 때만 상태(잠금 = 엎드림)', () => {
+    mount('u-kim', TWENTY); feed(TWENTY);
+    const x = TWENTY.find((r) => r.id === 'g3')!;
+    const pos = JOINTS.map((_, i) => (i % 3 === 0 ? 0.1 : i % 3 === 1 ? 0.8 : -1.5));
+    act(() => { FakeWS.last.recv(state('g3', { status: 'STOP_LATCHED', latched: true, posture: { state: 'STANDING', mode: null },
+      robot_info: { joints: { received_at: '', age_s: 0.08, names: JOINTS, positions: pos } } } as never)); });
+    expect(jointsNow('g3')).toEqual(pos);
+    expect(lying({ x, act: 'lie', charging: false })).toBe(false);   // 자세 보고 STANDING 이 잠금보다 앞
+    act(() => { FakeWS.last.recv(state('g3', { status: 'STOP_LATCHED', latched: true, posture: { state: 'LYING', mode: null },
+      robot_info: { joints: { received_at: '', age_s: 1.5, names: JOINTS, positions: pos } } } as never)); });
+    expect(jointsNow('g3')).toBeNull();                               // 1 초 넘게 묵은 관절은 버림
+    expect(lying({ x, act: 'stand', charging: false })).toBe(true);    // 자세 보고 LYING
+    act(() => { FakeWS.last.recv(state('g3', { status: 'STOP_LATCHED', latched: true, posture: null } as never)); });
+    expect(lying({ x, act: 'lie', charging: false })).toBe(true);     // 보고 없음 → 상태(잠금)
+    expect(lying({ x, act: 'stand', charging: false })).toBe(false);
+    expect(lying({ x, act: 'stand', charging: true })).toBe(true);    // 충전 중
+  });
   it('타일 ↔ 지도 보기(u5_3): 3D 현장 · 오른쪽 로봇 줄 전부', () => {
     mount('u-kim', TWENTY); feed(TWENTY);
     act(() => { seg('보기', 1).click(); });
@@ -546,6 +583,13 @@ describe('관제 탭', () => {
     act(() => { FakeWS.last.recv(state('g4', { status: 'STOP_LATCHED', latched: true, stop_gen: 2, applied: [0, 0, 0] })); });   // 새 세대 잠금
     expect(band().textContent).not.toContain(NOT_SENT);
   });
+  it('이 계정이 못 세우는 타일(총괄이 남의 시뮬)을 고르면 정지 단추 글은 «모두 정지» 그대로(reviewer G1)', () => {
+    const T = TWENTY.map((r) => (r.id === 'g6' ? { ...r, sim: true, owner: 'u-lee' } : r));
+    mount('u-kim', T); feed(T);
+    act(() => { tile('g6').click(); });
+    expect(stopBtn().textContent).toBe('모두 정지');
+    expect(stopBtn().textContent).not.toContain(T.find((r) => r.id === 'g6')!.name);
+  });
   // Codex #535 M4: 서버 경유가 꺼진(SWITCH_OFF) 실기는 서버가 STOP 을 PHONE_DIRECT_REQUIRED 로 거절한다 → 모두 정지에 세지 않고 «현장 폰» 한 줄
   it('M4: 서버 경유 정지가 꺼진 실기는 «모두 정지» 대수 · 보냄에서 빠지고 현장 폰 안내 한 줄', () => {
     const T = TWENTY.map((r) => (r.id === 'g6' ? { ...r, serverDriveBlocked: ['SWITCH_OFF'] as Robot['serverDriveBlocked'] } : r));
@@ -558,6 +602,29 @@ describe('관제 탭', () => {
     const sent = FakeWS.last.of('stop').map((m) => m.robot);
     expect(sent).toHaveLength(9);
     expect(sent).not.toContain('g6');
+  });
+  // reviewer 20:30 (SWITCH_OFF 한 대 고름): 글은 「K-07 정지」 그대로(누르면 가는 대상이 그 한 대) · 누르기 전에 현장 폰 안내 한 줄 · 거절은 실패 줄
+  const OFF = () => TWENTY.map((r) => (r.id === 'g6' ? { ...r, serverDrive: false, serverDriveBlocked: ['SWITCH_OFF'] as Robot['serverDriveBlocked'] } : r));
+  it('SWITCH_OFF 실기 한 대를 고르면 단추 글 «K-07 정지» · 현장 폰에서만 멈출 수 있다는 안내 한 줄(누르기 전)', () => {
+    const T = OFF();
+    mount('u-lee', T); feed(T);
+    expect($('[data-phone-only-pick]')).toBeNull();
+    act(() => { tile('g6').click(); });
+    expect(stopBtn().textContent).toBe('K-07 정지');
+    expect($('[data-phone-only-pick]')!.textContent).toBe('K-07 은 현장 폰에서만 멈출 수 있습니다');
+    act(() => { tile('g4').click(); });   // 다른 로봇으로 바꾸면 안내가 사라짐
+    expect($('[data-phone-only-pick]')).toBeNull();
+  });
+  it('SWITCH_OFF 실기 한 대 고름 → 누름 → 서버 PHONE_DIRECT_REQUIRED 거절이면 띠는 실패 줄 · 잠금 · 멈춤 같은 성공 줄 아님', () => {
+    const T = OFF();
+    mount('u-lee', T); feed(T);
+    FakeWS.last.auto = (m) => (m.t === 'stop' ? { ok: false, error: { code: 'PHONE_DIRECT_REQUIRED', message: '실기 조종·STOP은 현장 폰에서 직접 하세요.', detail: {} } } as never : { ok: true });
+    act(() => { tile('g6').click(); });
+    press(stopBtn());
+    expect(FakeWS.last.of('stop').map((m) => m.robot)).toEqual(['g6']);
+    const b = $$('[data-stop-band]').find((x) => x.textContent!.includes('K-07'))!;
+    expect(b.textContent).toMatch(/^▲ K-07 정지 요청을 보내지 못했습니다\. .*현장에서 로봇을 직접 멈추세요\.$/);
+    expect(b.textContent).not.toMatch(/정지 잠금|멈춤 출력|잠김|멈췄습니다/);
   });
   // 조정 12:01 · reviewer: SWITCH_OFF 실기(#535 M4)는 서버 경유 조종도 꺼져 있다(serverDrive false). #529 H1 «보내고 안내» 줄이 같이 뜨면 「보낸다」 와 「못 멈춘다」 가 겹친다
   it('M4 + H1: SWITCH_OFF 실기(serverDrive false)는 현장 폰 줄만 · 다른 serverDrive false 실기는 보내고 안내 줄', () => {

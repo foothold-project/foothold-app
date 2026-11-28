@@ -20,6 +20,7 @@ import { GAIT_KEYS, gaitKey, useGait } from './gait';
 import { realCaps, simTune, useTuneSettings } from './phone';
 import type { OrgSettings, UnlockRefused } from '../../contracts/ts';
 import orgSettingsSchema from '../../contracts/schema/OrgSettings.json';
+import { keyCode } from './padkeys';
 
 /** 누름 하나: up·down = 전후(W·↑ / S·↓), left·right = 옆걸음(← / →), rotl·rotr = 제자리 회전(A / D). 모든 조종 화면 한 배치(팀장 11-28 17:25 · Q · E 없음) */
 export type Tok = 'up' | 'down' | 'left' | 'right' | 'rotl' | 'rotr';
@@ -229,7 +230,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
   /** 지금 세대에 누른 것. 앞 세대에 누른 키·단추가 아직 눌려 있으면 null(→ 0) */
   const pressed = (): Set<Tok> | null => {
     const n = sync(), out = new Set<Tok>();
-    for (const [c, x] of keys.current) { if (x !== n) return null; out.add(KEY[c]); }
+    for (const [c, x] of keys.current) { if (x !== n) return null; out.add(KEY[keyCode(c)]); }
     for (const p of pads.current.values()) { if (p.n !== n) return null; p.t.forEach((t) => out.add(t)); }
     return out;
   };
@@ -280,7 +281,7 @@ export function useServerDrive(c: Pick<Ctx, 'user'>, r: Robot, esc?: { current: 
     const down = (e: KeyboardEvent) => {
       if (e.code === 'Escape') return esc?.current();
       if (metaCut(e)) return cut();   // Cmd 동안은 keyup 이 안 올 수 있다 — 적은 키를 지우고 세대 +1(RV-429 ③)
-      const t = KEY[e.code], k = keys.current;
+      const t = KEY[keyCode(e.code)], k = keys.current;
       // 글 입력 중·반복(e.repeat)은 새 누름이 아니다 — 모르는 키면 앞 세대로 적어 뗄 때까지 0
       if (typing(e.target) || e.repeat) { if (t && !k.has(e.code)) { k.set(e.code, -1); changed(); } return; }
       const gk = gaitKey(e); if (gk) { e.preventDefault(); gaitRef.current(gk); return; }   // Shift+1~4 걷기 모드 · 이동 키가 아님(입력칸 · 반복은 위에서 거름)

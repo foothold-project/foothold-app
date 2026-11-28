@@ -44,9 +44,9 @@ export const PHONE_TABS: Tab[] = [
 /** 폰 로봇 연결 화면 ⋯ 메뉴의 지도 스캔(App, screens/scanentry.tsx). 조종 중(#/drive/<로봇 id>)에는 없다 */
 export const PHONE_SCAN = '지도 스캔';
 /** 폰 조종 화면 아래 줄 — 화면을 바꾸지 않고 시트로 연다(ADR-002 §3.2) */
-export type SheetId = 'pose' | 'scenario' | 'goal' | 'policy';
+export type SheetId = 'scenario' | 'goal' | 'policy';   // 「자세」 는 조종 화면 아래 동작 일곱(robotact)이 대신
 export const PHONE_SHEETS: { id: SheetId; label: string }[] = [
-  { id: 'pose', label: '자세' }, { id: 'scenario', label: '시나리오' }, { id: 'goal', label: '지도·목표' }, { id: 'policy', label: '정책' },
+  { id: 'scenario', label: '시나리오' }, { id: 'goal', label: '지도·목표' }, { id: 'policy', label: '정책' },
 ];
 
 export const tabsFor = (phone: boolean) => (phone ? PHONE_TABS : [...PC_TABS, PC_BOTTOM]);

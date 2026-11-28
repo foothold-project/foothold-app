@@ -9,7 +9,7 @@ import { realDash } from '../screens/fleet';
 import { stopLine } from '../serverdrive';
 import { ownerName, robotStatus, type Robot } from '../fake';
 import { GAITS } from '../gait';
-import { JOINTS } from '../go2model';
+import { JOINTS, REPORT_STALE_MS, go2Pose } from '../go2model';
 import { fleetKind, fleetOrder } from '../fleetorder';
 import { rt, useRt } from '../rt';
 import type { Ctx } from '../screens';
@@ -97,6 +97,19 @@ export function useAvail(cancel?: AbortSignal) {
 /** 시안 «대기 중 · 임무 중» 상태 글(그 밖은 기존 상태 글 robotStatus) */
 const stText = (x: Robot) => (x.online && !x.unknown && x.status === 'IDLE' ? '대기 중' : robotStatus(x).text);
 
+/** 걷는 다리를 틀 실제 속도 문턱(m/s · WS state 최상위 speed). 0.05 = rt 가 state 를 0.1 m/s 자리까지만 견주므로(rt.ts speed toFixed(1)) 그 반,
+ *  가장 느린 시뮬 이동(sim_min_vx 기본 0.2)보다 한참 아래. 조종권을 쥔 채 0 축 명령(속도 0)이면 선 자세(팀장 20:51) */
+export const WALK_MIN_SPEED = 0.05;
+/** 다리를 걷게 그릴지: 서버 속도가 문턱 이상일 때만(없으면 서 있음). 끊김 · 상태 모름 · 엎드림 · 일시정지는 걷지 않음 */
+export const walking = (act: string, paused: string | null, speed: number | null | undefined) => (act === 'walk' || act === 'stand') && !paused && typeof speed === 'number' && speed >= WALK_MIN_SPEED;
+/** 서버 관절 12 개(로봇 탭 · 옛 관제 3D 와 같은 go2Pose 판정: ONLINE · 받은 지 1 초 안 · age_s ≤ 1). 없으면 null */
+export const jointsNow = (id: string) => { const l = rt.get(id); return go2Pose(l.state, rt.now() - l.stateAt <= REPORT_STALE_MS)?.q ?? null; };
+/** 관절이 없을 때 엎드림으로 그릴지: 자세 보고(posture) 가 먼저 · 보고가 없을 때만 상태(잠금 · 오류) · 충전 중은 엎드림.
+ *  순서 = 관절 > 자세 보고 > 상태 > 선 자세(팀장 20:55 «Go2 X 가 일어섰는데 앉아 있게 그려진다») */
+export const lying = (f: Pick<TileFacts, 'x' | 'act' | 'charging'>) => {
+  const p = stateOf(f.x)?.posture?.state;
+  return f.charging || (p === 'LYING' ? true : p === 'STANDING' || p === 'TRANSITIONING' ? false : f.act === 'lie');
+};
 /** 타일 한 장의 글 · 칸(서버 값만 · 없으면 그 글을 비움) */
 export type TileFacts = {
   x: Robot; demo: boolean; charging: boolean; job: Job | null; level: Level; flag: string | null; why: string; alert: boolean; sim: boolean; lostAt: string | null; lostNow: boolean;
@@ -126,7 +139,7 @@ export function facts(x: Robot, me: string, places: Map<string, string>, av?: Av
   return {
     stop: x.unknown === 'summary' ? null : stopLine(rt.get(x.id)),
     x, demo: !!av?.demo, charging, job: av?.job ?? null, level, why, alert: needs(x) || !!lvTemp, flag: level ? `${LEVEL_TEXT[level]} · ${why}` : null, sim, lostNow: gone, lostAt: gone ? hm(x.seenAt) ?? '' : null, paused,
-    act, walk: act === 'walk' && !paused, mode: s?.gait?.gait ? GAIT_NAME[s.gait.gait] ?? s.gait.gait : '', mission: m, place, hot: h,
+    act, walk: walking(act, paused, s?.speed), mode: s?.gait?.gait ? GAIT_NAME[s.gait.gait] ?? s.gait.gait : '', mission: m, place, hot: h,
     bat: sim ? ['시뮬', '배터리 해당 없음'] : [bat ?? '', charging ? '충전 중' : av?.job ? (av.job.kind === 'maint' ? '점검 중' : '배터리 교체') : left != null ? `약 ${left} 분` : ''],
     temp: sim ? ['없음', stText(x), ''] : tv ? [tv, lvTemp ? LEVEL_TEXT[lvTemp] : '보통', lvTemp === 'bad' || lvTemp === 'crit' ? ' r' : lvTemp === 'warn' ? ' w' : ''] : ['', '', ''],
     link: sim ? ['서버', '시뮬 계산', ''] : gone ? ['연결 중', hm(x.seenAt) ? `${hm(x.seenAt)} 끊김` : '', ' w'] : x.online ? ['연결', lat != null ? `${Math.round(lat)} ms` : '', ''] : [st.text, '', ''],
@@ -164,13 +177,16 @@ export const tilePose = (l: Location | null | undefined, boards: Set<string>) =>
 const locOf = (f: TileFacts) => stateOf(f.x)?.location ?? (f.x.unknown === 'summary' ? null : f.x.location);
 function Cv({ f, front, hotMap, boards }: { f: TileFacts; front: boolean; hotMap: Record<string, string>; boards: Set<string> }) {
   const ref = useRef<HTMLCanvasElement>(null), look = useRef<TileLook>({ pose: null, front, cyber: f.sim, walk: false, down: false, hot: {} });
-  look.current = { pose: tilePose(locOf(f), boards), front: front || f.sim, cyber: f.sim, walk: f.walk, down: f.act === 'lie' || f.charging, hot: hotMap };
-  useEffect(() => (ref.current ? tileGl().add(ref.current, () => look.current) : undefined), []);
-  const go2 = JSON.stringify({ walk: f.walk, glow: !f.sim, pin: !f.sim, hot: hotMap, cyber: f.sim, yaw: front || f.sim ? 0 : 'back', dist: front || f.sim ? 1.25 : 2.1, floor: 0.5 });
-  const showFront = front || f.sim;
+  // 시뮬도 실기 · 데모와 같은 따라가기 카메라 · 같은 현장(팀장 20:49). 파란 결은 로봇 재질 · 테두리 · 이름표로만
+  look.current = { pose: tilePose(locOf(f), boards), front, cyber: f.sim, walk: f.walk, down: lying(f), hot: hotMap };
+  const id = f.x.id, summary = f.x.unknown === 'summary';
+  // 서버 관절은 그릴 때마다 새로 읽는다(같은 화면 값이면 다시 그리지 않아도 관절은 바뀜 · 1 초 넘게 묵으면 버림)
+  useEffect(() => (ref.current ? tileGl().add(ref.current, () => ({ ...look.current, q: summary ? null : jointsNow(id) })) : undefined), []);
+  const go2 = JSON.stringify({ walk: f.walk, glow: !f.sim, pin: !f.sim, hot: hotMap, cyber: f.sim, yaw: front ? 0 : 'back', dist: front ? 1.25 : 2.1, floor: 0.5 });
+  const showFront = front;
   return <div style={{ height: '222px' }} className={showFront ? 'cv st' : 'cv'} data-face={showFront ? 'front' : 'live'}>
     <canvas ref={ref} className={showFront ? 'front' : 'rear'} data-go2={go2}></canvas>
-    {f.sim ? <span className="g dk ov" style={{ left: '8px', bottom: '8px' }}>{I(14, IC.temp)}{stText(f.x)} · 정면 보기</span>
+    {f.sim && front ? <span className="g dk ov" style={{ left: '8px', bottom: '8px' }}>{I(14, IC.temp)}{stText(f.x)} · 정면 보기</span>
       : front ? <span className="g dk ov" style={{ left: '8px', bottom: '8px', ...(f.level === 'bad' || f.level === 'crit' ? { color: 'var(--u5-red)' } : {}) }}>{I(14, IC.temp)}{f.hot ? (f.level === 'bad' || f.level === 'crit' ? `${jointName(f.hot.j)} ${Math.round(f.hot.t)} °C` : `최고 관절 온도 ${Math.round(f.hot.t)} °C`) : '최고 관절 온도'}</span>
       : f.lostNow ? <div className="lk">{I(24, IC.wifi, 'var(--u5-amb)')}다시 연결 중<small>마지막 화면 {f.lostAt}</small></div>
       : f.x.sim ? <span className="g dk ov" style={{ left: '8px', top: '8px' }}>{I(14, IC.cam)}뒤 1 m</span>

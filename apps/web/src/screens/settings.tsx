@@ -98,10 +98,6 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'> &
       {admin && <Robots refresh={c.refresh} cancel={c.cancel} />}
     </>)}
     {panel('safety', <>
-      <div className="st-modelbar">
-        <div className="st-tabs" role="group" aria-label="실기 값을 고칠 모델"><button type="button" aria-pressed="true">공통</button></div>
-        <p className="st-note">실기에서 도는 모델이 하나뿐이라 모델별 값 없음</p>
-      </div>
       {card({ id: 'speed', label: '속도 제한', bad: '실기 미검증', confirm: true, note: '로봇 쪽 상한보다 높게 넣어도 로봇 상한까지만. 0은 그 축을 끕니다. 폰 막대 끝은 실효 상한이며, 서버 경유 고정 명령이 상한을 넘으면 비활성·STOP 거절합니다.', fields: REAL, top: <RealTable /> })}
       <section className="lv-card st-fixed" aria-label="고정 안전값">
         <h2>고정 안전값</h2>
@@ -116,7 +112,8 @@ export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'> &
       {card({ id: 'org', label: '조직 기준값', note: '실기·시뮬 모두에 쓰는 값. 저장하면 다음 실행부터 적용.', fields: COMMON })}
       {!c.only && <Later label="관절 온도" items={[['관절 온도 기준', '관절 온도 단계(주의 · 경고 · 위험) 기준은 서버 값이 아직 없습니다.']]} />}
     </>)}
-    {panel('clip', <Later label="기록과 클립" items={[['클립 보관 기간', '사건 클립은 서버 클립 기능이 생긴 뒤 보관 기간을 여기서 바꿉니다.']]} />)}
+    {/* 시안 기록 탭(u8_1 등) 「보관 기간은 설정 · 기록과 클립에서 바꿉니다」 · 보관 기간 서버 값이 아직 없어 일수를 쓰지 않는다(서버 요청) */}
+    {panel('clip', <Later label="기록과 클립" items={[['클립 보관 기간', '서버에 값 없음. 클립을 며칠 보관할지 서버가 값을 주면 여기서 바꿉니다.']]} />)}
     {panel('ctl', <>
       {!c.only && <ControlsGuide />}
       <div className="st-modelbar">

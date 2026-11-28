@@ -155,7 +155,7 @@ describe('총괄 = 모든 권한: 폰', () => {
     expect(mine.querySelector('details')).not.toBeNull();
     click([...card.querySelectorAll('button')].find((b) => b.textContent === '연결')!);
     expect(location.hash).toBe('#/drive/r7');
-    click(btn('조종 시작')!);
+    click(btn('조종')!);
     expect(w.of('lease.take').map((m) => m.robot)).toEqual(['r7']);
     expect(box.textContent).toContain('조종 중(나)');
   });

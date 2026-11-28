@@ -393,3 +393,37 @@ def test_zero_unconfirmed_blocks_step_and_records_failed(r, monkeypatch):
     assert 'zero output unconfirmed' in result['failure_reason']
     assert r.runs.current['status'] == 'FAILED' and len(r.actions.goals) == 1
     assert r.outputs[-1].velocity == Z
+
+
+def test_sim_self_stop_while_performing_a_step_pauses_as_sim_self_stop(r):
+    """#640 review G1: the execution tick (scenario_run _execution_tick) names a sim self STOP that
+    lands inside the tick, after the top-of-tick latch check, as SIM_SELF_STOP."""
+    configure(r, [wait(30), wait(1)])
+    arrive(r)
+    ack(r)
+    r.hub.tick()
+    assert r.runs.current['status'] == 'PERFORMING'
+    s = r.hub.session
+    command = s.executor_command
+    fired = []
+
+    def relock_then_command(*a, **k):
+        if not fired:
+            fired.append(1)
+            r.state(True)  # core.on_state robot_stop relock inside the tick, no person STOP
+        return command(*a, **k)
+    s.executor_command = relock_then_command
+    r.hub.tick()
+    assert fired
+    snap = r.runs.snapshot()
+    assert (snap['status'], snap['wait_reason']) == ('PAUSED', 'SIM_SELF_STOP')
+
+
+def test_person_stop_while_performing_a_step_stays_stopped_by_user(r):
+    configure(r, [wait(30), wait(1)])
+    arrive(r)
+    ack(r)
+    r.hub.tick()
+    r.hub.session.core.stop('server STOP')
+    r.hub.tick()
+    assert r.runs.snapshot()['wait_reason'] == 'STOPPED_BY_USER'

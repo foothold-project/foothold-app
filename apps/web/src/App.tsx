@@ -409,6 +409,8 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     </div>);
   const bandEl = <div className="fh-band" role="status" data-band>{[
       note && <span key="note">▲ {note}</span>,
+      // 시안 밖 · 새로 그림 (reviewer 20:30): 서버 경유 정지가 꺼진 실기 한 대를 고른 동안 · 단추 글은 «K-07 정지» 그대로, 누르기 전에 서버로는 못 멈춘다는 것을 알림(모두 정지의 data-phone-only 와 같은 뜻)
+      ctlPick && phoneOnly(ctlPick) && <span key="phone-only-pick" data-phone-only-pick>{ctlPick.name} 은 현장 폰에서만 멈출 수 있습니다</span>,
       gone && <span key="revoked" data-revoked>▲ {gone} <button type="button" className="btn" onClick={() => setGone('')}>닫기</button></span>,
       foreign && <span key="foreign" data-foreign>▲ {user.role === 'ORG_ADMIN' ? '목록에 없는 로봇입니다. 로봇 목록을 다시 받은 뒤 고르세요.' : '담당 로봇이 아닙니다. 내 로봇만 열 수 있습니다.'} <button type="button" className="btn" onClick={() => setForeign(false)}>닫기</button></span>,
       missed && <span key="missed" data-missed>▲ {missed} <button type="button" className="btn" onClick={() => setMissed('')}>닫기</button></span>,
