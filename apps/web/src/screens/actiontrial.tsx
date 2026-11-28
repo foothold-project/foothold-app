@@ -46,7 +46,7 @@ const REASONS: Record<string, string> = {
 };
 export function actionResultText(result: ActionResult) {
   const status = { RUNNING: '대기', SUCCEEDED: '성공', REJECTED: '거부', FAILED: '실패' }[result.status];
-  return `${ACTION_NAMES[result.action]}: ${status} — ${REASONS[result.code] ?? result.code}${result.sdk_code == null ? '' : ` (SDK ${result.sdk_code})`}${result.mode == null ? '' : ` · 현재 모드: ${result.mode}`}${result.enabled == null ? '' : ` · 자동 일어나기: ${result.enabled ? '켜짐' : '꺼짐'}`}`;
+  return `${ACTION_NAMES[result.action]}: ${status} · ${REASONS[result.code] ?? result.code}${result.sdk_code == null ? '' : ` (SDK ${result.sdk_code})`}${result.mode == null ? '' : ` · 현재 모드: ${result.mode}`}${result.enabled == null ? '' : ` · 자동 일어나기: ${result.enabled ? '켜짐' : '꺼짐'}`}`;
 }
 
 /** Plain trial controls inside the existing real-robot drive surface. */
@@ -68,7 +68,7 @@ export function ActionTrial({ robot: r, allowed, beforeSend = () => {} }: { robo
   // 저수준: 실행기 동작만. 서 있음 판정은 순정 상태 보고라 쓰지 않고 실행기가 정한다
   const lowlevel = l.state?.control === 'LOWLEVEL', off = (name: Name) => lowlevel ? !LOWLEVEL.has(name) && !LOWLEVEL_QUERY.has(name) : FACTORY_OFF.has(name);
   const standing = l.state?.posture?.state === 'STANDING' && l.state?.speed != null && l.state.speed <= .02
-    && l.state?.applied?.every((x) => x === 0);
+    && !!l.state?.applied?.length && l.state.applied.every((x) => x === 0);
   useEffect(() => { setConfirm(null); }, [r.id, l.lease, link, l.state?.stop_gen, allowed]);
   useEffect(() => {
     if (pending?.id && result?.request_id === pending.id && result.status !== 'RUNNING') {
@@ -88,7 +88,7 @@ export function ActionTrial({ robot: r, allowed, beforeSend = () => {} }: { robo
     else if (FLAGS.has(action)) params = { enabled };
     beforeSend(); setConfirm(null); setMessage('서버 접수를 기다리고 있습니다.'); setPending({ at: rt.now() });
     rt.action(r.id, action, params, confirmed, (why, id) => {
-      if (why) { setMessage(`거부 — ${why}`); setPending(null); }
+      if (why) { setMessage(`거부 · ${why}`); setPending(null); }
       else { setMessage('서버 접수 · 로봇의 SDK 결과를 기다리고 있습니다.'); setPending({ id, at: rt.now() }); }
     });
   };

@@ -41,7 +41,9 @@ function stopText(r: Robot, l: Live) {
     return `▲ ${r.name} 정지 요청됨 — 폰 경유 자료는 받았지만 직접 로봇 보고로 정지를 확인하지 못했습니다. 현장을 확인하세요.`;
   if (st.connection !== 'ONLINE') return `▲ ${r.name} 정지 요청 뒤 로봇 연결이 끊겼습니다. 지금 상태는 알 수 없습니다. 현장을 확인하세요.`;
   if (!st.latched) return `■ ${r.name} 정지 요청됨 — 로봇이 아직 잠금을 알리지 않았습니다.`;
-  return st.applied && st.applied.every((v) => v === 0) ? `■ ${r.name} 정지 잠금 — 로봇이 잠금과 멈춤 출력을 알렸습니다.` : `▲ ${r.name} 정지 잠금 — 출력이 아직 멈추지 않았습니다. 현장을 확인하세요.`;
+  // applied 가 비었거나 없으면 출력 보고가 없는 것(현장 승인 관문이 닫힌 에이전트는 latched · applied [] 만 보냄). [].every 는 참이라 따로 거른다
+  if (!st.applied?.length) return `▲ ${r.name} 정지 잠금 · 멈춤 출력은 확인되지 않았습니다 (현장 승인이 닫혀 있을 수 있음). 리모컨이나 현장에서 멈추세요.`;
+  return st.applied.every((v) => v === 0) ? `■ ${r.name} 정지 잠금 · 로봇이 잠금과 멈춤 출력을 알렸습니다.` : `▲ ${r.name} 정지 잠금 · 출력이 아직 멈추지 않았습니다. 현장을 확인하세요.`;
 }
 
 // 폭 768px 미만 = 폰(02 §1.3). 예외: 손가락 입력이고 가로이며 높이 480px 이하면 눕힌 폰 — 폰 조종 탭은 가로 화면(03 §5.7·§7).
@@ -197,7 +199,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       // 옛 시나리오 주소도 지도 탭을 다시 그리고 층을 옮기므로 같은 확인을 거친다(REVIEW-260 B1) — 취소하면 지금 편집·선택 그대로
       if (ask && (tabFromHash(h, false) !== tabFromHash(back, false) || oldScenario(h) != null)) { history.replaceState(null, '', back); ask(() => { location.hash = h; }); return; }
       if (toMap(h)) setMapN((x) => x + 1);   // 옛 시나리오 주소 — 지도 탭을 다시 그려 그 시나리오를 연다
-      setWant(h);
+      away.current = null; setWant(h);
     };
     addEventListener('hashchange', f); return () => removeEventListener('hashchange', f);
   }, []);
@@ -205,8 +207,18 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   // 폰에서 담당 밖 로봇 주소(#/drive/<남의 로봇 id>)는 로봇 연결로 돌리며 한 줄 알린다 — 말없이 돌아가지 않게
   const [foreign, setForeign] = useState(false);
   useEffect(() => { if (phone && tab === 'drive' && sub && !pool.some((r) => r.id === sub)) setForeign(true); }, [want]);
-  useEffect(() => { if (want !== path) { history.replaceState(null, '', path); setWant(path); } }, [path, want]);   // 주소·원하는 탭도 보이는 탭으로 맞춤
-  const go = (t: TabId, id?: string) => { const h = `#/${t}${id ? `/${id}` : ''}`; setWant(h); location.hash = h; };
+  // 폭이 바뀌어(창 줄이기·태블릿 돌리기) 고른 탭이 새 배치에 없으면 첫 탭을 보이되 그 주소를 기억해 두고, 그 탭이 있는 배치로 돌아오면 되돌린다.
+  // 그 사이 사용자가 탭을 직접 고르면(주소 바꿈·메뉴·go) 기억을 지운다 — 고름이 이김
+  const away = useRef<{ h: string; phone: boolean } | null>(null), was = useRef(phone);
+  useEffect(() => {
+    const flip = was.current !== phone; was.current = phone;
+    const k = away.current;
+    if (flip && k && tabFromHash(k.h, phone) === tabFromHash(k.h, k.phone)) { away.current = null; history.replaceState(null, '', k.h); setWant(k.h); return; }
+    if (want === path) return;
+    if (flip && !k && tabFromHash(want, !phone) !== tabFromHash(want, phone)) away.current = { h: want, phone: !phone };
+    history.replaceState(null, '', path); setWant(path);   // 주소·원하는 탭도 보이는 탭으로 맞춤
+  }, [path, want, phone]);
+  const go = (t: TabId, id?: string) => { const h = `#/${t}${id ? `/${id}` : ''}`; away.current = null; setWant(h); location.hash = h; };
   useEffect(() => { if (!phone && kept.d) go('map'); }, [phone]);   // 폰 틀에서 PC 로 돌아오면 남겨 둔 지도 편집으로
   // 끝내기(drive.tsx endDrive) = 입력 0 → 조종권 반납 → 서버가 반납을 확인하면(rt releasing 이 지워지면) 로봇 연결로.
   // 거절·무응답이면 이 화면에 머물러 [다시 시도]·[연결 화면]. 연결 화면으로 가도 반납 확인 중은 그 로봇 카드에 남는다
@@ -243,7 +255,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   const link = (t: Tab, cls: string) => {
     const badge = t.id === 'approval' ? dash.d?.approvals_pending ?? 0 : 0;   // 서버 수 그대로: 총괄 = 조직 전체 대기, 운영 관리자 = 내 대기 요청
     return <a key={t.id} className={`${cls}${t.id === navTab ? ' cur' : ''}`} href={`#/${t.id}`} aria-current={t.id === navTab ? 'page' : undefined}
-      aria-label={badge ? `${labelOf(t, user.role)} ${badge}건` : undefined} onClick={() => { if (!leaving.ask) setWant(`#/${t.id}`); }}>
+      aria-label={badge ? `${labelOf(t, user.role)} ${badge}건` : undefined} onClick={() => { if (!leaving.ask) { away.current = null; setWant(`#/${t.id}`); } }}>
       {t.icon}{labelOf(t, user.role)}{badge > 0 && <span className="fh-badge" aria-hidden="true">{badge}</span>}</a>;
   };
 
@@ -305,7 +317,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         : tab === 'terrain' ? <Terrain />   // 로봇과 무관 — 로봇 0대여도, 로봇을 바꿔도 다시 그리지 않음
         : ctx ? <Body key={`${tab}-${tab === 'fleet' || tab === 'approval' || tab === 'trash' ? '' : tab === 'map' ? mapN : ctx.robot.id}-${user.id}`} {...ctx} />   // 관제·지도·결재는 로봇을 골라도 다시 그리지 않음(층·지도 그림·고른 결재 유지 — 상세 서랍은 자기 key)
         : tab === 'drive' ? <Connect user={user} robots={pool} go={go} refresh={refresh} cancel={cancel} />   // 로봇 0대여도 시뮬 로봇 띄우기 자리
-        : tab === 'fleet' ? <EmptyFleet user={user} cancel={cancel} dash={dash} robots={withSlots} refresh={refresh}>{none}</EmptyFleet>   // 로봇 0대여도 관제 요약·운영 관리자 표
+        : tab === 'fleet' ? <EmptyFleet user={user} cancel={cancel} dash={dash} robots={withSlots} refresh={refresh} />   // 로봇 0대여도 관제 요약·운영 관리자 표
         : tab === 'history' ? <History key={`history-${user.id}`} user={user} robots={withSlots} go={go} phone={phone} cancel={cancel} focus={focus} />   // 로봇 0대여도 계정·내 행동 기록과 알림 링크
         : tab === 'map' ? <Maps key={`map-${mapN}-${user.id}`} user={user} cancel={cancel} dash={dash} robots={withSlots} />   // 로봇 0대여도 장소·지도·시나리오
         : tab === 'approval' ? <Approvals key={`approval-${user.id}`} user={user} cancel={cancel} focus={focus} dash={dash} />   // 로봇 0대여도 결재

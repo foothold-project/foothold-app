@@ -1,0 +1,81 @@
+{
+  "$defs": {
+    "JointLogBase": {
+      "additionalProperties": false,
+      "properties": {
+        "wxyz": {
+          "description": "몸통 자세 사원수",
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "Wxyz",
+          "type": "array"
+        },
+        "xyz": {
+          "description": "몸통 위치 m (기록 좌표)",
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Xyz",
+          "type": "array"
+        }
+      },
+      "required": [
+        "xyz",
+        "wxyz"
+      ],
+      "title": "JointLogBase",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/JointLogFrame",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "base": {
+      "$ref": "#/$defs/JointLogBase"
+    },
+    "gait": {
+      "anyOf": [
+        {
+          "maxLength": 32,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "걷기 모드 이름 (classic · sport · start · ame2 등, 열린 문자열). 모르면 null",
+      "title": "Gait"
+    },
+    "q": {
+      "description": "관절 각 rad, joint_names 순서",
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 12,
+      "minItems": 12,
+      "title": "Q",
+      "type": "array"
+    },
+    "t": {
+      "description": "JointLogReplay.start_at 부터 초",
+      "minimum": 0,
+      "title": "T",
+      "type": "number"
+    }
+  },
+  "required": [
+    "t",
+    "q",
+    "base",
+    "gait"
+  ],
+  "title": "JointLogFrame",
+  "type": "object"
+}

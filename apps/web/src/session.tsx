@@ -10,6 +10,7 @@ import { now } from './rt';
 import { kept } from './screens/mapedit';
 import { clearPlans } from './screens/missions';
 import { useTheme } from './theme';
+import { LoginFields, LoginFoot, type LoginBad } from './loginform';
 
 const ENDED = '로그인이 끝났습니다. 다시 로그인하세요.';
 /** 운영 관리자의 로봇 목록(새로 배정된 로봇·목록 요약)을 다시 받는 간격 */
@@ -24,7 +25,8 @@ type State = { at: 'wait' } | { at: 'login'; note?: string } | { at: 'app'; user
 export function Root() {
   const [st, setSt] = useState<State>({ at: 'wait' }), fh = useTheme()[1] ? 'fh light' : 'fh';   // 로그인 전 화면도 고른 테마
   const live = useRef<AbortController | null>(null);   // 지금 로그인 세션의 취소 신호
-  const toLogin = (note?: string) => { live.current?.abort(); live.current = null; setSt({ at: 'login', note }); };
+  const [failed, setFailed] = useState(false);   // 로그인 화면의 글이 안내(세션 끝남)가 아니라 실패(서버 연결 · 500)인가
+  const toLogin = (note?: string, fail = false) => { live.current?.abort(); live.current = null; setSt({ at: 'login', note }); setFailed(fail); };
   // 로그인 화면이 되면(로그아웃·401·세션 없음) 이전 사용자·로봇을 비운다. 실시간 연결·조종권은 App 이 내려가며 돌려주고 닫는다.
   // 조직 기준값은 설정 화면 상태라 App 이 내려가며 같이 사라진다
   useEffect(() => { if (st.at === 'login') { clearServerData(); kept.d = null; kept.job = null; clearPlans(); } }, [st.at]);   // 남겨 둔 지도·임무 편집·저장 요청도
@@ -68,13 +70,13 @@ export function Root() {
   }, [session]);
   useEffect(() => {
     onAuthLost((why) => toLogin(why ?? ENDED));
-    api.session().then(enter).catch((e: ApiFail) => toLogin(e.status === 401 ? undefined : e.message));
+    api.session().then(enter).catch((e: ApiFail) => toLogin(e.status === 401 ? undefined : e.message, e.status !== 401));   // 401 밖(연결 실패 · 500)은 오류 띠
   }, []);
   const logout = () => api.logout().then(() => toLogin(),
     (e: ApiFail) => (e.status === 401 ? toLogin() : setSt((s) => (s.at === 'app' ? { ...s, note: `로그아웃하지 못했습니다. ${e.message}` } : s))));
 
   if (st.at === 'wait') return <div className={fh}><p className="lv-note" style={{ padding: 16 }} role="status">불러오는 중…</p></div>;
-  if (st.at === 'login') return <Login note={st.note} enter={enter} />;
+  if (st.at === 'login') return <Login note={st.note} failed={failed} enter={enter} />;
   // 내 이름이 바뀌면(설정 탭) 머리줄·이름 찾기도 새 값으로 — 같은 사용자라 App 은 그대로
   const setMe = (u: ApiUser) => setSt((s) => { if (s.at !== 'app' || s.user.id !== u.id) return s; const user = toUser(u); setServerData(user, s.robots); return { ...s, user }; });
   // 로봇을 등록·바꿈·지움, 구독 회수 → 바로 목록 다시 받기(실패하면 이전 목록 그대로, 401 은 로그인 화면)
@@ -82,26 +84,25 @@ export function Root() {
   return <App key={`${st.user.id}-${st.n}`} user={st.user} robots={st.robots} fresh={st.fresh} refresh={refresh} stale={st.stale} logout={logout} setMe={setMe} cancel={st.cancel} note={st.note} />;
 }
 
-function Login({ note, enter }: { note?: string; enter: () => Promise<void> }) {
-  const [msg, setMsg] = useState(note), [busy, setBusy] = useState(false), fh = useTheme()[1] ? 'fh light' : 'fh';
+function Login({ note, failed, enter }: { note?: string; failed?: boolean; enter: () => Promise<void> }) {
+  const [msg, setMsg] = useState(note), [busy, setBusy] = useState(false), fh = useTheme()[1] ? 'fh light' : 'fh', [bad, setBad] = useState<LoginBad>(null), [tick, setTick] = useState(0);
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (busy) return;
     const f = new FormData(e.currentTarget), id = String(f.get('username')).trim(), pw = String(f.get('password'));
-    if (!id || !pw) return setMsg('계정과 비밀번호를 입력하세요.');
-    setBusy(true); setMsg(undefined);
+    setTick((n) => n + 1);
+    if (!id || !pw) { setBad(!id ? 'username' : 'password'); return setMsg('계정과 비밀번호를 입력하세요.'); }
+    setBusy(true); setMsg(undefined); setBad(null);
     try { await api.login(id, pw); await enter(); }
-    catch (err) { setMsg((err as ApiFail).message); setBusy(false); }
+    catch (err) { setBad((err as ApiFail).status === 401 ? 'both' : null); setMsg((err as ApiFail).message); setBusy(false); }   // 서버 401 은 계정 · 비밀번호를 가르지 않는다(api.py login)
   };
   return <div className={fh}><main className="fh-login" aria-label="로그인">
     <form onSubmit={submit} noValidate>
       <BrandLogo kind="primary" h={40} />
       <div className="fh-field"><h2>로그인</h2><span className="lbl">현장 서버에 연결해 로봇을 보고 조종합니다</span></div>
-      <label className="fh-field"><span className="lbl">계정</span><input className="inp" name="username" autoComplete="username" autoFocus /></label>
-      <label className="fh-field"><span className="lbl">비밀번호</span><input className="inp" name="password" type="password" autoComplete="current-password" /></label>
-      {msg && <p className="fh-msg" role="alert">{msg}</p>}
-      <button type="submit" className="btn pri" disabled={busy}>{busy ? '로그인 중…' : '로그인'}</button>
+      <LoginFields msg={msg} bad={bad} tick={tick} busy={busy} note={tick === 0 && !failed} />
       <span className="lbl">5분 안에 5번 틀리면 잠시 로그인할 수 없습니다.</span>
+      <LoginFoot />
     </form>
   </main></div>;
 }
