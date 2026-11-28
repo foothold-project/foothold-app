@@ -3,6 +3,7 @@
 // 편집 저장·되돌리기·올리기는 누구나 바로 새 승인 판(10-27 결재 없음). 옛 PENDING 판은 «저장 기록»에 «적용 안 됨»으로 보인다. 화면 글에는 «판»을 쓰지 않는다(11-04 — 저장 시각·만든 사람으로 부름).
 // 큰 그림은 <image> 가 쿠키로 따로 받는다 — 불러오기·실패는 이 칸 안 글로만, 머리줄·STOP 은 경계(App Guard) 밖.
 import { Map3D, modelOf } from './map3d';
+import { DemoSite3D } from './u7/site3d';
 import { Empty } from '../empty';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -481,9 +482,11 @@ function Pick({ maker, t, places, vers, choose, make, note, manage, setManage, e
           {floors.length >= 2 && <Stack floors={floors} sel={fl?.id} pick={setFid} />}
         </section>
         {fl && <section className="lv-card mp-prev" aria-label="미리 보기">
-          <div className="mp-pv">{v ? <MapView key={v.id} v={v} fill demo={demoBoard(cur.site, cur.building)} />
+          <div className="mp-pv">{v && demoBoard(cur.site, cur.building) ? <DemoSite3D key="site3d" preview />
+            : v ? <MapView key={v.id} v={v} fill demo={demoBoard(cur.site, cur.building)} />
             : <div className="mx-center"><p className="lv-note">{fl.approved_version_id ? '지도를 불러오는 중…' : '이 층에 아직 지도가 없습니다. 지도를 열어 올리거나 로봇으로 그립니다.'}</p></div>}
-            {v && <span className="mp-tag">위에서 본 지도 · {meters(v).wh}{modelOf(v) ? ' · 3D 모형 있음' : ''}</span>}</div>
+            {v && (demoBoard(cur.site, cur.building) ? <span className="mp-tag" data-tag3d><svg viewBox="0 0 24 24" aria-hidden="true" style={{ width: 16, height: 16, fill: 'none', stroke: 'currentColor', strokeWidth: 1.8 }}><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" /><path d="M4 7.5l8 4.5 8-4.5M12 12v9" /></svg>3D 보기 · 미리 보기</span>
+              : <span className="mp-tag">위에서 본 지도 · {meters(v).wh}{modelOf(v) ? ' · 3D 모형 있음' : ''}</span>)}</div>
           <div className="mp-pf"><div className="fh-row"><b className="mp-pt" data-prev-title>{cur.building.name} · {fl.name}</b>{v && <span className="lv-chip ok">{howMade(v)}</span>}</div>
             {v && <p className="mp-facts"><span>{meters(v).area}</span><span>{meters(v).wh}</span><span>{md(v.created_at)} · v{v.number}</span><span>금지 구역 {NOGO(v)}</span></p>}
             <div className="fh-row"><button type="button" className="btn pri fh-grow" data-open-map onClick={() => choose(fl.id)}>지도 열기</button>
@@ -645,7 +648,9 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, toPick, sid
   // 로봇으로 만든 지도(RB-SLAM-WEB2): 저장 묶음(slam_bundle)이 있고 내가 그 로봇의 담당 운영자면 «3D 로 보기» = 저장된 3D 칸·2D 격자(서버 묶음 — 담당 운영자만 받음)
   const sb = v?.slam_bundle && makers(user, robots).some((r) => r.id === v.slam_bundle!.robot_id) ? v.slam_bundle : null;
   // 실내 3D 모형(W3 MAP3D): 판에 model_sha256 이 있으면 «2D / 3D»(null = 없음 · 거절 → 2D 만). 404 면 2D 로 + 서버 까닭 한 줄
-  const model = modelOf(v), [m3, setM3] = useState(false), show3 = m3 && !!model && !editing && !cmp;
+  // 데모 현장(지도 탭): 3D = 시안 공장 모형(서버 모형 유무와 상관없이 · u7/site3d). 실제 현장은 서버 모형(Map3D) 그대로
+  const demo3 = !sim && demoBoard(p.site, p.building);
+  const model = modelOf(v), [m3, setM3] = useState(false), show3 = m3 && (!!model || demo3) && !editing && !cmp;
   const vox = voxelOf(v), [d3, setD3] = useState(false), [vu, setVu] = useState(false), [vbusy, setVbusy] = useState(false), on3d = d3 && (!!vox || !!sb) && !editing && !cmp;
   // 시뮬 탭(SIM-PAIR 11-09): 편집·새 지도 올리기·되돌리기 없음(지형 판은 «지형 만들기» 저장만 바꾼다), 짝 없는 시뮬 층은 안내.
   // 실기 장소 층(RB-SCEN-SIMTAB 11-11)은 지도 편집·올리기가 지도 탭 — 짝 없음 안내 대신 «시뮬 열기» 이유(«실기만»)
@@ -666,9 +671,9 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, toPick, sid
       {drop && !editing && <div className="fh-row" role="group" aria-label="확인" data-drop><span>다른 층에 저장하지 않은 지도 편집이 남아 있습니다. 이 지도를 편집하면 그 편집을 잃습니다(그 층을 열면 이어 씁니다).</span>
         <button type="button" className="btn pri" onClick={() => { kept.d = null; setDrop(false); begin(); }}>버리고 편집</button>
         <button type="button" className="btn" onClick={() => setDrop(false)}>취소</button></div>}
-      {model && !editing && !on3d && <span className="mx-seg" role="group" aria-label="2D·3D">
-        <button type="button" className="btn" aria-pressed={!show3} data-model-toggle="2D" onClick={() => setM3(false)}>2D</button>
-        <button type="button" className="btn" aria-pressed={show3} data-model-toggle="3D" onClick={() => { setM3(true); setCmp(false); setDone(null); }}>3D</button></span>}
+      {(model || (demo3 && v)) && !editing && !on3d && <span className="mx-seg" role="group" aria-label="2D·3D">
+        <button type="button" className="btn" aria-pressed={!show3} data-model-toggle="2D" onClick={() => setM3(false)}>2D 보기</button>
+        <button type="button" className="btn" aria-pressed={show3} data-model-toggle="3D" onClick={() => { setM3(true); setCmp(false); setDone(null); }}>3D 보기</button></span>}
       {(vox || sb) && !editing && <button type="button" className="btn" aria-pressed={on3d} data-voxel-toggle onClick={() => { setD3(!on3d); setCmp(false); setM3(false); }}>{on3d ? '지도 보기' : '3D 로 보기'}</button>}
       {editing && <span className="mx-tag mx-edit" data-editing>▲ 편집 중</span>}
       <span className="fh-grow" />
@@ -688,6 +693,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, toPick, sid
       <div className="mx-map">
         {v && cmp ? <div className="mx-scroll"><Compare key={v.id} v={v} list={list!} name={savedAs} cancel={cancel} gone={() => { setCmp(false); setDone({ text: '비교할 기록을 찾을 수 없습니다. 지워졌을 수 있어 저장 기록을 다시 받았습니다.' }); reload(); }} />
             <div className="fh-row"><button type="button" className="btn" onClick={() => setCmp(false)}>비교 닫기</button></div></div>
+          : v && show3 && !on3d && demo3 ? <DemoSite3D key="site3d" nogo={lay.zones} />
           : v && show3 && !on3d ? <Map3D key={v.id} v={v} robots={robots} missing={(why) => { setM3(false); setDone({ text: `${why || '이 층은 3D 모형이 없습니다.'} 2D 지도로 봅니다.` }); }} />
           : v && on3d ? (vox ? <VoxelView key={v.id} v={v} cancel={cancel} /> : <SlamSavedView key={v.id} robot={sb!.robot_id} session={sb!.session_id} cancel={cancel} />)
           : v ? <MapView key={v.id} v={v} fill terrain={!!p.floor.terrain_id} show={left ? lay : undefined} demo={!sim && demoBoard(p.site, p.building)}>{hov && <Route v={v} x={hov} floor={p.floor.id} />}</MapView>
@@ -748,8 +754,8 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, toPick, sid
   const who = now && names(now.created_by);
   const panel = left && <aside className="lv-card mp-fside" aria-label="지도 정보" data-map-side>
     {side && <div className="mp-fseg">{side}</div>}
-    {v && !show3 && !on3d && !cmp && <div role="group" aria-label="보이기" className="mp-lay"><p className="lbl">보이기</p>
-      {LAY.map(([k, t, c]) => <label key={k} className="mp-tog" data-map-layer={k}><i style={{ background: c }} aria-hidden="true" /><span className="fh-grow">{t}</span>
+    {v && (!show3 || demo3) && !on3d && !cmp && <div role="group" aria-label="보이기" className="mp-lay"><p className="lbl">보이기</p>
+      {LAY.filter(([k]) => !show3 || k === 'zones').map(([k, t, c]) => <label key={k} className="mp-tog" data-map-layer={k}><i style={{ background: c }} aria-hidden="true" /><span className="fh-grow">{show3 ? '금지 구역' : t}</span>
         <input type="checkbox" role="switch" checked={lay[k]} onChange={() => setLay({ ...lay, [k]: !lay[k] })} /></label>)}</div>}
     {v && <div aria-label="이 지도" className="mp-kv"><p className="lbl">이 지도</p><dl>
       <dt>저장</dt><dd>{md(v.created_at)} · v{v.number}</dd>

@@ -235,13 +235,13 @@ li[data-bad] .mx-num{background:var(--bad)}
 /* ── 지도 탭 · 시안 u7_1 ~ u7_4 (11-28 · MAPS-DIFF-1128.md) ─────────────────
    어두움 = proto/screens/u7_*.html 의 .side · .head · .site · .frow · .tag · .kv · .lay · .sw · .view 값. 밝음 = 같은 구조에 shell.css 토큰(--sh-*)만.
    지도 그림 칸은 기존 MapView(테마 색) 그대로 */
-.mp{--mp-rowhi:rgba(255,255,255,.08);--mp-thumb:#000;--mp-vink:#e8ebf0;--mp-vbg:rgba(18,22,28,.72);--mp-vline:rgba(255,255,255,.12);--mp-segink:#000;--mp-tog:rgba(127,127,127,.25);--mp-knob:#9aa19d;--mp-knobon:#fff;
+.mp{--mp-rowhi:rgba(255,255,255,.08);--mp-3d:#d9d3d0;--mp-3dshade:linear-gradient(180deg,rgba(12,15,20,.25),rgba(12,15,20,0) 20%,rgba(12,15,20,0) 80%,rgba(12,15,20,.35));--mp-3ddim:rgba(12,15,20,.25);--mp-thumb:#000;--mp-vink:#e8ebf0;--mp-vbg:rgba(18,22,28,.72);--mp-vline:rgba(255,255,255,.12);--mp-segink:#000;--mp-tog:rgba(127,127,127,.25);--mp-knob:#9aa19d;--mp-knobon:#fff;
   --mp-on:rgba(0,195,137,.10);--mp-online:rgba(0,195,137,.45);--mp-av:#2a3340;--mp-row:rgba(255,255,255,.05);--mp-rowline:rgba(255,255,255,.14);--mp-tag:rgba(255,255,255,.08);--mp-tagink:#c9ced6;
   --mp-view:radial-gradient(900px 600px at 50% 40%,#18202a,#000000 75%);--mp-stack:rgba(255,255,255,.035);--mp-stackline:rgba(255,255,255,.22)}
 .fh.light .mp,.fh.light .mp-fl{--mp-rowhi:transparent;--mp-thumb:var(--paper-2);--mp-vink:var(--ink);--mp-vbg:var(--paper);--mp-vline:var(--rule);--mp-segink:var(--ink);--mp-tog:var(--rule);--mp-knob:var(--paper);--mp-knobon:var(--paper);
   --mp-on:color-mix(in srgb,var(--sh-pr3) 10%,transparent);--mp-online:color-mix(in srgb,var(--sh-pr3) 45%,transparent);--mp-av:var(--paper-2);--mp-row:var(--paper);--mp-rowline:var(--rule);
   --mp-tag:var(--paper-2);--mp-tagink:var(--ink-2);--mp-view:var(--paper);--mp-stack:var(--paper);--mp-stackline:var(--rule)}
-.mp-fl{--mp-rowhi:rgba(255,255,255,.08);--mp-thumb:#000;--mp-vink:#e8ebf0;--mp-vbg:rgba(18,22,28,.72);--mp-vline:rgba(255,255,255,.12);--mp-segink:#000;--mp-tog:rgba(127,127,127,.25);--mp-knob:#9aa19d;--mp-knobon:#fff;
+.mp-fl{--mp-rowhi:rgba(255,255,255,.08);--mp-3d:#d9d3d0;--mp-3dshade:linear-gradient(180deg,rgba(12,15,20,.25),rgba(12,15,20,0) 20%,rgba(12,15,20,0) 80%,rgba(12,15,20,.35));--mp-3ddim:rgba(12,15,20,.25);--mp-thumb:#000;--mp-vink:#e8ebf0;--mp-vbg:rgba(18,22,28,.72);--mp-vline:rgba(255,255,255,.12);--mp-segink:#000;--mp-tog:rgba(127,127,127,.25);--mp-knob:#9aa19d;--mp-knobon:#fff;
   --mp-on:rgba(0,195,137,.10);--mp-online:rgba(0,195,137,.45);--mp-tag:rgba(255,255,255,.08);--mp-tagink:#c9ced6;--mp-view:radial-gradient(900px 600px at 50% 40%,#18202a,#000000 75%)}
 
 /* 틀: 왼쪽 300 · 사이 24 · 오른쪽 나머지(.side left 24 · width 300 · .head left 348) */
@@ -323,3 +323,14 @@ li[data-bad] .mx-num{background:var(--bad)}
 .mp-ftitle{display:inline-flex;align-items:center;gap:12px;font-size:28px;font-weight:800;letter-spacing:-.03em}
 .mp-fr>.mx-bar .btn{min-height:44px}
 .mp-fr>.mx-body{flex:1;min-height:0;border-radius:22px;overflow:hidden;border:1px solid var(--sh-line);background:var(--mp-view)}
+/* 지도 탭 데모 현장 3D(시안 u7_1 미리 보기 · u7_4 3D 보기 · screens/u7/site3d.tsx): 바탕 · 위아래 그늘은 시안 값 토큰(.mp · .mp-fl 줄 · 3D 그림 색이라 두 테마 같음) */
+.mp-3d{position:absolute;inset:0}
+.mp-3d>.vx-3d{background:var(--mp-3d)}
+.mp-3d>.vx-3d::after{content:'';position:absolute;inset:0;pointer-events:none;background:var(--mp-3dshade)}
+.mp-hint3{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);z-index:3;height:44px;padding:0 18px;border-radius:14px;display:flex;align-items:center;gap:18px;font-size:13px;font-weight:600;white-space:nowrap;color:var(--mp-vink);background:var(--mp-vbg);border:1px solid var(--mp-vline);backdrop-filter:blur(6px)}
+.mp-hint3 button{all:unset;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.mp-hint3 button:focus-visible{outline:2px solid var(--accent);outline-offset:4px;border-radius:4px}
+.mp-hint3 svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8}
+.mp-mini3{position:absolute;right:20px;top:20px;z-index:3;width:210px;height:132px;border-radius:14px;overflow:hidden;border:1px solid var(--mp-vline);background:var(--mp-vbg)}
+.mp-mini3 img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.mp-mini3 i{position:absolute;border:2px solid var(--accent);border-radius:4px;box-shadow:0 0 0 999px var(--mp-3ddim)}
