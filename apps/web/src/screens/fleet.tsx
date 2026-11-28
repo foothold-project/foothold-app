@@ -22,6 +22,7 @@ import { ReadyCheck } from './readycheck';
 import { RobotTiles } from './robottiles';
 import { useSimAt } from './missions';
 import { ManageRobot } from '../pairing';
+import { RobotTab } from './u4/robotu4';
 import { Chip, Detail, Kpi, LINK, Operators, Pair, Seen, attn, inApp, linkText, pct, type Ctx } from '../screens';
 
 /** 화면이 아는 위치: 구독 로봇은 실시간 state, 아니면 목록 요약(남의 로봇은 서버가 감춤 — 그리지 않음) */
@@ -309,11 +310,18 @@ const NoReal = () => <section className="lv-card" style={{ flexBasis: '100%' }} 
   <p className="lv-note">로봇 탭에는 실기 로봇만 보입니다. 시뮬 로봇은 «시뮬» 탭에서 보고 조종합니다.</p>
   <div className="fh-row"><a className="btn" href="#/sim">시뮬 탭 열기</a></div></section>;
 
+/** 로봇 탭: PC 는 시안 u4 화면(robotu4.tsx · 실기 · 시뮬 함께), 폰은 아래 옛 배치 그대로 */
 export function OperatorRobot(c0: Ctx) {
+  return c0.phone ? <OperatorPhone {...c0} /> : <RobotTab c={c0} user={c0.user} refresh={c0.refresh} cancel={c0.cancel} />;
+}
+function OperatorPhone(c0: Ctx) {
   const c = useReal(c0);
   return c ? <Operator {...c} /> : <Pair user={c0.user} mine={[]} refresh={c0.refresh} cancel={c0.cancel}><NoReal /></Pair>;
 }
 export function AdminFleet(c0: Ctx) {
+  return c0.phone ? <AdminPhone {...c0} /> : <RobotTab c={c0} user={c0.user} refresh={c0.refresh} cancel={c0.cancel} />;
+}
+function AdminPhone(c0: Ctx) {
   const c = useReal(c0);
   const d = realDash(c0.dash.d, c0.robots);
   return c ? <Admin {...c} d={d} /> : <><Kpi user={c0.user} d={d} err={c0.dash.err} /><NoReal /><Operators user={c0.user} d={d} /></>;
