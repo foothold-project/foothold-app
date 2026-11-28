@@ -109,9 +109,9 @@
 .proto.light .u7 .sk.on .sk-l,.proto.light .u7 .sk.on .sk-r,.proto.light .u7 .sk.on .sk-ln{stroke:#18A07E;stroke-opacity:1}
 .proto.light .u7 .sk.on .sk-t{fill:#18A07E;fill-opacity:.28;stroke:#18A07E;stroke-opacity:1}
 .proto.light .u7 .sk.on .sk-tx{fill:#0E7F63}
-/* u7_1 층 줄 썸네일(시안 = 칸 바탕 위 선 그림): 서버 판 그림(흰 빈 곳 · 검은 벽)은 그대로 두고 보이기만 바꿈.
-   어둠 = 색 반전 + screen(흰 빈 곳 → 칸 검정 · 벽 → 흰 선), 밝음 = multiply(흰 빈 곳 → 칸 바탕 · 벽 → 검은 선). 썸네일 틀 = 칸 크기 · 칸 바탕 하나 */
+/* u7_1 층 줄 썸네일(시안 = 칸 바탕 위 선 그림): 서버 판 그림은 그대로 두고 보이기만 바꿈. svg 거름(pick.tsx #u7-line-d · #u7-line-l)이
+   어두운 픽셀(벽 · 물체, 밝기 < 0.4)만 선으로 남기고 나머지(빈 곳 · 모름 · 색 바탕)는 투명 → 어둠 = 흰 선, 밝음 = 글자색 선. 썸네일 틀 = 칸 크기 · 칸 바탕 하나 */
 .u7 .frow .th{isolation:isolate}
 .u7 .frow .th .mx-thumb{height:100%;background:transparent;border:0;border-radius:0}
-.u7 .frow .th .mx-thumb image{filter:invert(1);mix-blend-mode:screen}
-.proto.light .u7 .frow .th .mx-thumb image{filter:none;mix-blend-mode:multiply}
+.u7 .frow .th .mx-thumb image{filter:url(#u7-line-d)}
+.proto.light .u7 .frow .th .mx-thumb image{filter:url(#u7-line-l)}

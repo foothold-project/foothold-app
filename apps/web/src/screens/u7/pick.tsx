@@ -39,6 +39,12 @@ export type Ed = { own: (s: Place['site']) => boolean; busy: boolean; edits: Rea
   del: (kind: 'sites' | 'buildings' | 'floors', x: { id: string; name: string }) => void;
   add: (kind: 'sites' | 'buildings' | 'floors', parent?: { id: string; name: string }) => void };
 
+/** 층 줄 썸네일 선 그림 거름(u7.css): 알파 = 원래 알파 − 밝기, 0.6 넘는 곳(밝기 < 0.4)만 남김 · 색 = 어둠 흰색 / 밝음 글자색 #1F2421 */
+const LINE = (id: string, r: number, g: number, b: number) => `<filter id="${id}" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0 0 0 0 ${r} 0 0 0 0 ${g} 0 0 0 0 ${b} -0.299 -0.587 -0.114 1 0"/>`
+  + '<feComponentTransfer><feFuncA type="discrete" tableValues="0 0 0 0 0 0 1 1 1 1"/></feComponentTransfer></filter>';
+export const LINE_DEFS = LINE('u7-line-d', 1, 1, 1) + LINE('u7-line-l', 31 / 255, 36 / 255, 33 / 255);
+const LineDefs = () => <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true" data-u7-linedefs dangerouslySetInnerHTML={{ __html: `<defs>${LINE_DEFS}</defs>` }} />;
+
 /** 층 겹친 그림(시안 u7_1 가운데 아래 svg 값 그대로): 위층이 위, 고른 층만 민트. 누르면 그 층 */
 function Stack({ floors, sel, pick }: { floors: MapFloor[]; sel?: string; pick: (id: string) => void }) {
   const l = byLevel(floors), top = 250 - (l.length - 1) * 78;
@@ -82,17 +88,19 @@ export function railGroups(sites: MapSite[], blds: { site: Place['site']; buildi
 export function PickU7({ maker, t, places, vers, choose, make, note, manage, setManage, ed, children }: { maker: boolean; t: ReturnType<typeof useTree>; places: Place[]; vers: Record<string, MapVersion>;
   choose: (id: string, then?: 'history') => void; make: (k: 'robot' | 'file') => void; note: Msg; manage: boolean; setManage: (m: boolean) => void; ed: Ed; children: ReactNode }) {
   const blds = places.reduce<{ site: Place['site']; building: Place['building'] }[]>((a, p) => (a.some((x) => x.building.id === p.building.id) ? a : [...a, { site: p.site, building: p.building }]), []);
-  const [bid, setBid] = useState(() => blds[0]?.building.id ?? '');
-  const cur = blds.find((x) => x.building.id === bid) ?? blds[0];
+  // 처음 고른 건물 = 왼쪽 목록 첫 줄(지도 있는 현장 먼저 · 시안 u7_1 첫 줄 on). 서버 /sites 는 이름순이라 blds[0] 은 스캔 전 현장일 수 있음
+  const rail = railGroups(t.tree?.items ?? [], blds), first = rail[0]?.rows[0]?.building.id;
+  const [bid, setBid] = useState('');
+  const cur = blds.find((x) => x.building.id === bid) ?? blds.find((x) => x.building.id === first) ?? blds[0];
   const [fid, setFid] = useState(''), floors = cur ? byLevel(cur.building.floors) : [];
   const fl = floors.find((f) => f.id === fid) ?? (cur && picFloor(cur.building)) ?? floors[0], v = fl?.approved_version_id ? vers[fl.approved_version_id] : undefined;
   const maps = places.filter((p) => p.floor.approved_version_id).length;
-  const rail = railGroups(t.tree?.items ?? [], blds);
   const [no3, setNo3] = useState(''), [why, setWhy] = useState('');
   const demo = !!cur && demoBoard(cur.site, cur.building), none = !!t.tree && !places.length;
   const newMap = () => { if (maker) make('robot'); else setWhy('지도 만들기는 담당 실기 로봇이 있어야 합니다. 지도 파일은 「관리」 의 「3D 지도 올리기」 로 올립니다.'); };
   const msg = why || note?.text;
   return <div className={`proto${light() ? ' light' : ''} u7`} aria-label="지도 고르기" data-u7={manage ? 'u7_2_manage' : 'u7_1_pick'}>
+    <LineDefs />
     <div className="pane side" aria-label="현장"><div className="row" style={{ justifyContent: 'space-between', padding: '0 6px 4px' }}><span className="ttl">현장</span>{t.tree && <span className="mu2" style={{ fontSize: '12.5px', fontWeight: 600 }} data-map-count>지도 {maps} 개</span>}</div>
       {/* 시안 u7_1 두 묶음: 지도가 있는 건물(머리 = 그 장소 이름들 「국내 · 해외 · 시험」) · 실제 현장인데 지도 0 개(「실제 현장 · 아직 스캔 전」 · 점선 · 층 이름).
           「스캔 예정 월 · 화」 는 서버 값이 없어 뺌 */}
