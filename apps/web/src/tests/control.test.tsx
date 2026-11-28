@@ -319,9 +319,18 @@ describe('관제 탭', () => {
     expect(tile('k1').querySelector('[data-paused]')).toBeNull();
   });
 
-  it('작은 지도 점은 서버 위치가 온 로봇만(지어내지 않음)', () => {
-    mount('u-kim', EIGHT); feed(EIGHT, { k3: { location: { floor_id: 'f1', map_version_id: 'v1', x: 100, y: -50, yaw: 0, confidence: 1, updated_at: '' } } });
-    expect($$('.u5 .mini .dotm').map((e) => e.dataset.dot)).toEqual(['k3']);
+  it('작은 지도 점: 서버 위치를 그 판(GET /map-versions)의 origin · resolution 으로 그림 px(큰 지도 toPixel). 공장 판(3200 × 2000)일 때만, 다른 판 · 판 id 없음은 그리지 않음', async () => {
+    const site = { id: 'site-v', width: 3200, height: 2000, resolution: 1 / 3.5, origin: [-25 / 3.5, -1980 / 3.5, 0] };
+    const ver = vi.spyOn(api, 'version').mockImplementation(async (id: string) => (id === 'site-v' ? site : { id, width: 760, height: 440, resolution: 0.05, origin: [-1, -1, 0] }) as never);
+    try {
+      const at = (v: string | null) => ({ location: { floor_id: 'f1', map_version_id: v, x: 100, y: 50, yaw: 0, confidence: 1, updated_at: '' } } as never);
+      mount('u-kim', EIGHT); feed(EIGHT, { k3: at('site-v'), k4: at('sim-v'), k5: at(null) });
+      await act(async () => {});
+      const d = $$('.u5 .mini .dotm');
+      expect(d.map((e) => e.dataset.dot)).toEqual(['k3']);
+      // 시안 transform(3.5 px/m · 원점 px 25, 20)과 같은 판: x 100 m = 375 px, y 50 m = 20 - 175 = -155 px(위로) · 작은 지도는 1/8
+      expect([d[0].style.left, d[0].style.top]).toEqual(['calc(50% - 153px)', '-19px']);   // 375 / 8 - 200 = -153, -155 / 8 = -19
+    } finally { ver.mockRestore(); }
   });
 
 
