@@ -65,7 +65,7 @@ def spawn_arg(world, xyyaw):
     occupancy = (value if meta['negate'] else 255 - value) / 255
     if occupancy > meta['free_thresh']:
         raise WorldValidationError(f'시작 자리 ({x}, {y}) 가 빈 칸이 아님', 'SIM_SPAWN_INVALID')
-    return f'{x:g},{y:g},{yaw:g}'
+    return f'{x!r},{y!r},{yaw!r}'  # repr: no rounding of the catalogue value
 
 
 class MujocoLauncher:
