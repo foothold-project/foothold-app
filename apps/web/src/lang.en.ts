@@ -146,7 +146,7 @@ export const EN: Record<string, string> = {
   '두 번 누르면 로봇 탭에서 열립니다. 한 번 더 누르면 고르기를 풉니다.': 'Double-click to open in Robots. Click again to deselect.',
   '이 로봇을 찾을 수 없습니다. 지워졌을 수 있어 목록을 다시 받습니다.': 'This robot was not found. It may have been removed, so the list is reloaded.',
   '고른 상태의 로봇이 없습니다 · 머리 줄 칸을 다시 누르면 풀립니다': 'No robots in the picked states · click the chip again to clear',
-  '가용(GET /robots/availability)을 받지 못했습니다': 'Could not load availability (GET /robots/availability)', '가짜 순찰': 'Test patrol',
+  '가용(GET /robots/availability)을 받지 못했습니다': 'Could not load availability (GET /robots/availability)', '가짜 순찰': 'Test patrol', '알림이 없습니다.': 'No alerts.', '화면 검토용 가짜 자료 · 로봇': 'Review-only test data ·',
   '알림 닫기': 'Dismiss alert', '접기': 'Collapse', '현장에서 로봇 전원과 통신을 확인하세요.': 'Check the robot’s power and network on site.',
   '조종권 요청': 'Control request', '넘겨주시겠습니까?': 'Hand over control?', '계속 조종': 'Keep driving', '넘기기': 'Hand over', '넘기면 로봇을 그 자리에 세워 잠근 뒤 조종권이 넘어갑니다.': 'Handing over stops and latches the robot where it is, then passes control.',
   '서버와 연결이 끊겼습니다': 'Lost connection to the server', '서버가 연결을 받지 않습니다': 'The server refused the connection', '다시 연결하는 중입니다': 'Reconnecting', '리모컨이 우선입니다': 'The remote has priority',

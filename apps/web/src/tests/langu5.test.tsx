@@ -34,6 +34,8 @@ describe('관제 글 사전', () => {
     expect(en('뒤 2 m 시점으로')).toBe('2 m behind view');
     expect(en('화면 검토용 가짜 자료 · 로봇 20 대')).toBe('Review-only test data · 20 robots');
     expect(en('가짜 7')).toBe('Test 7');
+    expect(en('화면 검토용 가짜 자료 · 로봇 ')).toBe('Review-only test data · ');   // 띠는 「… 로봇 」 · 「20」 · 「 대」 세 마디로 그려짐
+    expect(en(' 대')).toBe(' robots');
     expect(en('가짜 순찰 3/6')).toBe('Test patrol 3/6');
     expect(en('K-04 연결이 끊겼습니다. 마지막 확인: 대기(14:05:20). 지금 상태는 알 수 없습니다.')).toBe('K-04 disconnected. Last seen: Idle (14:05:20). Current status unknown.');
     expect(en('현장에서 로봇 전원과 통신을 확인하세요.')).toBe('Check the robot’s power and network on site.');
