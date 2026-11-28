@@ -72,15 +72,39 @@ const span = (a: Ev, b: Ev) => { const x = when(stamp(a)), y = when(stamp(b)); r
 /** 한 줄 = 한 사건(서랍 «최근 사건»·«최근 문제»): 위 = 심각도 + 문장, 아래 = 시각 · 분류(· 묶은 수). 좁은 서랍에서도 문장이 시각 밑으로 떨어지지 않게 */
 const Row = ({ e, n = 1, lo, hi }: { e: Ev; n?: number; lo?: Ev; hi?: Ev }) => <li className="hs-item"><span className="hs-said"><Sev e={e} /><Said e={e} /></span>
   <span className="lbl hs-meta"><span className="mono">{n > 1 && lo && hi ? span(lo, hi) : when(stamp(e))}</span> · <Kind e={e} />{n > 1 && <span data-repeat={n}> · {n}번</span>}</span></li>;
-/** 기록 표: 시각 · 종류 · 상태 · 내용 · 로봇·사람. 좁으면(history.css 컨테이너 질의) 줄마다 카드로 · 가로로 넘치지 않게 */
-/** run = 「실행 기록 보기」(run_id 있는 줄만, 누른 단추를 넘겨 닫으면 초점을 돌려줌) */
+/** 날짜 묶음 머리(u8_1 「오늘 · 11월 26일」): 현지 날짜, 오늘 · 어제는 앞에 붙임 */
+function dayOf(iso: string) {
+  const d = new Date(iso), t = new Date(), y = new Date(); y.setDate(t.getDate() - 1);
+  const k = d.toLocaleDateString('sv'), md = `${d.getFullYear() !== t.getFullYear() ? `${d.getFullYear()}년 ` : ''}${d.getMonth() + 1}월 ${d.getDate()}일`;
+  return { key: k, label: k === t.toLocaleDateString('sv') ? `오늘 · ${md}` : k === y.toLocaleDateString('sv') ? `어제 · ${md}` : md };
+}
+/** 줄의 시각 HH:MM:SS(날짜는 묶음 머리) */
+const clock = (iso: string) => new Date(iso).toTimeString().slice(0, 8);
+const PLAY = <svg className="u8-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor" stroke="none" /></svg>;
+/** 클립 칸(u8_1): 서버 event.data.clip 참 = 클립 있음(썸네일 이미지는 서버에 없음 · 영상은 사건 칸 「클립 · 재현」), 거짓 = 기록만, 그 밖 = 서버에 값 없음 */
+const ClipCell = ({ e }: { e: Ev }) => (e.data?.clip === true ? <span className="u8-th" data-clip-cell="yes"><span className="u8-pl">{PLAY}</span><span className="u8-du">클립</span></span>
+  : <span className="u8-noclip" data-clip-cell={e.data?.clip === false ? 'no' : 'none'}>{OTHER_ICON}{e.data?.clip === false ? '기록만' : NO_VALUE}</span>);
+/** 클립 길이 칸: 목록 응답에 길이가 없다(클립을 열어야 시작 · 끝 시각) */
+const ClipLen = ({ e }: { e: Ev }) => <span className="u8-cl" data-no={e.data?.clip !== true || undefined}>{e.data?.clip === true ? NO_VALUE : e.data?.clip === false ? '기록만' : ''}</span>;
+/** 기록 표(u8_1): 등급 · 클립 · 사건 · 묶음 · 로봇 · 시각 · 클립 길이, 날짜마다 tbody 하나(머리는 tbody data-day · 줄 세기를 깨지 않음).
+ *  run = 「실행 기록 보기」(run_id 있는 줄만, 누른 단추를 넘겨 닫으면 초점을 돌려줌) */
 const Table = ({ items, n, label, run }: { items: Ev[]; n: Names; label?: string; run?: (id: string, from: HTMLElement) => void }) => { const o = useOpen();
-  return <div className="hs-wrap">
-  <table className="hs-table" aria-label={label} hidden={!items.length}>
-    <thead><tr><th scope="col">시각</th><th scope="col">종류</th><th scope="col">상태</th><th scope="col">내용</th><th scope="col">로봇·사람</th></tr></thead>
-    <tbody>{items.map((e) => { const w = n.who(e), on = o.open === e.id;
-      return <Fragment key={e.id}><tr data-open={on || undefined} onClick={o.row(e.id)}><td className="mono"><Opener e={e} on={on} o={o} /></td><td><Kind e={e} /></td><td><Sev e={e} /></td><td><Said e={e} /><Photo e={e} /><Clip e={e} />{run && e.run_id && <button type="button" className="btn rr-open" onClick={(x) => run(e.run_id!, x.currentTarget)}>실행 기록 보기</button>}</td><td className="lbl" data-none={!w || undefined}>{w || '없음'}</td></tr>
-        {on && <tr className="hs-detail-row"><td colSpan={5}><Detail e={e} n={n} id={o.id(e.id)} /></td></tr>}</Fragment>; })}</tbody>
+  const days: { key: string; label: string; items: Ev[] }[] = [];
+  for (const e of items) { const d = dayOf(stamp(e)), last = days[days.length - 1]; if (last?.key === d.key) last.items.push(e); else days.push({ ...d, items: [e] }); }
+  return <div className="hs-wrap u8-wrap">
+  <table className="u8-tbl" aria-label={label} hidden={!items.length}>
+    <thead><tr className="u8-row u8-thd"><th scope="col">등급</th><th scope="col">클립</th><th scope="col">사건</th><th scope="col">묶음</th><th scope="col">로봇</th><th scope="col">시각</th><th scope="col">클립 길이</th></tr></thead>
+    {days.map((d) => <tbody key={d.key} data-day={d.label} aria-label={d.label}>{d.items.map((e) => { const on = o.open === e.id, r = n.robot(e), u = n.user(e), sim = n.sim(e);
+      return <Fragment key={e.id}><tr className="u8-row u8-ev" data-open={on || undefined} onClick={o.row(e.id)}>
+        <td><Sev e={e} /></td>
+        <td><ClipCell e={e} /></td>
+        <td className="u8-t2"><Said e={e} />{u && <small data-who>{u}</small>}<Photo e={e} /><Clip e={e} />{run && e.run_id && <button type="button" className="btn rr-open" onClick={(x) => run(e.run_id!, x.currentTarget)}>실행 기록 보기</button>}</td>
+        <td><span className="u8-catx" data-tile-icon={e.category}>{TILE_ICON[e.category] ?? OTHER_ICON}<Kind e={e} /></span></td>
+        <td><div className="u8-rb">{r || '없음'}{r && r !== NAMELESS && sim !== undefined && <span className="u8-rt2" data-sim={sim || undefined}>{sim ? '시뮬' : '실제'}</span>}</div></td>
+        <td className="u8-tm mono"><Opener e={e} on={on} o={o} text={clock(stamp(e))} /></td>
+        <td><ClipLen e={e} /></td>
+      </tr>
+        {on && <tr className="hs-detail-row"><td colSpan={7}><Detail e={e} n={n} id={o.id(e.id)} /></td></tr>}</Fragment>; })}</tbody>)}
   </table></div>; };
 /** 분류 아이콘(lucide ISC 선 path 를 옮김, 패키지 없음): 임무 route · 이탈 triangle-alert · 연결 wifi · 조종권 key-round · 결재 file-check · 안전 shield · 계정 user · 기타 info */
 const TI = (d: JSX.Element) => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{d}</svg>;
@@ -93,6 +117,7 @@ const TILE_ICON: Record<string, JSX.Element> = {
   SAFETY: TI(<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />),
   ACCOUNT: TI(<><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></>),
 };
+const ALL_ICON = TI(<><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></>);
 const OTHER_ICON = TI(<><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></>);
 /** 폰 기록 = 사건 타일(U3-04 · u3_3_list): 등급 색으로 옅게 물든 칸 + 1 px 테 · 분류 아이콘 · 문장 · 아래 줄(등급 · 분류 · 로봇·사람) · 오른쪽 시각.
  *  사진 · 클립 · 「실행 기록 보기」 는 표와 같다 */
@@ -126,9 +151,9 @@ function useOpen() {
     key: (id: string) => (x: KeyboardEvent) => { if (x.key === 'Enter' || x.key === ' ') { x.preventDefault(); flip(id); } } };
 }
 /** 줄의 시각 = 펼침 손잡이(키보드 초점 · aria-expanded, 화살 모양은 history.css). 누름은 줄로 올라가 줄이 펼친다 */
-const Opener = ({ e, on, o }: { e: Ev; on: boolean; o: ReturnType<typeof useOpen> }) => { const t = when(stamp(e));
+const Opener = ({ e, on, o, text }: { e: Ev; on: boolean; o: ReturnType<typeof useOpen>; text?: string }) => { const t = when(stamp(e));
   return <span role="button" tabIndex={0} className="hs-open" data-row-open aria-expanded={on} aria-controls={on ? o.id(e.id) : undefined} aria-label={`${t} 기록 자세히`} onKeyDown={o.key(e.id)}>
-    {t}</span>; };
+    {text ?? t}</span>; };
 /** 현지 yyyy/mm/dd HH:MM:SS */
 const full = (at: string) => { const d = new Date(at), p = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${d.toTimeString().slice(0, 8)}`; };
 const NO_VALUE = '서버에 값 없음';
@@ -274,31 +299,10 @@ export function History(c: HistoryCtx) {
   };
   const [runOf, setRunOf] = useState<{ id: string; from: HTMLElement } | null>(null);   // 열린 실행 기록(u15_3)
   const filtered = !c.phone && params(f)?.toString() !== '', n = namesOf(c);
-  return <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="기록">
-    {c.focus && <Focus key={c.focus} id={c.focus} cancel={c.cancel} n={n} close={() => c.go('history')} />}
-    {!c.phone && <>
-      <div className="fh-row" role="group" aria-label="분류">{KINDS.map(([k, name]) => <button key={name} type="button" className="btn" aria-pressed={f.category === k} onClick={() => set({ category: k })}>{name}</button>)}</div>
-      <div className="fh-row" role="group" aria-label="등급"><span className="lbl">등급</span>{GRADES.map(([k, mark, name]) => <button key={name} type="button" className="btn" aria-pressed={f.severity === k} onClick={() => set({ severity: k })}>{mark && <span aria-hidden="true">{mark}</span>}{name}</button>)}</div>
-      {/* 줄의 ▲주의 는 서버가 INFO 로 저장한 실패 코드도 포함한다(Sev). 서버 거르기는 저장된 등급 그대로라 그 줄은 «정보» 에 있다 */}
-      {f.severity === 'WARN' && <p className="lv-note" data-grade-note>정보로 저장된 실패 기록(▲)은 «정보» 에서 보입니다.</p>}
-      <div className="fh-row">
-        {/* 로봇 거르기: 내 로봇 + 끝낸 시뮬 슬롯(지난 시뮬 기록 · 운영 관리자는 그 슬롯에서 한 내 행동만 서버가 보여 줌) */}
-        <label className="fh-row"><span className="lbl">로봇</span><select className="fh-user" value={f.robot} onChange={(e) => set({ robot: e.target.value })}>
-          <option value="">전체</option>{[...myRobots(c.user, c.robots), ...(c.user.role === 'ORG_ADMIN' ? [] : c.robots.filter(idleSim))].map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
-        <span className="fh-row" role="group" aria-label="기간"><span className="lbl">기간</span>
-          {/* 날짜 칸에도 같은 날짜를 써서 칸과 필터가 늘 같다. 눌림은 칸 글자에서 나오므로 칸을 고치면 풀린다 */}
-          {QUICK.map(([name, n]) => { const a = back(n), b = back(0), on = days.from === a.replace(/-/g, '/') && days.to === b.replace(/-/g, '/');
-            return <button key={name} type="button" className="btn" aria-pressed={on} onClick={() => { setDays({ from: a.replace(/-/g, '/'), to: b.replace(/-/g, '/') }); setLeft({ from: false, to: false }); set({ from: a, to: b }); }}>{name}</button>; })}
-          <DayBox name="기간 시작" text={days.from} bad={shown.includes('from') || late} max={f.to} put={put('from')} leave={() => setLeft((o) => ({ ...o, from: true }))} />
-          <span aria-hidden="true">~</span>
-          <DayBox name="기간 끝" text={days.to} bad={shown.includes('to') || late} min={f.from} put={put('to')} leave={() => setLeft((o) => ({ ...o, to: true }))} /></span>
-        <span className="fh-grow" />
-        <MarkNow c={c} done={ev.again} />
-        <button type="button" className="btn" disabled={saving} onClick={save}>{saving ? '내보내는 중…' : '내보내기'}</button>
-      </div>
-      {dayErr && <p id="hs-day-err" className="fh-msg" role="alert">{dayErr} 고칠 때까지 기간은 이전 값 그대로입니다.</p>}
-      {out && <p className={`fh-msg${out.ok ? ' ok' : ''}`} role={out.ok ? 'status' : 'alert'}>{out.text}</p>}
-    </>}
+  // 표 위 한 줄(u8_1 「필터 없음 · 사건 n 건」): 지금 필터 이름 · 받은 사건 수. 전체 수는 서버가 주지 않아 더 받을 것이 있으면 «이상»
+  const picked = [f.category && KIND_NAME[f.category], f.severity && SEV[f.severity]?.[2], f.robot && (c.robots.find((r) => r.id === f.robot)?.name ?? NAMELESS),
+    (f.from || f.to) && `${(f.from || '처음').replace(/-/g, '/')}~${(f.to || '지금').replace(/-/g, '/')}`].filter(Boolean) as string[];
+  const list = <>
     {runOf && <RunReport key={runOf.id} id={runOf.id} cancel={c.cancel} close={() => { runOf.from.focus(); setRunOf(null); }} />}
     {c.phone ? <Tiles items={ev.items} n={n} run={(id, from) => setRunOf({ id, from })} /> : <Table items={ev.items} n={n} label="사건" run={(id, from) => setRunOf({ id, from })} />}
     {ev.err && <p className="fh-msg" role="alert">기록을 받지 못했습니다. {why(ev.err)}</p>}
@@ -308,6 +312,60 @@ export function History(c: HistoryCtx) {
       : <Empty kind="records" title="아직 기록이 없습니다" why="임무를 실행하거나 알림이 생기면 여기에 시간 순서로 남습니다." card={false}>
         {c.phone ? <a className="btn pri" href="#/drive">조종 화면으로</a> : <a className="btn pri" href="#/map">지도 탭에서 시나리오 실행</a>}</Empty>)}
     {!ev.busy && (ev.next || (ev.err && ev.err !== BAD_DAY)) && <div className="fh-row"><button type="button" className="btn" onClick={ev.more}>{ev.err ? '다시 시도' : '더 보기'}</button></div>}
+  </>;
+  if (c.phone) return <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="기록">
+    {c.focus && <Focus key={c.focus} id={c.focus} cancel={c.cancel} n={n} close={() => c.go('history')} />}
+    {list}
+  </section>;
+  // PC = 시안 u8_1 틀(proto/screens/u8_1_list.html · shared/pc.css 값): 왼쪽 거르기 판 300 px + 오른쪽 사건 판. 시안에 있고 서버 기능이 없는 칸은 자리만(흐림 · 까닭 한 줄)
+  return <section className="u8" aria-label="기록" data-hs-frame>
+    <aside className="u8-pane u8-flt" aria-label="기록 거르기" data-hs-side>
+      <div className="u8-ttl">기록</div>
+      <h4>묶음</h4>
+      {/* 묶음별 개수는 서버가 주지 않아 쓰지 않는다(지어낸 숫자 0). 묶음 = 서버 분류 7종 */}
+      <div className="u8-cats" role="group" aria-label="분류">{KINDS.map(([k, name]) => <button key={name} type="button" className="u8-cat" aria-pressed={f.category === k} onClick={() => set({ category: k })}>
+        {k ? TILE_ICON[k] ?? OTHER_ICON : ALL_ICON}{name}</button>)}</div>
+      <h4>등급</h4>
+      {/* 시안 세 칸(위험 · 주의 · 정보). 아무것도 안 고르면 셋 다 켜짐 = 전체 · 고른 칸을 다시 누르면 전체(서버 severity 는 한 값만) */}
+      <div className="u8-lvrow" role="group" aria-label="등급">{GRADES.filter(([k]) => k).map(([k, mark, name]) => <button key={name} type="button" className="u8-lvt" data-tone={SEV[k][0]}
+        aria-pressed={f.severity === k} data-on={!f.severity || f.severity === k || undefined} onClick={() => set({ severity: f.severity === k ? '' : k })}><span aria-hidden="true">{mark}</span>{name}</button>)}</div>
+      {/* 줄의 ▲주의 는 서버가 INFO 로 저장한 실패 코드도 포함한다(Sev). 서버 거르기는 저장된 등급 그대로라 그 줄은 «정보» 에 있다 */}
+      {f.severity === 'WARN' && <p className="u8-why" data-grade-note>정보로 저장된 실패 기록(▲)은 «정보» 에서 보입니다.</p>}
+      <h4>실제 · 시뮬</h4>
+      <div className="u8-seg2" role="group" aria-label="실제 · 시뮬" aria-disabled="true" data-missing="sim-filter"><span data-on>모두</span><span>실제</span><span>시뮬</span></div>
+      <p className="u8-why" data-missing-why>서버에 실제 · 시뮬 거르기가 없어 모두 보입니다.</p>
+      <h4>로봇</h4>
+      {/* 로봇 거르기: 내 로봇 + 끝낸 시뮬 슬롯(지난 시뮬 기록 · 운영 관리자는 그 슬롯에서 한 내 행동만 서버가 보여 줌) */}
+      <label className="u8-cat u8-sel" aria-label="로봇"><select className="fh-user" value={f.robot} onChange={(e) => set({ robot: e.target.value })}>
+            <option value="">전체</option>{[...myRobots(c.user, c.robots), ...(c.user.role === 'ORG_ADMIN' ? [] : c.robots.filter(idleSim))].map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
+      <div className="u8-tg" aria-disabled="true" data-missing="clip-filter">클립 있는 것만<span className="u8-sw" /></div>
+      <p className="u8-why">서버에 클립 거르기가 없습니다.</p>
+      <h4>기간 직접</h4>
+      <span className="u8-days" role="group" aria-label="기간 직접">
+        <DayBox name="기간 시작" text={days.from} bad={shown.includes('from') || late} max={f.to} put={put('from')} leave={() => setLeft((o) => ({ ...o, from: true }))} />
+            <span aria-hidden="true">~</span>
+            <DayBox name="기간 끝" text={days.to} bad={shown.includes('to') || late} min={f.from} put={put('to')} leave={() => setLeft((o) => ({ ...o, to: true }))} /></span>
+      {dayErr && <p id="hs-day-err" className="fh-msg" role="alert">{dayErr} 고칠 때까지 기간은 이전 값 그대로입니다.</p>}
+      <div className="u8-foot"><b>클립 보관 기간</b>{NO_VALUE}</div>
+    </aside>
+    <div className="u8-pane u8-lst" data-hs-main>
+      <div className="u8-tool">
+        <label className="u8-srch" aria-disabled="true" data-missing="search"><svg className="u8-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
+          <input disabled placeholder="사건 · 로봇 · 메모 찾기" aria-label="찾기(서버 찾기 없음)" /></label>
+        {/* 날짜 칸에도 같은 날짜를 써서 칸과 필터가 늘 같다. 눌림은 칸 글자에서 나오므로 칸을 고치면 풀린다 */}
+        <span className="u8-seg2" role="group" aria-label="기간">
+          {QUICK.map(([name, n]) => { const a = back(n), b = back(0), on = days.from === a.replace(/-/g, '/') && days.to === b.replace(/-/g, '/');
+              return <button key={name} type="button" className="btn" aria-pressed={on} onClick={() => { setDays({ from: a.replace(/-/g, '/'), to: b.replace(/-/g, '/') }); setLeft({ from: false, to: false }); set({ from: a, to: b }); }}>{name}</button>; })}
+            </span>
+        <span className="u8-grow" />
+        <MarkNow c={c} done={ev.again} />
+        <button type="button" className="u8-btns" disabled={saving} onClick={save}>{saving ? '내보내는 중…' : '내보내기'}</button>
+      </div>
+      <div className="u8-chips"><span data-hs-sum>{picked.length ? picked.map((x) => <span key={x} className="u8-chip">{x}</span>) : '필터 없음'}<span className="u8-cnt">{!ev.busy && !ev.err && `사건 ${ev.items.length} 건${ev.next ? ' 이상' : ''}`}</span></span></div>
+      {out && <p className={`fh-msg${out.ok ? ' ok' : ''}`} role={out.ok ? 'status' : 'alert'}>{out.text}</p>}
+      {c.focus && <Focus key={c.focus} id={c.focus} cancel={c.cancel} n={n} close={() => c.go('history')} />}
+      {list}
+    </div>
   </section>;
 }
 
