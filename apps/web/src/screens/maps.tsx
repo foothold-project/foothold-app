@@ -13,6 +13,7 @@ import { MapFrame, MapImage, around, useWalls, type Box } from '../mapframe';
 import { leaving } from '../menu';
 import { Chip, inApp, type Ctx, type Dash } from '../screens';
 import { Compare, Rollback } from './mapdiff';
+import { History } from './u7/history';
 import { Editor, Glyph, featKeys, featName, featSub, kept } from './mapedit';
 import { Hint, Locked, Menu, Pane, Pop, SideTitle, shut } from './mapscen';
 import { MissionAdmin, ScenList, ScenarioEdit, SimOpen, keptPlan, useScenarios } from './missions';
@@ -31,6 +32,10 @@ const named = (t: SiteTree): SiteTree => ({ ...t, items: t.items.map((s) => ({ .
 /** 장소 쓰임(SIM-REAL-SPLIT 11-09): 지도 탭 = REAL(실기 SLAM 지도), 시뮬 탭 = SIM. 서버가 purpose 를 아직 안 주면 SIM — 이관 뒤 옛 장소는 모두 SIM */
 export type Purpose = 'SIM' | 'REAL';
 export const purposeOf = (s: MapSite): Purpose => ((s as { purpose?: string }).purpose === 'REAL' ? 'REAL' : 'SIM');
+/** 데모 현장(11-28): SIM 현장에 데모 로봇이 배정돼 있으면 서버가 sites[].demo = true. 값이 아직 없으면 false. 로봇 위치나 이름으로 가리지 않는다 */
+export const demoOf = (s: MapSite) => (s as { demo?: boolean }).demo === true;
+/** 지도 탭에 보이는 현장 = purpose REAL 이거나 데모 현장. 다른 SIM 현장은 시뮬 탭에만 */
+export const inMapTab = (s: MapSite) => purposeOf(s) === 'REAL' || demoOf(s);
 /** 시뮬 탭 «짝 없는 층»(SIM-PAIR 11-09): 지도가 없거나 시뮬 세계·지형과 이어지지 않은 층(simAt 실패). v = 승인 판(못 받았으면 undefined → 모름 = false) */
 const lone = (f: MapFloor, v?: MapVersion) => !f.approved_version_id || (!!v && typeof simAt(f, v) === 'string');
 /** 짝 없는 층 안내 — 시뮬 지도는 지도 탭 «지형 만들기» 저장으로만 만든다(11-19 입구를 지도 탭으로) */
@@ -187,7 +192,9 @@ const IN_USE: Partial<Record<Kind, string>> = {
   buildings: '안에 층이 남은 건물은 삭제할 수 없습니다. 안의 층을 먼저 삭제하세요.',
 };
 /** 장소 바꾸기 실패 = 무엇이 + 어떻게(U8). 403 은 서버 문구 그대로 */
-const placeFail = (e: ApiFail, k: Kind) => (e.code === 'RESOURCE_IN_USE' && IN_USE[k] ? IN_USE[k] : e.status === 404 ? `이 ${OBJ[k]} 찾을 수 없습니다. 지워졌을 수 있어 목록을 다시 받습니다.` : trashFail(e));
+/** 데모(SIM) 현장의 지도 · 장소 저장은 서버가 409 SIM_PLACE_BY_TERRAIN 로 막는다 · 날것 대신 이 한 줄 */
+export const SIM_SAVE = '데모 현장 지도는 보기만 합니다. 지형은 시뮬 탭 «지형 만들기» 에서 바꿉니다.';
+const placeFail = (e: ApiFail, k: Kind) => (e.code === 'SIM_PLACE_BY_TERRAIN' ? SIM_SAVE : e.code === 'RESOURCE_IN_USE' && IN_USE[k] ? IN_USE[k] : e.status === 404 ? `이 ${OBJ[k]} 찾을 수 없습니다. 지워졌을 수 있어 목록을 다시 받습니다.` : trashFail(e));
 
 /** 고치기 칸: 새로 만들기(parent) 또는 이름 바꾸기(id). 층은 층 번호(지하 1층 = -1)도 */
 type Form = { kind: Kind; id?: string; parent?: string; title: string; name: string; level: string };
@@ -208,7 +215,7 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { robots?: Robot[]; dash?
   // 지도 탭 = 실기 장소만, 시뮬 탭 = 시뮬 + 실기 장소(RB-SCEN-SIMTAB 11-11 — 시나리오는 실기·시뮬 같은 것을 시뮬 탭에서 고친다). 이름으로 거르지 않음 — 서버 purpose.
   // 장소 고치기(이름·삭제·만들기)는 그 탭 쓰임의 장소만(own)
   const own = (s: MapSite) => purposeOf(s) === purpose;
-  const t = useMemo(() => ({ ...t0, tree: t0.tree && { ...t0.tree, items: t0.tree.items.filter((s) => sim || own(s)) } }), [t0.tree, t0.err]);
+  const t = useMemo(() => ({ ...t0, tree: t0.tree && { ...t0.tree, items: t0.tree.items.filter((s) => sim || inMapTab(s)) } }), [t0.tree, t0.err]);
   const admin = c.user.role === 'ORG_ADMIN', places = useMemo(() => floorsOf(t.tree), [t.tree]), robots = c.robots ?? [];
   const [pick, setPick] = useState(() => kept.d?.floor ?? keptPlan.floor), cur = places.find((p) => p.floor.id === pick);
   const [sel, setSel0] = useState<string | null>(() => (keptPlan.kind === 'scenarios' && !kept.d ? keptPlan.sel : null)), setSel = (x: string | null) => { keptPlan.sel = x; setSel0(x); };
@@ -568,6 +575,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, side, name,
   const [editing, setEditing] = useState<MapVersion | null>(back), [done, setDone] = useState<Msg>(null);   // editing = 편집 시작 때 승인 판(저장 기준)
   // 비교 보기, 되돌리기 칸(연 때의 옛 판·승인 판 — 답이 끊겨 목록을 다시 받는 동안에도 칸과 안내가 남게 목록 밖에 둔다)
   const [cmp, setCmp] = useState(false), [undo, setUndo] = useState<{ v: MapVersion; now: MapVersion } | null>(null);
+  const [h9, setH9] = useState(open0 === 'history');   // 시안 u7_9 버전 기록 화면(지도 탭)
   // 목록은 받을 때의 기준(몇 번째 받기 + 승인 판 id)과 묶어 둔다 — 기준이 바뀌면 새 목록이 올 때까지 없음으로(늦게 온 옛 목록이 덮지 않게)
   const key = `${n}:${approved}`;
   useEffect(() => {
@@ -613,7 +621,8 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, side, name,
       {top}{editing && side}
       {left && <b className="mp-ftitle">{p.building.name} · {p.floor.name}{now && <span className="lv-chip ok">{howMade(now)} · v{now.number}</span>}</b>}{/* 편집 중 층 바꾸기·나가기는 기존 «저장 안 한 편집» 확인으로(잠그지 않음) */}
       {sim && !editing && <SimOpen key={p.floor.id} f={p.floor} v={now} wait={!list && !err} real={real} cancel={cancel} />}
-      {now && !sim && <span className="mx-seg" role="group" aria-label="보기·편집">
+      {!sim && !real && !editing && <span className="lv-note" data-demo-ro>{SIM_SAVE}</span>}{/* 데모 현장(SIM): 편집 · 올리기 · 고치기 · 되돌리기 단추 없음 = 서버 409 를 부르지 않음 */}
+      {now && !sim && real && <span className="mx-seg" role="group" aria-label="보기·편집">
         <button type="button" className="btn" aria-pressed={!editing} onClick={() => { if (!editing) return; if (leaving.ask) leaving.ask(() => setEditing(null)); else setEditing(null); }}>보기</button>
         <button type="button" className="btn" aria-pressed={!!editing} onClick={start}>편집</button></span>}
       {drop && !editing && <div className="fh-row" role="group" aria-label="확인" data-drop><span>다른 층에 저장하지 않은 지도 편집이 남아 있습니다. 이 지도를 편집하면 그 편집을 잃습니다(그 층을 열면 이어 씁니다).</span>
@@ -627,9 +636,9 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, side, name,
       <span className="fh-grow" />
       {left && toScen && !inApp() && <button type="button" className="btn pri" data-to-sim onClick={() => toScen('')}>이 지도로 모의 실행</button>}
       {!editing && <Menu label={<span aria-hidden="true">···</span>} title="더 보기" end className="more">
-        {!sim && <button type="button" className="btn" disabled={!canUp} onClick={upBtn}>새 지도 올리기…</button>}
+        {!sim && real && <button type="button" className="btn" disabled={!canUp} onClick={upBtn}>새 지도 올리기…</button>}
         {canMake && <button type="button" className="btn" data-make-open onClick={mkBtn}>지도 만들기</button>}
-        {fix && <button type="button" className="btn" data-fix-open onClick={(e) => { shut(e); fix(); }}>이름 바꾸기·삭제…</button>}
+        {fix && (sim || real) && <button type="button" className="btn" data-fix-open onClick={(e) => { shut(e); fix(); }}>이름 바꾸기·삭제…</button>}
         <TrashLink />
       </Menu>}
       <span ref={setSlot} style={{ display: 'contents' }} />
@@ -656,7 +665,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, side, name,
           {err && <div className="fh-row"><p className="fh-msg" role="alert">{err}</p><button type="button" className="btn" onClick={() => setN(n + 1)}>다시 시도</button></div>}
           {!list && !err && <p className="lv-note" role="status">지도를 불러오는 중…</p>}
         </div>
-        {v && !cmp && !on3d && !show3 && <Hint text={now && !sim ? '보기만. «편집»을 누르면 도구가 나옵니다' : '보기만'} more={`휠·두 손가락으로 확대, 끌어서 옮깁니다.${sim ? (real ? ' 구역·벽은 «지도» 탭에서 고칩니다.' : '') : ' 구역·벽은 «편집»에서 고칩니다.'}`} />}
+        {v && !cmp && !on3d && !show3 && <Hint text={now && !sim && real ? '보기만. «편집»을 누르면 도구가 나옵니다' : '보기만'} more={`휠·두 손가락으로 확대, 끌어서 옮깁니다.${sim ? (real ? ' 구역·벽은 «지도» 탭에서 고칩니다.' : '') : real ? ' 구역·벽은 «편집»에서 고칩니다.' : ''}`} />}
       </div>
       {/* 오른쪽 창: 지도 탭 = 지도 요소 N, 시뮬 탭 = 시나리오 N(RB-SIM-NO-MAPEL 11-18 — 지도 요소는 지도 탭) */}
       {!cmp && <Pane open={pane} setOpen={setPane} bar={sim ? `시나리오 ${scenN}` : `요소 ${keys.length}`} label={sim ? '시나리오 창' : '요소 창'} pick={sim ? head : <SideTitle n={keys.length} />} name={name}>
@@ -666,7 +675,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, side, name,
               <div className="mx-sum"><span><b>{fz!.zones.length}</b>구역</span><span><b>{fz!.waypoints.length}</b>지점</span><span><b>{fz!.connectors.length}</b>연결점</span><span><b>{fz!.edits.length}</b>고친 선</span></div></div>
             {keys.length ? <ul className="mx-list" aria-label="요소 목록">{keys.map((k) => <li key={k} className="mx-row" data-el={k}><span className="mx-name"><Glyph f={v.features} k={k} /><b>{featName(v.features, k)}</b><small>{featSub(v.features, k, p.building.floors)}</small></span></li>)}</ul>
               : <div className="mx-in"><div className="mx-empty"><p className="lv-note">이 지도에는 구역·벽이 없습니다.</p>{now && v.id === now.id && <button type="button" className="btn pri" onClick={start}>편집 시작</button>}</div></div>}
-            {now && !!keys.length && <p className="lv-note mx-in">구역·벽은 «편집»에서 고칩니다.</p>}
+            {now && real && !!keys.length && <p className="lv-note mx-in">구역·벽은 «편집»에서 고칩니다.</p>}
             {vox && <div className="mx-in" data-voxel-summary><b>3D 지도 <span className="lv-chip">3D</span></b>
               <p className="lv-note">3D 지도 파일에서 만든 지도입니다. 연결된 시뮬 지형이 함께 만들어졌습니다.</p>
               <div className="fh-row">{!editing && <button type="button" className="btn" onClick={() => { setD3(!on3d); setCmp(false); }}>{on3d ? '지도 보기' : '3D 로 보기'}</button>}<TerrainLink id={vox.terrain_id} /></div></div>}</>}
@@ -680,7 +689,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, side, name,
       {v && <div className="fh-row" role="group" aria-label="저장 기록 관리">
         <button type="button" className="btn" aria-pressed={cmp} onClick={() => setCmp(!cmp)}>비교</button>
         {/* 한때 승인된 판(SUPERSEDED)만. 저장하지 않은 편집이 남아 있으면 그 확인부터 */}
-        {now && !sim && v.status === 'SUPERSEDED' && <button type="button" className="btn" aria-pressed={!!undo} onClick={() => { const go = () => { setUndo({ v, now }); setDone(null); }; if (leaving.ask) leaving.ask(go); else go(); }}>이 기록으로 되돌리기</button>}
+        {now && !sim && real && v.status === 'SUPERSEDED' && <button type="button" className="btn" aria-pressed={!!undo} onClick={() => { const go = () => { setUndo({ v, now }); setDone(null); }; if (leaving.ask) leaving.ask(go); else go(); }}>이 기록으로 되돌리기</button>}
       </div>}
     </details>;
   const LAY: [keyof Layers, string, string][] = [['zones', '구역 (접근 금지 · 감속)', 'var(--bad)'], ['waypoints', '지점', 'var(--accent)'], ['connectors', '연결점 (계단 · 엘리베이터)', 'var(--warn)'], ['edits', '벽 · 지운 선', 'var(--muted)']];
@@ -698,11 +707,14 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, side, name,
       <dt>3D 모형</dt><dd>{model ? '있음' : '없음'}</dd>
       {who && <><dt>만든 사람</dt><dd>{who}</dd></>}</dl></div>}
     <span className="fh-grow" />
-    {hist}
+    {hist}{/* 옛 저장 기록 접기: 시험 28 개를 u7_9 로 옮길 때까지 남김(보고에 적음) */}
+    {!!list?.length && now && <button type="button" className="btn" data-open-u79 onClick={() => { setCmp(false); setH9(true); }}>버전 기록 · 비교 · 되돌리기</button>}
   </aside>;
   return <section className="mx" aria-label="지도 보기">
     <h2 className="mx-sr">{title}{editing ? ' · 편집 중' : ''}</h2>
-    {left ? <div className="mp-fl">{panel}<div className="mp-fr">{bar}{main}</div></div> : <>{bar}{main}{hist}</>}
+    {left && h9 && list && now ? <History p={p} list={list} now={now} names={names} real={real} cancel={cancel} back={() => setH9(false)} gone={reload}
+        restore={(x) => { const go = () => { setUndo({ v: x, now }); setDone(null); }; if (leaving.ask) leaving.ask(go); else go(); }} />
+      : left ? <div className="mp-fl">{panel}<div className="mp-fr">{bar}{main}</div></div> : <>{bar}{main}{hist}</>}
     {!editing && <Pop open={up} close={() => { if (!vbusy) setUp(false); }} label="새 지도 올리기">{/* 3D 파일 올리는 중엔 닫기·형식 바꾸기 막음(요청은 이어지는데 진행·결과만 사라지지 않게) */}
       {admin && <span className="mx-seg" role="group" aria-label="올릴 파일" data-up-kind><button type="button" className="btn" aria-pressed={!vu} disabled={vbusy} onClick={() => setVu(false)}>그림·yaml</button>
         <button type="button" className="btn" aria-pressed={vu} disabled={vbusy} onClick={() => setVu(true)}>3D 지도 파일(.pcd·.ply)</button></span>}
@@ -718,7 +730,7 @@ function FloorView({ p, sim, admin, names, cancel, again, told, top, side, name,
     </Pop>}
     {!editing && <Pop open={!!undo} close={() => setUndo(null)} label="이 기록으로 되돌리기">
       {undo && <Rollback key={undo.v.id} v={undo.v} name={savedAs(undo.v)} cancel={cancel} now={undo.now} close={() => setUndo(null)} reload={reload}
-        done={(x) => { setUndo(null); setCmp(false); if (x.status === 'PENDING') { setSel(''); setDone(asked); told(); }
+        done={(x) => { setUndo(null); setCmp(false); setH9(false); if (x.status === 'PENDING') { setSel(''); setDone(asked); told(); }
           else { setSel(x.id); setDone({ text: `${savedAs(undo.v)} 기록으로 되돌렸습니다. 다음 실행부터 이 지도를 씁니다.`, ok: true }); } reload(); }} />}
     </Pop>}
   </section>;

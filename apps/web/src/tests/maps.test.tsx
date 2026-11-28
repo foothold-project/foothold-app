@@ -7,7 +7,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { pcBoard } from '../pcboard';
 import type { MapFeatures, MapVersion, RobotSummary, SiteTree, User } from '../../../contracts/ts';
 import { Root } from '../session';
-import { floorName, pixelTo, toPixel } from '../screens/maps';
+import { SIM_SAVE, floorName, pixelTo, toPixel } from '../screens/maps';
 import { kept } from '../screens/mapedit';
 import { leaving } from '../menu';
 import { clearPlans, keptPlan } from '../screens/missions';
@@ -2410,12 +2410,33 @@ describe('지도 탭 · 시안 u7', () => {
     expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 2층');
   });
 
-  it('u7_1 «버전 기록»: 그 층을 저장 기록이 펼쳐진 채로 연다', async () => {
+  // 데모 현장(11-28): 지도 탭 = purpose REAL 이거나 서버 sites[].demo === true. 다른 SIM 현장은 시뮬 탭에만. 데모 현장은 보기만(저장 단추 없음 = 409 안 부름)
+  it('지도 탭 현장 = REAL + 데모 SIM(서버 demo 값) · 데모 아닌 SIM 은 없음 · 데모 층은 편집 · 올리기 · 고치기 없이 한 줄', async () => {
+    const t = { items: [...TREE.items,
+      { id: 's9', name: '시안 공장 터', purpose: 'SIM', demo: true, buildings: [{ id: 'b9', site_id: 's9', name: '큰 공장', floors: [floor('f9', '1층', 1, 'v2', 'b9')] }] },
+      { id: 's8', name: '연습장', purpose: 'SIM', buildings: [{ id: 'b8', site_id: 's8', name: '시험동', floors: [floor('f8', '1층', 1, null, 'b8')] }] }], next_cursor: null };
+    serve(signedIn(KIM, { 'GET /sites': { status: 200, body: t }, 'GET /floors/f9/map-versions': { status: 200, body: { items: [{ ...V2, floor_id: 'f9' }], next_cursor: null } } }));
+    await toPick();
+    const sites = card('현장');
+    expect(sites.querySelector('[data-building="b1"]')).not.toBeNull();
+    expect(sites.querySelector('[data-building="b9"]')).not.toBeNull();
+    expect(sites.querySelector('[data-building="b8"]')).toBeNull();
+    await click(sites.querySelector('[data-building="b9"]'));
+    await click($('[data-open-map]'));
+    expect(card('지도 보기').querySelector('h2')!.textContent).toBe('시안 공장 터 큰 공장 1층');
+    expect($('[aria-label="보기·편집"]')).toBeNull();
+    expect($('[data-demo-ro]')!.textContent).toBe(SIM_SAVE);
+    expect(box.textContent).not.toContain('«편집»');
+    expect([...box.querySelectorAll('button')].some((b) => b.textContent === '새 지도 올리기…')).toBe(false);
+    expect($('[data-fix-open]')).toBeNull();
+  });
+
+  it('u7_1 «버전 기록»: 그 층의 버전 기록 화면(시안 u7_9)으로 연다', async () => {
     serve(signedIn(KIM));
     await toPick();
     await click($('[data-open-history]'));
     expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층');
-    expect($<HTMLDetailsElement>('details[data-history]')!.open).toBe(true);
+    expect($('[data-u7="u7_9_history"]')).not.toBeNull();
   });
 
   it('u7_2 관리: 장소 · 건물 · 층 편집(이름 바꾸기 · 삭제 · 더하기) + 지형 만들기 · 지도 올리기 · 휴지통', async () => {
@@ -2430,6 +2451,35 @@ describe('지도 탭 · 시안 u7', () => {
     expect($('[data-manage-up] [data-make-file]')).toBeTruthy();
     expect($('[data-manage-trash] a')).toBeTruthy();
     expect($('[aria-label="미리 보기"]')).toBeNull();
+  });
+
+  it('u7_9 버전 기록: 층 화면 단추 → 버전 줄(vN · 이유 · 현재 버전) · 처음 비교 = 지금 판과 그 기준 판 · 다른 줄을 고르면 그 둘로 다시 비교 · 되돌리기 = 확인 칸 · 뒤로 = 층 화면', async () => {
+    const V0 = ver('v0', 0, { status: 'SUPERSEDED', reason: '맨 처음', created_at: '2026-10-18T05:00:00Z' });
+    const diff = (b: MapVersion, a: MapVersion | null) => ({ status: 200, body: { version: b, against: a, image_changed: false, changes: [] } });
+    serve(signedIn(KIM, { 'GET /floors/f1/map-versions': { status: 200, body: { items: [V2, V1, V0], next_cursor: null } },
+      'GET /map-versions/v2/diff': (q: URLSearchParams) => diff(V2, q.get('against') === 'v0' ? V0 : V1) }));
+    await open('#/map');
+    await click($('[data-open-u79]'));
+    const scr = $('[data-u7="u7_9_history"]')!;
+    expect(scr).not.toBeNull();
+    const rows = () => [...scr.querySelectorAll<HTMLElement>('[data-save]')];
+    expect(rows().map((r) => r.dataset.save)).toEqual(['v2', 'v1', 'v0']);
+    expect($('[data-save="v2"]')!.textContent).toContain('현재 버전');
+    expect(rows().filter((r) => r.getAttribute('aria-pressed') === 'true').map((r) => r.dataset.save)).toEqual(['v2', 'v1']);
+    expect(sent('GET', '/map-versions/v2/diff').map((x) => x.q.get('against'))).toEqual(['v1']);
+    expect($('[data-u7-pair]')!.textContent).toBe('v1 와 v2 비교');
+    expect(scr.querySelector('svg[data-diff]')).not.toBeNull();
+    expect(card('바뀐 것').textContent).toContain('바뀌지 않음');
+    await click($('[data-save="v0"]'));
+    expect(sent('GET', '/map-versions/v2/diff').map((x) => x.q.get('against'))).toEqual(['v1', 'v0']);
+    expect($('[data-u7-pair]')!.textContent).toBe('v0 와 v2 비교');
+    expect($('[data-u7-restore]')!.textContent).toBe('v0 로 되돌리기');
+    await click($('[data-u7-restore]'));
+    expect(card('이 기록으로 되돌리기')).toBeTruthy();
+    await click(btn('취소', card('이 기록으로 되돌리기')));
+    await click($('[data-u7-back]'));
+    expect($('[data-u7]')).toBeNull();
+    expect(card('지도 정보')).toBeTruthy();
   });
 
   it('u7_3 층 화면 왼쪽 칸: 이 지도(넓이 · 해상도 · 만든 방법 · 3D 모형) · 보이기(구역 · 지점 · 연결점 · 벽 선) 끄면 지도에서 빠짐', async () => {
