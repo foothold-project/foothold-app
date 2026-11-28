@@ -16,7 +16,7 @@ from apps.contracts import models as C
 from .map_files import MAX_IMAGE, MAX_YAML, image_bytes, map_yaml, sha256, yaml_bytes
 from . import idempotency
 from .resource_archive import require_unused
-from .models import Approval, Building, Floor, FloorConnector, MapVersion, Organization, Site, Terrain, Upload, now
+from .models import Approval, Building, Floor, FloorConnector, MapVersion, Organization, Robot, Site, Terrain, Upload, now
 
 
 UPLOAD_BODY_SECONDS = 30
@@ -260,8 +260,12 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         counts = dict(db.execute(select(MapVersion.floor_id, func.count()).join(Approval,
             (Approval.org_id == MapVersion.org_id) & (Approval.target_id == MapVersion.id)).where(
             Approval.org_id == user.org_id, Approval.status == 'PENDING').group_by(MapVersion.floor_id)).all())
-        return C.SiteTree(items=[C.MapSite(id=s.id, name=s.name, purpose=s.purpose, archived_at=s.archived_at, buildings=[C.MapBuilding(id=b.id,
-            site_id=b.site_id, name=b.name, archived_at=b.archived_at, sim_world_id=b.sim_world_id, floors=[floor_object(f, counts.get(f.id, 0)) for f in floors if f.building_id == b.id])
+        # demo: a SIM site whose building world has a live demo robot (Robot.demo, sim_world_id = world).
+        demo_worlds = set(db.scalars(select(Robot.sim_world_id).where(Robot.org_id == user.org_id,
+            Robot.demo.is_(True), Robot.simulation.is_(True), Robot.archived_at.is_(None))))
+        demo = lambda s: s.purpose == 'SIM' and any(b.sim_world_id in demo_worlds for b in buildings if b.site_id == s.id)
+        return C.SiteTree(items=[C.MapSite(id=s.id, name=s.name, purpose=s.purpose, archived_at=s.archived_at, demo=demo(s), buildings=[C.MapBuilding(id=b.id,
+            site_id=b.site_id, name=b.name, archived_at=b.archived_at, sim_world_id=b.sim_world_id, demo=s.purpose == 'SIM' and b.sim_world_id in demo_worlds, floors=[floor_object(f, counts.get(f.id, 0)) for f in floors if f.building_id == b.id])
             for b in buildings if b.site_id == s.id]) for s in sites])
 
     @app.post('/api/v1/sites', response_model=C.MapSite, status_code=201)

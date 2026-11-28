@@ -4,18 +4,20 @@ Environment (fail-closed, no defaults for credentials):
   FOOTHOLD_AGENT_WS_URL, FOOTHOLD_AGENT_TOKEN  same as every agent (link.client.Settings)
   FH_SIM_SRC                                   MuJoCo wasm / policy / Go2 assets for the child
   FH_SIM_MAP (collapsed-house-v2), FH_SIM_SEED (0), FH_SIM_NODE (node)
-  FH_SIM_BATTERY_START (100), FH_SIM_BATTERY_DRAIN (%/s of sim time, 0.0139)
+  FH_SIM_BATTERY_START (100, start SoC %), FH_SIM_AMBIENT_C (25, joint motor ambient degC).
+  Battery and joint temperatures are integrated by the child from MuJoCo torques (apps/simagent/vitals.mjs).
   FH_SIM_STATE_LOG (optional JSON-lines tap of child states for validation tools)
   FH_SIM_READY_FILE (optional; simmgr MujocoLauncher) gets this pid once the server WS opened
   Scenario runs (server run.start, 11/28): all of FH_SIM_ROBOT_ID, FH_SIM_ORG_ID, FH_SIM_MAP_BINDINGS
   (the server's SimMapBinding list, passed by simmgr), FOOTHOLD_SCENARIO_DATA_ORIGIN and
-  FOOTHOLD_RUN_OUTBOX_PATH. Then the phone Hub's ScenarioRun owns runs exactly as on the
+  FOOTHOLD_RUN_OUTBOX_PATH (FH_SIM_SPAWN_FLOOR, default l1, picks the binding for AgentState.pose). Then the phone Hub's ScenarioRun owns runs exactly as on the
   ROS path, with route.LocalNav in place of Nav2. Without them: Session only (no runs).
 """
 
 import asyncio
 import os
 from pathlib import Path
+import math
 import shutil
 import signal
 
@@ -31,10 +33,20 @@ def child_command(env):
     node = shutil.which(env.get('FH_SIM_NODE', 'node'))
     if node is None or not env.get('FH_SIM_SRC'):
         raise ValueError('set FH_SIM_SRC and a Node 22+ executable (FH_SIM_NODE)')
+    spawn = []
+    if env.get('FH_SIM_SPAWN'):  # 'x,y,yaw' from the simmgr slot (map-checked there); absent = map default spawn
+        parts = env['FH_SIM_SPAWN'].split(',')
+        try:
+            values = [float(v) for v in parts]
+        except ValueError:
+            raise ValueError('FH_SIM_SPAWN must be x,y,yaw') from None
+        if len(values) != 3 or not all(math.isfinite(v) for v in values):
+            raise ValueError('FH_SIM_SPAWN must be x,y,yaw')
+        spawn = ['--spawn', env['FH_SIM_SPAWN']]
     return [node, str(CHILD), '--map', env.get('FH_SIM_MAP', 'collapsed-house-v2'),
             '--seed', env.get('FH_SIM_SEED', '0'),
             '--battery-start', env.get('FH_SIM_BATTERY_START', '100'),
-            '--battery-drain', env.get('FH_SIM_BATTERY_DRAIN', '0.0139')]
+            '--ambient-c', env.get('FH_SIM_AMBIENT_C', '25'), *spawn]
 
 
 UNAVAILABLE = 'MuJoCo bridge has no scenario step executor yet'
@@ -61,7 +73,20 @@ def run_config(env):
             isinstance(b, dict) and {'world_id', 'floor_id', 'map_version_id', 'sha256'} <= set(b) for b in bindings):
         raise ValueError('FH_SIM_MAP_BINDINGS must be the server SimMapBinding list')
     return dict(robot=env['FH_SIM_ROBOT_ID'], org=env['FH_SIM_ORG_ID'], bindings=bindings,
-                origin=env['FOOTHOLD_SCENARIO_DATA_ORIGIN'], outbox=env['FOOTHOLD_RUN_OUTBOX_PATH'])
+                origin=env['FOOTHOLD_SCENARIO_DATA_ORIGIN'], outbox=env['FOOTHOLD_RUN_OUTBOX_PATH'],
+                spawn_floor=env.get('FH_SIM_SPAWN_FLOOR') or 'l1')
+
+
+def body_binding(cfg):
+    """The server-approved map of the floor the MuJoCo body stands on (AgentState.pose); None = no pose."""
+    from foothold_agent.ros_bridge.telemetry import MapBinding
+    if cfg is None:
+        return None
+    for b in cfg['bindings']:
+        if b.get('ros_floor_id') == cfg['spawn_floor']:
+            return MapBinding(b['world_id'], b['ros_floor_id'], b.get('ros_map_version') or b['ros_floor_id'],
+                              b['floor_id'], b['map_version_id'], b['sha256'], 0, 'mujoco-local')
+    return None
 
 
 class Pose:
@@ -160,7 +185,8 @@ class ReadySession(Session):
 
 
 async def run(settings, command, cfg=None):
-    bridge = MujocoNode(command, cwd=str(CHILD.parent), state_log=os.environ.get('FH_SIM_STATE_LOG'))
+    bridge = MujocoNode(command, cwd=str(CHILD.parent), state_log=os.environ.get('FH_SIM_STATE_LOG'),
+                        map_binding=body_binding(cfg))
     client = hub = local = journal = verifier = None
     pose = Pose(__import__('time').monotonic)
     tasks = []

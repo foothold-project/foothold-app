@@ -136,6 +136,7 @@ class Core:
         self.velocity_projection = velocity_projection
         self.controller = None      # 조종권을 가진 연결 id
         self.latch = False          # 앱 STOP 래치
+        self.latch_cause = None     # 풀린 상태에서 처음 잠근 까닭 (lock_log 원인 이름). 사람 STOP 과 시뮬 스스로 정지를 가른다 (#640)
         self.stop_gen = 0           # 잠금 세대(N1 10-15): 잠그는 모든 일(STOP — 이미 잠겼어도·조종권 해제·리셋·episode 변경·시뮬 STOP·시뮬 바쁨)마다 +1.
                                     # «조종 시작» 확인 때 본 값과 resume 의 stop_gen 이 다르면 거부 — 확인 뒤 끼어든 STOP 을 풀지 않는다(CAS)
         self.need_neutral = True    # 손 뗌(0) 한 번을 받아야 움직임
@@ -163,6 +164,8 @@ class Core:
 
     def _lock(self, cause="lock_transition", source="agent"):
         """잠금 + 재개 취소 + 입력 폐기 + 잠금 세대 +1(이미 잠겼어도)"""
+        if not self.latch:
+            self.latch_cause = cause
         self.latch = True; self.resume_pending = None; self._void(); self.stop_gen += 1
         self.lock_log.emit('stop', cause, source)
         self.lock_log.emit('lock', cause, source)

@@ -87,7 +87,7 @@ class PhoneTelemetry:
         # Readouts never update arbiter, STOP references, agent ownership or runs.
         state = dict(speed=data['speed'], source='PHONE',
                      robot_info=data.get('robot_info'),
-                     battery=(C.Battery(soc=body.state.battery.soc, updated_at=now()).model_dump(mode='json')
+                     battery=(C.Battery(soc=body.state.battery.soc, updated_at=now(), minutes_left=body.state.battery.minutes_left).model_dump(mode='json')
                               if body.state.battery.soc is not None else None),
                      devices=data.get('devices_changed') or [])
         with self._lock:

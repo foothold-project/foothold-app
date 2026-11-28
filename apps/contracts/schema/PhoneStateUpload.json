@@ -120,6 +120,20 @@
     },
     "AgentBattery": {
       "properties": {
+        "minutes_left": {
+          "anyOf": [
+            {
+              "maximum": 1440,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minutes Left"
+        },
         "soc": {
           "anyOf": [
             {
@@ -769,7 +783,8 @@
           "enum": [
             "v5_building",
             "plant_a",
-            "warehouse"
+            "warehouse",
+            "factory_site"
           ],
           "title": "World Id",
           "type": "string"
@@ -1524,7 +1539,8 @@
               "enum": [
                 "LINK_LOST",
                 "STOPPED_BY_USER",
-                "RECORDING_UNAVAILABLE"
+                "RECORDING_UNAVAILABLE",
+                "SIM_SELF_STOP"
               ],
               "type": "string"
             },

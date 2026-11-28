@@ -15,6 +15,18 @@
       ],
       "title": "Assignment Id"
     },
+    "busy_label": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Busy Label"
+    },
     "confirmed_by": {
       "anyOf": [
         {
@@ -69,7 +81,8 @@
       "enum": [
         "CONFIRMED",
         "DRAFT",
-        "BATTERY_SWAP"
+        "BATTERY_SWAP",
+        "MAINTENANCE"
       ],
       "title": "Kind",
       "type": "string"

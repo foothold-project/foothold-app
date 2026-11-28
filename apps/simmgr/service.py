@@ -122,7 +122,9 @@ class Manager:
                     or {b['ros_floor_id'] for b in map_bindings} != {'l1', 'l2'}):
                 raise SimError('SIM_VALIDATION', 400)
             world = replace(world, map_bindings=tuple(map_bindings))
-        if world_id == 'warehouse/f1':
+        if world_id == 'warehouse/f1' or (world_id in ('plant_a', 'factory_site/f1') and not self.launcher.real):
+            # plant_a · factory_site/f1 on the local MuJoCo backend: the agent's pose and server run.start need
+            # these bindings (factory_site 11/28 15:35: without them every robot's location was null).
             world = replace(world, map_bindings=tuple(map_bindings))
         if self.launcher.real and (not world.world_file.is_file() or not world.map_file.is_file()):
             raise SimError('SIM_ASSET_MISSING', 503)
@@ -204,7 +206,7 @@ class Manager:
                 if existing.generation == generation and existing.owner == owner_id and existing.world == world_id and existing.spawn_floor_id == spawn_floor_id and existing.state not in ('ERROR', 'STOPPING'):
                     return self.describe(existing)
                 raise SimError('SIM_SLOT_BUSY')
-            if any(r.owner == owner_id for r in self.robots.values()):
+            if sum(r.owner == owner_id for r in self.robots.values()) >= self.settings.max_per_owner:
                 raise SimError('SIM_OWNER_LIMIT')
             if self.launcher.real and self.robots:
                 raise SimError('SIM_NATIVE_SINGLE_ONLY')

@@ -24,9 +24,11 @@ from .environment import BASE_KEYS
 from .native_catalogue import WorldValidationError
 
 ROOT = Path(__file__).resolve().parents[2]
+WORLDS = ROOT / 'apps/simmgr/worlds'  # repository world catalogue: the spawn check reads its gt_map, not the slot catalogue
 # Only these sim knobs reach the agent; never DB URLs, service keys or pass keys.
 SIM_KEYS = ('FH_SIM_SRC', 'FH_SIM_NODE', 'FH_SIM_SEED', 'FH_SIM_BATTERY_START', 'FH_SIM_BATTERY_DRAIN',
-            'FH_SIM_ORT_NODE', 'FH_SIM_START_MAP', 'FH_SIM_POLICY_DIR')  # START m15500 policy (world.mjs)
+            'FH_SIM_ORT_NODE', 'FH_SIM_START_MAP', 'FH_SIM_POLICY_DIR',
+            'FH_SIM_STEP_STATS')  # START m15500 policy (world.mjs)
 MAP_ID = re.compile(r'[a-z0-9-]{1,64}')
 # Server world ids use '_' (plant_a); the MuJoCo map list (mobile/sim/maps.json) uses '-' (plant-a).
 
@@ -41,6 +43,36 @@ def mujoco_maps():
 def mujoco_map(world_id):
     # plant_a/l1: the spawn floor is not a separate MuJoCo map.
     return world_id.partition('/')[0].replace('_', '-')
+
+
+def spawn_arg(world, xyyaw):
+    """Slot spawn [x, y, yaw] -> 'x,y,yaw' for FH_SIM_SPAWN, refused (never moved) unless finite, inside the
+    repository map of that world (apps/simmgr/worlds/worlds.json gt_map) and on a free cell of its occupancy image."""
+    import math
+    from apps.server.fh_server.map_files import gray_pixels, map_yaml
+    try:
+        x, y, yaw = (float(v) for v in xyyaw)
+    except (TypeError, ValueError):
+        raise WorldValidationError('시작 자리 (spawn_xyyaw) 는 [x, y, yaw] 숫자 3 개', 'SIM_SPAWN_INVALID') from None
+    if not all(math.isfinite(v) for v in (x, y, yaw)):
+        raise WorldValidationError('시작 자리 (spawn_xyyaw) 는 유한한 숫자', 'SIM_SPAWN_INVALID')
+    try:
+        entries = json.loads((WORLDS / 'worlds.json').read_text())['worlds']
+        entry = entries.get(world.id) or next(e for e in entries.values() if e.get('world_id') == world.id)
+        map_file = WORLDS / entry['gt_map']
+        meta = map_yaml(map_file.read_bytes())
+        width, height, pixels = gray_pixels((map_file.parent / meta['image']).read_bytes())
+    except (OSError, ValueError, KeyError, TypeError, StopIteration):
+        raise WorldValidationError(f'시작 자리 검사용 저장소 지도가 없음 ({world.id})', 'SIM_SPAWN_INVALID') from None
+    ox, oy, _ = meta['origin']
+    col, row = math.floor((x - ox) / meta['resolution']), math.floor((y - oy) / meta['resolution'])
+    if not (0 <= col < width and 0 <= row < height):
+        raise WorldValidationError(f'시작 자리 ({x}, {y}) 가 지도 밖', 'SIM_SPAWN_INVALID')
+    value = pixels[(height - 1 - row) * width + col]
+    occupancy = (value if meta['negate'] else 255 - value) / 255
+    if occupancy > meta['free_thresh']:
+        raise WorldValidationError(f'시작 자리 ({x}, {y}) 가 빈 칸이 아님', 'SIM_SPAWN_INVALID')
+    return f'{x!r},{y!r},{yaw!r}'  # repr: no rounding of the catalogue value
 
 
 class MujocoLauncher:
@@ -84,6 +116,8 @@ class MujocoLauncher:
     async def add(self, slot, credentials):
         if slot.robot_id in self.children or self.world is None:
             raise RuntimeError('MuJoCo slot busy or no world')
+        xyyaw = (slot.spawns or {}).get(self.world.id)  # another world's value is never used here
+        spawn = None if xyyaw is None else spawn_arg(self.world, xyyaw)
         folder = self._folder(slot)
         ready = folder / 'ready'
         ready.unlink(missing_ok=True)
@@ -93,6 +127,12 @@ class MujocoLauncher:
                'FOOTHOLD_AGENT_WS_URL': self.settings.agent_ws_url,
                'FOOTHOLD_AGENT_TOKEN': credentials['agent_token'],
                'FH_SIM_MAP': mujoco_map(self.world.id), 'FH_SIM_READY_FILE': str(ready)}
+        if spawn is not None:
+            env['FH_SIM_SPAWN'] = spawn
+        if env.get('FH_SIM_STEP_STATS') == '1':
+            env['FH_SIM_STEP_STATS'] = str(folder / 'step-stats.jsonl')  # measurement tap, slot folder only
+        else:
+            env.pop('FH_SIM_STEP_STATS', None)
         bindings = credentials.get('map_bindings') or ()
         if bindings and self.settings.agent_ws_url:
             # Server-approved SIMULATION map bindings enable server run.start (route.LocalNav).
@@ -103,6 +143,12 @@ class MujocoLauncher:
                         'FH_SIM_MAP_BINDINGS': json.dumps(list(bindings)),
                         'FOOTHOLD_SCENARIO_DATA_ORIGIN': ('https' if url.scheme == 'wss' else 'http') + '://' + url.netloc,
                         'FOOTHOLD_RUN_OUTBOX_PATH': str(folder / 'run-outbox.sqlite')})
+            if credentials.get('spawn_floor_id'):
+                env['FH_SIM_SPAWN_FLOOR'] = credentials['spawn_floor_id']
+            elif len(bindings) == 1 and bindings[0].get('ros_floor_id'):
+                # One-floor world (factory_site/f1): no spawn floor is chosen; the agent default 'l1' would match
+                # no binding and send no pose, so name the one bound floor.
+                env['FH_SIM_SPAWN_FLOOR'] = bindings[0]['ros_floor_id']
         with open(folder / 'agent.log', 'ab') as log:
             child = subprocess.Popen(self.command, cwd=str(ROOT), env=env, stdin=subprocess.DEVNULL,
                                      stdout=log, stderr=log, start_new_session=True)

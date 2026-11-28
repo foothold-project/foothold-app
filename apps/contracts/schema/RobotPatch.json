@@ -3,6 +3,27 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "demo": {
+      "description": "시뮬 로봇만 바꿀 수 있다. 실기는 409 DEMO_REQUIRES_SIMULATION.",
+      "title": "Demo",
+      "type": "boolean"
+    },
+    "equipment_tier": {
+      "anyOf": [
+        {
+          "enum": [
+            "STANDARD",
+            "UPPER"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "총괄만 바꾼다 (담당 운영자는 403 FORBIDDEN). null = 정하지 않음.",
+      "title": "Equipment Tier"
+    },
     "name": {
       "maxLength": 128,
       "minLength": 1,

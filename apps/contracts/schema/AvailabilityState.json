@@ -5,7 +5,8 @@
     "FREE",
     "BUSY",
     "CHARGING",
-    "OFFLINE"
+    "OFFLINE",
+    "MAINTENANCE"
   ],
   "type": "string"
 }

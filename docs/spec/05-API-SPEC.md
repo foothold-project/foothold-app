@@ -125,7 +125,7 @@
   "owner": { "id": "…", "display_name": "이OO" },
   "connection": "ONLINE"|"OFFLINE",
   "status": "IDLE"|"TELEOP"|"RUNNING"|"PAUSED"|"STOP_LATCHED"|"ERROR",
-  "battery": { "soc": 82, "updated_at": "…" } | null,
+  "battery": { "soc": 82, "updated_at": "…", "minutes_left": 41 | null } | null,   // minutes_left: 남은 분 (정수, 모르면 null, 옛 응답엔 없음)
   "location": { "floor_id": "…", "map_version_id": "…", "x": 3.2, "y": -1.1, "yaw": 1.57,
                 "confidence": 0.91, "updated_at": "…" } | null,
   "lease": { "holder_type": "USER"|"RUN", "user": {"id":"…","display_name":"…"}|null, "since": "…" } | null,
@@ -537,7 +537,7 @@ purge 이후 NULL 기록이 생겼거나 파일 대기열이 남으면
 | t | 본문 | 빈도 |
 |---|---|---|
 | `hello` | `{proto:"fh-agent/1", agent_version, robot_model, firmware, devices:[…], map_versions:[sha256…], last_floor_id, latched, stop_gen, lease_id, run:{run_id, status, step, wait_reason?}|null}` | 연결 직후 1회(3 s 안). 서버는 이것으로 실행·조종권을 맞춘다([04 §3.2](04-ARCHITECTURE.md#32-연결-끊김-처리) 재연결) |
-| `state` | `{pose:{floor_id,x,y,yaw,confidence}, speed, battery:{soc,voltage?}, latched, stop_gen, stop_ref, applied:[vx,vy,wz], mode:"USER"|"RUN"|"FREE", devices_changed?, field_gate?}`. `field_gate` 는 현장 승인 관문이 있는 실기 에이전트만 `OPEN`/`CLOSED`, 관문 없음·모름은 `null`. 측정 전 값(pose 각 칸·speed·soc)은 `null`. `stop_ref` 는 §10.5 | 10 Hz, 그리고 `lease`·`stop`·`unlock` 을 적용한 직후 |
+| `state` | `{pose:{floor_id,x,y,yaw,confidence}, speed, battery:{soc,voltage?,minutes_left?}, latched, stop_gen, stop_ref, applied:[vx,vy,wz], mode:"USER"|"RUN"|"FREE", devices_changed?, field_gate?}`. `minutes_left` 는 남은 분 (정수 0~1440, 모름·잘못된 값은 `null`, 실기는 모형이 없어 `null`). `field_gate` 는 현장 승인 관문이 있는 실기 에이전트만 `OPEN`/`CLOSED`, 관문 없음·모름은 `null`. 측정 전 값(pose 각 칸·speed·soc)은 `null`. `stop_ref` 는 §10.5 | 10 Hz, 그리고 `lease`·`stop`·`unlock` 을 적용한 직후 |
 | `ping` | `{}` | 서버 `ping` 에는 `state` 또는 `ping` 으로 응답한다(10 Hz `state` 가 응답을 겸함) |
 | `event` | `{code, severity, robot_at|null, data}` (서버가 문장을 만든다) | 생길 때. 끊김 중 쌓은 것은 재연결 때 순서대로. 끊긴 동안의 재시도 사건은 하나로 묶는다(§10.3 규칙 11) |
 | `run.update` | `{run_id, status, step, progress, path_deviation_m?, fail_code?}` | 바뀔 때 |

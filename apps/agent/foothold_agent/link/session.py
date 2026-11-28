@@ -235,14 +235,16 @@ class Session:
     def _state(self):
         self._sync_output_hold()
         from .telemetry import project
-        return {"t": "state", **project(self._telemetry, self.now()),
+        measured = project(self._telemetry, self.now())
+        return {"t": "state", **measured,
                 "devices_changed": self._device_snapshot(),
                 "latched": self.core.latch, "stop_gen": self._generation(),
                 "safety_reason": "OUTPUT_STALLED" if self._output_stall_locked and self.core.latch else None,
                 "field_gate": None,
                 "unlock_refused": deepcopy(self.unlock_refused),
                 "stop_ref": self.stop_ref, "applied": list(self.core.out), "mode": self.holder_type or "FREE",
-                **({"gait": {"gait": None, "available": []}, "gait_result": deepcopy(self.gait_result)}
+                **({"gait": measured.get("gait") or {"gait": None, "available": []},
+                    "gait_result": deepcopy(self.gait_result)}
                    if self.gait_result is not None else {})}
 
     def _sync_output_hold(self):

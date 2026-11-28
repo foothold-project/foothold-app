@@ -133,7 +133,7 @@
       "title": "Manager Instance Id"
     },
     "max_robots": {
-      "maximum": 4,
+      "maximum": 8,
       "minimum": 1,
       "title": "Max Robots",
       "type": "integer"

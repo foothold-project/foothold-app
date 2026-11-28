@@ -5,9 +5,11 @@ The child here is a plain Python stand-in for ``python -m foothold_agent.mujoco_
 write its own pid to FH_SIM_READY_FILE after the server connection opens.
 """
 import asyncio
+import json
 from dataclasses import replace
 import os
 from pathlib import Path
+import subprocess
 import sys
 import time
 from uuid import uuid4
@@ -227,3 +229,233 @@ def test_mujoco_map_name_drops_spawn_floor_and_uses_dashes():
     assert mujoco_map('plant_a/l1') == 'plant-a'
     assert mujoco_map('plant_a') == 'plant-a'
     assert mujoco_map('collapsed-house-v2') == 'collapsed-house-v2'
+
+
+def test_plant_a_server_map_bindings_reach_the_mujoco_agent(tmp_path):
+    """plant_a: the server's approved SIMULATION bindings must reach the agent env (server run.start path)."""
+    async def run():
+        cfg, launch = launcher(tmp_path, 'ready')
+        cfg = replace(cfg, worlds={'plant_a/l1': World('plant_a/l1', Path('/p/a'), Path('/p/b'))})
+        launch.settings = cfg
+        manager = Manager(cfg, launch)
+        slot = next(iter(cfg.slots.values()))
+        bindings = [dict(world_id='plant_a', ros_floor_id='l1', floor_id=str(uuid4()), map_version_id=str(uuid4()),
+                         image_sha256='a' * 64, source_pgm_sha256='b' * 64)]
+        seen = {}
+        original = launch.add
+        async def spy(s, credentials):
+            seen.update(credentials)
+            return await original(s, credentials)
+        launch.add = spy
+        await manager.add('plant_a', slot.robot_id, str(uuid4()), slot.org_id, 'x' * 32, 1, 'l1', bindings)
+        assert list(seen['map_bindings']) == bindings
+        await manager.close()
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('count, backend, ok', [(8, 'mujoco', True), (9, 'mujoco', False), (3, None, False), (2, None, True)])
+def test_robot_cap_eight_for_mujoco_two_otherwise(tmp_path, count, backend, ok):
+    org = str(uuid4())
+    slots = {s.robot_id: s for s in (Slot(str(uuid4()), org, '/k', f'/r{i}', 9433 + i) for i in range(count))}
+    make = lambda: Settings({'collapsed-house-v2': World('collapsed-house-v2', Path('/a'), Path('/b'))}, slots, 'x' * 32,
+                            run_dir=str(tmp_path), local_backend=backend, max_robots=count)
+    if ok:
+        assert make().max_robots == count
+    else:
+        with pytest.raises(ValueError):
+            make()
+
+
+def test_owner_limit_default_one_robot(tmp_path):
+    async def run():
+        cfg = replace(settings(tmp_path), local_backend=None)
+        manager = Manager(cfg)
+        owner = str(uuid4())
+        a, b = list(cfg.slots.values())[:2]
+        await manager.add('collapsed-house-v2', a.robot_id, owner, a.org_id, 'x' * 32, 1)
+        with pytest.raises(SimError) as error:
+            await manager.add('collapsed-house-v2', b.robot_id, owner, b.org_id, 'x' * 32, 1)
+        assert error.value.code == 'SIM_OWNER_LIMIT'
+    asyncio.run(run())
+
+
+def test_owner_limit_two_for_local_demo_then_refused(tmp_path):
+    """demo-day 11/28 (app-design-lx 12:41): MuJoCo local may let one person hold several robots; above it refused."""
+    async def run():
+        org = str(uuid4())
+        slots = {s.robot_id: s for s in (Slot(str(uuid4()), org, '/k', f'/r{i}', 9433 + i) for i in range(3))}
+        cfg = Settings({'collapsed-house-v2': World('collapsed-house-v2', Path('/a'), Path('/b'))}, slots, 'x' * 32,
+                       run_dir=str(tmp_path), local_backend='mujoco', max_robots=3, max_per_owner=2)
+        manager = Manager(cfg, FakeLauncher())  # owner rule only; no child process
+        owner = str(uuid4())
+        a, b, c = slots.values()
+        await manager.add('collapsed-house-v2', a.robot_id, owner, org, 'x' * 32, 1)
+        await manager.add('collapsed-house-v2', b.robot_id, owner, org, 'x' * 32, 1)
+        with pytest.raises(SimError) as error:
+            await manager.add('collapsed-house-v2', c.robot_id, owner, org, 'x' * 32, 1)
+        assert error.value.code in ('SIM_OWNER_LIMIT', 'SIM_CAPACITY')
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('per_owner, backend, ok', [(3, 'mujoco', True), (8, 'mujoco', True), (9, 'mujoco', False),
+                                                     (0, 'mujoco', False), (2, None, False), (1, None, True)])
+def test_owner_limit_above_one_only_for_mujoco_local(tmp_path, per_owner, backend, ok):
+    org = str(uuid4())
+    slots = {s.robot_id: s for s in (Slot(str(uuid4()), org, '/k', f'/r{i}', 9433 + i) for i in range(2))}
+    make = lambda: Settings({'collapsed-house-v2': World('collapsed-house-v2', Path('/a'), Path('/b'))}, slots, 'x' * 32,
+                            run_dir=str(tmp_path), local_backend=backend, max_per_owner=per_owner)
+    if ok:
+        assert make().max_per_owner == per_owner
+    else:
+        with pytest.raises(ValueError):
+            make()
+
+
+def test_step_stats_file_only_when_asked(tmp_path, monkeypatch):
+    """Measurement tap (policy step wall time) goes to the slot folder only with FH_SIM_STEP_STATS=1."""
+    async def run(flag):
+        (tmp_path / flag).mkdir()
+        cfg, launch = launcher(tmp_path / flag, 'ready')
+        launch.base_env = {**launch.base_env, **({'FH_SIM_STEP_STATS': '1'} if flag == 'on' else {})}
+        seen = {}
+        original = subprocess.Popen
+        def spy(cmd, **kw):
+            seen.update(kw['env'])
+            return original(cmd, **kw)
+        monkeypatch.setattr('apps.simmgr.mujoco_launcher.subprocess.Popen', spy)
+        manager = Manager(cfg, launch)
+        slot, pending = add(manager, cfg)
+        await pending
+        await manager.close()
+        return seen.get('FH_SIM_STEP_STATS'), slot
+    path, slot = asyncio.run(run('on'))
+    assert path is not None and path.endswith(slot.robot_id + '/step-stats.jsonl')
+    assert asyncio.run(run('off'))[0] is None
+
+
+def test_factory_site_map_name_is_listed_and_neighbours_are_refused(tmp_path):
+    """공장 터: 서버 키 factory_site/f1 -> MuJoCo 지도 factory-site (maps.json 에 있음). 비슷한 이름은 목록에 없어 거절."""
+    from apps.simmgr.mujoco_launcher import mujoco_map, mujoco_maps
+    assert mujoco_map('factory_site/f1') == 'factory-site' and 'factory-site' in mujoco_maps()
+
+    async def run():
+        _, launch = launcher(tmp_path, 'ready')
+        await launch.start_world(World('factory_site/f1', Path('/p/a'), Path('/p/b')))
+        assert launch.world.id == 'factory_site/f1'
+        for key in ('factory_site_x/f1', 'factory/f1', 'site/f1'):
+            cfg, launch = launcher(tmp_path, 'ready')
+            cfg = replace(cfg, worlds={key: World(key, Path('/p/a'), Path('/p/b'))})
+            launch.settings = cfg
+            manager = Manager(cfg, launch)
+            slot = next(iter(cfg.slots.values()))
+            with pytest.raises(SimError) as error:
+                await manager.add(key, slot.robot_id, str(uuid4()), slot.org_id, 'x' * 32, 1)
+            assert error.value.code == 'SIM_WORLD_INVALID' and launch.children == {}
+    asyncio.run(run())
+
+
+def spawn_world(tmp_path, monkeypatch):
+    """저장소 worlds.json 자리 (WORLDS) 에 3 x 2 칸 0.5 m 지도: 가운데 윗줄 한 칸만 막힘 (원점 (0, 0), 위가 0 행).
+    카탈로그 World 의 map_file 은 local_up 처럼 없는 자리: 시작 자리 검사는 그것을 읽지 않는다."""
+    from apps.server.fh_server.map_files import gray_png
+    root = tmp_path / 'worlds'
+    (root / 'tiny/maps').mkdir(parents=True)
+    (root / 'tiny/maps/m.png').write_bytes(gray_png(3, 2, bytes([254, 0, 254, 254, 254, 254])))
+    (root / 'tiny/maps/m.yaml').write_text('image: m.png\nresolution: 0.5\norigin: [0.0, 0.0, 0.0]\nnegate: 0\n'
+                                           'occupied_thresh: 0.65\nfree_thresh: 0.196\nmode: trinary\n')
+    (root / 'worlds.json').write_text(json.dumps({'worlds': {'collapsed-house-v2/f1': {
+        'world_id': 'collapsed-house-v2', 'gt_map': 'tiny/maps/m.yaml'}}}))
+    monkeypatch.setattr('apps.simmgr.mujoco_launcher.WORLDS', root)
+    return World('collapsed-house-v2', Path('/nonexistent/mujoco'), Path('/nonexistent/mujoco'))
+
+
+def spawn_env(tmp_path, monkeypatch, spawns):
+    async def run():
+        cfg, launch = launcher(tmp_path, 'ready')
+        slot = next(iter(cfg.slots.values()))
+        cfg = replace(cfg, worlds={'collapsed-house-v2': spawn_world(tmp_path, monkeypatch)},
+                      slots={**cfg.slots, slot.robot_id: replace(slot, spawns=spawns)})
+        launch.settings = cfg
+        seen = {}
+        original = subprocess.Popen
+        def spy(cmd, **kw):
+            seen.update(kw['env'])
+            return original(cmd, **kw)
+        monkeypatch.setattr('apps.simmgr.mujoco_launcher.subprocess.Popen', spy)
+        manager = Manager(cfg, launch)
+        try:
+            await manager.add('collapsed-house-v2', slot.robot_id, str(uuid4()), slot.org_id, 'x' * 32, 1)
+        finally:
+            await manager.close()
+        return seen
+    return asyncio.run(run())
+
+
+def test_slot_without_spawn_keeps_the_world_spawn(tmp_path, monkeypatch):
+    assert 'FH_SIM_SPAWN' not in spawn_env(tmp_path, monkeypatch, None)
+
+
+def test_slot_spawn_reaches_the_child_environment(tmp_path, monkeypatch):
+    seen = spawn_env(tmp_path, monkeypatch, {'collapsed-house-v2': (0.25, 0.25, 1.5)})
+    assert seen['FH_SIM_SPAWN'] == '0.25,0.25,1.5'
+
+
+def test_spawn_for_another_world_is_not_used(tmp_path, monkeypatch):
+    """공장 터 값을 가진 로봇이 다른 세계로 들어가면 칸을 쓰지 않는다 (막힌 값이어도 그 세계 검사에 가지 않음)."""
+    seen = spawn_env(tmp_path, monkeypatch, {'factory_site/f1': (0.75, 0.75, 0.0)})
+    assert 'FH_SIM_SPAWN' not in seen
+
+
+@pytest.mark.parametrize('spawn', [(0.75, 0.75, 0.0),            # 막힌 칸 (가운데 윗줄)
+                                   (1.6, 0.25, 0.0), (0.25, -0.1, 0.0),   # 지도 밖
+                                   (float('nan'), 0.25, 0.0), (0.25, 0.25)])
+def test_blocked_outside_or_malformed_spawn_is_refused_before_any_process(tmp_path, monkeypatch, spawn):
+    with pytest.raises(Exception) as caught:
+        spawn_env(tmp_path, monkeypatch, {'collapsed-house-v2': spawn})
+    assert '시작 자리' in str(caught.value)
+
+
+def test_spawn_world_without_a_repository_map_is_refused(tmp_path, monkeypatch):
+    with pytest.raises(Exception) as caught:
+        async def run():
+            cfg, launch = launcher(tmp_path, 'ready')
+            spawn_world(tmp_path, monkeypatch)
+            slot = next(iter(cfg.slots.values()))
+            cfg = replace(cfg, worlds={'warehouse': World('warehouse', Path('/x'), Path('/x'))},
+                          slots={**cfg.slots, slot.robot_id: replace(slot, spawns={'warehouse': (1.0, 1.0, 0.0)})})
+            launch.settings = cfg
+            monkeypatch.setattr('apps.simmgr.mujoco_launcher.mujoco_maps', lambda: {'warehouse'})
+            manager = Manager(cfg, launch)
+            try:
+                await manager.add('warehouse', slot.robot_id, str(uuid4()), slot.org_id, 'x' * 32, 1)
+            finally:
+                await manager.close()
+        asyncio.run(run())
+    assert '시작 자리' in str(caught.value)
+
+
+def test_factory_site_bindings_and_single_floor_reach_the_mujoco_agent(tmp_path, monkeypatch):
+    """factory_site/f1 on the local MuJoCo backend (11/28 15:35, location null after the move): the server's
+    approved SIMULATION binding reaches the agent env, and with no spawn_floor_id (one-floor world) the one
+    binding's ros_floor_id becomes FH_SIM_SPAWN_FLOOR (the agent default 'l1' would match nothing)."""
+    async def run():
+        cfg, launch = launcher(tmp_path, 'ready')
+        cfg = replace(cfg, worlds={'factory_site/f1': World('factory_site/f1', Path('/p/a'), Path('/p/b'))})
+        launch.settings = cfg
+        manager = Manager(cfg, launch)
+        slot = next(iter(cfg.slots.values()))
+        bindings = [dict(world_id='factory_site', ros_floor_id='f1', floor_id=str(uuid4()), map_version_id=str(uuid4()),
+                         image_sha256='a' * 64, source_pgm_sha256='b' * 64)]
+        seen = {}
+        original = subprocess.Popen
+        def spy(cmd, **kw):
+            seen.update(kw['env'])
+            return original(cmd, **kw)
+        monkeypatch.setattr('apps.simmgr.mujoco_launcher.subprocess.Popen', spy)
+        try:
+            await manager.add('factory_site/f1', slot.robot_id, str(uuid4()), slot.org_id, 'x' * 32, 1, None, bindings)
+        finally:
+            await manager.close()
+        assert json.loads(seen['FH_SIM_MAP_BINDINGS']) == bindings
+        assert seen['FH_SIM_SPAWN_FLOOR'] == 'f1'
+    asyncio.run(run())

@@ -1,0 +1,1 @@
+{"draft":true,"source":"apps/simmgr/worlds/factory_site/sources.json (glb sha256 만, 파일은 커밋 안 함)","sdf_sha256":"525b62578ea70f6b06e123c945ffc57253b8f2817d3a585bdc69678e84c4b6b8","generator":"apps/simmgr/tools/import_site.py","geoms":6242,"physics":"땅 상자 + 막힌 칸 직사각형 상자 (높이 1.0 m)","readiness":"draft; headless 보행은 probe 기록 참고 · 폰 FPS 미확인"}

@@ -43,6 +43,7 @@ class Settings:
     server_drive_enabled: bool | None = None
     robot_installer_enabled: bool = True
     schedule_runner_enabled: bool = False  # 일정 칸 예약 실행 (from_env 기본 켬, 시험은 직접 tick)
+    schedule_pre_unlock: bool = False  # 예약 미리 풀기. 기본 꺼짐 (Codex #633 검토 11/28 15:20, 통합 사본)
     schedule_real_robots: bool = False  # 실기 예약 실행 (①) 을 여는 한 곳. 실기 STOP 확인 뒤에만 켠다 (11/28 10:58)
 
     def drive_enabled(self, robot_id):
@@ -58,6 +59,7 @@ class Settings:
                    robot_installer_enabled=os.environ.get('FH_ROBOT_INSTALLER_ENABLED', '1') == '1',
                    schedule_runner_enabled=os.environ.get('FH_SCHEDULE_RUNNER', '1') == '1',
                    schedule_real_robots=os.environ.get('FH_SCHEDULE_REAL_ROBOTS', '0') == '1',
+                   schedule_pre_unlock=os.environ.get('FH_SCHEDULE_PRE_UNLOCK', '0') == '1',
                    simmgr_url=os.environ.get('FH_SIM_MANAGER_URL'), simmgr_auth_file=os.environ.get('FH_SIM_AUTH_FILE'),
                    tunnel_origin=tunnel_origin(os.environ),
                    server_drive_enabled=(os.environ['FH_SERVER_DRIVE_ENABLED'] == '1'
@@ -729,6 +731,10 @@ def create_app(settings: Settings | None = None):
         authorize(user, 'ROBOT_WRITE', row)
         if row.simulation and 'owner_user_id' in body.model_fields_set:
             fail(409, 'SIM_ROBOT_MANAGED', '시뮬 관리자에서만 담당자를 관리합니다.')
+        if 'equipment_tier' in body.model_fields_set and user.role != 'ORG_ADMIN':
+            fail(403, 'FORBIDDEN', '장비 등급은 총괄 관리자만 바꿀 수 있습니다.')
+        if not row.simulation and 'demo' in body.model_fields_set:
+            fail(409, C.DEMO_REQUIRES_SIMULATION, '데모 로봇은 시뮬 로봇만 될 수 있습니다.')
         changing_owner = ('owner_user_id' in body.model_fields_set
                           and body.owner_user_id != row.owner_user_id)
         if changing_owner:
@@ -738,6 +744,8 @@ def create_app(settings: Settings | None = None):
                 values = body.model_dump(exclude_unset=True)
                 if 'name' in values and values['name'] is None:
                     fail(400, 'VALIDATION', '이름을 입력하세요.')
+                if 'demo' in values and values['demo'] is None:
+                    fail(400, 'VALIDATION', '데모 여부를 true 또는 false 로 보내세요.')
                 if 'owner_user_id' in values:
                     if not row.simulation and values['owner_user_id'] is None:
                         fail(400, 'VALIDATION', '담당 운영자를 선택하세요.')
@@ -913,7 +921,8 @@ def create_app(settings: Settings | None = None):
     install(app, settings, factory, authorize, APIError)
     from . import scheduler
     app.state.scheduler = scheduler.Scheduler(app.state.realtime, factory, settings.org_id,
-                                              real_enabled=settings.schedule_real_robots)
+                                              real_enabled=settings.schedule_real_robots,
+                                              pre_unlock=settings.schedule_pre_unlock)
     from . import mapping
     mapping.install(app, DB, Identity, factory, settings, fail, event, lock_organization)
     trash.install(app, DB, Identity, fail, authorize, event)

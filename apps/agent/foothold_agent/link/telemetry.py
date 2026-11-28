@@ -61,4 +61,16 @@ def project(snapshot, now):
         result["battery"]["soc"] = battery["soc"]
         if number(battery.get("voltage")) and battery["voltage"] >= 0:
             result["battery"]["voltage"] = battery["voltage"]
+        minutes = battery.get("minutes_left")
+        if type(minutes) is int and minutes >= 0:
+            result["battery"]["minutes_left"] = minutes
+    # Producer-measured gait (GaitState shape); the MuJoCo bridge only.
+    gait = snapshot.get("gait")
+    if isinstance(gait, dict):
+        result["gait"] = gait
+    # Display readout (Go2RobotInfo shape) only when the producer put one in the
+    # snapshot, e.g. the MuJoCo bridge's joint temperatures; ros_bridge never does.
+    info = snapshot.get("robot_info")
+    if isinstance(info, dict):
+        result["robot_info"] = info
     return deepcopy(result)
