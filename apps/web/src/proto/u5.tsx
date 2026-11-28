@@ -1,7 +1,10 @@
 // 관제 탭 = 시안 u5_1 타일 · u5_2 고름 · u5_3 지도 보기 · u5_4 뒤집기 · u5_5 경보 · u5_6 운영자. 여섯 장의 body 를 JSX 로 옮기고(태그 · 클래스 · 순서 · 글 그대로)
 // 고정 글 자리만 서버 값으로 바꿨다. 서버에 없는 값은 칸을 두고 «—». 명령은 기존 모듈(STOP = App 의 정지 처리, 고름 = controlPick)만 부른다.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { ScreenState } from '../../../contracts/ts';
+import type { RobotSummary, ScreenState } from '../../../contracts/ts';
+import { api, type ApiFail } from '../api';
+import { RUN } from '../screens';
+import { realDash } from '../screens/fleet';
 import { ownerName, robotStatus, type Robot } from '../fake';
 import { GAITS } from '../gait';
 import { JOINTS } from '../go2model';
@@ -165,10 +168,33 @@ function Recent({ list, pick, open }: { list: TileFacts[]; pick: (id: string) =>
       return <div className="al" key={f.x.id} data-alert={f.x.id} role="button" tabIndex={0} onClick={() => pick(f.x.id)} onDoubleClick={() => open(f.x.id)}><span style={{ color: red ? '#ff4d4f' : '#f2b705' }}>{I(18, f.hot && f.level ? IC.temp : f.lostNow ? IC.wifi : IC.warn)}</span><div>{f.x.name} {head}<small>{sub}</small></div>{t && <time data-alert-at title={`받은 시각 ${t}`}>{t}</time>}</div>; })}
   </div>;
 }
-function Picked({ f, open }: { f: TileFacts; open: () => void }) {
+const m1 = (v: number | null) => (v == null ? '—' : v.toFixed(1));
+const hms = (at: string) => new Date(at).toTimeString().slice(0, 8);
+/** 고른 로봇 상세 = GET /robots/{id}(옛 로봇 탭 서랍과 같은 요청). 담당이 바뀌면 다시 받고, 늦게 온 옛 답은 버린다. 404 = 목록을 다시 받음 */
+function useDetail(id: string, owner: string, cancel: AbortSignal | undefined, refresh: () => void) {
+  const [got, setGot] = useState<RobotSummary | null>(null), [err, setErr] = useState(''), gen = useRef(0);
+  useEffect(() => {
+    const g = ++gen.current; setErr('');
+    api.robot(id, cancel).then((r) => { if (g === gen.current) setGot(r); }, (e: ApiFail) => {
+      if (g !== gen.current || e.code === 'CANCELED') return;
+      if (e.status !== 404) return setErr(`상세를 받지 못했습니다. ${e.message}`);
+      setErr('이 로봇을 찾을 수 없습니다. 지워졌을 수 있어 목록을 다시 받습니다.'); refresh();
+    });
+  }, [id, owner]);
+  return { got: got?.id === id ? got : null, err };
+}
+/** 선택 칸(u5_2): 임무 · 위치 · 모드 · 조종. 상세(GET /robots/{id}) 값, 실시간 state 가 있으면 그것이 앞선다 */
+function Picked({ f, open, me, cancel, refresh }: { f: TileFacts; open: () => void; me: string; cancel?: AbortSignal; refresh: () => void }) {
+  useRt();
+  const { got, err } = useDetail(f.x.id, f.x.owner, cancel, refresh), hidden = f.x.unknown === 'summary';
+  const s = hidden ? null : rt.get(f.x.id).state, loc = s ? s.location : got?.location ?? null;
+  const run = got?.current_run, runText = run ? `${run.scenario_name} · ${RUN[run.status] ?? run.status} · 할 일 ${run.progress.done} / ${run.progress.total}` : f.mission ? `${f.mission.name}${f.mission.total ? ` · 할 일 ${f.mission.done} / ${f.mission.total}` : ''}` : '진행 중인 임무가 없습니다';
+  const lease = got?.lease, held = rt.get(f.x.id).holder;
+  const who = held ? (held.id === me ? '나' : held.name || '—') : lease ? (lease.holder_type === 'RUN' ? '임무' : lease.user ? (lease.user.id === me ? '나' : lease.user.display_name) : '—') : '없음';
   return <div className="pane" style={{ padding: '18px 18px 18px' }} data-picked><div className="row" style={{ justifyContent: 'space-between' }}><span className="ttl">{f.x.name}</span></div>
-    <div className="kv"><span>임무</span>{f.mission ? `${f.mission.name}${f.mission.total ? ` · 할 일 ${f.mission.done} / ${f.mission.total}` : ''}` : '—'}<span>위치</span>{f.place}<span>모드</span>{f.mode}<span>조종</span>{f.who[1] === '담당자' ? '—' : f.who[0]}</div>
-    <p className="mu2" style={{ fontSize: '12.5px', marginTop: '14px', lineHeight: '1.5' }}>한 번 더 누르면 로봇 탭에서 열립니다.</p>
+    <div className="kv"><span>임무</span><b data-k="임무" style={{ fontWeight: 'inherit' }}>{hidden ? '확인 안 됨' : runText}</b><span>위치</span><b data-k="위치" style={{ fontWeight: 'inherit' }}>{hidden ? '확인 안 됨' : loc && loc.x != null && loc.y != null ? `x ${m1(loc.x)} m · y ${m1(loc.y)} m (${hms(loc.updated_at)})` : '위치 없음'}</b><span>모드</span><b data-k="모드" style={{ fontWeight: 'inherit' }}>{f.mode}</b><span>조종</span><b data-k="조종" style={{ fontWeight: 'inherit' }}>{hidden ? '확인 안 됨' : who}</b></div>
+    {err ? <p className="mu2" role="alert" style={{ fontSize: '12.5px', marginTop: '14px', lineHeight: '1.5' }} data-detail-err>{err}</p>
+      : <p className="mu2" style={{ fontSize: '12.5px', marginTop: '14px', lineHeight: '1.5' }}>한 번 더 누르면 로봇 탭에서 열립니다.</p>}
     <div className="btns openb" style={{ height: '46px', marginTop: '12px', fontSize: '14px' }} role="button" tabIndex={0} onClick={open} onKeyDown={(e) => { if (e.key === 'Enter') open(); }}>{I(17, IC.dog)}로봇 탭에서 열기</div></div>;
 }
 function Alarm({ f, stop, open }: { f: TileFacts; stop?: (id: string) => void; open: () => void }) {
@@ -195,16 +221,20 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
   const n = (f: (x: TileFacts) => boolean) => all.filter(f).length;
   const g = wallGrid(all.length), picked = all.find((f) => f.x.id === sel), crit = all.find((f) => f.level === 'crit');
   const seg = (on: boolean, v: string, icon: ReactNode, go: () => void) => <span className={on ? 'on' : ''} data-v={v} role="button" tabIndex={0} aria-pressed={on} onClick={go} onKeyDown={(e) => { if (e.key === 'Enter') go(); }}>{I(16, icon)}{v}</span>;
-  const cnt = (k: string, icon: ReactNode, v: number | null, red = false) => <span className="cnt" style={red ? { color: '#ff4d4f' } : undefined} data-sum={k}>{I(16, icon, red ? '#ff4d4f' : undefined)}{`${k} `}<b style={red ? { color: '#ff4d4f' } : undefined}>{v ?? '—'}</b></span>;
+  // 총괄: 수 칸 = 서버 요약(GET /dashboard · 시뮬 몫은 뺌 · realDash)의 임무 중 · 주의 필요(=경고). 받지 못하면 «—» + 까닭(title · 화면 읽기 한 줄). 운영 관리자 = 받은 로봇 상태로 셈
+  const d = admin ? realDash(c.dash?.d ?? null, c.robots) : null, dErr = admin ? c.dash?.err ?? '' : '';
+  const why = dErr ? `요약을 받지 못했습니다. ${dErr}` : undefined;
+  const cnt = (k: string, icon: ReactNode, v: number | null, red = false, src?: 'dashboard') => <span className="cnt" style={red ? { color: '#ff4d4f' } : undefined} data-sum={k} data-src={src} title={src ? why : undefined}>{I(16, icon, red ? '#ff4d4f' : undefined)}{`${k} `}<b style={red ? { color: '#ff4d4f' } : undefined}>{v ?? '—'}</b></span>;
   return <main className="u5" data-view={view} aria-label="관제">
     <div className="tb"><div className="seg2" role="group" aria-label="보기">{seg(view === 'tiles', '타일 보기', IC.tiles, () => setView('tiles'))}{seg(view === 'map', '지도 보기', IC.map, () => setView('map'))}</div>
       <span className="pinf"><i></i>첫 화면으로</span><span className="sep"></span>
-      {cnt('임무 중', IC.flag, n((f) => f.x.online && !!f.mission && f.x.status === 'RUNNING'))}
+      {admin ? cnt('임무 중', IC.flag, d ? d.robots_running : null, false, 'dashboard') : cnt('임무 중', IC.flag, n((f) => f.x.online && !!f.mission && f.x.status !== 'PAUSED'))}
       {cnt('충전', IC.bolt, null)}
       {cnt('점검', IC.wrench, null)}
       {cnt('연결 중', IC.wifi, n((f) => !f.sim && (f.lostNow || (!f.x.online && f.x.unknown === 'wait'))))}
       {cnt('시뮬 대기', IC.box, n((f) => f.sim && f.x.status !== 'RUNNING'))}
-      {cnt('경고', IC.warn, n((f) => !!f.level), true)}
+      {admin ? cnt('경고', IC.warn, d ? d.robots_attention : null, true, 'dashboard') : cnt('경고', IC.warn, n((f) => !!f.level), true)}
+      {why && <span className="ap-sr" role="alert" data-dash-err>{why}</span>}
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '14px' }}>
         {view === 'tiles' && <span className="btns flipb" style={{ height: '42px', padding: '0 14px', fontSize: '13.5px', ...(front ? { background: 'rgba(0,195,137,.16)', borderColor: 'rgba(0,195,137,.45)', color: '#00c389' } : {}) }} role="button" tabIndex={0} aria-pressed={front}
           onClick={() => setFront(!front)} onKeyDown={(e) => { if (e.key === 'Enter') setFront(!front); }}>{I(16, IC.flip)}{front ? '뒤 1 m 시점으로' : '정면 상태로 뒤집기'}</span>}
@@ -216,7 +246,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
     <div className="side">
       {view === 'tiles' ? <>
         <Mini all={all} sel={sel} />
-        {picked && <Picked f={picked} open={() => open(picked.x.id)} />}
+        {picked && <Picked key={picked.x.id} f={picked} open={() => open(picked.x.id)} me={me} cancel={c.cancel} refresh={c.refresh} />}
         {crit && !picked && <Alarm f={crit} stop={c.mayStop?.(crit.x.id) ? c.stop : undefined} open={() => open(crit.x.id)} />}
         <Recent list={all.filter((f) => (f.alert || f.lostNow) && f.x.id !== crit?.x.id)} pick={(id) => controlPick.set(id)} open={open} /></>
         : <MapSide all={all} sel={sel} pick={(id) => controlPick.set(id)} open={open} />}

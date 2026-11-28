@@ -16,9 +16,10 @@ export const linkText = (role: Role, n: number) => (!n ? '연결된 로봇 없�
 /** 시안 나 칸: 총괄 = «나 총괄», 운영자 = 이름 끝 글자 + 이름 («A 운영자 A», u5_6) */
 export const whoFace = (role: Role, name: string): [string, string] => (role === 'ORG_ADMIN' ? ['나', '총괄'] : [name.trim().slice(-1) || '나', name]);
 
-export function PcBar({ light, tabs, cur, go, role, name, roleName, online, net, bell, stop, menu }: {
+export function PcBar({ light, tabs, cur, go, role, name, roleName, online, net, bell, stop, menu, approvals }: {
   light: boolean; tabs: BarTab[]; cur: string; go: (id: string) => void; role: Role; name: string; roleName: string; online: number; net: string;
   /** 알림 종 자리(시안 종 · 빨간 수) */ bell: ReactNode; /** 시안 «모두 정지» 자리 — 없으면 비움 */ stop: ReactNode; /** 나 칸을 누르면 여는 차림(로그아웃 · 화면 밝기) */ menu: ReactNode;
+  /** 총괄: 결재 대기 수(GET /dashboard). 시안 머리줄에 자리가 없어 메뉴 끝에 작은 표(0 이면 숨김 · 받지 못하면 «—» 값만 남김) */ approvals?: { n: number | null; why?: string };
 }) {
   const [i, label] = whoFace(role, name), [open, setOpen] = useState(false), who = useRef<HTMLSpanElement>(null);
   useEffect(() => {
@@ -31,6 +32,8 @@ export function PcBar({ light, tabs, cur, go, role, name, roleName, online, net,
   return <div className="bar"><span className="logo">FOOTHOLD</span><div className="tabs" role="navigation" aria-label="주 메뉴">
     {tabs.map((t) => <span key={t.id} className={t.id === cur ? 'on' : ''} role="link" tabIndex={0} data-href={`#/${t.id}`} aria-current={t.id === cur ? 'page' : undefined}
       onClick={() => go(t.id)} onKeyDown={key(() => go(t.id))}>{t.label}</span>)}
+    {approvals && <b className="ap-appr" data-approvals={approvals.n ?? '—'} hidden={!approvals.n} role="link" tabIndex={approvals.n ? 0 : -1} title={approvals.why ?? `결재 대기 ${approvals.n ?? '—'}`}
+      onClick={() => go('approval')} onKeyDown={key(() => go('approval'))}>결재 {approvals.n}</b>}
   </div>{' '}<div className="rt">
     <span className="row" style={{ gap: '7px' }} data-link-count={online}><i className="dot" style={online ? undefined : { background: '#5e6662', boxShadow: 'none' }}></i>{linkText(role, online)}</span>
     <span className="mu2" data-server={net} data-link={net === 'lost' || net === 'denied' ? net : undefined}>{serverText(net)}</span>{' '}{bell}{' '}<span className="ap-whobox">

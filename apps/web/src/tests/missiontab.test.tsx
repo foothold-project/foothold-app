@@ -162,7 +162,7 @@ describe('임무 탭(W2)', () => {
   it('탭 열림: 세 칸(목록 · 지도 · 일정 칸) + 오늘 일정, 첫 임무를 펼쳐 할 일 번호와 끝 동작', async () => {
     await mount('#/missions');
     expect($('h1')!.textContent).toBe('임무');
-    expect($('nav a[aria-current="page"]')!.getAttribute('href')).toBe('#/missions');
+    expect($('[aria-label="주 메뉴"] [aria-current="page"]')!.getAttribute('data-href')).toBe('#/missions');
     expect($('[aria-label="임무 목록"]')).toBeTruthy(); expect($('[aria-label="임무 지도"]')).toBeTruthy();
     expect($('[aria-label="일정에 추가"]')).toBeTruthy(); expect($('[aria-label="오늘 일정"]')).toBeTruthy();
     expect($$('[data-mission]').map((b) => b.dataset.mission)).toEqual(['s1', 's2']);   // 휴지통 것은 목록 밖
