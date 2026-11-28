@@ -262,6 +262,25 @@ describe('#533 관제 · 머리줄 STOP 대상', () => {
       expect(stops()).not.toContain('r-a');
     });
   }
+  // 11-28 결정 1: 시뮬 탭은 예외. 조종 대상이 그 시뮬이므로 STOP · Space 는 고르기 없이 그 시뮬만 바로(실기가 있어도)
+  for (const rs of [MIX, TWO]) it(`H2 #/sim: 실기 ${rs.length - 1}대가 있어도 시뮬 탭 STOP · Space 는 떠 있는 시뮬만 바로 · 고르기 없음 · 실기 STOP 없음`, () => {
+    vi.spyOn(sim, 'live').mockReturnValue({ robot_id: 's-1' } as never); const halt = vi.spyOn(sim, 'stop').mockImplementation(() => {});
+    mount('u-park', rs, '#/sim'); feed(rs);
+    press(); space();
+    expect(halt).toHaveBeenCalledTimes(2);
+    expect(stops()).toEqual([]);
+    expect(pickBox()).toBeNull();
+  });
+  it('r2 1: #/sim/<id> 가 이 창에 직결된 그 시뮬이면 STOP 은 sim.stop() 길(에이전트) · 서버 경유 stop · 고르기 없음', () => {
+    vi.spyOn(sim, 'live').mockReturnValue({ robot_id: 's-1' } as never); const halt = vi.spyOn(sim, 'stop').mockImplementation(() => {});
+    mount('u-park', TWO, '#/control'); feed(TWO);
+    act(() => { tile('s-1').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
+    expect(location.hash).toBe('#/sim/s-1');
+    press();
+    expect(halt).toHaveBeenCalledTimes(1);
+    expect(stops()).toEqual([]);
+    expect(pickBox()).toBeNull();
+  });
   it('H2: 정지할 실기가 없으면(시뮬뿐) 시뮬 정지만, 고르기 없음 (기존 그대로)', () => {
     vi.spyOn(sim, 'live').mockReturnValue(MIX[1] as never); const halt = vi.spyOn(sim, 'stop').mockImplementation(() => {});
     mount('u-park', [MIX[1]], '#/map'); feed([MIX[1]]);

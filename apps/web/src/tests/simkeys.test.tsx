@@ -439,8 +439,7 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
     const a = await ready();
     await key('keydown', 'Space');
     expect(a.of('stop')).toHaveLength(1);
-    // 11-28 결정(「STOP 은 언제나 먹어야」 · #533 H2): 시뮬 정지는 그대로 보내고, 정지할 실기가 여럿이면 실기 고르기도 연다(전: 고르기 없음)
-    expect(box.querySelector('[aria-label="정지할 로봇 고르기"]')).not.toBeNull();
+    expect(box.querySelector('[aria-label="정지할 로봇 고르기"]')).toBeNull();
   });
 
   it('에이전트가 simulation 이 아니라고 알리면 키보드 조종·조종 시작 없음', async () => {

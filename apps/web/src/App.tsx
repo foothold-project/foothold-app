@@ -221,8 +221,9 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     seen.current = robot ? [robot.id, done] : null;
   });
   const halt = (r: Robot) => { rt.stop(r.id); setStopped(r); setChoose(null); };
-  // STOP 은 언제나 먹어야(11-28 결정 · #533 H2): 시뮬이 떠 있으면 어느 탭이든 시뮬 정지는 그대로 보내고, 정지할 실기가 한 대면 그 실기로 바로, 여럿이면 실기 고르기도 연다
-  const reals = stops.filter((r) => !r.sim);
+  // STOP 은 언제나 먹어야(11-28 결정 · #533 H2): 시뮬이 떠 있으면 어느 탭이든 시뮬 정지는 그대로 보내고, 정지할 실기가 한 대면 그 실기로 바로, 여럿이면 실기 고르기도 연다.
+  // 시뮬 탭은 예외(11-28 결정): 조종 대상이 그 시뮬이므로 고르기 없이 시뮬만 한 번에
+  const reals = tab === 'sim' ? [] : stops.filter((r) => !r.sim);
   const stop = () => { if (toSim) { sim.stop(); if (!reals.length) return; if (reals.length === 1) return halt(reals[0]); }   // 시뮬이 고르기 밖이면 그 슬롯만(직결이면 에이전트, 연결 전·끊김이면 정리). 다른 로봇으로 새지 않음
     if (!canStop) return;
     const r = target ?? stops.find((x) => x.id === choose); if (r) halt(r); else setChoose(stops.find((x) => rt.get(x.id).lease || rt.get(x.id).releasing)?.id ?? ''); };
