@@ -41,12 +41,14 @@ export function lioOf(p: MappingProgress | null): 'ok' | 'bad' | null {
 
 type Args = { floor: string; user: User; robots: Robot[]; places: Place[]; cancel?: AbortSignal; made: (version: string, text: string) => void; approved: string | null; list: MapVersion[] | null };
 
-/** p = 지금 층 지도 만들기. back = 층 화면(u7_3) · 지도 목록(u7_1 「지도 목록으로」) = toList */
-export function ScanScreen({ a, place, back, toList }: { a: Args; place: Place; back: () => void; toList: () => void }) {
+/** p = 지금 층 지도 만들기. back = 층 화면(u7_3) 또는 지도 고르기(u7_1) · 지도 목록(u7_8 「지도 목록으로」) = toList.
+ *  place = null 이면(u7_1 「+ 지도 만들기」) 머리줄 층 칩에서 floors 중 하나를 고른다(pick) · 고르기 전에는 스캔 시작을 막는다 */
+export function ScanScreen({ a, place, back, toList, floors = [], pick }: { a: Args; place: Place | null; back: () => void; toList: () => void; floors?: Place[]; pick?: (floor: string) => void }) {
   const m = useMakeMap(a), { p, robot, busy, act, drive } = m;
   const pic = useSlamLive(m.rid, p, m.link);
   const st = p?.status ?? null, saving = st === 'SAVING' || st === 'FINALIZING', lio = lioOf(p), lost = st === 'RUNNING' && lio === 'bad';
-  const title = `${place.building.name} ${place.floor.name}`;
+  const title = place ? `${place.building.name} ${place.floor.name}` : '';
+  const at = place!;   // 처리 화면(u7_8)은 이 층 세션일 때만(p) = 층이 정해져 있음
   const code = (p?.sources?.point_lio as { reason_code?: string } | undefined)?.reason_code;
   const g = (p?.sources?.glim ?? null) as { stage?: string; processed_chunks?: number; gpu?: boolean | null } | null;
   const step = (k: string, state: 'done' | 'now' | '', name: string, small: string) => <div key={k} className={`step ${state}`} data-step={k} data-state={state || 'wait'}>
@@ -60,6 +62,7 @@ export function ScanScreen({ a, place, back, toList }: { a: Args; place: Place; 
   const notes: [string, string, boolean][] = ([
     [m.open && !m.here, 'elsewhere', `이 로봇은 ${m.elsewhere ? `«${m.elsewhere.building.name} ${m.elsewhere.floor.name}»` : '다른 층'}에서 지도를 만드는 중입니다. 그 층에서 저장하거나 취소하세요.`, true],
     [!!m.got, 'received', RECEIVED_TEXT, false],
+    [!place, 'nofloor', '머리줄에서 지도 만들 층을 고르세요.', false],
     [!!robot && !robot.online && !st, 'offline', '로봇이 연결되어 있지 않습니다.', true],
     [m.prog === undefined && !m.poll, 'checking', '진행 상황을 확인하는 중…', false],
     [st === 'STARTING', 'starting', '시작하는 중… 로봇이 지도 기능을 켜고 있습니다.', false],
@@ -83,7 +86,7 @@ export function ScanScreen({ a, place, back, toList }: { a: Args; place: Place; 
       <div className="row" style={{ alignItems: 'flex-start' }}>
         {([['scan', 'done', '지도 스캔', [ 'Point-LIO', fin(p.elapsed_s) && clock(p.elapsed_s), fin(p.distance_m) && meters(p.distance_m), fin(p.point_count) && `${points(p.point_count)} 점`].filter(Boolean).join(' · ')],
           ['glim', 'now', `GLIM 후처리${g?.gpu ? ' · GPU' : ''}`, [GLIM_STAGE[g?.stage ?? ''] ?? NOPE, fin(g?.processed_chunks) && `${g!.processed_chunks!.toLocaleString('ko-KR')} 조각 처리`].filter(Boolean).join(' · ')],
-          ['3dgs', '', '실사 표면 만들기', `3DGS · ${NOPE}`], ['save', '', '실측 지도로 저장', `${place.building.name} · ${place.floor.name}`]] as const).map(([k, s2, name, small], i) =>
+          ['3dgs', '', '실사 표면 만들기', `3DGS · ${NOPE}`], ['save', '', '실측 지도로 저장', `${at.building.name} · ${at.floor.name}`]] as const).map(([k, s2, name, small], i) =>
           <div key={k} className={`step ${s2}`} style={{ flex: '1', flexDirection: 'column', gap: '10px', padding: '0' }} data-step={k}>
             <div className="row" style={{ width: '100%', gap: '10px' }}><i>{s2 === 'done' ? <Ic d={I.ok} s={15} /> : s2 === 'now' ? <Ic d={I.now} s={15} /> : null}</i>
               <span style={{ flex: '1', height: '2px', background: s2 === 'done' ? '#00c389' : 'rgba(255,255,255,.12)', display: i === 3 ? 'none' : undefined }} /></div>
@@ -105,7 +108,7 @@ export function ScanScreen({ a, place, back, toList }: { a: Args; place: Place; 
       <div><div className="mu2" style={{ fontSize: '12.5px', fontWeight: '600' }}>GPU</div><div className="big" style={{ fontSize: '26px', marginTop: '6px' }}>{g?.gpu === true ? '씀' : g?.gpu === false ? '안 씀' : NOPE}</div></div>
       <div style={{ marginLeft: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '10px' }}>
         <div className="btns" style={{ height: '46px', padding: '0 18px', fontSize: '14px' }} role="button" tabIndex={0} data-scan-tolist onClick={toList}>지도 목록으로</div>
-        <span className="mu2" style={{ fontSize: '12px' }}>끝나면 {place.building.name} · {place.floor.name} 실측 지도로 저장됩니다</span>
+        <span className="mu2" style={{ fontSize: '12px' }}>끝나면 {at.building.name} · {at.floor.name} 실측 지도로 저장됩니다</span>
         <span className="mu2" style={{ fontSize: '12px' }}>{noteList}</span>
         <div style={{ fontSize: '12px' }} data-scan-sources><Sources st={st} s={p.sources} /></div></div></div>
   </div>;
@@ -131,7 +134,11 @@ export function ScanScreen({ a, place, back, toList }: { a: Args; place: Place; 
     </div>
     <div className="head"><span className="g dk" style={{ position: 'relative', width: '44px', height: '44px', borderRadius: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} role="button" tabIndex={0} aria-label="지도로" data-u7-back onClick={back}>
       <svg className="ic" viewBox="0 0 24 24" style={{ width: '20px', height: '20px' }}><path d="m15 18-6-6 6-6" /></svg></span>
-      <span className="ttl" style={{ fontSize: '24px', marginRight: '6px' }}>새 지도 · {title}</span>
+      <span className="ttl" style={{ fontSize: '24px', marginRight: '6px' }}>{place ? `새 지도 · ${title}` : '새 지도'}</span>
+      {!place && <span className="g dk st" style={{ position: 'relative' }} data-chip="floor"><Ic d={I.pin} />
+        <select value="" aria-label="지도 만들 층" style={{ background: 'transparent', color: 'inherit', border: 0, font: 'inherit' }} onChange={(e) => e.target.value && pick?.(e.target.value)}>
+          <option value="">층 고르기</option>{floors.map((x) => <option key={x.floor.id} value={x.floor.id}>{`${x.site.name} ${x.building.name} ${x.floor.name}`}</option>)}</select>
+        <small>지도 만들 층</small></span>}
       <span className="g dk st" style={{ position: 'relative' }} data-chip="robot"><Ic d={I.robot} />
         {!(m.here && !m.stuck) ? <select value={m.rid} aria-label="지도 만드는 로봇" disabled={busy} style={{ background: 'transparent', color: 'inherit', border: 0, font: 'inherit' }}
           onChange={(e) => { m.setRid(e.target.value); m.setProg(undefined); m.setMsg(null); m.setStale(false); }}>{m.mine.map((r) => <option key={r.id} value={r.id}>{r.name}{r.online ? '' : ' (연결 안 됨)'}</option>)}</select> : robot?.name ?? NOPE}
@@ -157,7 +164,7 @@ export function ScanScreen({ a, place, back, toList }: { a: Args; place: Place; 
           <i style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#9aa19d' }} />카메라 사진 {NOPE}</div>}</div>
     <div className="rcol">
       {m.open && !m.here ? null : !st
-        ? rbtn('start', I.ok, '스캔 시작', () => act('start'), { pri: true, off: !robot?.online || m.prog === undefined })
+        ? rbtn('start', I.ok, '스캔 시작', () => act('start'), { pri: true, off: !place || !robot?.online || m.prog === undefined })
         : <>{rbtn('pause', I.pause, '잠시 멈춤', () => {}, { off: true })}
           {!m.isStale && rbtn('finish', I.ok, m.stuck ? (m.asked || st === 'FAILED' ? '다시 저장' : '스캔 끝내기') : '스캔 끝내기', () => act('save'), { pri: true, off: !(st === 'RUNNING' || m.stuck) })}
           {m.ask ? rbtn('cancel-yes', I.x, '버리고 취소', () => act('cancel')) : rbtn('cancel', I.x, '취소', () => m.setAsk(true))}</>}
