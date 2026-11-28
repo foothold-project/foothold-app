@@ -53,3 +53,6 @@
 .proto .bar details.ap-bell>.card li>button>.fh-grow{grid-area:text;font-size:13.5px;font-weight:600;line-height:1.5}
 .proto .bar details.ap-bell>.card li>button>.fh-grow b{font-weight:800;margin-right:4px}
 .proto .bar details.ap-bell>.card li>button>.lbl{grid-area:time;justify-self:end;font-size:12px;font-weight:700;color:#5e6662}
+/* 종 칸 바탕: 시안 u5 에는 종 펼침 화면이 없어 시안 창 유리(u11 .modal)에서 출발하되 뒤 글이 비치지 않게 거의 불투명 + 흐림 */
+.proto .bar details.ap-bell>.card{background:linear-gradient(180deg,rgba(250,251,250,.98),rgba(242,244,243,.97))!important;backdrop-filter:blur(30px) saturate(1.6)!important;-webkit-backdrop-filter:blur(30px) saturate(1.6)!important}
+.proto .bar details.ap-bell>.card li>button{background:#fff!important}
