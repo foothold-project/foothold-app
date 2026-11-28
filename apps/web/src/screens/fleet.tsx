@@ -18,6 +18,7 @@ import { MapFrame, MapImage } from '../mapframe';
 import { Guard } from '../App';
 import { Shapes, floorsOf, isVersion, shape, toPixel, useFit, useTree } from './maps';
 import { FallChip, pickInfo, sdeg } from '../go2status';
+import { ReadyCheck } from './readycheck';
 import { useSimAt } from './missions';
 import { ManageRobot } from '../pairing';
 import { Chip, Detail, Kpi, LINK, Operators, Pair, Seen, attn, inApp, linkText, pct, type Ctx } from '../screens';
@@ -346,7 +347,7 @@ function Operator(c: Ctx) {
       {/* 남의 로봇은 서버가 실시간 값을 감춘다 — 관측·로봇 상태·조종 준비 없이 요약 상세만 */}
       {own && <Observe key={r.id} c={c} r={r} />}
       {own && <Telemetry r={r} />}
-      <Side r={r}>{own && <Prepare key={r.id} c={c} r={r} guide={guide} />}<Detail key={`${r.id}-${r.owner}`} {...c} solo /></Side>
+      <Side r={r}>{own && <Prepare key={r.id} c={c} r={r} guide={guide} />}{own && <ReadyCheck r={r} server={rt.link().at === 'open'} again={c.refresh} />}<Detail key={`${r.id}-${r.owner}`} {...c} solo /></Side>
       {others.length > 0 && <details className="lv-card fh-fold fl-others" aria-label="다른 로봇" open={!own || undefined}>
         <summary>다른 로봇 {others.length}대 — 남의 로봇은 요약만</summary>
         <ul className="fh-list robots">{others.map((x) => <SummaryRow key={x.id} c={c} x={x} />)}</ul></details>}
