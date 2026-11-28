@@ -14,6 +14,7 @@ import { sim } from '../phone';
 import { rt } from '../rt';
 import { oldScenario } from '../menu';
 import { stopLine } from '../serverdrive';
+import { toRobot } from '../fake';
 // 옛 PC 관제 부품(관제 요약 · 상세 서랍 · 연결 상태 · 조종 준비) 시험: PC 로봇 탭은 시안 u4 라 부품을 앱 맥락 안에 직접 그린다 → W1 u5
 beforeEach(() => { pcBoard.on = true; });
 afterEach(() => { pcBoard.on = false; });
@@ -361,10 +362,38 @@ describe('관제 탭', () => {
     expect(al.map((e) => e.dataset.alert)).toEqual(['g9', 'g15']);
     expect([...al[1].querySelector('div')!.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join('')).toBe('K-16 연결 끊김');
     expect(al[1].querySelector('small')!.textContent).toBe('다시 연결 중');
-    const at = al[0].querySelector('[data-alert-at]')!;   // 연결 중인 로봇의 받은 시각 = 마지막 state 를 받은 때
-    expect(at.textContent).toMatch(/^\d\d:\d\d$/);
-    expect(at.getAttribute('title')).toBe(`받은 시각 ${at.textContent}`);
+    const at = al[0].querySelector('[data-alert-at]')!;   // 화면을 열 때 이미 경고였던 로봇 = 받은 시각이 아니라 «이어진 상태»(로그인 시각을 경고 시각처럼 보이지 않게)
+    expect(at.textContent).toBe('이어진 상태');
     expect(al[1].querySelector('[data-alert-at]')!.textContent).toBe('14:05');   // 끊긴 로봇 = 끊기기 전 마지막 받은 시각
+  });
+
+  // 팀장 21:24: 20:53:54 부터 이어진 Go2 X 잠금이 로그인 뒤 «21:22» 로 보였다 → 서버 잠금 시작 시각(status_since) > 열 때 이미 경고면 «이어진 상태» > 받는 동안 새로 생긴 경고만 그때 시각
+  it('최근 경고 시각: 정지 잠금은 서버 status_since(있음 = 그 시각 · null · 칸 없음 = 이어진 상태), 받는 동안 새로 잠긴 것은 그때 시각', () => {
+    const base = TWENTY[3];
+    const R: Robot[] = [
+      { ...base, id: 'a1', name: 'A-1', status: 'STOP_LATCHED', statusSince: { status: 'STOP_LATCHED', at: '2026-11-28T20:53:54' } },
+      { ...base, id: 'a2', name: 'A-2', status: 'STOP_LATCHED', statusSince: null },
+      { ...base, id: 'a3', name: 'A-3', status: 'STOP_LATCHED' },
+      { ...base, id: 'a4', name: 'A-4', status: 'IDLE' },
+    ];
+    mount('u-kim', R); feed(R);
+    const at = (id: string) => $(`[aria-label="최근 경고"] [data-alert="${id}"] [data-alert-at]`);
+    expect(at('a1').textContent).toBe('20:53'); expect(at('a1').getAttribute('title')).toBe('잠금 시작 20:53');
+    expect(at('a2').textContent).toBe('이어진 상태'); expect(at('a3').textContent).toBe('이어진 상태');
+    act(() => { FakeWS.last.recv(state('a4', { status: 'STOP_LATCHED' })); });   // 보는 동안 새로 잠김
+    expect(at('a4').textContent).toMatch(/^\d\d:\d\d$/); expect(at('a4').getAttribute('title')).toBe(`받은 시각 ${at('a4').textContent}`);
+    const t4 = at('a4').textContent;
+    act(() => { FakeWS.last.recv(state('a4', { status: 'STOP_LATCHED', battery: { soc: 50, updated_at: '' } })); });
+    expect(at('a4').textContent).toBe(t4);   // 같은 잠금이 이어지면 시각을 다시 쓰지 않음
+    // status_since 는 그 값이 붙은 status 에만(다른 상태로 바뀐 뒤엔 쓰지 않음)
+    act(() => { FakeWS.last.recv(state('a1', { status: 'ERROR' })); });
+    expect(at('a1').textContent).toBe('이어진 상태');
+  });
+  it('로봇 목록 status_since: 있음 = 그 status 와 함께 · null · 칸 없음 = null', () => {
+    const S = (o: object) => toRobot({ id: 'x', name: 'X', model: 'Go2', owner: null, connection: 'ONLINE', status: 'STOP_LATCHED', battery: null, location: null, lease: null, current_run: null, devices: [], attention: [], simulation: false, server_drive_allowed: true, ...o } as never);
+    expect(S({ status_since: '2026-11-28T20:53:54Z' }).statusSince).toEqual({ status: 'STOP_LATCHED', at: '2026-11-28T20:53:54Z' });
+    expect(S({ status_since: null }).statusSince).toBeNull();
+    expect(S({}).statusSince).toBeNull();
   });
 
   it('App: 로봇 0대면 관제 탭은 로봇 탭 빈 화면이 아니라 관제 빈 화면', () => {
