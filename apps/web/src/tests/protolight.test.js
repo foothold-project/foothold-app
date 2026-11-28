@@ -14,9 +14,9 @@ const decl = (sel) => rules.find(([s]) => s === sel)?.[1] ?? {};
 const hex = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)].join(',');
 
 describe('시안 밝은 판 light.pv.css', () => {
-  it('모든 규칙이 .pv.light 아래', () => {
+  it('모든 규칙이 .proto.light 아래', () => {
     expect(rules.length).toBeGreaterThan(10);
-    for (const [s] of rules) for (const one of s.split(',')) expect(one.trim().startsWith('.pv.light'), one).toBe(true);
+    for (const [s] of rules) for (const one of s.split(',')) expect(one.trim().startsWith('.proto.light'), one).toBe(true);
   });
   it('쓰는 #색은 모두 밝음 1 표 값, rgba 색도 표 값(또는 흰색 · 시안 유리 그림자)에서 나온 것', () => {
     const table = new Set(Object.values(LIGHT));
@@ -25,13 +25,13 @@ describe('시안 밝은 판 light.pv.css', () => {
     for (const m of css.matchAll(/rgba\((\d+),(\d+),(\d+),/g)) expect(rgb.has(`${m[1]},${m[2]},${m[3]}`), m[0]).toBe(true);
   });
   it('자리마다 역할 값: 바탕 · 글자 · 흐린 글자 · 선 · 강조 글자 · 칸 · 주 단추(그라파이트 글자) · 경고 · 예행', () => {
-    expect(decl('.pv.light')).toMatchObject({ background: LIGHT.background, color: LIGHT['on-surface'], '--mu2': LIGHT['on-surface-muted'], '--line': LIGHT.outline, '--pr3': LIGHT['primary-text'], '--pr': LIGHT.primary, '--red': LIGHT.danger });
-    expect(decl('.pv.light .pane')).toMatchObject({ background: LIGHT.surface, 'border-color': LIGHT.outline });
-    expect(decl('.pv.light .btnp')).toMatchObject({ background: LIGHT.primary, color: LIGHT['on-primary'] });
-    expect(decl('.pv.light .allstop')).toMatchObject({ background: LIGHT['danger-text'], color: LIGHT['on-danger'] });
-    expect(decl('.pv.light .warntag')).toMatchObject({ background: LIGHT['danger-text'], color: '#FFFFFF' });
-    expect(decl('.pv.light .rehearse').border).toBe(`1px dashed ${LIGHT.sim}`);
-    expect(decl('.pv.light .tabs span.on').color).toBe(LIGHT['primary-text']);   // 민트 #18A07E 는 글자에 쓰지 않는다(대비 3.07)
+    expect(decl('.proto.light')).toMatchObject({ background: LIGHT.background, color: LIGHT['on-surface'], '--mu2': LIGHT['on-surface-muted'], '--line': LIGHT.outline, '--pr3': LIGHT['primary-text'], '--pr': LIGHT.primary, '--red': LIGHT.danger });
+    expect(decl('.proto.light .pane')).toMatchObject({ background: LIGHT.surface, 'border-color': LIGHT.outline });
+    expect(decl('.proto.light .btnp')).toMatchObject({ background: LIGHT.primary, color: LIGHT['on-primary'] });
+    expect(decl('.proto.light .allstop')).toMatchObject({ background: LIGHT['danger-text'], color: LIGHT['on-danger'] });
+    expect(decl('.proto.light .warntag')).toMatchObject({ background: LIGHT['danger-text'], color: '#FFFFFF' });
+    expect(decl('.proto.light .rehearse').border).toBe(`1px dashed ${LIGHT.sim}`);
+    expect(decl('.proto.light .tabs span.on').color).toBe(LIGHT['primary-text']);   // 민트 #18A07E 는 글자에 쓰지 않는다(대비 3.07)
   });
   it('정지 단추(.stop · .allstop) 글자 대비: 18.66 px 굵게 이상이면 3.0, 아니면 4.5 이상', () => {
     const lum = (h) => { const c = hex(h).split(',').map((v) => { const x = +v / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
@@ -40,23 +40,23 @@ describe('시안 밝은 판 light.pv.css', () => {
     for (const cls of ['stop', 'allstop']) {
       const base = new RegExp(`\\.${cls}\\{([^}]*)\\}`).exec(src)[1];
       const px = parseFloat(/font-size:([\d.]+)px/.exec(base)[1]), w = +/font-weight:(\d+)/.exec(base)[1];
-      const large = px >= 18.66 && w >= 700, d = decl(`.pv.light .${cls}`);
+      const large = px >= 18.66 && w >= 700, d = decl(`.proto.light .${cls}`);
       expect(ratio(d.background, d.color), `${cls} ${px}px ${w}`).toBeGreaterThanOrEqual(large ? 3 : 4.5);
     }
   });
   it('어둠 판 상태 표지(dark.pv.css): 경고 칸 #FF4D4F 12 % · 「과열」 #FF4D4F 바탕 검은 글자 · 예행 #4C9BFF 점선', () => {
     const dk = readFileSync(join(__dirname, '..', 'proto', 'dark.pv.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
     const r = Object.fromEntries([...dk.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => [m[1].trim(), m[2]]));
-    expect(Object.keys(r)).toEqual(['.pv .warncell', '.pv .warntag', '.pv .rehearse']);
-    expect(r['.pv .warncell']).toBe('background:rgba(255,77,79,.12);border:1px solid #FF4D4F');
-    expect(r['.pv .warntag']).toBe('background:#FF4D4F;color:#000000');
-    expect(r['.pv .rehearse']).toBe('border:1px dashed #4C9BFF;color:#4C9BFF');
+    expect(Object.keys(r)).toEqual(['.proto .warncell', '.proto .warntag', '.proto .rehearse']);
+    expect(r['.proto .warncell']).toBe('background:rgba(255,77,79,.12);border:1px solid #FF4D4F');
+    expect(r['.proto .warntag']).toBe('background:#FF4D4F;color:#000000');
+    expect(r['.proto .rehearse']).toBe('border:1px dashed #4C9BFF;color:#4C9BFF');
     if (existsSync(DESIGN)) { const md = readFileSync(DESIGN, 'utf8'); expect(md).toContain('dark-danger: "#FF4D4F"'); expect(md).toContain('dark-sim: "#4C9BFF"'); }
   });
   it('밝은 유리 .g.dk = 시안 ui.css .g 값 그대로', () => {
     const ui = readFileSync(join(__dirname, '..', 'proto', 'ui.css'), 'utf8');
     const g = /\.g\{([^}]*)\}/.exec(ui)[1];
-    const d = decl('.pv.light .g.dk');
+    const d = decl('.proto.light .g.dk');
     for (const k of ['background', 'border', 'box-shadow']) expect(g.replace(/\s+/g, ' ')).toContain(`${k}:${d[k]}`);
   });
   it.skipIf(!existsSync(DESIGN))('옮겨 둔 표 = DESIGN.md 정본 값', () => {
