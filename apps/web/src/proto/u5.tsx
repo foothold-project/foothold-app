@@ -294,9 +294,23 @@ export type Badge = { key: 'relink' | 'lost' | 'pre' | 'latched' | 'fallen' | 'm
 const GREY = '#a9b8c6';
 /** «연결 전» 점(팀장 02:14 두 안): 'still' = B 하얀 점 멈춤 · 흐리게(기본), 'pulse' = A 하얀 점 펄스. 주소 ?preDot=pulse(또는 #… ?preDot=pulse)로 A 를 볼 수 있음 */
 export const PRE_DOT: 'still' | 'pulse' = 'still';
-export const preDot = (): 'still' | 'pulse' => {
-  try { const q = new URLSearchParams(location.search || location.hash.split('?')[1] || ''); const v = q.get('preDot'); return v === 'pulse' || v === 'still' ? v : PRE_DOT; } catch { return PRE_DOT; }
-};
+/** 주소 값 하나(?k=v 또는 해시 주소 #…?k=v). 못 읽으면 null */
+export const urlParam = (k: string): string | null => { try { return new URLSearchParams(location.search || location.hash.split('?')[1] || '').get(k); } catch { return null; } };
+export const preDot = (): 'still' | 'pulse' => { const v = urlParam('preDot'); return v === 'pulse' || v === 'still' ? v : PRE_DOT; };
+/** 타일 아래 네 칸(배터리 · 온도 · 연결 · 담당자)을 빼는 대수 문턱(팀장 02:41): 이보다 많으면 빼고, 고른 로봇 정보 칸에 보인다. ?cells=on|off 로 강제 */
+export const CELLS_MAX = 8;
+export const cellsOn = (n: number) => { const v = urlParam('cells'); return v === 'on' ? true : v === 'off' ? false : n <= CELLS_MAX; };
+/** 화면 검토용 가짜 로봇(팀장 02:41 · ?fake=10|20): 서버 로봇에 더해 그 대수를 채운다. 서버에 띄우지 않고, 쓰기 요청 · 로봇 탭 열기를 막는다 */
+export const FAKE_PREFIX = 'fake-';
+export const isFake = (id: string) => id.startsWith(FAKE_PREFIX);
+export const fakeCount = (): number => { const n = Number(urlParam('fake')); return n === 10 || n === 20 ? n : 0; };
+export function fakeRobots(n: number, have: Robot[]): Robot[] {
+  return Array.from({ length: Math.max(0, n - have.length) }, (_, i) => {
+    const k = i + 1, going = k % 3 !== 0;
+    return { id: `${FAKE_PREFIX}${k}`, name: `가짜 ${k}`, owner: '', ownerName: '', battery: 40 + ((k * 7) % 55), online: true, seenAt: '00:00:00', status: going ? 'RUNNING' : 'IDLE',
+      mission: going ? `가짜 순찰 ${k % 6}/6` : undefined, run: going ? { run_id: `${FAKE_PREFIX}run-${k}`, status: 'MOVING', scenario_name: '가짜 순찰', step: 0, wait_reason: null, fail_code: null, progress: { done: k % 6, total: 6 } } : null } as unknown as Robot;
+  });
+}
 /** 모든 배지는 같은 틀(아이콘 · 글 · 점). 글 색 = col, 점 색 = badgeDot, 펄스 = pulse(움직임 줄이기면 멈춤) */
 export function tileBadge(f: TileFacts): Badge | null {
   const x = f.x;
@@ -340,7 +354,11 @@ function BadgeTag({ b }: { b: Badge }) {
     <i className={b.dim ? 'dim' : undefined} style={{ background: badgeDot(b) }}></i></span>;
 }
 
-function Tile({ f, sel, front, open, boards }: { f: TileFacts; sel: boolean; front: boolean; open: () => void; boards: Set<string> }) {
+/** 아래 네 칸: 배터리 · 관절 온도 · 연결 · 담당자. 타일(대수가 문턱 이하) 또는 고른 로봇 정보 칸(문턱 넘음)에 */
+function Sts({ f }: { f: TileFacts }) {
+  return <div className="sts"><div className="s" data-fact="battery">{I(16, f.sim ? IC.box : f.charging ? IC.bolt : IC.bat)}{f.bat[0]}<small>{f.bat[1]}</small></div><div className={`s${f.temp[2]}`} data-fact="temp">{I(16, IC.temp, undefined, !f.temp[0])}{f.temp[0]}<small>{f.temp[1]}</small></div><div className={`s${f.link[2]}`} data-fact="link">{I(16, IC.wifi)}{f.link[0]}<small>{f.link[1]}</small></div><div className="s" data-fact="who">{I(16, IC.user)}{f.who[0]}<small>{f.who[1]}</small></div></div>;
+}
+function Tile({ f, sel, front, open, boards, cells = true }: { f: TileFacts; sel: boolean; front: boolean; open: () => void; boards: Set<string>; cells?: boolean }) {
   const q = f.x.online && !f.x.unknown ? f.x.robotInfo?.temperature?.joints : null, qk = q ? q.join(',') : '';
   const hotMap = useMemo(() => Object.fromEntries((q && q.length === 12 ? q : []).flatMap((c, i) => { const lv = tempLevel(c ?? null); return lv ? [[JOINTS[i].replace(/_joint$/, ''), lv === 'warn' ? 'warn' : 'hot']] : []; })), [qk]);
   const cls = `tile${f.level ? ` lv-${f.level}` : ''}${f.sim ? ' sim' : ''}${sel ? ' sel' : ''}${f.level ? ' warncell' : ''}${f.sim ? ' rehearse' : ''}`;
@@ -355,7 +373,7 @@ function Tile({ f, sel, front, open, boards }: { f: TileFacts; sel: boolean; fro
         return <>{I(16, f.mission ? IC.flag : f.charging ? IC.bolt : f.job ? (f.job.kind === 'maint' ? IC.wrench : IC.bat) : f.sim || txt ? IC.home : IC.flag, undefined, !txt)}<span>{txt}</span></>; })()}{f.mission && f.mission.total > 0 && <em>할 일 {f.mission.done} / {f.mission.total}</em>}</div>
       {f.mission && f.mission.total > 0 && <div className="pg"><i style={{ width: `${Math.round((f.mission.done / f.mission.total) * 100)}%` }}></i></div>}
       <div className="ln">{I(16, IC.pin)}<span>{f.place}</span></div>
-      <div className="sts"><div className="s" data-fact="battery">{I(16, f.sim ? IC.box : f.charging ? IC.bolt : IC.bat)}{f.bat[0]}<small>{f.bat[1]}</small></div><div className={`s${f.temp[2]}`} data-fact="temp">{I(16, IC.temp, undefined, !f.temp[0])}{f.temp[0]}<small>{f.temp[1]}</small></div><div className={`s${f.link[2]}`} data-fact="link">{I(16, IC.wifi)}{f.link[0]}<small>{f.link[1]}</small></div><div className="s" data-fact="who">{I(16, IC.user)}{f.who[0]}<small>{f.who[1]}</small></div></div></div>
+      {cells && <Sts f={f} />}</div>
   </div>;
 }
 
@@ -452,6 +470,7 @@ function useDetail(id: string, owner: string, cancel: AbortSignal | undefined, r
   const [got, setGot] = useState<RobotSummary | null>(null), [err, setErr] = useState(''), gen = useRef(0);
   useEffect(() => {
     const g = ++gen.current; setErr('');
+    if (isFake(id)) return;   // 가짜 로봇은 서버에 묻지 않음
     api.robot(id, cancel).then((r) => { if (g === gen.current) setGot(r); }, (e: ApiFail) => {
       if (g !== gen.current || e.code === 'CANCELED') return;
       if (e.status !== 404) return setErr(`상세를 받지 못했습니다. ${e.message}`);
@@ -461,7 +480,7 @@ function useDetail(id: string, owner: string, cancel: AbortSignal | undefined, r
   return { got: got?.id === id ? got : null, err };
 }
 /** 선택 칸(u5_2): 임무 · 위치 · 모드 · 조종. 상세(GET /robots/{id}) 값, 실시간 state 가 있으면 그것이 앞선다 */
-function Picked({ f, open, me, cancel, refresh }: { f: TileFacts; open: () => void; me: string; cancel?: AbortSignal; refresh: () => void }) {
+function Picked({ f, open, me, cancel, refresh, cells = false }: { f: TileFacts; open: () => void; me: string; cancel?: AbortSignal; refresh: () => void; cells?: boolean }) {
   useRt();
   const { got, err } = useDetail(f.x.id, f.x.owner, cancel, refresh), hidden = f.x.unknown === 'summary';
   const s = hidden ? null : rt.get(f.x.id).state, loc = s ? s.location : got?.location ?? null;
@@ -473,7 +492,9 @@ function Picked({ f, open, me, cancel, refresh }: { f: TileFacts; open: () => vo
     {f.stop ? <p className="mu2" role="status" style={{ fontSize: '12.5px', marginTop: '14px', lineHeight: '1.5', color: TONE_COL[f.stop.tone] }} data-stop-line={f.stop.tone}>{f.stop.text}</p>
       : err ? <p className="mu2" role="alert" style={{ fontSize: '12.5px', marginTop: '14px', lineHeight: '1.5' }} data-detail-err>{err}</p>
       : <p className="mu2" style={{ fontSize: '12.5px', marginTop: '14px', lineHeight: '1.5' }}>두 번 누르면 로봇 탭에서 열립니다. 한 번 더 누르면 고르기를 풉니다.</p>}
-    <div className="btns openb" style={{ height: '46px', marginTop: '12px', fontSize: '14px' }} role="button" tabIndex={0} onClick={open} onKeyDown={(e) => { if (e.key === 'Enter') open(); }}>{I(17, IC.dog)}로봇 탭에서 열기</div></div>;
+    {cells && <div style={{ marginTop: '14px' }} data-picked-cells><Sts f={f} /></div>}
+    {isFake(f.x.id) ? <div className="btns openb" style={{ height: '46px', marginTop: '12px', fontSize: '14px', opacity: 0.45, cursor: 'not-allowed' }} role="button" aria-disabled="true" tabIndex={-1} data-fake-block>{I(17, IC.dog)}가짜 로봇은 열 수 없습니다</div>
+      : <div className="btns openb" style={{ height: '46px', marginTop: '12px', fontSize: '14px' }} role="button" tabIndex={0} onClick={open} onKeyDown={(e) => { if (e.key === 'Enter') open(); }}>{I(17, IC.dog)}로봇 탭에서 열기</div>}</div>;
 }
 function Alarm({ f, stop, open }: { f: TileFacts; stop?: (id: string) => void; open: () => void }) {
   const press = stop ? { 'data-stop-press': '', onPointerDown: (e: { button: number }) => { if (e.button === 0) stop(f.x.id); }, onClick: (e: { detail: number }) => { if (!e.detail) stop(f.x.id); } } : {};
@@ -499,25 +520,28 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
   const sel = useControlPick();
   useEffect(() => () => controlPick.set(''), []);
   const t = useTree(c.cancel), av = useAvail(c.cancel);
-  const site = useSiteBoards(c.robots.flatMap((x) => { const v = locOf({ x } as TileFacts)?.map_version_id; return v ? [v] : []; }));
+  const fake = fakeCount(), robots = fake ? [...c.robots, ...fakeRobots(fake, c.robots)] : c.robots;
+  const site = useSiteBoards(robots.flatMap((x) => { const v = locOf({ x } as TileFacts)?.map_version_id; return v ? [v] : []; }));
   const boards = useMemo(() => new Set([...demoBoards(t.tree), ...site]), [t.tree, site.join(',')]);   // eslint-disable-line react-hooks/exhaustive-deps
   const places = useMemo(() => new Map(floorsOf(t.tree).map((p) => [p.floor.id, `${p.building.name} ${floorName(p.floor.name)}`])), [t.tree]);
-  const list = scope === 'mine' ? c.robots.filter((x) => x.owner === me) : c.robots;
+  const list = scope === 'mine' ? robots.filter((x) => x.owner === me) : robots;
   const every = order(list.map((x) => facts(x, me, places, av?.get(x.id)))), all = demo ? every : every.filter((f) => !f.demo);   // 데모 표시 끔 = 데모 로봇을 타일 · 지도 · 수에서 뺌
   const seen = useRef<Since>(new Map()).current; trackSince(seen, all);
   useEffect(() => { if (sel && !all.some((f) => f.x.id === sel)) controlPick.set(''); });
   const see = (s: 'all' | 'mine') => { if (s !== scope) controlPick.set(''); setScope(s); };
-  const open = (id: string) => { c.pick(id); c.go('fleet'); };
+  const open = (id: string) => { if (isFake(id)) return; c.pick(id); c.go('fleet'); };   // 가짜 로봇은 로봇 탭(쓰기 단추)으로 보내지 않음
   const n = (f: (x: TileFacts) => boolean) => all.filter(f).length;
   const shown = all.filter((f) => inGroups(f, pick)), none = pick.length > 0 && !shown.length;   // 필터: 타일 · 작은 지도 · 지도 보기에만(수 · 경고 목록은 전체)
-  const wall = wallPick(shown), g = wallGrid(wall.length), picked = all.find((f) => f.x.id === sel), crit = all.find((f) => f.level === 'crit');
+  // 모든 로봇을 한 화면에(팀장 02:41 · 스크롤 0): 대수에 따라 wallGrid 가 열 · 줄을 늘리고 줄임. 문턱을 넘으면 아래 네 칸은 고른 로봇 정보 칸으로
+  const wall = shown, cells = cellsOn(wall.length), g = wallGrid(wall.length), picked = all.find((f) => f.x.id === sel), crit = all.find((f) => f.level === 'crit');
   const seg = (on: boolean, v: string, icon: ReactNode, go: () => void) => <span className={on ? 'on' : ''} data-v={v} role="button" tabIndex={0} aria-pressed={on} onClick={go} onKeyDown={(e) => { if (e.key === 'Enter') go(); }}>{I(16, icon)}{v}</span>;
   // 총괄: 수 칸 = 서버 요약(GET /dashboard · 시뮬 몫은 뺌 · realDash)의 임무 중 · 주의 필요(=경고). 받지 못하면 수를 비우고 까닭(title · 화면 읽기 한 줄). 운영 관리자 = 받은 로봇 상태로 셈
   const d = admin ? realDash(c.dash?.d ?? null, c.robots) : null, dErr = admin ? c.dash?.err ?? '' : '';
   const why = dErr ? `요약을 받지 못했습니다. ${dErr}` : undefined;
   const cnt = (k: Group, icon: ReactNode, v: number | null, col?: string, src?: 'dashboard', none?: string) => { const on = pick.includes(k); return <span className={on ? 'cnt on' : 'cnt'} style={col ? { color: col } : undefined} data-sum={k} data-src={src} title={src ? why : none} data-none={v == null || undefined}
     role="button" tabIndex={0} aria-pressed={on} onClick={() => flip(k)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(k); } }}>{I(16, icon, col)}{`${k} `}<b style={col ? { color: col } : undefined}>{v ?? ''}</b></span>; };
-  return <main className="u5" data-view={view} aria-label="관제">
+  return <main className="u5" data-view={view} aria-label="관제" data-cells={cells ? 'on' : 'off'}>
+    {fake > 0 && <div className="fakeband" role="status" data-fake={fake}>화면 검토용 가짜 자료 · 로봇 {fake} 대</div>}
     <div className="tb"><div className="seg2" role="group" aria-label="보기">{seg(view === 'tiles', '타일 보기', IC.tiles, () => setView('tiles'))}{seg(view === 'map', '지도 보기', IC.map, () => { setFrom(null); setFocus(''); setView('map'); })}</div>
       <span className="sep"></span>
       {/* 임무 중 = 타일이 «임무 중» 인 로봇(실행 상태 RUNNING · 끊기지 않음, 시뮬 포함). 서버 요약의 robots_running 은 실기만이라 타일과 어긋나서 쓰지 않음 */}
@@ -532,7 +556,6 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
       {cnt('주의', IC.warn, n(GROUP['주의']), 'var(--u5-amb)')}
       {why && <span className="ap-sr" role="alert" data-dash-err>{why}</span>}
       {/* 시안 밖 · 새로 그림: 타일은 8 칸까지(wallPick), 남은 로봇이 어디 있는지 한 줄 */}
-      {view === 'tiles' && shown.length > wall.length && <span className="mu2" style={{ fontSize: '12.5px' }} data-wall-rest={shown.length - wall.length}>{`타일 ${wall.length} 대 · 나머지 ${shown.length - wall.length} 대는 지도 보기 · 로봇 탭`}</span>}
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '14px' }}>
         {view === 'tiles' && <span className="btns flipb" style={{ height: '42px', padding: '0 14px', fontSize: '13.5px', ...(front ? { background: 'var(--u5-ok-bg)', borderColor: 'var(--u5-ok-line)', color: 'var(--u5-ok)' } : {}) }} role="button" tabIndex={0} aria-pressed={front}
           onClick={() => setFront(!front)} onKeyDown={(e) => { if (e.key === 'Enter') setFront(!front); }}>{I(16, IC.flip)}{front ? `${REAR_LABEL} 시점으로` : '정면 상태로 뒤집기'}</span>}
@@ -540,13 +563,13 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
         <div className="seg2 flt" role="group" aria-label="범위"><span className={scope === 'all' ? 'on' : ''} data-f="모두" role="button" tabIndex={0} aria-pressed={scope === 'all'} onClick={() => see('all')}>모두</span><span className={scope === 'mine' ? 'on' : ''} data-f="내 로봇" role="button" tabIndex={0} aria-pressed={scope === 'mine'} onClick={() => see('mine')}>내 로봇</span></div></div></div>
     {none ? <div className="wall mu2" data-filter-empty style={{ placeItems: 'center', fontSize: '14px' }}>고른 상태의 로봇이 없습니다 · 머리 줄 칸을 다시 누르면 풀립니다</div>
       : view === 'tiles' ? <div className={wall.length > 8 ? 'wall many' : 'wall'} style={{ gridTemplateColumns: `repeat(${g.units ?? g.cols},1fr)`, gridTemplateRows: `repeat(${g.rows},1fr)` }} aria-label="로봇 타일" data-count={wall.length} data-all={all.length}>
-      {wall.map((f, i) => <ZoomBox key={f.x.id} zoom={g.zoom} span={g.span?.[i]}><Tile f={f} sel={f.x.id === sel} front={front} open={() => open(f.x.id)} boards={boards} /></ZoomBox>)}</div>
+      {wall.map((f, i) => <ZoomBox key={f.x.id} zoom={g.zoom} span={g.span?.[i]}><Tile f={f} sel={f.x.id === sel} front={front} open={() => open(f.x.id)} boards={boards} cells={cells} /></ZoomBox>)}</div>
       : <SiteView key={home} all={shown} sel={sel} open={open} from={from} focus={focus} home={toHome} />}
     <div className="side">
       {view === 'tiles' ? <>
         <Mini all={shown} sel={sel} boards={boards} toMap={(r, id) => { setFrom(r); setFocus(id); setView('map'); }} />
-        {picked && <Picked key={picked.x.id} f={picked} open={() => open(picked.x.id)} me={me} cancel={c.cancel} refresh={c.refresh} />}
-        {crit && !picked && <Alarm f={crit} stop={c.mayStop?.(crit.x.id) ? c.stop : undefined} open={() => open(crit.x.id)} />}
+        {picked && <Picked key={picked.x.id} f={picked} open={() => open(picked.x.id)} me={me} cancel={c.cancel} refresh={c.refresh} cells={!cells} />}
+        {crit && !picked && <Alarm f={crit} stop={!isFake(crit.x.id) && c.mayStop?.(crit.x.id) ? c.stop : undefined} open={() => open(crit.x.id)} />}
         <Recent list={all.filter((f) => (f.alert || f.lostNow) && f.x.id !== crit?.x.id)} pick={(id) => controlPick.set(id)} open={open} seen={seen} /></>
         : <MapSide all={shown} sel={sel} open={open} />}
     </div>
