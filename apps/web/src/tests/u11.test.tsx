@@ -4,7 +4,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Live } from '../rt';
-import { DriveLine, EmptyLog, EmptyMap, EmptyRobots, TakeoverAsk, askShown, driveLine, remoteWhy } from '../proto/u11';
+import { DriveLine, EmptyLog, EmptyMap, EmptyRobots, RobotLine, TakeoverAsk, askShown, driveLine, remoteWhy } from '../proto/u11';
 import { App } from '../App';
 import { rt } from '../rt';
 import { USERS, type Robot } from './fixtures';
@@ -95,3 +95,42 @@ describe('u11_1 조종권 요청 창 · PC 시안 틀 어느 탭에서나', () =
   });
 });
 
+describe('u11_2 ~ u11_5 조종 화면 위 한 줄(RobotLine) · rt 값으로만', () => {
+  const R: Robot[] = [{ id: 'r1', name: 'K-01', owner: 'u-lee', ownerName: '이OO', battery: 70, online: true, seenAt: '14:05:20', status: 'IDLE', serverDrive: true }];
+  let unwatch: (() => void) | null = null, line: Root | null = null, lbox: HTMLDivElement;
+  afterEach(() => { act(() => { line?.unmount(); unwatch?.(); }); line = null; unwatch = null; lbox?.remove(); });
+  const mount = () => {
+    window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+    location.hash = '#/map'; box = document.createElement('div'); document.body.append(box);
+    act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === 'u-lee')} robots={R} />); });
+    lbox = document.createElement('div'); lbox.className = 'proto'; document.body.append(lbox);
+    act(() => { unwatch = rt.watch('r1'); FakeWS.last.open(); line = createRoot(lbox); line.render(<RobotLine id="r1" me="u-lee" />); });
+  };
+  const at = () => lbox.querySelector<HTMLElement>('[data-drive-line]');
+  it('값이 없으면 줄 없음 · 리모컨 우선 = 에이전트 장치 줄 글 그대로(u11_4)', () => {
+    mount();
+    act(() => { FakeWS.last.recv(state('r1')); });
+    expect(at()).toBeNull();
+    act(() => { FakeWS.last.recv(state('r1', { devices: [{ key: 'go2-drive-input', kind: 'OTHER', label: '리모컨 동작 중이라 화면 조종은 멈춰 있습니다', state: 'OK' }] as never })); });
+    expect([at()!.dataset.driveLine, at()!.className, at()!.textContent]).toEqual(['remote', 'line1 amb over', '리모컨이 우선입니다리모컨 동작 중이라 화면 조종은 멈춰 있습니다']);
+  });
+  it('남이 조종 중일 때 요청 = 기다림 줄과 남은 초(u11_2) · 받아들여 넘겨준 쪽은 보기 전용 줄(u11_3)', () => {
+    mount();
+    act(() => { FakeWS.last.recv(state('r1')); FakeWS.last.recv(lease('r1', { id: 'u-park', name: '박OO' })); });
+    act(() => { rt.request('r1'); });
+    expect(at()!.dataset.driveLine).toBe('ask');
+    expect(at()!.textContent).toMatch(/^박OO 님에게 조종권을 요청했습니다답을 기다리는 중 · \d+ 초$/);
+    act(() => { FakeWS.last.recv(lease('r1', { id: 'u-lee', name: '이OO' }, 'L1')); });   // 받음 = 줄 없음
+    expect(at()).toBeNull();
+    act(() => { FakeWS.last.recv({ t: 'lease.requested', robot: 'r1', request_id: 'q9', requester: { display_name: '박OO', role: 'OPERATOR' }, expires_at: new Date(Date.now() + 10_000).toISOString() }); });
+    act(() => { rt.respond('r1', true); });
+    act(() => { FakeWS.last.recv(lease('r1', { id: 'u-park', name: '박OO' })); });
+    expect([at()!.dataset.driveLine, at()!.textContent]).toEqual(['handed', '조종권을 박OO 님에게 넘겼습니다보기 전용입니다 · 정지 버튼은 계속 쓸 수 있습니다']);
+  });
+  it('서버 연결이 끊기면 빨간 줄(u11_5)이 먼저', () => {
+    mount();
+    act(() => { FakeWS.last.recv(state('r1', { devices: [{ key: 'go2-drive-input', kind: 'OTHER', label: '리모컨 동작 중', state: 'OK' }] as never })); });
+    act(() => { FakeWS.last.drop(1006); });
+    expect([at()!.dataset.driveLine, at()!.className]).toEqual(['link', 'line1 err over']);
+  });
+});
