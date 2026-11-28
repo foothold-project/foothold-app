@@ -9,6 +9,7 @@ import { loadWorld } from './world.mjs';
 
 const { values: a } = parseArgs({ options: {
   map: { type: 'string', default: 'collapsed-house-v2' }, seed: { type: 'string', default: '0' },
+  spawn: { type: 'string' }, // 'x,y,yaw' (월드 m · rad). 없으면 지도 기본 출발 자리
   'battery-start': { type: 'string', default: '100' }, 'battery-drain': { type: 'string', default: '0.0139' }, // %/s (시뮬 시각) · 기본 = 2 시간에 100 %
 } });
 const seed = Number(a.seed), socStart = Number(a['battery-start']), drain = Number(a['battery-drain']);
@@ -16,9 +17,11 @@ if (!Number.isInteger(seed) || !(socStart >= 0 && socStart <= 100) || !(drain >=
 
 const SCHEMA = 'v2_live/state/1', STATE_S = 0.05, CMD_TTL_S = 0.5, Z = [0, 0, 0];
 const LIMIT = [1.5, 1.0, 2.0]; // |vx| m/s · |vy| m/s · |wz| rad/s 밖이면 잘못된 줄
-const world = await loadWorld({ simSrc: process.env.FH_SIM_SRC, mapId: a.map, seed });
+const spawnXyYaw = a.spawn === undefined ? null : a.spawn.split(',').map(Number);
+if (spawnXyYaw && (spawnXyYaw.length !== 3 || !spawnXyYaw.every(Number.isFinite))) throw new Error('--spawn x,y,yaw');
+const world = await loadWorld({ simSrc: process.env.FH_SIM_SRC, mapId: a.map, seed, spawnXyYaw });
 const sim = world.sim;
-let episode = 0, stopRequested = true, resetting = false, cmd = Z, cmdAt = -Infinity, simBase = 0;
+let resetPending = false, episode = 0, stopRequested = true, resetting = false, cmd = Z, cmdAt = -Infinity, simBase = 0;
 
 const now = () => performance.now() / 1000;
 const warn = (code, detail) => process.stderr.write(JSON.stringify({ error: code, ...(detail ? { detail } : {}) }) + '\n');
@@ -35,7 +38,7 @@ function onLine(line) {
   else if (kind === 'resume') { if (!resetting) { stopRequested = false; cmd = Z; cmdAt = -Infinity; } }
   else if (kind === 'reset') {
     stop(); resetting = true; emit(); // reset_in_progress 를 한 번은 내보낸다
-    simBase += sim.t; sim.reset(); episode++; resetting = false;
+    resetPending = true; // 비동기 step 이 끝난 뒤 루프에서 되돌린다
   } else { stop(); warn('bad_line', String(line).slice(0, 80)); }
 }
 
@@ -59,14 +62,21 @@ createInterface({ input: process.stdin }).on('line', onLine).on('close', () => {
 process.stdout.on('error', () => { stop(); process.exit(0); }); // 부모 쪽 파이프가 닫힘
 
 // 벽시계를 따라 정책 주기 (50 Hz) 로 진행, 상태는 20 Hz. 밀리면 최대 0.2 s 만 따라잡는다.
-const start = now(); let steps = 0, nextState = 0;
+// ONNX 정책 step 은 비동기라 한 번에 하나만 돈다 (busy). 명령은 매 step 직전에 다시 읽는다.
+const start = now(); let steps = 0, nextState = 0, busy = false;
 emit();
-const loop = setInterval(() => {
-  const due = Math.min(Math.floor((now() - start) / POLICY_DT), steps + 10);
-  for (; steps < due; steps++) {
-    const applied = stopRequested || resetting || now() - cmdAt > CMD_TTL_S ? Z : cmd;
-    sim.cmd = applied.slice();
-    sim.step();
-  }
-  if (now() - start >= nextState) { nextState += STATE_S; emit(); }
+const loop = setInterval(async () => {
+  if (busy) return;
+  busy = true;
+  try {
+    if (resetPending) { resetPending = false; simBase += sim.t; sim.reset(); episode++; resetting = false; }
+    const due = Math.min(Math.floor((now() - start) / POLICY_DT), steps + 10);
+    for (; steps < due; steps++) {
+      const applied = stopRequested || resetting || now() - cmdAt > CMD_TTL_S ? Z : cmd;
+      sim.cmd = applied.slice();
+      await sim.step();
+    }
+    if (now() - start >= nextState) { nextState += STATE_S; emit(); }
+  } catch (error) { warn('policy_failed', String(error).slice(0, 120)); process.exit(1); }
+  finally { busy = false; }
 }, 5);

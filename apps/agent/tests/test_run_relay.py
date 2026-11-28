@@ -289,7 +289,7 @@ def test_schedule_run_lease_starts_only_its_own_run(cloud):
     r.run_id = uid()
     r.observer.receive({'t': 'lease', 'lease_id': r.lease, 'holder_type': 'RUN:' + r.run_id})
     r.state(True)
-    r.observer.receive({'t': 'unlock', 'lease_id': r.lease, 'stop_gen': 0, 'user_id': r.user})
+    r.observer.receive({'t': 'unlock', 'lease_id': r.lease, 'stop_gen': r.hub.session._generation(), 'user_id': r.user})
     r.state(False)
     assert isinstance(r.hub.owner, ServerRelay) and not r.hub.session.core.latch
     other = r.run_id
@@ -312,7 +312,7 @@ def test_schedule_run_paused_by_lease_loss_resumes_with_person_lease(cloud):
     r.run_id = uid()
     r.observer.receive({'t': 'lease', 'lease_id': r.lease, 'holder_type': 'RUN:' + r.run_id})
     r.state(True)
-    r.observer.receive({'t': 'unlock', 'lease_id': r.lease, 'stop_gen': 0, 'user_id': r.user})
+    r.observer.receive({'t': 'unlock', 'lease_id': r.lease, 'stop_gen': r.hub.session._generation(), 'user_id': r.user})
     r.state(False)
     assert send_run(r, 'run.start')['code'] == 'OK' and wait_moving(r) == 'MOVING'
     r.observer.receive({'t': 'lease', 'lease_id': None, 'holder_type': None})

@@ -19,7 +19,7 @@ test('Node 에서 장면 컴파일', { skip }, async () => {
 test('1 초 뒤 몸통 높이가 서 있는 범위', { skip }, async () => {
   const w = await loadWorld({ simSrc, mapId: MAP, seed: 1 });
   try {
-    w.run(1.0, [0, 0, 0]);
+    await w.run(1.0, [0, 0, 0]);
     const h = w.baseHeight();
     assert.ok(h > 0.25 && h < 0.45, `몸통 높이 ${h.toFixed(3)} m`);
     assert.ok(w.upright() > 0.9, `곧추섬 ${w.upright()}`);
@@ -30,7 +30,7 @@ test('1 초 뒤 몸통 높이가 서 있는 범위', { skip }, async () => {
 test('같은 씨앗은 같은 결과 · 다른 씨앗은 다른 결과', { skip }, async () => {
   const pose = async (seed) => {
     const w = await loadWorld({ simSrc, mapId: MAP, seed });
-    try { w.run(1.0, [0.5, 0, 0]); return Array.from(w.sim.d.qpos); } finally { w.dispose(); }
+    try { await w.run(1.0, [0.5, 0, 0]); return Array.from(w.sim.d.qpos); } finally { w.dispose(); }
   };
   const a = await pose(7), b = await pose(7), c = await pose(8);
   assert.deepEqual(a, b);

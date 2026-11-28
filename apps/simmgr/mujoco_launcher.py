@@ -24,8 +24,14 @@ from .native_catalogue import WorldValidationError
 
 ROOT = Path(__file__).resolve().parents[2]
 # Only these sim knobs reach the agent; never DB URLs, service keys or pass keys.
-SIM_KEYS = ('FH_SIM_SRC', 'FH_SIM_NODE', 'FH_SIM_SEED', 'FH_SIM_BATTERY_START', 'FH_SIM_BATTERY_DRAIN')
+SIM_KEYS = ('FH_SIM_SRC', 'FH_SIM_NODE', 'FH_SIM_SEED', 'FH_SIM_BATTERY_START', 'FH_SIM_BATTERY_DRAIN',
+            'FH_SIM_ORT_NODE', 'FH_SIM_START_MAP', 'FH_SIM_POLICY_DIR')  # START m15500 policy (world.mjs)
 MAP_ID = re.compile(r'[a-z0-9-]{1,64}')
+# Server world ids use '_' (plant_a); the MuJoCo map list (mobile/sim/maps.json) uses '-' (plant-a).
+
+
+def mujoco_map(world_id):
+    return world_id.replace('_', '-')
 
 
 class MujocoLauncher:
@@ -55,7 +61,7 @@ class MujocoLauncher:
 
     async def start_world(self, world):
         # The world id is the MuJoCo map id (mobile/sim/maps.json); the child checks the list itself.
-        if not MAP_ID.fullmatch(world.id):
+        if not MAP_ID.fullmatch(mujoco_map(world.id)):
             raise WorldValidationError('MuJoCo map id required', 'SIM_WORLD_INVALID')
         self.world = world
 
@@ -77,7 +83,17 @@ class MujocoLauncher:
                'PYTHONDONTWRITEBYTECODE': '1',
                'FOOTHOLD_AGENT_WS_URL': self.settings.agent_ws_url,
                'FOOTHOLD_AGENT_TOKEN': credentials['agent_token'],
-               'FH_SIM_MAP': self.world.id, 'FH_SIM_READY_FILE': str(ready)}
+               'FH_SIM_MAP': mujoco_map(self.world.id), 'FH_SIM_READY_FILE': str(ready)}
+        bindings = credentials.get('map_bindings') or ()
+        if bindings and self.settings.agent_ws_url:
+            # Server-approved SIMULATION map bindings enable server run.start (route.LocalNav).
+            import json
+            from urllib.parse import urlsplit
+            url = urlsplit(self.settings.agent_ws_url)
+            env.update({'FH_SIM_ROBOT_ID': slot.robot_id, 'FH_SIM_ORG_ID': slot.org_id,
+                        'FH_SIM_MAP_BINDINGS': json.dumps(list(bindings)),
+                        'FOOTHOLD_SCENARIO_DATA_ORIGIN': ('https' if url.scheme == 'wss' else 'http') + '://' + url.netloc,
+                        'FOOTHOLD_RUN_OUTBOX_PATH': str(folder / 'run-outbox.sqlite')})
         with open(folder / 'agent.log', 'ab') as log:
             child = subprocess.Popen(self.command, cwd=str(ROOT), env=env, stdin=subprocess.DEVNULL,
                                      stdout=log, stderr=log, start_new_session=True)
