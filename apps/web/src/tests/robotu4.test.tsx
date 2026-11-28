@@ -7,7 +7,7 @@ import { App } from '../App';
 import { ROBOTS, USERS, type Robot } from './fixtures';
 import { FakeWS, lease, state } from './fakeWs';
 import { simTune } from '../phone';
-import { SIDE_BLOCK, axesOf, canDrive, tokStick } from '../serverdrive';
+import { COMBO_BLOCK, SIDE_BLOCK, axesOf, canDrive, tokStick } from '../serverdrive';
 import { deadzone, keyStick, stickVelocity, teleopCaps } from '../../../contracts/teleop';
 import { keyAxes } from '../simdrive';
 import { barChipText, checkShort, driveLabel, hotBub, jointTip, railOrder, simTok } from '../screens/u4/robotu4';
@@ -982,6 +982,27 @@ describe('조종 한 식 (contracts teleop · 팀장 11-28 23:08)', () => {
     expect(axesOf(['up'], ORG, true, [0.5, 0, 0])[0]).toBeCloseTo(0.25, 6);
     expect(tokStick(['up', 'rotl'], ORG, true)).toEqual(keyStick(['forward', 'turn_left'], caps, 0.6));
     expect(tokStick(['up', 'rotl'], ORG, false)).toEqual([1, 0, 1]);
+  });
+  it('표 밖 조합 옆 + 돌기(키 ← + A · 손잡이 왼 + 왼 돌기): 서버 경유 시뮬 · 데모는 COMBO_BLOCK 줄 없이 값을 보냄 · 실기는 0 + COMBO_BLOCK (fe299a01 M2 · M3)', () => {
+    const box1 = (el: HTMLElement) => { el.getBoundingClientRect = () => ({ left: 100, top: 100, width: 150, height: 150, right: 250, bottom: 250, x: 100, y: 100, toJSON() {} }) as DOMRect; };
+    const pp = (el: Element, type: string, x: number, y: number, pointerId: number) => act(() => { el.dispatchEvent(Object.assign(new MouseEvent(type, { clientX: x, clientY: y, bubbles: true }), { pointerId })); });
+    for (const kind of ['real', 'sim', 'demo'] as const) {
+      const r7 = ROBOTS.find((r) => r.id === 'r7')!;
+      mount('u-park', ROBOTS.map((r) => (r.id === 'r7' ? { ...r7, serverDrive: true, ...(kind === 'real' ? {} : { sim: true, demo: kind === 'demo' }) } : r))); serve('r7'); drive();
+      const real = kind === 'real', why = () => text($('[data-u4-why]'));
+      // 키: ← (왼 옆) + A (왼 돌기)
+      key('keydown', 'ArrowLeft'); key('keydown', 'KeyA'); tick(60);
+      if (real) { expect(lastAxes(), kind).toBe('0,0,0'); expect(why(), kind).toBe(COMBO_BLOCK); }
+      else { const [, vy, wz] = lastAxes()!.split(',').map(Number); expect(vy, kind).toBeGreaterThan(0); expect(wz, kind).toBeGreaterThan(0); expect(why(), kind).not.toContain(COMBO_BLOCK); }
+      key('keyup', 'KeyA'); key('keyup', 'ArrowLeft'); tick(60);
+      // 손잡이: 왼쪽 판 왼(옆) + 오른쪽 판 왼(돌기)
+      const L = $('[data-u4-stick="L"]')!, R = $('[data-u4-stick="R"]')!; box1(L); box1(R);
+      pp(R, 'pointerdown', 135, 175, 2); pp(L, 'pointerdown', 135, 175, 1); tick(60);
+      if (real) { expect(lastAxes(), kind).toBe('0,0,0'); expect(why(), kind).toBe(COMBO_BLOCK); }
+      else { const [, vy, wz] = lastAxes()!.split(',').map(Number); expect(vy, kind).toBeGreaterThan(0); expect(wz, kind).toBeGreaterThan(0); expect(why(), kind).not.toContain(COMBO_BLOCK); }
+      pp(L, 'pointerup', 135, 175, 1); pp(R, 'pointerup', 135, 175, 2); tick(60);
+      act(() => root!.unmount()); root = null; box.remove();
+    }
   });
   it('직결 시뮬(simdrive · PC 시뮬 탭) 키 = 같은 keyStick 자리 · 실기 직결은 끝까지', () => {
     const L = { vx_mode: 'continuous', vx_min: -0.5, vx_max: 1.0, vy_min: -0.3, vy_max: 0.3, wz_min: -0.5, wz_max: 0.5, commands: [], experimental: [] };

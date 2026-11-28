@@ -2834,6 +2834,21 @@ describe('폰 데모 로봇 = 서버 경유 u1 조종 화면', () => {
     expect(text()).not.toContain(COMBO_BLOCK);
   });
 
+  it('데모 손잡이 표 밖 조합(왼쪽 판 옆 + 오른쪽 판 왼 돌기)도 COMBO_BLOCK 줄 없이 값을 보냄 · 옆 키에 SIDE_BLOCK 띠 없음 (e6cec841 D1 · D4 · 실기는 위 「손잡이」 · 「표에 없는 키 조합」 시험이 0 + COMBO_BLOCK)', () => {
+    open(true);
+    ready();
+    const { fwd, turn } = sticks();
+    ptr(turn, 'pointerdown', 0, 60); ptr(fwd, 'pointerdown', 0, 60); tick(200);   // 오른쪽 판 왼 끝 = 왼 돌기 · 왼쪽 판 왼 끝 = 왼 옆
+    const [, vy, wz] = lastAxes() as number[]; expect(vy).toBeGreaterThan(0); expect(wz).toBeGreaterThan(0);
+    expect(text()).not.toContain(COMBO_BLOCK);
+    expect($('[data-stick-why]')).toBeNull();
+    ptr(fwd, 'pointerup'); ptr(turn, 'pointerup'); tick(100);
+    // 옆 막힘 띠 판단(cmdOf)도 데모 식: 옆 키는 시뮬 상한 안 값이라 SIDE_BLOCK 띠 없음 (e6cec841 D4)
+    key('keydown', 'ArrowLeft'); tick(200); expect((lastAxes() as number[])[1]).toBeGreaterThan(0);
+    expect($('[data-side-block]')).toBeNull(); expect(text()).not.toContain(SIDE_BLOCK);
+    key('keyup', 'ArrowLeft'); tick(100);
+  });
+
   it('키를 누르면 손잡이는 keyStick 자리(sim_key_vx 1.5 의 1/4 이면 앞 반) · 떼면 가운데', () => {
     open(true, { ...ORG, sim_key_vx: 0.375 });
     ready();
