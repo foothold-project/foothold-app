@@ -1,6 +1,7 @@
 """START C++ 실행기와 같은 기기 안 (127.0.0.1 UDP) 앱 입력 길. 규약: runner_cpp/APP-MOVES.md
 
 보내는 것: 키 한 번 {seq, key, action, request_id} · 속도 {seq, vx, vy, wz} (연결 프로그램 출력 주기마다, 0 포함).
+  앱 STOP (operator stop) 동안은 속도 대신 {seq, stop: 1} 을 출력 주기마다, 잠금 풀기 뒤 {seq, stop: 0} 을 몇 번.
 받는 것: 실행기 응답 {seq, result, reason?, request_id?, phase, remote}. 응답이 없으면 키 요청은 RUNNER_SENT 그대로.
 seq 는 CLOCK_MONOTONIC ns (같은 기기라 실행기가 0.5 초 넘은 묶음을 버린다).
 """
@@ -17,7 +18,7 @@ MAX_BYTES = 512
 RESULTS = frozenset({'STARTED', 'IGNORED', 'ACCEPTED'})
 PHASES = frozenset({'high', 'acquiring', 'standing_up', 'policy', 'sitting', 'dog_sitting', 'moving',
                     'damping', 'returning', 'recovering', 'unknown'})
-REASONS = frozenset({'phase', 'remote', 'busy', 'not_stopped'})
+REASONS = frozenset({'phase', 'remote', 'busy', 'not_stopped', 'stopped'})
 
 
 def port_from(env=os.environ):
@@ -62,6 +63,13 @@ class RunnerLink:
         """출력 주기마다 한 번. 실패는 삼킨다: 실행기 응답이 끊겨 상태가 낡으면 화면 조종이 막힌다 (닫힌 쪽)."""
         try:
             self._send(dict(vx=float(velocity[0]), vy=float(velocity[1]), wz=float(velocity[2])))
+        except OSError:
+            pass
+
+    def stop(self, on):
+        """앱 STOP 묶음 {stop: 1} (리모컨 막대보다 앞섬) · 해제 {stop: 0}. 실패는 velocity 처럼 삼킨다."""
+        try:
+            self._send(dict(stop=1 if on else 0))
         except OSError:
             pass
 

@@ -175,6 +175,9 @@ struct Rig {
         return "{\"seq\":" + std::to_string(seq(back)) + ",\"key\":\"" + name + "\",\"action\":\"" + action +
                "\",\"request_id\":\"" + id + "\"}";
     }
+    std::string stop(bool on) const {
+        return "{\"seq\":" + std::to_string(seq()) + ",\"stop\":" + (on ? "1" : "0") + "}";
+    }
     std::string velocity(double vx, double vy = 0, double wz = 0) const {
         return "{\"seq\":" + std::to_string(seq()) + ",\"vx\":" + std::to_string(vx) + ",\"vy\":" +
                std::to_string(vy) + ",\"wz\":" + std::to_string(wz) + "}";
@@ -745,6 +748,32 @@ int main() {
         require(acked(live.app_tick(app, {live.key("L2+B", "Damp", "d")}, 0, .5f), "STARTED") &&
                     live.runner.phase() == Phase::damping,
                 "app L2+B must damp even under a physical stick");
+    }
+    {
+        // App STOP beats the physical stick (11/28): want 0 under a deflected stick, the policy keeps
+        // standing (no damping), and it holds until the app release, not until the stick is released.
+        Rig live(true);
+        AppInput app(live.events);
+        live.enter();
+        for (int i = 0; i < 20; ++i) live.app_tick(app, {}, 0, .5f);
+        require(live.events.last_want[0] == .375, "physical stick must drive before the app stop");
+        const auto acks = live.app_tick(app, {live.stop(true)}, 0, .5f);
+        require(acked(acks, "ACCEPTED") && acks[0].remote, "app stop under a physical stick must be accepted");
+        for (int i = 0; i < 400; ++i) live.app_tick(app, {}, 0, .5f);
+        require(live.events.last_want[0] == 0 && live.events.last_command[0] == 0 && live.runner.phase() == Phase::policy,
+                "app stop must hold zero under a deflected stick and keep the policy standing");
+        for (int i = 0; i < 20; ++i) live.app_tick(app, {}, 0, 0);
+        for (int i = 0; i < 20; ++i) live.app_tick(app, {}, 0, .5f);
+        require(live.events.last_want[0] == 0, "releasing and moving the stick again must not lift the app stop");
+        for (int i = 0; i < 20; ++i) live.app_tick(app, {live.velocity(.6)});
+        require(live.events.last_want[0] == 0, "app velocity must not lift the app stop");
+        require(acked(live.app_tick(app, {live.stop(false)}, 0, .5f), "ACCEPTED"), "app release must be accepted");
+        for (int i = 0; i < 20; ++i) live.app_tick(app, {}, 0, .5f);
+        require(live.events.last_want[0] == .375, "after the app release the physical stick drives again");
+        // Remote L2+B still damps while the app stop holds.
+        live.app_tick(app, {live.stop(true)});
+        live.app_tick(app, {}, emergency);
+        require(live.runner.phase() == Phase::damping, "physical L2+B must still damp during an app stop");
     }
     {
         // Physical L2+B wins over any app key in the same tick; an app damp beats an app move in one batch.

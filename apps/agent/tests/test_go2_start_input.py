@@ -21,7 +21,7 @@ class FakeRunner:
         self.sock.bind(('127.0.0.1', 0))
         self.sock.settimeout(.5)
         self.port = self.sock.getsockname()[1]
-        self.velocities, self.keys = [], []
+        self.velocities, self.keys, self.stops = [], [], []
 
     def serve(self, *, phase='policy', key_result='STARTED', reason=None, reply=True, wait=True):
         got = []
@@ -38,6 +38,9 @@ class FakeRunner:
                 self.keys.append(msg)
                 ack = dict(seq=msg['seq'], result=key_result, request_id=msg['request_id'], phase=phase, remote=False)
                 if reason: ack['reason'] = reason
+            elif 'stop' in msg:
+                self.stops.append(msg['stop'])
+                ack = dict(seq=msg['seq'], result='ACCEPTED', phase=phase, remote=False)
             else:
                 self.velocities.append((msg['vx'], msg['vy'], msg['wz']))
                 ack = dict(seq=msg['seq'], result='ACCEPTED', phase=phase, remote=False)
@@ -157,11 +160,11 @@ def test_keyboard_drive_under_start_goes_to_runner_not_factory(tmp_path, monkeyp
     runner.serve()
     assert max(v[0] for v in runner.velocities) > 1.4   # 순정 길과 같은 서버 가속 (2 초에 1.4625)
     assert all(v[1] == 0 and v[2] == 0 for v in runner.velocities)
-    # STOP: 실행기에 0 (순정 StopMove 없음 · guard 가 막음)
+    # STOP: 실행기에 정지 묶음 (순정 StopMove 없음 · guard 가 막음). cause 없는 옛 STOP 도 operator stop 이다.
     frame('stop', stop_ref=1)
     sink.drain()
     runner.serve()
-    assert runner.velocities[-1] == ZERO
+    assert runner.stops == [1] and runner.velocities[-1] != ZERO   # 속도 대신 정지 묶음
 
 
 def test_drive_under_start_stops_when_runner_goes_quiet_or_leaves_policy(tmp_path, monkeypatch, runner):
@@ -208,3 +211,71 @@ def test_factory_path_unchanged_without_start_flag(tmp_path, monkeypatch, runner
     actual = hold_for(now, sink, session, measured, frame, (1.5, 0., 0.))
     assert actual[0] > 1.4 and sink.client.calls[-1][0] == 'Move'
     assert runner.serve(wait=False) == []
+
+
+class HeldRemote:
+    """핸드셋 막대를 쥔 채 (리모컨 쓰는 중)."""
+    def __init__(self, clock): self.clock = clock
+    def snapshot(self, include_state=True): return (True, self.clock())
+    def state_active(self): return False
+
+
+def drive_forward(now, sink, session, measured, frame):
+    sink.check_watchdog()
+    measured()
+    frame('lease', lease_id='fake-lease', holder_type='USER')
+    frame('unlock', lease_id='fake-lease', stop_gen=session.core.stop_gen)
+    measured()
+    frame('cmd', lease_id='fake-lease', seq=0, axes=[0, 0, 0])
+    sink.drain()
+    for _ in range(10):
+        now.value += .05
+        measured()
+        frame('cmd', lease_id='fake-lease', seq=session.last_seq + 1, axes=[1.5, 0, 0])
+        sink.drain()
+
+
+@pytest.mark.parametrize('handset', [False, True])
+def test_app_stop_under_start_sends_runner_stop_over_handset_until_unlock(tmp_path, monkeypatch, runner, handset):
+    # 팀장 11/28: 키보드 전진이든 조이스틱 전진이든 앱 STOP 이 먹어야 한다. 실행기는 앱 속도 0 을
+    # 리모컨 막대 때문에 버리므로, 리모컨보다 먼저 받는 정지 묶음 {stop: 1} 을 보낸다 (APP-MOVES.md).
+    now, sink, session, feedback, measured, frame = start_drive_rig(tmp_path, monkeypatch, runner)
+    drive_forward(now, sink, session, measured, frame)
+    runner.serve(reply=False)
+    assert runner.velocities[-1][0] > 0 and not runner.stops
+    if handset:
+        sink.remote = HeldRemote(now)
+    frame('stop', cause='user_stop', stop_ref=1)
+    sink.check_watchdog()
+    for _ in range(3):
+        now.value += .05
+        sink.drain()
+    runner.serve()
+    assert runner.stops and set(runner.stops) == {1}, '앱 STOP 은 실행기 정지 묶음으로 계속 나간다'
+    # 리모컨 막대를 놓아도 풀리지 않는다 (해제는 앱 잠금 풀기만)
+    sink.remote = None
+    runner.stops.clear()
+    for _ in range(3):
+        now.value += .05
+        measured()
+        sink.drain()
+    runner.serve()
+    assert runner.stops and set(runner.stops) == {1}
+    # 앱 잠금 풀기 -> 해제 묶음 {stop: 0}
+    runner.stops.clear()
+    frame('unlock', lease_id='fake-lease', stop_gen=session.core.stop_gen)
+    measured()
+    sink.drain()
+    runner.serve()
+    assert not sink.latched
+    assert 0 in runner.stops and 1 not in runner.stops[runner.stops.index(0):]
+
+
+def test_routine_stop_under_start_stays_velocity_zero_without_runner_stop(tmp_path, monkeypatch, runner):
+    # 일반 정지 (화면 숨김 등) 는 지금처럼 속도 0 만. 리모컨 우선 규칙은 앱 STOP 에만 예외.
+    now, sink, session, feedback, measured, frame = start_drive_rig(tmp_path, monkeypatch, runner)
+    drive_forward(now, sink, session, measured, frame)
+    frame('stop', cause='screen_hidden', stop_ref=1)
+    sink.drain()
+    runner.serve()
+    assert runner.velocities[-1] == ZERO and not runner.stops

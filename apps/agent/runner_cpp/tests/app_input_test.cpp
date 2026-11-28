@@ -42,6 +42,17 @@ int main() {
     require(parses(R"({"seq":5,"key":"R1+B","action":"Sit","request_id":""})", "malformed"), "empty id");
     require(parses(R"({"seq":5,"key":"L2+B","action":"Sit","request_id":"x"})", "key"), "action/key mismatch");
     require(parses(R"({"seq":99999999999999999999,"vx":0,"vy":0,"wz":0})", "malformed"), "seq overflow");
+    // App STOP (11/28): {"seq", "stop": 1} holds zero, {"stop": 0} releases. Nothing else.
+    {
+        const char* reason = nullptr;
+        const auto on = parse_app_packet(R"({"seq":5,"stop":1})", reason);
+        const auto off = parse_app_packet(R"({"seq":6,"stop":0})", reason);
+        require(on && on->stop == std::optional<bool>(true) && !on->velocity && !on->keys, "stop packet");
+        require(off && off->stop == std::optional<bool>(false), "release packet");
+    }
+    require(parses(R"({"seq":5,"stop":2})", "malformed"), "stop value other than 0 or 1");
+    require(parses(R"({"seq":5,"stop":1.0})", "malformed"), "fractional stop");
+    require(parses(R"({"seq":5,"stop":1,"vx":0,"vy":0,"wz":0})", "malformed"), "stop mixed with velocity");
 
     AppAck ack{1, 7, "id-1", "STARTED", nullptr, "policy", false};
     require(ack_json(ack) == R"({"seq":7,"result":"STARTED","request_id":"id-1","phase":"policy","remote":false})",

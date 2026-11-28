@@ -39,6 +39,8 @@ struct LowState {
     // App velocity from the local channel (app_input.hpp). Used in place of the stick only
     // while the physical remote is neutral; expires like a deadman.
     std::optional<Wanted> app_want;
+    // App STOP (app_input.hpp): want 0 even under a deflected physical stick, until the app release.
+    bool app_stop = false;
 };
 struct Estimate {
     float raw_vx;

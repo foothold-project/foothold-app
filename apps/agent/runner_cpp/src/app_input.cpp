@@ -30,7 +30,7 @@ constexpr std::pair<const char*, const char*> action_table[]{
     {"FreeWalk", "START+LEFT"}, {"ClassicWalk", "START+RIGHT"},
 };
 
-constexpr unsigned f_seq = 1, f_key = 2, f_action = 4, f_request = 8, f_vx = 16, f_vy = 32, f_wz = 64;
+constexpr unsigned f_seq = 1, f_key = 2, f_action = 4, f_request = 8, f_vx = 16, f_vy = 32, f_wz = 64, f_stop = 128;
 
 struct Cursor {
     std::string_view text;
@@ -93,7 +93,7 @@ std::optional<AppPacket> parse_app_packet(std::string_view text, const char*& re
         if (!in.string(name) || !in.eat(':')) return std::nullopt;
         const unsigned field = name == "seq" ? f_seq : name == "key" ? f_key : name == "action" ? f_action :
                                name == "request_id" ? f_request : name == "vx" ? f_vx : name == "vy" ? f_vy :
-                               name == "wz" ? f_wz : 0;
+                               name == "wz" ? f_wz : name == "stop" ? f_stop : 0;
         if (!field || (seen & field)) return std::nullopt;
         seen |= field;
         std::string_view value;
@@ -101,6 +101,9 @@ std::optional<AppPacket> parse_app_packet(std::string_view text, const char*& re
             if (!in.string(field == f_key ? key : field == f_action ? action : request)) return std::nullopt;
         } else if (!in.token(value)) {
             return std::nullopt;
+        } else if (field == f_stop) {
+            if (value != "0" && value != "1") return std::nullopt;
+            packet.stop = value == "1";
         } else if (field == f_seq) {
             // Unsigned decimal integer only (no sign, fraction or exponent).
             if (!std::all_of(value.begin(), value.end(), [](char c) { return c >= '0' && c <= '9'; }))
@@ -131,6 +134,7 @@ std::optional<AppPacket> parse_app_packet(std::string_view text, const char*& re
         packet.request_id = std::string(request);
         return packet;
     }
+    if ((seen & ~f_seq) == f_stop) return packet;
     if ((seen & ~f_seq) == velocity_fields) {
         if (std::abs(v[0]) > 2 || std::abs(v[1]) > 2 || std::abs(v[2]) > 3) {
             reason = "velocity";
@@ -180,9 +184,21 @@ const char* AppInput::receive(Tick now, std::string_view datagram, std::uint16_t
 void AppInput::apply(Tick now, LowState& state) {
     remote_ = remote_active(state.remote);
     std::optional<std::size_t> key;
+    for (auto& entry : pending_) {
+        // App STOP is not yielded to the physical remote (11/28).
+        if (entry.packet.stop) {
+            stop_ = *entry.packet.stop;
+            entry.applied = true;
+        }
+    }
     for (std::size_t i = 0; i < pending_.size(); ++i) {
         auto& entry = pending_[i];
+        if (entry.packet.stop) continue;
         if (entry.packet.velocity) {
+            if (stop_) {
+                entry.ignored = "stopped";
+                continue;
+            }
             if (remote_) {
                 entry.ignored = "remote";
                 continue;
@@ -197,11 +213,12 @@ void AppInput::apply(Tick now, LowState& state) {
             key = i;
         }
     }
-    if (remote_ || (velocity_ && now - velocity_stamp_ > app_velocity_timeout)) velocity_.reset();
+    if (stop_ || remote_ || (velocity_ && now - velocity_stamp_ > app_velocity_timeout)) velocity_.reset();
     state.app_want = velocity_;
+    state.app_stop = stop_;
     for (std::size_t i = 0; i < pending_.size(); ++i) {
         auto& entry = pending_[i];
-        if (entry.packet.velocity) continue;
+        if (entry.packet.velocity || entry.packet.stop) continue;
         if (!key || i != *key) entry.ignored = "busy";
         else if (remote_ && entry.packet.keys != damp_keys) entry.ignored = "remote";
         else {
@@ -220,7 +237,7 @@ std::vector<AppAck> AppInput::settle(Tick now, Phase before, Move before_move, P
         AppAck ack{entry.peer, entry.packet.seq, std::move(entry.packet.request_id)};
         ack.phase = phase_name(after);
         ack.remote = remote_;
-        if (entry.packet.velocity) {
+        if (entry.packet.velocity || entry.packet.stop) {
             ack.result = entry.applied ? "ACCEPTED" : "IGNORED";
             ack.reason = entry.ignored;
         } else {

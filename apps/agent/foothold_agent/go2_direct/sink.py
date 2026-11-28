@@ -176,6 +176,7 @@ class Go2Sink:
         from .runner_link import RunnerLink
         # START 실행기 앱 입력 길 (FH_START_MOVE_PORT 없으면 None · APP-MOVES.md)
         self.runner = RunnerLink.configured(now=now)
+        self._runner_release = 0   # 앱 STOP 해제 묶음을 더 보낼 횟수 (UDP 하나가 빠져도 풀리게)
         self.actions = Actions(self)
         from .gait import Gait
         self.gait = Gait(self)   # 걷기 모드 (gait.py) · 결과는 gait_result
@@ -827,11 +828,25 @@ class Go2Sink:
 
     def _runner_output(self, velocity, movement_epoch=None):
         # Move RPC 와 같은 관문: 리모컨 · 잠금 · 새 STOP 세대 · 손 떼기 대기면 0.
+        # 앱 STOP 은 리모컨에 양보하지 않는다 (팀장 11/28): 실행기가 막대보다 먼저 받는 정지 묶음.
+        # 풀리는 길은 잠금 풀기 (unlock 이 _operator_stop 을 내림) 하나뿐이다.
         with self._lock:
+            operator_stop = self._operator_stop
             ok = (velocity != ZERO and not self._remote_active() and not self.latched
                   and not self._closed.is_set() and not self._wait_operator_neutral
                   and movement_epoch == (self.generation, self._last_remote_activity))
+            if operator_stop:
+                self._runner_release = 5
+                release = False
+            else:
+                release = self._runner_release > 0
+                self._runner_release = max(0, self._runner_release - 1)
         self.runner.poll()
+        if operator_stop:
+            self.runner.stop(True)
+            return
+        if release:
+            self.runner.stop(False)
         self.runner.velocity(velocity if ok else ZERO)
 
     def _stop_output(self, client, *, force=False):
