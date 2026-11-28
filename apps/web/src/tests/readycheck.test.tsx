@@ -1,4 +1,4 @@
-// 순서 점검(u2_4 · U2 순서 점검 · L66): Wi-Fi(Jetson) → 서버 → 로봇 프로그램 → 걷기 정책 → 몸통 → 센서 → 배터리 · 관절.
+// 순서 점검(u2_4 · U2 순서 점검 · L66): 에이전트 Wi-Fi → 서버 → 에이전트 → 걷기 정책 → 몸통 → 센서 → 배터리 · 관절.
 // 보기 전용: 단계마다 «확인됨 · 막힘(까닭) · 서버에 값 없음» 셋 중 하나. 조종을 허락하는 듯한 말(조종 가능 · 준비됨)은 쓰지 않는다.
 // «다시 점검» 은 받는 값을 다시 받기만 한다(로봇에 명령 없음).
 import { act } from 'react';
@@ -33,7 +33,8 @@ describe('순서 점검 · 단계와 상태 셋', () => {
     render(robot());
     expect(steps()).toEqual([['wifi', 'none'], ['server', 'ok'], ['agent', 'ok'], ['policy', 'none'], ['body', 'ok'], ['sensors', 'ok'], ['power', 'ok']]);
     expect([...box.querySelectorAll('[data-check] [data-check-state]')].map((x) => x.textContent)).toEqual(['서버에 값 없음', '확인됨', '확인됨', '서버에 값 없음', '확인됨', '확인됨', '확인됨']);
-    expect(why('wifi')).toBe('로봇 쪽 Wi-Fi 이름은 서버가 아직 보내지 않습니다.');
+    expect([...box.querySelectorAll('[data-check] .ck-name')].map((x) => x.textContent)).toEqual(['에이전트 Wi-Fi', '서버', '에이전트', '걷기 정책', '몸통', '센서', '배터리 · 관절']);   // 로봇 쪽 컴퓨터 프로그램은 다른 화면처럼 «에이전트» 한 말로
+    expect(why('wifi')).toBe('에이전트가 붙은 Wi-Fi 이름은 서버가 아직 보내지 않습니다.');
     expect(why('policy')).toBe('걷기 정책 상태는 서버가 아직 보내지 않습니다.');
     expect(why('power')).toBe('배터리 84 % · 관절 값 받음');
   });
@@ -62,15 +63,15 @@ describe('순서 점검 · 단계와 상태 셋', () => {
     expect(head()).toBe('서버 막힘 · 이 화면이 관제 서버와 연결되어 있지 않습니다.');
     expect(box.querySelector('[data-check="server"]')!.hasAttribute('data-first')).toBe(true);
     act(() => root?.unmount()); root = null; box.remove();
-    render(robot({ online: false }), false);   // 서버 · 로봇 프로그램 둘 다 막힘 → 머리 글은 앞 단계(서버)
+    render(robot({ online: false }), false);   // 서버 · 에이전트 둘 다 막힘 → 머리 글은 앞 단계(서버)
     expect(head()).toBe('서버 막힘 · 이 화면이 관제 서버와 연결되어 있지 않습니다.');
     expect(box.querySelectorAll('[data-first]')).toHaveLength(1);
   });
 
-  it('로봇 프로그램: 끊김 · 연결 전은 막힘(까닭), 요약만 · 첫 상태 대기 · 서버 끊김은 서버에 값 없음', () => {
+  it('에이전트: 끊김 · 연결 전은 막힘(까닭), 요약만 · 첫 상태 대기 · 서버 끊김은 서버에 값 없음', () => {
     const one = (p: Partial<Robot>) => { render(robot(p)); const x = [steps()[2][1], why('agent')]; act(() => root?.unmount()); root = null; box.remove(); return x; };
-    expect(one({ online: false })).toEqual(['blocked', '로봇 쪽 노트북 프로그램과 연결이 끊겼습니다.']);
-    expect(one({ online: false, status: null })).toEqual(['blocked', '로봇 쪽 노트북 프로그램이 아직 연결된 적이 없습니다.']);
+    expect(one({ online: false })).toEqual(['blocked', '에이전트와 연결이 끊겼습니다.']);
+    expect(one({ online: false, status: null })).toEqual(['blocked', '에이전트가 아직 연결된 적이 없습니다.']);
     expect(one({ unknown: 'summary' })[0]).toBe('none');
     expect(one({ unknown: 'wait' })[0]).toBe('none');
     expect(one({ unknown: 'link' })[0]).toBe('none');
@@ -110,6 +111,11 @@ describe('순서 점검 · 단계와 상태 셋', () => {
     render(robot({ online: false }), false);
     expect([...box.querySelectorAll('[data-check] [data-check-mark]')].every((m) => m.getAttribute('aria-hidden') === 'true')).toBe(true);
     expect(box.querySelectorAll('[data-check] [data-check-state]')).toHaveLength(7);
+    const mark = (k: string) => box.querySelector(`[data-check="${k}"] [data-check-mark]`)!.textContent;
+    expect([mark('server'), mark('wifi'), mark('body')]).toEqual(['!', '·', '·']);   // 막힘 ! · 서버에 값 없음 · (줄표 꼴 기호 안 씀)
+    act(() => root?.unmount()); root = null; box.remove();
+    render(robot());
+    expect(mark('server')).toBe('✓');
   });
 });
 
