@@ -110,7 +110,7 @@ export const lying = (f: Pick<TileFacts, 'x' | 'act' | 'charging'>) => {
   const p = stateOf(f.x)?.posture?.state;
   return f.charging || (p === 'LYING' ? true : p === 'STANDING' || p === 'TRANSITIONING' ? false : f.act === 'lie');
 };
-const RUN_END = new Set(['COMPLETED', 'FAILED', 'CANCELED']);
+const RUN_END = new Set<string>(['COMPLETED', 'FAILED', 'CANCELED', 'ABORTED']);   // 서버 TERMINAL_RUNS 와 같음(ABORTED 는 계약 열거 밖이지만 서버가 씀)
 /** 타일 한 장의 글 · 칸(서버 값만 · 없으면 그 글을 비움) */
 export type TileFacts = {
   x: Robot; demo: boolean; charging: boolean; job: Job | null; level: Level; flag: string | null; why: string; alert: boolean; sim: boolean; lostAt: string | null; lostNow: boolean;
@@ -254,13 +254,30 @@ function Mini({ all, sel, boards, toMap }: { all: TileFacts[]; sel: string; boar
 
 /** 최근 경고 = 주의가 필요한 로봇(기존 관제 needs · 관절 온도 · 끊김)에서 경보 칸에 나온 로봇을 뺀 것. 시각 = 받은 시각(발생 시각 필드 없음) · 모르면 칸을 접음 */
 const TONE_COL: Record<string, string> = { ok: 'var(--u5-ok)', warn: 'var(--u5-amb)', bad: 'var(--u5-red)' };
-function Recent({ list, pick, open }: { list: TileFacts[]; pick: (id: string) => void; open: (id: string) => void }) {
+/** 최근 경고 시각(팀장 21:24): 끊김 = 마지막 받은 시각, 정지 잠금 = 서버 status_since(그 잠금에 붙은 값일 때), 아니면 화면을 열 때 이미 경고면 «이어진 상태», 받는 동안 새로 생긴 경고는 그때 시각 */
+type Since = Map<string, { alert: boolean; at: string | null }>;
+const CARRY = '이어진 상태';
+function trackSince(seen: Since, all: TileFacts[]) {
+  for (const f of all) {
+    if (f.lostNow || f.x.unknown || !stateOf(f.x)) continue;   // 첫 state 전(목록 값만) · 끊긴 동안은 세지 않음 = 처음 받은 state 가 이미 경고면 «이어진 상태»
+    const a = f.alert, p = seen.get(f.x.id);
+    seen.set(f.x.id, { alert: a, at: !a ? null : !p ? CARRY : p.alert ? p.at : new Date().toTimeString().slice(0, 5) });
+  }
+}
+function alertAt(f: TileFacts, seen: Since): { t: string; title: string } | null {
+  const s = f.x.statusSince;
+  if (!f.lostNow && f.x.online && f.x.status === 'STOP_LATCHED' && s?.status === 'STOP_LATCHED') { const t = hm(s.at); if (t) return { t, title: `잠금 시작 ${t}` }; }
+  const e = !f.lostNow && f.x.online ? seen.get(f.x.id) : undefined;
+  if (e?.at) return { t: e.at, title: e.at === CARRY ? CARRY : `받은 시각 ${e.at}` };
+  const t = hm(f.x.seenAt); return t ? { t, title: `받은 시각 ${t}` } : null;
+}
+function Recent({ list, pick, open, seen }: { list: TileFacts[]; pick: (id: string) => void; open: (id: string) => void; seen: Since }) {
   return <div className="pane" style={{ padding: '16px 18px 6px', flex: '1', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }} aria-label="최근 경고"><div className="row" style={{ justifyContent: 'space-between', marginBottom: '4px' }}><span className="ttl" style={{ fontSize: '17px' }}>최근 경고</span><a href="#/history" style={{ color: 'inherit', textDecoration: 'none' }}><span className="mu2" style={{ fontSize: '12.5px' }}>기록 탭에서 모두 보기</span></a></div>
     {/* 칸에 다 들어가지 않는 줄은 반쯤 잘려 보이지 않게 옆 칸으로 넘겨 숨김(시안: 온전한 줄만) · 모두는 기록 탭 */}
-    <div className="alist">{list.map((f) => { const red = f.level === 'bad' || f.level === 'crit', t = hm(f.x.seenAt), joint = !!f.hot && !!f.level && !!tempLevel(f.hot.t);   // 관절 제목은 단계가 온도에서 왔을 때만(정지 잠금 등 다른 경고에 관절 이름을 붙이지 않음)
+    <div className="alist">{list.map((f) => { const red = f.level === 'bad' || f.level === 'crit', at = alertAt(f, seen), joint = !!f.hot && !!f.level && !!tempLevel(f.hot.t);   // 관절 제목은 단계가 온도에서 왔을 때만(정지 잠금 등 다른 경고에 관절 이름을 붙이지 않음)
       const head = joint ? `관절 ${LEVEL_TEXT[f.level!]}` : f.lostNow ? '연결 끊김' : f.why;
       const sub = joint ? f.why : f.lostNow ? `${f.place ? `${f.place.replace(' (마지막 위치)', '')} · ` : ''}다시 연결 중` : f.mission?.name ?? stText(f.x);
-      return <div className="al" key={f.x.id} data-alert={f.x.id} role="button" tabIndex={0} onClick={() => pick(f.x.id)} onDoubleClick={() => open(f.x.id)}><span style={{ color: red ? 'var(--u5-red)' : 'var(--u5-amb)' }}>{I(18, joint ? IC.temp : f.lostNow ? IC.wifi : IC.warn)}</span><div>{f.x.name} {head}<small>{sub}</small></div>{t && <time data-alert-at title={`받은 시각 ${t}`}>{t}</time>}</div>; })}</div>
+      return <div className="al" key={f.x.id} data-alert={f.x.id} role="button" tabIndex={0} onClick={() => pick(f.x.id)} onDoubleClick={() => open(f.x.id)}><span style={{ color: red ? 'var(--u5-red)' : 'var(--u5-amb)' }}>{I(18, joint ? IC.temp : f.lostNow ? IC.wifi : IC.warn)}</span><div>{f.x.name} {head}<small>{sub}</small></div>{at && <time data-alert-at title={at.title}>{at.t}</time>}</div>; })}</div>
   </div>;
 }
 const m1 = (v: number | null) => (v == null ? '' : v.toFixed(1));
@@ -314,6 +331,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
   const places = useMemo(() => new Map(floorsOf(t.tree).map((p) => [p.floor.id, `${p.building.name} ${floorName(p.floor.name)}`])), [t.tree]);
   const list = scope === 'mine' ? c.robots.filter((x) => x.owner === me) : c.robots;
   const all = order(list.map((x) => facts(x, me, places, av?.get(x.id))));
+  const seen = useRef<Since>(new Map()).current; trackSince(seen, all);
   useEffect(() => { if (sel && !list.some((x) => x.id === sel)) controlPick.set(''); });
   const see = (s: 'all' | 'mine') => { if (s !== scope) controlPick.set(''); setScope(s); };
   const open = (id: string) => { c.pick(id); c.go('fleet'); };
@@ -351,7 +369,7 @@ export function Control5(c: Ctx & { stop?: (id: string) => void; mayStop?: (id: 
         <Mini all={all} sel={sel} boards={boards} toMap={(r) => { setFrom(r); setView('map'); }} />
         {picked && <Picked key={picked.x.id} f={picked} open={() => open(picked.x.id)} me={me} cancel={c.cancel} refresh={c.refresh} />}
         {crit && !picked && <Alarm f={crit} stop={c.mayStop?.(crit.x.id) ? c.stop : undefined} open={() => open(crit.x.id)} />}
-        <Recent list={all.filter((f) => (f.alert || f.lostNow) && f.x.id !== crit?.x.id)} pick={(id) => controlPick.set(id)} open={open} /></>
+        <Recent list={all.filter((f) => (f.alert || f.lostNow) && f.x.id !== crit?.x.id)} pick={(id) => controlPick.set(id)} open={open} seen={seen} /></>
         : <MapSide all={all} sel={sel} pick={(id) => controlPick.set(id)} open={open} />}
     </div>
   </main>;

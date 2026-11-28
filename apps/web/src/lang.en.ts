@@ -117,7 +117,7 @@ export const EN: Record<string, string> = {
   '서버에 실제 · 모의 실행 거르기가 없어 모두 보입니다.': 'The server has no real/simulated filter, so all are shown.', '모든 로봇': 'All robots', '클립 있는 것만': 'With clips only', '서버에 클립 거르기가 없습니다.': 'The server has no clip filter.',
   '서버에 값 없음. 클립을 며칠 보관할지 서버가 값을 주면 여기서 바꿉니다.': 'No value from server. Once the server gives a retention period, change it here.', '클립 보관 기간': 'Clip retention period', '클립 보관 기간 ·': 'Clip retention ·', '서버가 보관 일수를 주지 않아 비워 둡니다.': 'The server gives no retention days, so it is left blank.', '서버에 찾기 없음': 'No search on server', '오늘': 'Today', '7 일': '7 days', '30 일': '30 days',
   '지금 장면 저장': 'Save this moment', '내보내기': 'Export', '필터 없음': 'No filter', '클립': 'Clips', '사건': 'Events', '시각': 'Time', '클립 길이': 'Clip length', '정보 단계': 'Info level', '기록만': 'Record only',
-  '전체': 'All', '모드 전환': 'Mode switches', '서버에 없음': 'Not on server', '연결 · 시스템': 'Link · system', '사용자 작업': 'User actions',
+  '이어진 상태': 'Ongoing', '전체': 'All', '모드 전환': 'Mode switches', '서버에 없음': 'Not on server', '연결 · 시스템': 'Link · system', '사용자 작업': 'User actions',
   '기록 거르기': 'History filters', '묶음': 'Group', '서버에 모드 전환 기록이 없습니다': 'The server has no mode-switch records', '찾기': 'Search', '사건 · 로봇 · 메모 찾기': 'Search events · robots · notes', '기간': 'Period',
 };
 
@@ -154,7 +154,7 @@ export const EN_RULES: [RegExp, (m: RegExpExecArray) => string][] = [
   [/^약 (\d+) 분$/, (m) => `about ${m[1]} min`],
   [/^([^가-힣]+) 타일$/, (m) => `${m[1]} tile`],
   [/^([^가-힣]+) · 정지 잠금$/, (m) => `${m[1]} · stop latched`],
-  [/^받은 시각 (\d\d:\d\d)$/, (m) => `Received ${m[1]}`],
+  [/^받은 시각 (\d\d:\d\d)$/, (m) => `Received ${m[1]}`], [/^잠금 시작 (\d\d:\d\d)$/, (m) => `Latched ${m[1]}`],
   [/^알림 안 읽음 (\d+)건$/, (m) => `${m[1]} unread alerts`],
   [/^사건 (\d+) 건 이상$/, (m) => `${m[1]}+ events`],
   [/^오늘 · (\d+)월 (\d+)일$/, (m) => `Today · ${m[1]}/${m[2]}`],
