@@ -237,6 +237,7 @@ class Session:
                 "devices_changed": self._device_snapshot(),
                 "latched": self.core.latch, "stop_gen": self._generation(),
                 "safety_reason": "OUTPUT_STALLED" if self._output_stall_locked and self.core.latch else None,
+                "field_gate": None,
                 "unlock_refused": deepcopy(self.unlock_refused),
                 "stop_ref": self.stop_ref, "applied": list(self.core.out), "mode": self.holder_type or "FREE"}
 
