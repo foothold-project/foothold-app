@@ -8,7 +8,7 @@ import { ROBOTS, USERS, type Robot } from './fixtures';
 import { FakeWS, lease, state } from './fakeWs';
 import { simTune } from '../phone';
 import { SIDE_BLOCK, canDrive } from '../serverdrive';
-import { railOrder } from '../screens/u4/robotu4';
+import { checkShort, railOrder } from '../screens/u4/robotu4';
 import { api } from '../api';
 import u4css from '../screens/u4/u4.css?raw';
 
@@ -205,6 +205,18 @@ describe('로봇 탭 PC = 시안 u4_1', () => {
     expect(u4css).toContain('.u4 .rail{left:24px;top:88px;width:250px;bottom:24px;padding:16px 10px}');
     expect(u4css).toContain('.u4 .views{position:absolute;left:0;right:0;top:0;height:600px;');
     expect(u4css).toContain('.u4 .deck{position:absolute;left:0;right:0;bottom:0;top:682px;');
+  });
+});
+
+describe('점검 탭 값 = 시안 u4_4 짧은 꼴', () => {
+  it('받은 값만 짧게(연결됨 · 켜짐 · 서버 값 없음 · 배터리 % · 최고 관절 온도) · 긴 까닭은 줄이지 않고 title 로', () => {
+    const r = { battery: 71.6024, robotInfo: { temperature: { joints: Array.from({ length: 12 }, (_, i) => (i === 0 ? 48.4 : 30)), age_s: 0 } } } as unknown as Robot;
+    expect(checkShort('server', 'ok', '이 화면이 관제 서버와 연결되어 있습니다.', r)).toBe('연결됨');
+    expect(checkShort('agent', 'ok', '로봇 상태를 받고 있습니다.', r)).toBe('켜짐 · 상태 받는 중');
+    expect(checkShort('wifi', 'none', '에이전트가 붙은 Wi-Fi 이름은 서버가 아직 보내지 않습니다.', r)).toBe('서버 값 없음');
+    expect(checkShort('sensors', 'none', '카메라 · 라이다 목록을 받지 못했습니다.', r)).toBe('목록 없음');
+    expect(checkShort('body', 'none', '로봇이 연결되어 있지 않아 지금 값이 없습니다.', r)).toBe('지금 값 없음');
+    expect(checkShort('power', 'none', '배터리 72 % · 관절 값 없음 · …', r)).toBe('72 % · 최고 관절 온도 48 °C');
   });
 });
 

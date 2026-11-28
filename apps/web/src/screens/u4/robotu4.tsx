@@ -24,7 +24,7 @@ import { floorsOf, isVersion, shape, toPixel, useTree } from '../maps';
 import type { Ctx } from '../../screens';
 import { AssignOwner, TransferOwner } from '../../pairing';
 import { PairFlow } from '../u2/pairflow';
-import { checks } from '../readycheck';
+import { checks, hotJoint } from '../readycheck';
 import { robotFail } from '../settings';
 import { Guide, RealView, prepSteps } from '../fleet';
 import { Empty as EmptyCard } from '../../empty';
@@ -293,6 +293,18 @@ const noDrive = (c: Ctx, r: Robot) => r.sim === true ? (r.owner !== c.user.id ? 
 const CHEV = <svg className="ic" viewBox="0 0 24 24" style={{ width: '18px', height: '18px' }}><path d="m6 9 6 6 6-6" /></svg>;
 const CHECK_IC = { ok: <path d="M20 6 9 17l-5-5" />, blocked: <><path d="M12 8v4" /><path d="M12 16h.01" /><circle cx="12" cy="12" r="10" /></>, none: <path d="M5 12h14" /> };
 /** 시안 u4_4 순서 점검 줄 이름(readycheck checks 의 key 순서 그대로) */
+/** 시안 u4_4 오른쪽 값은 짧게(「연결 · 38 ms」 꼴). 받은 값만 줄여 쓰고, 긴 까닭(readycheck why)은 마우스를 올리면(title) 보인다 */
+export function checkShort(key: string, state: 'ok' | 'blocked' | 'none', why: string, r: Robot): string {
+  if (state === 'none' && key !== 'power') return key === 'sensors' && why.startsWith('카메라') ? '목록 없음' : why.startsWith('로봇이 연결') ? '지금 값 없음' : '서버 값 없음';
+  switch (key) {
+    case 'server': return state === 'ok' ? '연결됨' : '끊김';
+    case 'agent': return state === 'ok' ? '켜짐 · 상태 받는 중' : '끊김';
+    case 'body': return state === 'ok' ? '넘어지지 않음' : '넘어짐 의심';
+    case 'power': { if (why.startsWith('로봇이 연결')) return '지금 값 없음';
+      const b = r.battery != null ? `${Math.round(r.battery)} %` : '배터리 값 없음'; return `${b} · ${hotJoint(r).replace(/ \(.*\)$/, '')}`; }
+    default: return why;   // 센서 = 장치 이름 · 막힘 까닭(이미 짧음)
+  }
+}
 const CHECK_NAME: Record<string, string> = { wifi: 'Wi-Fi', server: '서버', agent: 'foothold-robot', policy: '걷기 정책', body: '몸통', sensors: '센서', power: '배터리 · 관절' };
 
 /** 로봇 설정 창(시안 u4_5 칸 · 순서 · 글 그대로): 이름 · 기체번호 · 담당 | 연결 끊기 · 로봇 삭제 | 지우면 … 기록은 남습니다.
@@ -367,9 +379,10 @@ function Check({ c, r, guide }: { c: Ctx; r: Robot; guide: () => void }) {
         <span key={k} className={sub === k ? 'on' : ''} role="tab" tabIndex={0} aria-selected={sub === k} data-u4-sub={k} onClick={() => setSub(k)}>{t}</span>)}</div>
       <span className="mu2" style={{ fontSize: '13px', marginLeft: 'auto' }} data-u4-check-head>{mineOrAdmin ? `${at} · ${bad ? `${bad} 곳 막힘` : unknown ? `${unknown} 곳 확인 전` : '모두 통과'}` : ''}</span></div>
     {sub === 'detail' ? <Detail c={c} r={r} /> : !mineOrAdmin ? <p className="mu" style={{ padding: '0 18px' }} data-u4-check-none>내 담당 로봇만 점검할 수 있습니다 · 이 로봇은 요약만 보입니다.</p> : <>
-      <div data-readycheck-list>{list.map((x) => row(x.key, x.state, CHECK_NAME[x.key] ?? x.name, x.why, { 'data-check': x.key, 'data-state': x.state }))}</div>
-      <section aria-label="조종 준비" data-u4-prep data-pill={pill.tone}>
-        {steps.map((x) => row(`s${x.n}`, x.done ? 'ok' : x.cur ? 'blocked' : 'none', <>조종 준비 {x.n} · {x.title}</>,
+      <div data-readycheck-list>{list.map((x) => row(x.key, x.state, CHECK_NAME[x.key] ?? x.name, checkShort(x.key, x.state, x.why, r), { 'data-check': x.key, 'data-state': x.state, title: x.why }))}</div>
+      {/* 시안 밖 · 새로 그림: 조종 준비 세 단계(연결 방법 안내 단추가 있는 기능 칸) = 같은 줄 꼴 · 작은 머리로 시안 일곱 줄과 나눔 */}
+      <section aria-label="조종 준비" data-u4-prep data-pill={pill.tone} data-off-proto><div className="h3 chkprep">조종 준비</div>
+        {steps.map((x) => row(`s${x.n}`, x.done ? 'ok' : x.cur ? 'blocked' : 'none', <>{x.n} · {x.title}</>,
           <span id={x.id}>{x.text}{x.guide && <> · <a href="#guide" onClick={(e) => { e.preventDefault(); guide(); }} data-open-guide>연결 방법</a></>}</span>,
           { 'data-step': x.n, className: `r${x.done ? ' done' : x.cur ? ' cur' : ''}` }))}
         <span hidden data-pill-text>{pill.text}</span>
