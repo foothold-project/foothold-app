@@ -10,7 +10,7 @@ import { rt, useLive, useRt } from '../../rt';
 import { useStopPress } from '../../App';
 import { ADMIN_LATER, ownerName, robotStatus, type Robot } from '../../fake';
 import { fleetKind, fleetOrder, type Urgent } from '../../fleetorder';
-import { hotJoint as hotOf, tempLevel } from '../../proto/u5';
+import { facts, hotJoint as hotOf, tempLevel } from '../../proto/u5';
 import { isLost, needs } from '../control';
 import type { ApiFail } from '../../api';
 import { NO_SIGNAL, driveFeedHeld, driveFeedText, useDriveFeed } from '../../drivemedia';
@@ -221,15 +221,23 @@ function Cam({ fs, big, can, b }: { fs: Feeds; big: boolean; can: boolean; b: Bo
 }
 
 /** 가운데 3D: 시안 go2view 를 그대로 띄우고 실제 관절값 · 나간 명령으로 움직인다 */
-function Stage({ r, q, down, walk, drive, hot }: { r: Robot; q: number[] | null; down: boolean; walk: boolean; drive: Go2Api['drive']; hot: Record<string, string> }) {
+type StageWorld = { v: MapVersion; pose: { x: number; y: number; yaw: number } } | null;
+function Stage({ r, q, down, walk, world, drive, hot }: { r: Robot; q: number[] | null; down: boolean; walk: boolean; world: StageWorld; drive: Go2Api['drive']; hot: Record<string, string> }) {
   const cv = useRef<HTMLCanvasElement>(null), g = useRef<Go2Api | null>(null), sim = useSimLook()(r);
+  // 현장은 앞 카메라 칸(simcam site)이 받아 둔 것을 같이 쓴다(판 · 모형 마다 하나). WebGL 이 없으면 받지 않음
+  const [ws, setWs] = useState<Awaited<ReturnType<typeof site>> | null>(null), wk = world ? siteKey(world.v) : null;
+  useEffect(() => {
+    setWs(null); if (!world || typeof WebGLRenderingContext === 'undefined') return;
+    let alive = true; site(world.v)?.then((x) => { if (alive) setWs(x); }, () => {});
+    return () => { alive = false; };
+  }, [wk]);
   useEffect(() => {
     if (typeof WebGLRenderingContext === 'undefined' || !cv.current) return;
     const a = mount(cv.current, { pin: true, orbit: true, glow: true }); g.current = a;   // 시안 u4_8: 시뮬 로봇도 보통 Go2 모형(파란 선 꼴 아님)
     if (a.fallback) cv.current.style.visibility = 'hidden';   // WebGL 을 못 만든 캔버스는 숨겨 시안 어두운 바탕 그대로
     return () => { a.dispose(); g.current = null; };
   }, [r.id, sim]);
-  useEffect(() => { if (g.current) { g.current.q = q; g.current.down = down; g.current.walk = walk; g.current.drive = drive; } });
+  useEffect(() => { if (g.current) { g.current.q = q; g.current.down = down; g.current.walk = walk; g.current.world = world && ws ? { scene: ws.scene, z: ws.z, pose: world.pose } : null; g.current.drive = drive; } });
   const key = JSON.stringify(hot);
   useEffect(() => { g.current?.setHot(hot); }, [key]);
   // 로봇 · 꼴(데모가 늦게 와 시뮬 → 실기 꼴)이 바뀌면 새 캔버스: 지난 렌더러가 forceContextLoss 한 캔버스에 다시 붙이면 맥락을 잃어 흰 판이 된다
@@ -466,7 +474,10 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
     rt.action(r.id, name, {}, false, (why, id) => { if (why) say(`거부 · ${why}`); else { setPending(id ?? null); say('서버 접수 · 로봇의 결과를 기다리고 있습니다.'); } });
   };
   const offAct = (name: ScreenAction['action']) => actOff(name, lowlevel);
-  const b = useBoard(c, r), [place, onFactory] = usePlace(c, b), run = runOf(r, s?.run), route = useRoute(r.id, run?.name ?? null, c.cancel), job = jobLine(run, route, b);
+  const b = useBoard(c, r), [place, onFactory] = usePlace(c, b),
+    // 큰 무대(팀장 21:16 · 관제 타일과 같은 판정 proto/u5 facts().onRun): 임무 중 + 서버 위치 · 방향 + 현장 있는 판 = 현장 + 뒤에서 따라감, 아니면 정면 + 점 바닥
+    wl = b.loc, stageWorld: StageWorld = facts(r, c.user.id, new Map()).onRun && wl?.x != null && wl.y != null && wl.yaw != null && b.v && siteKey(b.v) ? { v: b.v, pose: { x: wl.x, y: wl.y, yaw: wl.yaw } } : null,
+    run = runOf(r, s?.run), route = useRoute(r.id, run?.name ?? null, c.cancel), job = jobLine(run, route, b);
   const map = <MapView c={c} r={r} b={b} run={run} route={route} onFactory={onFactory} />;
   const small = view === 'map' ? <Cam fs={fs} big={false} can={can} b={b} /> : map;
   return <>
@@ -482,7 +493,7 @@ function Body({ c, r, d, can }: { c: Ctx; r: Robot; d: D; can: boolean }) {
           <span key={k} {...(go ? { 'data-go': go } : {})} className={tab === k ? 'on' : ''} data-seg={t} role="tab" aria-selected={tab === k} tabIndex={0} onClick={() => { setTab(k); setGuide(false); }}>{t}</span>)}
       </div></div>
     {line && <DriveLine f={line} />}{/* 시안 u11_2 ~ u11_5 조종 화면 위 한 줄 */}
-    <div className="stage3d" data-stale={pose ? undefined : ''} data-line={line?.at} data-u4-legs={legMode(pose?.q ?? null, online && lying, moving)}><Stage r={r} q={pose?.q ?? null} down={online && lying} walk={moving} drive={drive} hot={hot} />
+    <div className="stage3d" data-stale={pose ? undefined : ''} data-line={line?.at} data-u4-legs={legMode(pose?.q ?? null, online && lying, moving)} data-u4-stage={stageWorld ? 'world' : 'front'}><Stage r={r} q={pose?.q ?? null} down={online && lying} walk={moving} world={stageWorld} drive={drive} hot={hot} />
       <span className="g dk tag hint"><svg className="ic" viewBox="0 0 24 24" style={{ width: '14px', height: '14px' }}><path d="M16.466 7.5C15.643 4.237 13.952 2 12 2 9.239 2 7 6.477 7 12s2.239 10 5 10c.342 0 .677-.069 1-.2" /><path d="m15.194 13.707 3.814 1.86-1.86 3.814" /><path d="M19 15.57c-1.804.885-4.274 1.43-7 1.43-5.523 0-10-2.239-10-5s4.477-5 10-5c4.838 0 8.873 1.718 9.8 4" /></svg>끌어서 돌려 보기</span>
       {offTag ? <div className="g dk tag" style={{ left: '24px', top: line ? '92px' : '24px', color: '#ff4d4f', fontSize: '14px', fontWeight: '800' }} role="status" data-u4-offline>{offTag}</div>
         : stopTag ? <div className="g dk tag" style={{ left: '24px', top: line ? '92px' : '24px', color: lying && !d.unlockState ? '#f2b705' : '#ff4d4f', fontSize: '14px', fontWeight: '800' }} role="status" data-u4-stopped>{stopTag}</div>

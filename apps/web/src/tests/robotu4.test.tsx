@@ -334,6 +334,23 @@ describe('로봇 탭 보기 칸 · 지도 경로 · 시뮬 시점(서버 값만)
     expect(text($('.views .small [data-sd-cam]'))).toBe('카메라 신호 없음 · 이 브라우저는 3D 를 그리지 못합니다');
   });
 
+  it('큰 무대 = 관제 타일과 같은 판정(proto/u5 onRun): 진행 중 임무 + 서버 위치 · 방향 + 현장 판 = 현장 + 뒤 따라가기, 임무 없음 · 끝남 · 위치 없음 = 정면', async () => {
+    board([ASG('a1')], [WP(10, -60, '밸브 확인')]);
+    mount('u-park', withRun()); serve('r7');
+    const stage = () => $('.stage3d')!.getAttribute('data-u4-stage');
+    act(() => { push('r7', { location: LOC } as Partial<ScreenState>); });
+    await flush();
+    expect(stage()).toBe('front');   // 상태에 임무 없음
+    act(() => { push('r7', { run: { ...RUN, status: 'MOVING' } } as unknown as Partial<ScreenState>); });
+    expect(stage()).toBe('world');
+    act(() => { push('r7', { run: { ...RUN, status: 'PAUSED' } } as unknown as Partial<ScreenState>); });
+    expect(stage()).toBe('world');   // 일시정지도 임무 중(타일과 같음)
+    act(() => { push('r7', { run: { ...RUN, status: 'COMPLETED' } } as unknown as Partial<ScreenState>); });
+    expect(stage()).toBe('front');
+    act(() => { push('r7', { run: { ...RUN, status: 'MOVING' }, location: { ...LOC, yaw: null } } as unknown as Partial<ScreenState>); });
+    expect(stage()).toBe('front');   // 방향 없으면 현장을 놓지 않음
+  });
+
   it('같은 이름 배정이 둘이면 경로를 고르지 않는다(지어내지 않음): 지점 0 · 진행과 상태만', async () => {
     board([ASG('a1'), ASG('a2')], [WP(10, -60, '밸브 확인')]);
     mount('u-park', withRun()); serve('r7');
