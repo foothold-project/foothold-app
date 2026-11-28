@@ -406,7 +406,9 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       simStop && !!simStopText(sim.get()) && <span key="sim-stop" data-stop-band data-sim-stop-band>{simStopText(sim.get())}</span>,
       ...problems.map((r) => <span key={r.id}>▲ {lostText(r)} 현장에서 로봇 전원과 통신을 확인하세요.</span>),
     ].filter(Boolean)}</div>;
-  const mainEl = <main className="fh-main" aria-label={title}><Guard key={tab}>{simOpen ? sv.real ? <RealDrive /> : <SimDrive shrink={setSmall} />
+  // PC 설정(시안 u9) = 무대(.proto) 바로 아래 1920 × 1080 화면. 옛 틀(.fh-main 여백 16 · 스크롤 · 머리줄 아래로 밀림)에 넣지 않는다
+  const bare = !phone && tab === 'settings' && !simOpen;
+  const mainEl = <main className="fh-main" aria-label={title} style={bare ? { display: 'contents' } : undefined}><Guard key={tab}>{simOpen ? sv.real ? <RealDrive /> : <SimDrive shrink={setSmall} />
         : phone && scan && tab === 'drive' && !open ? <ScanPanel key={user.id} user={user} robots={pool} close={() => setScan(false)} cancel={cancel} />   // ⋯ 지도 스캔(u14_2)
         : tab === 'settings' ? <Settings key={user.id} user={user} setMe={setMe} refresh={refresh} cancel={cancel} />   // 로봇 목록이 바뀌어도 다시 그리지 않음(한 번만 보이는 토큰 칸 유지)
         : tab === 'terrain' ? <Terrain />   // 로봇과 무관 — 로봇 0대여도, 로봇을 바꿔도 다시 그리지 않음
@@ -421,7 +423,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         : tab === 'sim' ? <SimTab user={user} robots={robots} refresh={refresh} />   // 로봇 0대여도 시뮬 띄우기
         : tab === 'trash' ? <Trash key={`trash-${user.id}`} cancel={cancel} />   // 로봇 0대여도 휴지통
         : none}</Guard>
-        <p id="fh-soon" className="lv-note" style={{ flexBasis: '100%' }}>흐린 단추는 아직 준비 중인 기능입니다(권한 때문인 비활성은 단추 옆에 이유가 따로 나옵니다).</p></main>;
+        {!bare && <p id="fh-soon" className="lv-note" style={{ flexBasis: '100%' }}>흐린 단추는 아직 준비 중인 기능입니다(권한 때문인 비활성은 단추 옆에 이유가 따로 나옵니다).</p>}</main>;
   if (!phone) {
     // PC = 시안 틀(.proto · proto/bar): 머리줄 .bar 그대로, 그 아래 STOP 결과 띠 · 정지 고르기는 모든 화면 위. 시안으로 옮긴 탭은 .proto 바로 아래 화면, 아직이면 옛 본문
     // 시안으로 옮긴 탭: 관제(u5). 로봇 0 대 · 시뮬 창 · 상세 서랍이면 옛 본문
@@ -440,6 +442,8 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         driving={pool.filter((r) => !!rt.get(r.id).lease).map((r) => r.name)}
         menu={<>{logout && <button type="button" className="btn" onClick={logout}>로그아웃</button>}<ThemeNav /></>} />
       {proto5 ? <><Guard key="u5"><Control5 {...ctx!} stop={stopOne} mayStop={(id) => stops.some((r) => r.id === id)} /></Guard>
+        <div className={`fh ap-in${light ? ' light' : ''}`}><h1 className="ap-sr">{title}</h1>{pickEl}{bandEl}</div></>
+        : bare ? <>{mainEl}
         <div className={`fh ap-in${light ? ' light' : ''}`}><h1 className="ap-sr">{title}</h1>{pickEl}{bandEl}</div></>
         : <div className={`fh ap-in old${light ? ' light' : ''}`}>
         <h1 className="ap-sr">{title}</h1>
