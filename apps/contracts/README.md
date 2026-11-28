@@ -501,3 +501,26 @@ Upload/MapVersion 경로와 옛 판 관리 방식을 쓴다. 해상도 0.05 m·�
 화면 재진입 뒤에도 이 번호를 `base_version`으로 보내며, 서버 목록의 새 번호로 몰래 갱신하지 않는다.
 이 메타데이터는 `TerrainSpec` JSON에 넣지 않는다. 같은 id의 로컬 수정본을 서버 사본으로 덮을 때는 확인을 받는다.
 지형 편집 입구는 시뮬 탭에 두고 지도 탭의 «+ 지도 만들기»는 기존 장소·층·지도 파일 흐름을 유지한다.
+
+## 일정 · 가용 · 예상 (app-design-lx 11/28 합의)
+
+`ScheduleSlot`·`ScheduleSlotCreate`·`ScheduleSlotPatch`·`ScheduleDay`, `RobotAvailability(List)`,
+`EstimateRequest`·`Estimate`. 서버 경로는 `GET /api/v1/schedule?day=YYYY-MM-DD&tz=Asia/Seoul`,
+`POST /api/v1/schedule/slots` (201, `Idempotency-Key` 선택), `PATCH`·`DELETE /api/v1/schedule/slots/{id}` (204),
+`GET /api/v1/robots/availability?start=&end=`, `POST /api/v1/estimates` 다.
+
+- 구간은 `[start, end)` 반열린 구간이다. 끝과 시작이 맞닿으면 겹침이 아니다. 날 보기는 그 시간대의 하루와 겹치는 칸을 모두 준다.
+- 같은 로봇에 겹치면 409 `SCHEDULE_CONFLICT`, `detail.slot_ids` 에 겹친 칸 id. 종류와 관계없이 모든 칸이 겹침 대상이다.
+- 시나리오가 없는 칸은 `BATTERY_SWAP` 만 된다. 시나리오 id 와 판 번호는 함께 오거나 함께 빠진다.
+- PATCH 는 생략은 그대로, null 은 거부한다 (`gait` 를 지우는 길은 아직 없다). 합친 값으로 순서 · 시나리오 규칙을 다시 본다.
+  PATCH 로 바꿀 수 있는 것은 로봇 · 시각 · 종류 · 걷기 모드뿐이다. 시나리오 · 메모 · 배정을 바꾸려면 칸을 지우고 새로 넣는다 (의도, 바뀐 시나리오가 같은 칸 id 로 남지 않게).
+- `ame2` 처럼 준비 안 된 걷기 모드는 `CONFIRMED` 칸이 될 수 없다 (409 `GAIT_NOT_READY`). 초안은 된다.
+- 일정 사건 (`SCHEDULE_SLOT_*`) 의 갈래는 `RUN` (임무).
+- 권한은 배정과 같다. 조직 사용자는 모두 읽고, 바꾸기는 총괄 또는 그 로봇 담당만. 다른 로봇으로 옮기면 두 로봇 모두 권한이 있어야 한다.
+- 가용 `state`: 기간과 겹치는 칸이 있으면 `BUSY` (끝이 가장 늦은 칸을 `busy_*` 로), 없으면 연결이 끊긴 로봇은 `OFFLINE`, 그 외 `FREE`.
+  `CHARGING` 은 서버에 충전 신호가 없어 지금은 내지 않는다. `demo` 는 서버에 그런 로봇 필드가 없어 항상 false, `sim` 은 `Robot.simulation`.
+  연결 · 배터리 · 위치는 로봇 요약과 같은 가림 규칙이라 담당 아닌 운영자에게는 `battery_pct` · `location_label` 이 null 이고 연결을 몰라 `OFFLINE` 대신 `FREE` 로 보일 수 있다.
+- 예상 `length_m` 은 시나리오 저장 때 지점 순서로 잰 `est_distance_m` (직선 · 연결점 경유, Nav2 아님).
+  걷기 속도와 배터리 %/분은 `apps/server/fh_server/schedule.py` 의 미실측 추정 표 한 곳에 있고, 그래서 `estimate_source` 는 지금 항상 `TABLE_UNMEASURED` 다.
+  `task_s` 는 임무의 WAIT (지점 `wait_s` 가 덮음) · SENSOR_LOG 초, PHOTO · OPERATOR_CONFIRM 은 고정 표. `margin_s` 는 그 로봇에서 `start` 에 진행 중이거나 뒤에 오는 첫 칸 (`end > start`) 의 시작 빼기 `eta`, 없으면 null. 진행 중인 칸이 있으면 음수다. 이미 넣은 칸을 다시 예상할 때는 `exclude_slot_id` 로 그 칸을 뺀다.
+  `end_battery_pct` 는 지금 배터리를 볼 수 있을 때만 값이 있다.
